@@ -19,19 +19,16 @@ def call_model_node(state: AgentState):
     # interpreter.chat already adds user_message and gemini_response_text to its internal history
     gemini_response_text, command_to_execute = interpreter.chat(state.user_message)
     
-    state.gemini_response_text = gemini_response_text
-    state.command_to_execute = command_to_execute
-    
-    if command_to_execute:
-        return "execute_tool"
-    else:
-        return "end" # Direct response, no tool needed
+    return {
+        "gemini_response_text": gemini_response_text,
+        "command_to_execute": command_to_execute
+    }
 
 def execute_tool_node(state: AgentState):
     """This node indicates that a tool (command) needs to be executed."""
     # We don't execute here, we just pass the command back to the main loop
     # The main loop will handle approval and actual execution
-    return "end" # After indicating tool execution, the graph ends for this turn
+    return {} # Return an empty dictionary to update the state, ensuring a dict is returned
 
 # Build the graph
 bash_agent_graph = StateGraph(AgentState)

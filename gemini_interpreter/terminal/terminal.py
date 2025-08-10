@@ -1,4 +1,3 @@
-from ..core.interpreter import Interpreter # Keep import for type hinting if needed, but not for instantiation
 import sys
 import re
 
@@ -14,7 +13,6 @@ except ImportError:
 from ..core.agents.bash_agent import bash_agent_app, AgentState, interpreter # Import the global interpreter instance
 
 def start_terminal_interface(auto_approve=False):
-    # interpreter = Interpreter() # REMOVED: Now imported globally from bash_agent.py
     
     if rich_available:
         console = Console()
@@ -32,6 +30,9 @@ def start_terminal_interface(auto_approve=False):
     while True:
         try:
             user_input = input("> ")
+            if not user_input.strip():
+                continue
+
             if user_input.lower() == 'salir':
                 break
 
@@ -58,12 +59,12 @@ Comandos disponibles:
                 continue
 
             # --- LangGraph Integration Start ---
-            initial_state = AgentState(user_message=user_input)
+            # Invoke Bash Agent
+            initial_state = AgentState(user_message=user_input, messages=[])
             final_state = bash_agent_app.invoke(initial_state)
 
             gemini_response_text = final_state.get('gemini_response_text', '')
             command_to_execute = final_state.get('command_to_execute', '')
-            # --- LangGraph Integration End ---
 
             if rich_available:
                 console.print(Padding(Markdown(gemini_response_text), (1, 2)))
@@ -111,7 +112,7 @@ Comandos disponibles:
                         else:
                             print("\n\nProcesando salida del comando...")
                         
-                        summary_prompt = f"El comando anterior produjo la siguiente salida. Por favor, resume y presenta esta salida al usuario de una manera conversacional y amigable. Usa formato Markdown si es apropiado para mejorar la legibilidad. La salida fue:\n\n```output\n{full_command_output.strip()}\n```"
+                        summary_prompt = f"El comando anterior produjo la siguiente salida. Por favor, resume y presenta esta salida al usuario de una manera conversacional y amigable, usando emojis. Usa formato Markdown si es apropiado para mejorar la legibilidad. La salida fue:\n\n```output\n{full_command_output.strip()}\n```"
                         
                         conversational_response, _ = interpreter.chat(summary_prompt, add_to_history=False)
                         
@@ -129,6 +130,8 @@ Comandos disponibles:
                 
             else:
                 pass # No command to execute, no extra newline needed
+
+            # --- LangGraph Integration End ---
 
         except KeyboardInterrupt:
             print("\nSaliendo del intérprete...")
