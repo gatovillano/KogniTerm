@@ -1,4 +1,5 @@
 import os
+import sys
 import google.generativeai as genai
 from google.api_core.exceptions import GoogleAPIError
 from .command_executor import CommandExecutor
@@ -8,7 +9,7 @@ class Interpreter:
     def __init__(self):
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("Error: La variable de entorno GOOGLE_API_KEY no está configurada.", file=os.sys.stderr)
+            print("Error: La variable de entorno GOOGLE_API_KEY no está configurada.", file=sys.stderr)
             raise ValueError("La variable de entorno GOOGLE_API_KEY no está configurada.")
 
         genai.configure(api_key=api_key)

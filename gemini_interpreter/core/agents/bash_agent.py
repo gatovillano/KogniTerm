@@ -19,19 +19,14 @@ def call_model_node(state: AgentState):
     # interpreter.chat already adds user_message and gemini_response_text to its internal history
     gemini_response_text, command_to_execute = interpreter.chat(state.user_message)
     
-    state.gemini_response_text = gemini_response_text
-    state.command_to_execute = command_to_execute
-    
-    if command_to_execute:
-        return "execute_tool"
-    else:
-        return "end" # Direct response, no tool needed
+    # Return a dictionary to update the state
+    return {"gemini_response_text": gemini_response_text, "command_to_execute": command_to_execute}
 
 def execute_tool_node(state: AgentState):
     """This node indicates that a tool (command) needs to be executed."""
-    # We don't execute here, we just pass the command back to the main loop
-    # The main loop will handle approval and actual execution
-    return "end" # After indicating tool execution, the graph ends for this turn
+    # This node doesn't perform an action that updates the state in this graph,
+    # it just serves as a routing point.
+    return {} # Return an empty dictionary to signify no state update from this node
 
 # Build the graph
 bash_agent_graph = StateGraph(AgentState)
@@ -46,10 +41,11 @@ bash_agent_graph.set_entry_point("call_model")
 # Add edges
 bash_agent_graph.add_conditional_edges(
     "call_model",
-    lambda state: "execute_tool" if state.command_to_execute else "end", # Condition based on command_to_execute
+    # This function determines the next node based on the state *after* call_model_node executes
+    lambda state: "execute_tool" if state.command_to_execute else END,
     {
         "execute_tool": "execute_tool",
-        "end": END # If no command, go directly to END
+        END: END # This is for the case where it goes to END
     }
 )
 bash_agent_graph.add_edge("execute_tool", END) # After indicating tool execution, the graph ends

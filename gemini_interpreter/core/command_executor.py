@@ -7,6 +7,9 @@ import termios
 import tty
 
 class CommandExecutor:
+    def __init__(self):
+        self.process = None
+
     def execute(self, command):
         """
         Ejecuta un comando en un pseudo-terminal (PTY), permitiendo la comunicación interactiva.
@@ -30,17 +33,18 @@ class CommandExecutor:
             tty.setraw(sys.stdin.fileno())
 
             # Iniciar el proceso del comando en el PTY
-            process = subprocess.Popen(
+            self.process = subprocess.Popen(
                 command,
                 shell=True,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
                 close_fds=True,
+                preexec_fn=os.setsid  # Create a new process session
             )
 
             # Bucle principal de E/S
-            while process.poll() is None:
+            while self.process.poll() is None:
                 try:
                     # Usar select para esperar E/S en el PTY o en stdin
                     readable_fds, _, _ = select.select([master_fd, sys.stdin.fileno()], [], [])
@@ -71,7 +75,7 @@ class CommandExecutor:
                     raise # Relanzar otras excepciones de select
 
             # Esperar a que el proceso termine completamente
-            process.wait()
+            self.process.wait()
 
         finally:
             # CRÍTICO: Restaurar siempre la configuración original de la terminal
@@ -80,9 +84,17 @@ class CommandExecutor:
             # Cerrar los descriptores de archivo
             os.close(master_fd)
             os.close(slave_fd)
+            self.process = None # Reset process
 
     def terminate(self):
-        # Con el nuevo diseño, la cancelación (Ctrl+C) es manejada por la terminal
-        # y el bloque `finally` en `execute` se encarga de la limpieza.
-        # Esta función se mantiene por si se necesita una terminación explícita desde otra parte.
-        pass
+        if self.process and self.process.poll() is None:
+            import signal
+            try:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                # Process might have just finished
+                pass
+            except Exception as e:
+                # It's good to log this, but for now, we'll just ignore it
+                # as the main goal is to not crash the interpreter itself.
+                pass
