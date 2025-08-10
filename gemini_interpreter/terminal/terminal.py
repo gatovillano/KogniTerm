@@ -1,4 +1,3 @@
-from ..core.interpreter import Interpreter # Keep import for type hinting if needed, but not for instantiation
 import sys
 import re
 
@@ -12,7 +11,6 @@ except ImportError:
 
 # Import the LangGraph agent and its state
 from ..core.agents.bash_agent import bash_agent_app, AgentState, interpreter # Import the global interpreter instance
-# from ..core.agents.orchestrator_agent import orchestrator_app, OrchestratorState # Orchestrator removed
 
 def start_terminal_interface(auto_approve=False):
     
@@ -114,9 +112,7 @@ Comandos disponibles:
                         else:
                             print("\n\nProcesando salida del comando...")
                         
-                        summary_prompt = f"""El comando anterior produjo la siguiente salida. Por favor, resume y presenta esta salida al usuario de una manera conversacional y amigable, usando emojis. Usa formato Markdown si es apropiado para mejorar la legibilidad. La salida fue:\n\n```output
-                        \n{full_command_output.strip()}\n
-                        ```"""
+                        summary_prompt = f"El comando anterior produjo la siguiente salida. Por favor, resume y presenta esta salida al usuario de una manera conversacional y amigable, usando emojis. Usa formato Markdown si es apropiado para mejorar la legibilidad. La salida fue:\n\n```output\n{full_command_output.strip()}\n```"
                         
                         conversational_response, _ = interpreter.chat(summary_prompt, add_to_history=False)
                         
@@ -134,3 +130,11 @@ Comandos disponibles:
                 
             else:
                 pass # No command to execute, no extra newline needed
+
+            # --- LangGraph Integration End ---
+
+        except KeyboardInterrupt:
+            print("\nSaliendo del intérprete...")
+            break
+        except Exception as e:
+            print(f"Ocurrió un error inesperado: {e}", file=sys.stderr)
