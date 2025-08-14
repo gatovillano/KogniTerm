@@ -19,10 +19,10 @@ class CommandExecutor:
         # Guardar la configuración original de la terminal
         try:
             old_settings = termios.tcgetattr(sys.stdin.fileno())
-        except termios.error:
+        except termios.error as e:
             # Si no se ejecuta en una terminal real, no se puede continuar con el modo interactivo.
             # Se podría implementar un fallback a un modo no interactivo aquí si fuera necesario.
-            yield "Error: No se pudo obtener la configuración de la terminal. Ejecución no interactiva no implementada."
+            yield f"Error: No se pudo obtener la configuración de la terminal ({e}). Ejecución no interactiva no implementada."
             return
 
         master_fd, slave_fd = pty.openpty()
@@ -32,6 +32,10 @@ class CommandExecutor:
             # Esto pasa todas las teclas directamente al proceso sin procesarlas
             tty.setraw(sys.stdin.fileno())
 
+            # Si el comando contiene 'sudo', añadir la opción '-S' para que lea la contraseña de stdin
+            if command.strip().startswith("sudo ") and "-S" not in command:
+                command = command.replace("sudo", "sudo -S", 1)
+                
             # Iniciar el proceso del comando en el PTY
             self.process = subprocess.Popen(
                 command,

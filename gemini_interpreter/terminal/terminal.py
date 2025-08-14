@@ -1,5 +1,7 @@
 import sys
 import re
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
 
 try:
     from rich.console import Console
@@ -13,6 +15,7 @@ except ImportError:
 from ..core.agents.bash_agent import bash_agent_app, AgentState, interpreter # Import the global interpreter instance
 
 def start_terminal_interface(auto_approve=False):
+    session = PromptSession(history=FileHistory('.gemini_interpreter_history'))
     
     if rich_available:
         console = Console()
@@ -29,7 +32,7 @@ def start_terminal_interface(auto_approve=False):
 
     while True:
         try:
-            user_input = input("> ")
+            user_input = session.prompt("> ")
             if not user_input.strip():
                 continue
 
