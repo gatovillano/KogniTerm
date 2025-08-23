@@ -10,11 +10,15 @@ class CommandExecutor:
     def __init__(self):
         self.process = None
 
-    def execute(self, command):
+    def execute(self, command, cwd=None):
         """
         Ejecuta un comando en un pseudo-terminal (PTY), permitiendo la comunicación interactiva.
         Captura la salida del comando y la cede (yields) en tiempo real.
         También captura la entrada del usuario desde stdin y la reenvía al comando.
+
+        Args:
+            command (str): El comando a ejecutar.
+            cwd (str, optional): El directorio de trabajo para el comando. Defaults to None.
         """
         # Guardar la configuración original de la terminal
         try:
@@ -44,7 +48,8 @@ class CommandExecutor:
                 stdout=slave_fd,
                 stderr=slave_fd,
                 close_fds=True,
-                preexec_fn=os.setsid  # Create a new process session
+                preexec_fn=os.setsid,  # Create a new process session
+                cwd=cwd
             )
 
             # Bucle principal de E/S
@@ -70,6 +75,11 @@ class CommandExecutor:
                     if sys.stdin.fileno() in readable_fds:
                         user_input = os.read(sys.stdin.fileno(), 1024)
                         if user_input:
+                            # Check for ESC key (ASCII 27)
+                            if b'\x1b' in user_input:
+                                self.terminate()
+                                yield "\nComando cancelado por el usuario (ESC)."
+                                break
                             os.write(master_fd, user_input)
 
                 except select.error as e:

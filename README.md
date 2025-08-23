@@ -32,7 +32,7 @@ Un intérprete de línea de comandos interactivo que permite a los modelos de le
     ```
 3.  **Instalar dependencias:**
     ```bash
-    pip install -r gemini_interpreter/requirements.txt
+    pip install -r kogniterm/requirements.txt
     ```
 
 4.  **Configurar la API Key de Google Gemini:**

@@ -19,6 +19,14 @@ def call_model_node(state: AgentState):
     # interpreter.chat already adds user_message and gemini_response_text to its internal history
     gemini_response_text, command_to_execute = interpreter.chat(state.user_message)
     
+    # Si no hay un comando explícito, pero hay una respuesta de texto,
+    # asegurarnos de que gemini_response_text se propague.
+    # Esto es crucial para las respuestas conversacionales o resultados de herramientas.
+    if not command_to_execute and gemini_response_text:
+        # No hacemos un echo aquí, solo nos aseguramos que el texto se devuelva.
+        # El terminal.py debe ser capaz de mostrar gemini_response_text.
+        pass
+    
     return {
         "gemini_response_text": gemini_response_text,
         "command_to_execute": command_to_execute

@@ -129,3 +129,16 @@ La función `generate_initial_plan_node` en `bash_agent.py` estaba utilizando `p
 
 **Solución:**
 Se modificó la función `generate_initial_plan_node` en `bash_agent.py`. Ahora, después de intentar extraer los pasos del plan de la `gemini_response_text`, se verifica si `plan_steps` está vacío y si el `result` (comando sugerido) no está vacío. Si ambas condiciones son verdaderas, el `result` se añade como un único paso a `plan_steps`. Además, se asegura que el `gemini_response_text` también se propague en el estado de retorno para que el terminal pueda mostrar la respuesta conversacional del LLM.
+
+---
+
+### 22-08-25: Modelo genera `FunctionCall` con `name` vacío
+
+**Error:**
+El modelo Gemini, al intentar realizar una llamada a una herramienta (`FunctionCall`), genera un objeto donde el atributo `name` de la herramienta está presente pero su valor es una cadena vacía. Esto provoca un error en el intérprete al intentar procesar una herramienta sin nombre.
+
+**Causa Raíz:**
+Aunque las herramientas se declaran correctamente al modelo con sus nombres, el modelo, en ciertas circunstancias, no está rellenando el atributo `name` de la `FunctionCall` que devuelve. Esto puede ser un comportamiento inesperado del modelo o una desalineación interna en cómo interpreta las declaraciones de herramientas y genera las llamadas.
+
+**Solución Propuesta:**
+Se ha añadido una medida de robustez en `kogniterm/core/interpreter.py` para asegurar que el `tool_name` siempre sea tratado como una cadena, incluso si `tool_call.name` fuera `None`. Sin embargo, la causa raíz del problema reside en la generación del modelo, y esta solución es una mitigación. Se recomienda monitorear el comportamiento del modelo y, si el problema persiste, considerar reportarlo a los desarrolladores del modelo.

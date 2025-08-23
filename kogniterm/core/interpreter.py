@@ -19,12 +19,13 @@ class Interpreter:
         self.model = genai.GenerativeModel(self.model_name)
         self.executor = CommandExecutor()
         self.messages = [] # Almacena mensajes en el formato {role: "user"|"model", parts: [text]}
+        self.current_working_directory = os.getcwd()
 
         # Mensaje de sistema para instruir a Gemini
         self.system_message = {
             "role": "user",
             "parts": [
-                "Eres un asistente experto en terminal Linux. Cuando el usuario te pida realizar una tarea que requiera ejecutar comandos, siempre proporciona una breve introducción conversacional antes del bloque de código. Luego, proporciona el comando(s) en un bloque de código Markdown (```bash\ncomando aquí\n```). Si el usuario hace una pregunta que se puede responder directamente, proporciona la respuesta. No expliques los comandos a menos que se te pida. Solo proporciona un bloque de comando a la vez. Si un comando requiere interacción del usuario (como la contraseña de sudo), explica que se le pedirá al usuario. Después de que un comando se ejecute, se te proporcionará la salida del comando en un bloque de código Markdown con el prefijo 'OUTPUT:'."
+                "Eres un asistente experto en terminal Linux. Cuando el usuario te pida realizar una tarea que requiera ejecutar comandos, siempre proporciona una breve introducción conversacional antes del bloque de código. Luego, proporciona el comando(s) en un bloque de código Markdown (```bash \ncomando aquí\n ```). Si el usuario hace una pregunta que se puede responder directamente, proporciona la respuesta. No expliques los comandos a menos que se te pida. Solo proporciona un bloque de comando a la vez. Si un comando requiere interacción del usuario (como la contraseña de sudo), explica que se le pedirá al usuario. Después de que un comando se ejecute, se te proporcionará la salida del comando en un bloque de código Markdown con el prefijo 'OUTPUT:'."
             ]
         }
         # Añadir el mensaje de sistema al historial al inicio
@@ -58,6 +59,16 @@ class Interpreter:
         chat_session = self.model.start_chat(history=gemini_history)
 
         try:
+            # Manejar el comando 'cd' directamente
+            if user_message.strip().startswith("cd "):
+                target_directory = user_message.strip()[3:].strip()
+                try:
+                    os.chdir(target_directory)
+                    self.current_working_directory = os.getcwd()
+                    return f"Cambiado el directorio a: {self.current_working_directory}", None
+                except OSError as e:
+                    return f"Error al cambiar el directorio: {e}", None
+
             # Enviar el nuevo mensaje
             response = chat_session.send_message(user_message)
             
@@ -70,10 +81,7 @@ class Interpreter:
 
             command_to_execute = None
             # Parsear la respuesta de Gemini en busca de bloques de código
-            code_block_match = re.search(r"```(?:bash|sh|python|)\
-(.*?)\
-```", gemini_response_text, re.DOTALL)
-
+            code_block_match = re.search(r"```(?:bash|sh|python|)(.*?)```", gemini_response_text, re.DOTALL)
             if code_block_match:
                 command_to_execute = code_block_match.group(1).strip()
                 
@@ -88,8 +96,7 @@ class Interpreter:
             return f"[ERROR]: {error_message}", None
         except Exception as e:
             import traceback
-            error_message = f"Ocurrió un error inesperado al comunicarse con Gemini: {e}\
-{traceback.format_exc()}"
+            error_message = f"Ocurrió un error inesperado al comunicarse con Gemini: {e}\n{traceback.format_exc()}"
             print(f"ERROR: {error_message}", file=sys.stderr)
             if add_to_history:
                 self.messages.append({"role": "user", "parts": [user_message]})

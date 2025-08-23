@@ -1,5 +1,5 @@
 import sys
-from gemini_interpreter.terminal.terminal import start_terminal_interface
+from kogniterm.terminal.terminal import start_terminal_interface
 
 if __name__ == "__main__":
     # Comprobar si la bandera -y o --yes está presente
