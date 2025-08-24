@@ -6,7 +6,7 @@
 ---
 ## 09-08-25 Correcciones de Robustez y Experiencia de Usuario
  Se realizaron dos correcciones importantes para mejorar la robustez y la experiencia de usuario de la terminal interactiva.
- - **Punto 1:** Se solucionó un error que impedía cancelar comandos en ejecución con `Ctrl+C`. Se modificó la clase `CommandExecutor` en `gemini_interpreter/core/command_executor.py` para que gestione correctamente la terminación de los procesos hijo.
+ - **Punto 1:** Se solucionó un error que impedía cancelar comandos en ejecución con `Ctrl+C`. Se modifició la clase `CommandExecutor` en `gemini_interpreter/core/command_executor.py` para que gestione correctamente la terminación de los procesos hijo.
  - **Punto 2:** Se corrigió un `ValueError` que ocurría al enviar una entrada vacía a la API de Gemini. Se añadió una comprobación en `gemini_interpreter/terminal/terminal.py` para ignorar las entradas vacías del usuario.
 
 ---
@@ -225,3 +225,12 @@ Descripcion general: Se ha corregido un error de expresión regular (`re.error: 
 
 - **Causa del Error**: La expresión regular utilizada para parsear los bloques de código (`re.search(r"```(?:bash|sh|python|)\\(.*?)\\"`, ...)`) contenía paréntesis escapados (`\\(` y `\\)`) que no eran necesarios y causaban un error de sintaxis en la expresión regular. Además, una modificación previa introdujo un salto de línea (`\n`) inesperado en la cadena de la expresión regular.
 - **Solución**: Se corrigió la expresión regular a `r"```(?:bash|sh|python|)(.*?)```"` para eliminar los escapes innecesarios de los paréntesis y el salto de línea, permitiendo que el `re.search` funcione correctamente.
+---
+## 23-08-25 Corrección de Errores Críticos en el Agente de KogniTerm
+El usuario reportó una serie de errores que impedían el funcionamiento del agente de KogniTerm. Los errores incluían un `ValueError` por un campo desconocido en `genai.protos.Tool`, un `ImportError` por una importación incorrecta, un error `400` de la API de Gemini por un mal manejo de las llamadas a herramientas en paralelo, y un `AttributeError` en el manejo de excepciones de la API. Se aplicaron varias correcciones para resolver estos problemas.
+- **`ValueError` en `bash_agent.py`**: Se corrigió la construcción del historial de la API, reemplazando el incorrecto `genai.protos.Tool` por `genai.protos.Part` con un `function_call` para representar las solicitudes de herramientas del modelo.
+- **`ImportError` en `orchestrator_agent.py`**: Se eliminó la importación innecesaria de `history_for_api`, ya que es una propiedad de `AgentState` y no un objeto importable.
+- **Error `400` de la API (Causa Raíz)**:
+    - Se modificó `execute_tool_node` en `bash_agent.py` para iterar y ejecutar todas las herramientas solicitadas por el modelo en caso de llamadas paralelas.
+    - Se reescribió la propiedad `history_for_api` en `bash_agent.py` para agrupar las respuestas de múltiples herramientas (`ToolMessage`) en un único turno de `user` con múltiples `function_response` parts, cumpliendo con los requisitos de la API de Gemini.
+- **`AttributeError` en `llm_service.py`**: Se reemplazó el código de manejo de excepciones que fallaba. En lugar de usar `genai.types.PromptFeedback`, ahora se construye un objeto `GenerateContentResponse` simulado y bien formado que contiene el mensaje de error, asegurando que la aplicación no se bloquee y pueda reportar el error de la API de manera robusta.
