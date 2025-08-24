@@ -101,9 +101,9 @@ class LLMService:
             # Devolver un objeto de respuesta simulado con el error en el texto
             return genai.types.GenerateContentResponse(
                 candidates=[
-                    genai.types.Candidate(
-                        content=genai.types.Content(parts=[genai.types.Part(text=error_message)]),
-                        finish_reason=genai.types.FinishReason.ERROR,
+                    genai.types.generation_types.Candidate(
+                        content=genai.types.generation_types.Content(parts=[genai.types.generation_types.Part(text=error_message)]),
+                        finish_reason=genai.types.generation_types.FinishReason.ERROR,
                     )
                 ],
             )
@@ -113,9 +113,9 @@ class LLMService:
             print(f"ERROR: {error_message}", file=sys.stderr)
             return genai.types.GenerateContentResponse(
                 candidates=[
-                    genai.types.Candidate(
-                        content=genai.types.Content(parts=[genai.types.Part(text=error_message)]),
-                        finish_reason=genai.types.FinishReason.ERROR,
+                    genai.types.generation_types.Candidate(
+                        content=genai.types.generation_types.Content(parts=[genai.types.generation_types.Part(text=error_message)]),
+                        finish_reason=genai.types.generation_types.FinishReason.ERROR,
                     )
                 ],
             )

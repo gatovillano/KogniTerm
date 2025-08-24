@@ -6,7 +6,7 @@
 ---
 ## 09-08-25 Correcciones de Robustez y Experiencia de Usuario
  Se realizaron dos correcciones importantes para mejorar la robustez y la experiencia de usuario de la terminal interactiva.
- - **Punto 1:** Se solucionó un error que impedía cancelar comandos en ejecución con `Ctrl+C`. Se modifició la clase `CommandExecutor` en `gemini_interpreter/core/command_executor.py` para que gestione correctamente la terminación de los procesos hijo.
+ - **Punto 1:** Se solucionó un error que impedía cancelar comandos en ejecución con `Ctrl+C`. Se modificó la clase `CommandExecutor` en `gemini_interpreter/core/command_executor.py` para que gestione correctamente la terminación de los procesos hijo.
  - **Punto 2:** Se corrigió un `ValueError` que ocurría al enviar una entrada vacía a la API de Gemini. Se añadió una comprobación en `gemini_interpreter/terminal/terminal.py` para ignorar las entradas vacías del usuario.
 
 ---
@@ -197,7 +197,7 @@ Se corrigió un problema fundamental que impedía la ejecución de herramientas.
 ---
 ## 22-08-2025 Corrección de `AttributeError` en `interpreter.py`
 
-Se corrigió un `AttributeError: 'RepeatedComposite' object has no attribute 'content'` en `kogniterm/core/interpreter.py`. Este error ocurría porque se intentaba acceder al atributo `content` de `response.candidates` directamente, cuando `response.candidates` es un objeto iterable.
+Se corrigió un `AttributeError: 'GenerateContentResponse' object has no attribute 'content'` en `kogniterm/core/interpreter.py`. Este error ocurría porque se intentaba acceder al atributo `content` de `response.candidates` directamente, cuando `response.candidates` es un objeto iterable.
 
 - **Acceso a `candidates`**: Se modificó la línea `candidate_content = response.candidates.content` por `candidate_content = response.candidates[0].content` para acceder correctamente al primer candidato de la respuesta del modelo.
 ---
@@ -234,3 +234,11 @@ El usuario reportó una serie de errores que impedían el funcionamiento del age
     - Se modificó `execute_tool_node` en `bash_agent.py` para iterar y ejecutar todas las herramientas solicitadas por el modelo en caso de llamadas paralelas.
     - Se reescribió la propiedad `history_for_api` en `bash_agent.py` para agrupar las respuestas de múltiples herramientas (`ToolMessage`) en un único turno de `user` con múltiples `function_response` parts, cumpliendo con los requisitos de la API de Gemini.
 - **`AttributeError` en `llm_service.py`**: Se reemplazó el código de manejo de excepciones que fallaba. En lugar de usar `genai.types.PromptFeedback`, ahora se construye un objeto `GenerateContentResponse` simulado y bien formado que contiene el mensaje de error, asegurando que la aplicación no se bloquee y pueda reportar el error de la API de manera robusta.
+---
+## 24-08-2025 Verificación de la Clase `OrchestratorState`
+
+Descripción general: Se solicitó modificar la clase `OrchestratorState` en `kogniterm/core/agents/orchestrator_agent.py`. Tras la revisión, se determinó que la clase `OrchestratorState` no existe como tal, sino que `orchestrator_agent.py` reutiliza la clase `AgentState` definida en `kogniterm/core/agents/bash_agent.py`. Se verificó que `AgentState` ya cumple con todos los requisitos solicitados (atributos a eliminar no existen, atributo a añadir ya presente, y herencia correcta).
+
+- **Atributos a Eliminar**: Se confirmó que `user_query`, `command_to_execute`, `command_output` y `tool_output` no son atributos de `AgentState`, por lo que no fue necesario eliminarlos.
+- **Atributo a Añadir**: Se verificó que `command_to_confirm: Optional[str] = None` ya es un atributo existente en `AgentState`, junto con la importación correcta de `Optional`.
+- **Herencia**: Se confirmó que `AgentState` ya hereda `messages` y `history_for_api` de la forma esperada, haciendo que `OrchestratorState` (al ser un alias de `AgentState`) también lo haga.

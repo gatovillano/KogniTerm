@@ -110,6 +110,29 @@ def call_model_node(state: AgentState):
     
     return state
 
+def explain_command_node(state: AgentState):
+    """Genera una explicación en lenguaje natural del comando a ejecutar."""
+    # El último mensaje del AI es la llamada a herramienta para execute_command
+    last_ai_message = state.messages[-1]
+    command = last_ai_message.tool_calls[0]['args']['command']
+
+    explanation_prompt = f"El siguiente comando será ejecutado: `{command}`. Por favor, explica en lenguaje natural qué hará este comando y por qué es necesario para la tarea actual. Sé conciso y claro."
+    
+    # Llamar al modelo para obtener una explicación
+    # Necesitamos una copia del historial sin la última llamada a herramienta para que el modelo genere texto
+    temp_history = state.history_for_api[:-1] # Eliminar el último mensaje del AI con la llamada a herramienta
+    temp_history.append({'role': 'user', 'parts': [explanation_prompt]}) # Añadir el prompt de explicación
+    
+    response = llm_service.invoke(temp_history)
+    explanation_text = response.candidates[0].content.parts[0].text
+
+    # Añadir la explicación a los mensajes
+    state.messages.append(AIMessage(content=explanation_text))
+    
+    # Ahora establecer el comando para confirmar
+    state.command_to_confirm = command
+    return state
+
 def execute_tool_node(state: AgentState):
     """Ejecuta las herramientas solicitadas por el modelo."""
     last_message = state.messages[-1]
@@ -123,9 +146,9 @@ def execute_tool_node(state: AgentState):
         tool_id = tool_call['id']
 
         if tool_name == "execute_command":
-            # Señalizar a la terminal para que confirme el comando
-            state.command_to_confirm = tool_args['command']
-            return state # El agente termina aquí, la terminal maneja la confirmación
+            # En lugar de establecer command_to_confirm directamente, transicionar a explain_command
+            # El nodo explain_command_node establecerá command_to_confirm
+            return state # El agente transicionará a explain_command_node
         else:
             tool = llm_service.get_tool(tool_name)
             if not tool:
@@ -149,7 +172,11 @@ def should_continue(state: AgentState) -> str:
     if state.command_to_confirm: # Si hay un comando para confirmar, necesitamos ir a un paso de confirmación
         return "confirm_command"
     elif isinstance(last_message, AIMessage) and last_message.tool_calls:
-        return "execute_tool"
+        # Si es una llamada a herramienta execute_command, ir a explain_command
+        if last_message.tool_calls[0]['name'] == "execute_command":
+            return "explain_command"
+        else:
+            return "execute_tool"
     else:
         return END
 
@@ -159,6 +186,7 @@ bash_agent_graph = StateGraph(AgentState)
 
 bash_agent_graph.add_node("call_model", call_model_node)
 bash_agent_graph.add_node("execute_tool", execute_tool_node)
+bash_agent_graph.add_node("explain_command", explain_command_node) # Nuevo nodo
 bash_agent_graph.add_node("confirm_command", lambda state: state) # Nuevo nodo, solo pasa el estado
 
 bash_agent_graph.set_entry_point("call_model")
@@ -168,12 +196,14 @@ bash_agent_graph.add_conditional_edges(
     should_continue,
     {
         "execute_tool": "execute_tool",
+        "explain_command": "explain_command", # Nueva transición
         "confirm_command": "confirm_command",
         END: END
     }
 )
 
 bash_agent_graph.add_edge("execute_tool", "call_model")
+bash_agent_graph.add_edge("explain_command", "confirm_command") # Nueva transición
 bash_agent_graph.add_edge("confirm_command", END) # El agente termina aquí, la terminal toma el control
 
 bash_agent_app = bash_agent_graph.compile()
