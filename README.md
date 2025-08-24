@@ -1,4 +1,4 @@
-# 🤖 KognitoInterpreter
+# 🤖 KogniTerm
 
 Un intérprete de línea de comandos interactivo que permite a los modelos de lenguaje (LLMs) ejecutar comandos en tu sistema, proporcionando una interfaz conversacional y asistida.
 
@@ -14,16 +14,19 @@ Un intérprete de línea de comandos interactivo que permite a los modelos de le
 *   **Comandos Mágicos:**
     *   `%help`: Muestra los comandos disponibles.
     *   `%reset`: Reinicia la conversación.
-    *   `%undo`: Deshace el último mensaje y la respuesta del LLM.
+    *   `%undo`: Deshace la última interacción (tu mensaje y la respuesta del LLM).
+    *   `%agentmode`: Cambia entre el modo `bash` (para comandos directos) y `orchestrator` (para tareas complejas y planificación).
 *   **Modo de Auto-Aprobación:** Inicia el intérprete con la bandera `-y` para ejecutar comandos automáticamente sin confirmación.
 *   **Interfaz de Usuario Mejorada:** Salida de terminal formateada con Markdown y colores gracias a la librería `rich`.
+*   **Agentes Inteligentes**: Alterna entre el modo `bash` para ejecución directa de comandos y el modo `orchestrator` para planificación y ejecución de tareas complejas.
+*   **Herramientas Integradas**: Accede a funcionalidades avanzadas como búsqueda web (`brave_search`), obtención de contenido web (`web_fetch`, `web_scraping`) y una potente herramienta unificada de GitHub (`github_tool`) para listar, leer archivos y directorios.
 
 ## 🚀 Instalación
 
 1.  **Clonar el repositorio:**
     ```bash
     git clone <URL_DEL_REPOSITORIO_KOGNITOINTERPRETER>
-    cd KognitoInterpreter
+    cd KogniTerm
     ```
 2.  **Crear y activar el entorno virtual:**
     ```bash
@@ -54,9 +57,3 @@ Para iniciar en modo de auto-aprobación (ejecuta comandos sin pedir confirmaci�
 ```bash
 python3 main.py -y
 ```
-
-## 🗺️ Próximos Pasos (Roadmap)
-
-Estamos trabajando en una arquitectura de agente orquestador basada en LangGraph para permitir una planificación de tareas más compleja y la integración de múltiples herramientas (búsqueda web, operaciones de archivos, etc.).
-
----
