@@ -68,10 +68,18 @@ class LLMService:
         # Convertir herramientas al formato de Google AI
         self.google_ai_tools = [convert_langchain_tool_to_genai(tool) for tool in self.langchain_tools]
 
-        # Inicializar el modelo con las herramientas
+        # Configuración para la generación de contenido
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.7, # Un valor más alto para fomentar la creatividad en la planificación
+            # top_p=0.95, # Descomentar si se desea usar nucleous sampling
+            # top_k=40,   # Descomentar si se desea usar top-k sampling
+        )
+
+        # Inicializar el modelo con las herramientas y la configuración de generación
         self.model = GenerativeModel(
             self.model_name,
-            tools=self.google_ai_tools
+            tools=self.google_ai_tools,
+            generation_config=generation_config
         )
 
     def invoke(self, history: list, system_message: str = None):

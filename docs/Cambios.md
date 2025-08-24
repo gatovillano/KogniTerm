@@ -242,3 +242,17 @@ Descripción general: Se solicitó modificar la clase `OrchestratorState` en `ko
 - **Atributos a Eliminar**: Se confirmó que `user_query`, `command_to_execute`, `command_output` y `tool_output` no son atributos de `AgentState`, por lo que no fue necesario eliminarlos.
 - **Atributo a Añadir**: Se verificó que `command_to_confirm: Optional[str] = None` ya es un atributo existente en `AgentState`, junto con la importación correcta de `Optional`.
 - **Herencia**: Se confirmó que `AgentState` ya hereda `messages` y `history_for_api` de la forma esperada, haciendo que `OrchestratorState` (al ser un alias de `AgentState`) también lo haga.
+---
+## 24-08-2025 Verificación e Implementación de Streaming en KogniTerm
+
+Descripción general: Se verificó la implementación de la funcionalidad de streaming en KogniTerm, confirmando que ya estaba presente y funcionando correctamente en los módulos `terminal.py` y `command_executor.py`.
+
+- **Análisis de `terminal.py`**: Se confirmó que `kogniterm/terminal/terminal.py` ya itera sobre la salida de `command_executor.execute` y la imprime en tiempo real, lo que constituye la funcionalidad de streaming.
+- **Análisis de `command_executor.py`**: Se verificó que `kogniterm/core/command_executor.py` utiliza `pty` y `select` para ejecutar comandos y ceder (yield) su salida en tiempo real, proporcionando la base para el streaming interactivo.
+- **Conclusión**: La funcionalidad de streaming ya estaba implementada y no requirió modificaciones adicionales.
+---
+## 24-08-2025 Corrección de Doble Mensaje y Formato Markdown en Streaming
+ Descripción general: Se corrigieron dos problemas en la terminal de KogniTerm: el LLM se respondía a sí mismo generando mensajes duplicados, y el texto en streaming no se formateaba correctamente en Markdown.
+ 
+ - **Eliminación de Doble Invocación del Agente**: Se modificó `kogniterm/terminal/terminal.py` para asegurar que el grafo del agente (`active_agent_app.invoke(agent_state)`) se invoque una única vez después de que el usuario ha ingresado su mensaje o después de que un comando ha sido ejecutado. Esto evita que el LLM genere respuestas duplicadas.
+ - **Formato Markdown en la Salida Final**: Se ajustó la lógica en `kogniterm/terminal/terminal.py` para que los fragmentos de texto del streaming se acumulen en `full_ai_response_content` sin imprimirse directamente. La impresión final del `AIMessage` se movió a una sección única al final del bucle principal, asegurando que toda la respuesta del LLM/agente se muestre en formato Markdown de manera consistente.

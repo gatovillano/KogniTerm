@@ -23,6 +23,35 @@ from ..core.agents.orchestrator_agent import orchestrator_app
 current_agent_mode = "bash" # Inicia en modo bash por defecto
 command_executor = CommandExecutor() # Nueva instancia global
 
+def print_welcome_banner(console):
+    """Imprime el banner de bienvenida con un degradado de colores."""
+    console.print() # Margen superior
+    banner_text = """
+██╗  ██╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗███████╗██████╗ ███╗   ███╗
+██║ ██╔╝██╔═══██╗██╔════╝ ████╗  ██║██║╚══██╔══╝██╔════╝██╔══██╗████╗ ████║
+█████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║
+██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║
+██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
+"""
+    # Paleta de lilas y morados para un degradado más suave
+    colors = [
+        "#d1c4e9", # Light Lilac
+        "#c5b7e0",
+        "#b9aad7",
+        "#ad9dce",
+        "#a190c5",
+        "#9583bc",
+    ]
+    
+    lines = banner_text.strip().split('\n')
+    num_lines = len(lines)
+    
+    for i, line in enumerate(lines):
+        # Interpolar colores para un degradado más suave
+        console.print(f"[{color}]{line}[/]", justify="center")
+
+
 def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approve
     """Inicia el bucle principal de la interfaz de la terminal."""
     global current_agent_mode
@@ -31,9 +60,20 @@ def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approv
 
     # Imprimir mensaje de bienvenida
     if console:
-        console.print(Padding("[bold green]¡Bienvenido a KogniTerm![/bold green] Escribe '%salir' para terminar.", (1, 2)))
+        print_welcome_banner(console) # Imprime el banner
+        console.print(Padding("Escribe '%salir' para terminar o '%help' para ver los comandos.", (1, 2)), justify="center")
         console.print(f"Modo inicial: [bold cyan]{current_agent_mode}[/bold cyan]")
     else:
+        # Fallback para cuando rich no está disponible
+        banner_text = """
+██╗  ██╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗███████╗██████╗ ███╗   ███╗
+██║ ██╔╝██╔═══██╗██╔════╝ ████╗  ██║██║╚══██╔══╝██╔════╝██╔══██╗████╗ ████║
+█████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║
+██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║
+██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
+"""
+        print(banner_text)
         print("\n¡Bienvenido a KogniTerm! Escribe '%salir' para terminar.")
         print(f"Modo inicial: {current_agent_mode}")
 
@@ -181,11 +221,15 @@ Comandos disponibles:
             final_response_message = agent_state.messages[-1] # Usar agent_state.messages directamente
 
             if isinstance(final_response_message, AIMessage) and final_response_message.content:
+                content = final_response_message.content
+                if not isinstance(content, str):
+                    content = str(content)
+
                 if console:
-                    console.print(Padding(Panel(Markdown(final_response_message.content), 
+                    console.print(Padding(Panel(Markdown(content), 
                                                 border_style='blue', title=f'KogniTerm ({current_agent_mode})'), (1, 2)))
                 else:
-                    print(f"\nKogniTerm ({current_agent_mode}):\n{final_response_message.content}\n")
+                    print(f"\nKogniTerm ({current_agent_mode}):\n{content}\n")
             
             # No es necesario actualizar agent_state.messages aquí de nuevo, ya está actualizado
 

@@ -61,7 +61,7 @@ class AgentState:
                 continue # Continue to the next message after the buffer
 
             if isinstance(msg, (HumanMessage, SystemMessage)):
-                api_history.append({'role': 'user', 'parts': [msg.content]})
+                api_history.append({'role': 'user', 'parts': [genai.protos.Part(text=msg.content)]})
             elif isinstance(msg, AIMessage):
                 if msg.tool_calls:
                     parts = [
@@ -70,7 +70,7 @@ class AgentState:
                     ]
                     api_history.append({'role': 'model', 'parts': parts})
                 else:
-                    api_history.append({'role': 'model', 'parts': [msg.content]})
+                    api_history.append({'role': 'model', 'parts': [genai.protos.Part(text=msg.content)]})
             i += 1
         return api_history
 
