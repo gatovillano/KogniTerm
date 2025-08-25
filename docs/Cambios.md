@@ -6,7 +6,7 @@
 ---
 ## 09-08-25 Correcciones de Robustez y Experiencia de Usuario
  Se realizaron dos correcciones importantes para mejorar la robustez y la experiencia de usuario de la terminal interactiva.
- - **Punto 1:** Se solucionó un error que impedía cancelar comandos en ejecución con `Ctrl+C`. Se modificó la clase `CommandExecutor` en `gemini_interpreter/core/command_executor.py` para que gestione correctamente la terminación de los procesos hijo.
+ - **Punto 1:** Se solucionó un error que impedía cancelar comandos en ejecución con `Ctrl+C`. Se modifició la clase `CommandExecutor` en `gemini_interpreter/core/command_executor.py` para que gestione correctamente la terminación de los procesos hijo.
  - **Punto 2:** Se corrigió un `ValueError` que ocurría al enviar una entrada vacía a la API de Gemini. Se añadió una comprobación en `gemini_interpreter/terminal/terminal.py` para ignorar las entradas vacías del usuario.
 
 ---
@@ -68,7 +68,7 @@ Para mejorar la usabilidad, el prompt de la terminal ahora muestra el directorio
 
 Se ha corregido un `AttributeError` que ocurría en `gemini_interpreter/terminal/terminal.py` al intentar obtener el directorio de trabajo actual.
 
-- **Causa del Error**: El código intentaba llamar a un método inexistente (`interpreter.get_current_working_directory()`).
+- **Causa del Error**: El código intentaba llamar a un método inexistente (`interpreter.get_current_working_directory()`)
 - **Solución**: Se modificó la llamada para acceder directamente al atributo `interpreter.current_working_directory`, solucionando el error y asegurando que el prompt de la terminal muestre correctamente la ruta actual.
 ---
 ## 21-08-25 Activación del Orquestador
@@ -256,3 +256,16 @@ Descripción general: Se verificó la implementación de la funcionalidad de str
  
  - **Eliminación de Doble Invocación del Agente**: Se modificó `kogniterm/terminal/terminal.py` para asegurar que el grafo del agente (`active_agent_app.invoke(agent_state)`) se invoque una única vez después de que el usuario ha ingresado su mensaje o después de que un comando ha sido ejecutado. Esto evita que el LLM genere respuestas duplicadas.
  - **Formato Markdown en la Salida Final**: Se ajustó la lógica en `kogniterm/terminal/terminal.py` para que los fragmentos de texto del streaming se acumulen en `full_ai_response_content` sin imprimirse directamente. La impresión final del `AIMessage` se movió a una sección única al final del bucle principal, asegurando que toda la respuesta del LLM/agente se muestre en formato Markdown de manera consistente.
+---
+## 25-08-25 Corrección de `NameError` en `terminal.py`
+ Descripción general: Se corrigió un `NameError` en `kogniterm/terminal/terminal.py` que impedía la correcta visualización del banner de bienvenida debido a una variable `color` no definida.
+
+ - **Causa del Error**: La variable `color` no estaba siendo inicializada dentro del bucle que imprime el banner, lo que causaba un `NameError`.
+ - **Solución**: Se implementó una lógica para interpolar los colores de una paleta predefinida (`colors`) y asignar el color correspondiente a la variable `color` en cada iteración del bucle, creando un degradado visual en el banner de bienvenida.
+---
+## 25-08-25 Añadir Spinner de Carga en la Terminal
+ Descripción general: Se ha añadido un spinner de carga en la terminal para mejorar la experiencia del usuario mientras el LLM está procesando una respuesta. 
+
+ - **Punto 1**: Se importó la clase `Spinner` de la librería `rich` en `kogniterm/terminal/terminal.py`.
+ - **Punto 2**: Se ha utilizado el manejador de contexto `console.status` para mostrar un spinner con el mensaje "KogniTerm está pensando..." mientras se invoca al agente del LLM. Esto proporciona una retroalimentación visual al usuario de que la aplicación está trabajando.
+ - **Punto 3**: Se ha añadido un fallback para los casos en que `rich` no esté disponible, mostrando un simple mensaje de texto "Procesando...".

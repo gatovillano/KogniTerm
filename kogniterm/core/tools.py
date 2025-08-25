@@ -1,4 +1,7 @@
+import asyncio
 import os
+import difflib
+import json
 from langchain_community.utilities import RequestsWrapper
 from bs4 import BeautifulSoup
 from typing import Any, Type, Optional, Union
@@ -38,7 +41,12 @@ class BraveSearchTool(BaseTool):
         return search_tool.run(query)
 
     async def _arun(self, query: str) -> str:
-        raise NotImplementedError("brave_search does not support async")
+        api_key = os.getenv("BRAVE_SEARCH_API_KEY")
+        if not api_key:
+            return "Error: La variable de entorno 'BRAVE_SEARCH_API_KEY' no está configurada."
+        search_tool = BraveSearch(api_key=api_key)
+        # BraveSearch no tiene un método arun nativo en todas las versiones, usamos to_thread por seguridad
+        return await asyncio.to_thread(search_tool.run, query)
 
 class WebFetchTool(BaseTool):
     name: str = "web_fetch"
@@ -52,13 +60,21 @@ class WebFetchTool(BaseTool):
     def _run(self, url: str) -> str:
         requests_wrapper = RequestsWrapper()
         try:
-            return requests_wrapper.get(url)
+            response = requests_wrapper.get(url)
+            if isinstance(response, dict) and 'text' in response:
+                return response['text']
+            return str(response)
         except Exception as e:
             logger.error(f"Error al obtener la URL {url}: {e}", exc_info=True)
             return f"Error al obtener la URL {url}: {e}"
     
     async def _arun(self, url: str) -> str:
-        raise NotImplementedError("web_fetch does not support async")
+        requests_wrapper = RequestsWrapper()
+        try:
+            return await asyncio.to_thread(requests_wrapper.get, url)
+        except Exception as e:
+            logger.error(f"Error al obtener la URL {url} de forma asíncrona: {e}", exc_info=True)
+            return f"Error al obtener la URL {url}: {e}"
 
 class WebScrapingTool(BaseTool):
     name: str = "web_scraping"
@@ -74,7 +90,17 @@ class WebScrapingTool(BaseTool):
         try:
             soup = BeautifulSoup(html_content, 'lxml')
             elements = soup.select(selector)
-            scraped_content = "\n".join([e.prettify() for e in elements])
+            # Asegurarse de que prettify() devuelva str, o manejar bytes si es el caso
+            scraped_content_list = []
+            for e in elements:
+                pretty_e = e.prettify()
+                if isinstance(pretty_e, bytes):
+                    scraped_content_list.append(pretty_e.decode('utf-8', errors='ignore'))
+                else:
+                    scraped_content_list.append(pretty_e)
+            
+            scraped_content = "\n".join(scraped_content_list)
+            
             return f'''### Resultados del Scraping (Selector: `{selector}`)
 ```html
 {scraped_content}
@@ -84,7 +110,7 @@ class WebScrapingTool(BaseTool):
             return f"Error al hacer scraping: {e}"
 
     async def _arun(self, html_content: str, selector: str) -> str:
-        raise NotImplementedError("web_scraping does not support async")
+        return await asyncio.to_thread(self._run, html_content, selector)
 
 class GitHubTool(BaseTool):
     name: str = "github_tool"
@@ -93,16 +119,22 @@ class GitHubTool(BaseTool):
     class GitHubToolInput(BaseModel):
         action: str = Field(description="La acción a realizar: 'get_repo_info', 'list_contents', 'read_file', 'read_directory', 'read_recursive_directory'.")
         repo_name: str = Field(description="El nombre completo del repositorio de GitHub (ej. 'octocat/Spoon-Knife').")
-        path: Optional[str] = Field(default="", description="La ruta del archivo o directorio dentro del repositorio (opcional, por defecto la raíz).")
+        path: Optional[str] = Field(default=None, description="La ruta del archivo o directorio dentro del repositorio (opcional, por defecto la raíz).")
         github_token: Optional[str] = Field(default=None, description="Token de GitHub para autenticación (opcional).")
 
     args_schema: Type[BaseModel] = GitHubToolInput
 
     def _get_github_instance(self, github_token: Optional[str]) -> Github:
         if github_token is None:
+            logger.debug("GitHubTool: No se proporcionó un token, buscando en las variables de entorno...")
             github_token = os.getenv("GITHUB_TOKEN")
             if not github_token:
+                logger.error("GitHubTool: No se encontró el token en la variable de entorno 'GITHUB_TOKEN'.")
                 raise ValueError("La variable de entorno 'GITHUB_TOKEN' no está configurada y no se proporcionó un token.")
+            else:
+                logger.debug("GitHubTool: Token encontrado en la variable de entorno.")
+        else:
+            logger.debug("GitHubTool: Usando el token proporcionado en los argumentos.")
         return Github(github_token)
 
     def _get_repo(self, g: Github, repo_name: str):
@@ -113,13 +145,26 @@ class GitHubTool(BaseTool):
 
     def _get_file_content(self, repo, path: str) -> str:
         try:
-            file_content = repo.get_contents(path).decoded_content.decode('utf-8')
+            # Asegurarse de que path no sea None
+            if path is None:
+                raise ValueError("La ruta del archivo no puede ser None.")
+            
+            content_file = repo.get_contents(path)
+            
+            # Manejar archivos con codificación 'none' (p. ej., vacíos o binarios)
+            if content_file.encoding == 'none':
+                return f"### Contenido de '{path}' (no se pudo decodificar, podría ser binario o estar vacío)\n"
+            
+            file_content = content_file.decoded_content.decode('utf-8')
             return f"### Contenido de '{path}'\n```\n{file_content}\n```"
         except GithubException as e:
             raise ValueError(f"Error al leer el archivo '{path}': {e}")
 
     def _list_contents(self, repo, path: str) -> str:
         try:
+            # Asegurarse de que path no sea None
+            if path is None:
+                raise ValueError("La ruta del directorio no puede ser None.")
             contents = repo.get_contents(path)
             if not isinstance(contents, list): # Es un solo archivo
                 return self._get_file_content(repo, path)
@@ -134,6 +179,9 @@ class GitHubTool(BaseTool):
     def _read_directory_recursive(self, repo, path: str) -> str:
         output = f"### Contenido recursivo de '{path}' en '{repo.full_name}'\n"
         try:
+            # Asegurarse de que path no sea None
+            if path is None:
+                raise ValueError("La ruta del directorio no puede ser None.")
             contents = repo.get_contents(path)
             if not isinstance(contents, list): # Es un solo archivo
                 return self._get_file_content(repo, path)
@@ -149,23 +197,26 @@ class GitHubTool(BaseTool):
         except GithubException as e:
             raise ValueError(f"Error al leer recursivamente el directorio '{path}': {e}")
 
-    def _run(self, action: str, repo_name: str, path: Optional[str] = "", github_token: Optional[str] = None) -> str:
+    def _run(self, action: str, repo_name: str, path: Optional[str] = None, github_token: Optional[str] = None) -> str:
         try:
             g = self._get_github_instance(github_token)
             repo = self._get_repo(g, repo_name)
 
+            # Asegurarse de que path sea una cadena vacía si es None para evitar errores en get_contents
+            effective_path = path if path is not None else ""
+
             if action == 'get_repo_info':
                 return f"""### Información del Repositorio: {repo.name}\n- **Descripción:** {repo.description}\n- **URL:** {repo.html_url}\n- **Estrellas:** {repo.stargazers_count} ⭐"""
             elif action == 'list_contents':
-                return self._list_contents(repo, path)
+                return self._list_contents(repo, effective_path)
             elif action == 'read_file':
-                return self._get_file_content(repo, path)
+                return self._get_file_content(repo, effective_path)
             elif action == 'read_directory':
                 # Non-recursive read, just list contents and get content for files
-                output = f"### Contenido de '{path}' en '{repo.full_name}'\n"
-                contents = repo.get_contents(path)
+                output = f"### Contenido de '{effective_path}' en '{repo.full_name}'\n"
+                contents = repo.get_contents(effective_path)
                 if not isinstance(contents, list): # Es un solo archivo
-                    return self._get_file_content(repo, path)
+                    return self._get_file_content(repo, effective_path)
                 for content in contents:
                     if content.type == "file":
                         output += f"- Archivo: {content.path}\n"
@@ -174,7 +225,7 @@ class GitHubTool(BaseTool):
                         output += f"- Directorio: {content.path}\n"
                 return output
             elif action == 'read_recursive_directory':
-                return self._read_directory_recursive(repo, path)
+                return self._read_directory_recursive(repo, effective_path)
             else:
                 return f"Error: Acción de GitHub '{action}' no reconocida."
         except ValueError as e:
@@ -185,7 +236,7 @@ class GitHubTool(BaseTool):
             return f"Error inesperado en GitHubTool: {e}"
 
     async def _arun(self, action: str, repo_name: str, path: Optional[str] = "", github_token: Optional[str] = None) -> str:
-        raise NotImplementedError("github_tool does not support async")
+        return await asyncio.to_thread(self._run, action, repo_name, path, github_token)
 
 class ExecuteCommandTool(BaseTool):
     name: str = "execute_command"
@@ -217,15 +268,78 @@ class ExecuteCommandTool(BaseTool):
             logger.error(error_message, exc_info=True)
             return error_message
 
-    def get_command_generator(self, command: str):
-        """Devuelve un generador para ejecutar el comando de forma incremental."""
-        logger.debug(f"ExecuteCommandTool - Obteniendo generador para comando: '{command}'")
-        assert self.command_executor is not None
-        return self.command_executor.execute(command)
-
     async def _arun(self, command: str) -> str:
         """Run the tool asynchronously."""
-        raise NotImplementedError("execute_command_tool does not support async")
+        # Por ahora, ejecutamos la versión síncrona en un hilo separado.
+        # Una futura mejora sería hacer que CommandExecutor sea completamente asíncrono.
+        return await asyncio.to_thread(self._run, command)
+
+class FileCRUDTool(BaseTool):
+    name: str = "file_crud_tool"
+    description: str = "Una herramienta para realizar operaciones CRUD (Crear, Leer, Actualizar, Eliminar) en archivos."
+
+    class FileCRUDInput(BaseModel):
+        action: str = Field(description="La acción a realizar: 'create', 'read', 'update', 'delete'.")
+        path: str = Field(description="La ruta del archivo.")
+        content: Optional[str] = Field(default=None, description="El contenido del archivo para las acciones 'create' y 'update'.")
+        confirm: Optional[bool] = Field(default=False, description="Confirmación para la acción 'update'.")
+
+    args_schema: Type[BaseModel] = FileCRUDInput
+
+    def _run(self, action: str, path: str, content: Optional[str] = None, confirm: Optional[bool] = False) -> str:
+        try:
+            if action == 'create':
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, 'w') as f:
+                    f.write(content if content is not None else "")
+                return f"Archivo '{path}' creado/sobrescrito exitosamente."
+            elif action == 'read':
+                with open(path, 'r') as f:
+                    file_content = f.read()
+                return f"### Contenido de '{path}'\n```\n{file_content}\n```"
+            elif action == 'update':
+                if not os.path.exists(path):
+                    return f"Error: El archivo '{path}' no existe para actualizar."
+                
+                with open(path, 'r') as f:
+                    old_content = f.read()
+
+                if content is None:
+                    return "Error: El contenido no puede ser None para la acción 'update'."
+
+                if not confirm:
+                    diff = list(difflib.unified_diff(
+                        old_content.splitlines(keepends=True),
+                        content.splitlines(keepends=True),
+                        fromfile=f'a/{path}',
+                        tofile=f'b/{path}',
+                    ))
+                    if not diff:
+                        return f"No hay cambios detectados para '{path}'. No se requiere actualización."
+                    
+                    diff_output = "".join(diff)
+                    return json.dumps({
+                        "status": "pending_confirmation",
+                        "message": f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar:",
+                        "diff": diff_output
+                    })
+                else:
+                    with open(path, 'w') as f:
+                        f.write(content)
+                    return f"Archivo '{path}' actualizado exitosamente."
+            elif action == 'delete':
+                os.remove(path)
+                return f"Archivo '{path}' eliminado exitosamente."
+            else:
+                return f"Error: Acción de FileCRUDTool '{action}' no reconocida."
+        except FileNotFoundError:
+            return f"Error: El archivo o directorio '{path}' no fue encontrado."
+        except Exception as e:
+            logger.error(f"Error en FileCRUDTool al realizar la acción '{action}' en '{path}': {e}", exc_info=True)
+            return f"Error en FileCRUDTool: {e}"
+
+    async def _arun(self, action: str, path: str, content: Optional[str] = None, confirm: Optional[bool] = False) -> str:
+        return await asyncio.to_thread(self._run, action, path, content, confirm)
 
 # Esta función será llamada por interpreter.py para obtener las funciones ejecutables reales
 def get_callable_tools():
@@ -234,5 +348,6 @@ def get_callable_tools():
         WebFetchTool(),
         WebScrapingTool(),
         GitHubTool(), # Reemplazamos GitHubRepoInfoTool por la nueva GitHubTool
-        ExecuteCommandTool()
+        ExecuteCommandTool(),
+        FileCRUDTool()
     ]

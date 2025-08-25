@@ -1,3 +1,4 @@
+import sys
 from langgraph.graph import StateGraph, END
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -10,18 +11,20 @@ from ..llm_service import LLMService
 # Inicializar el servicio LLM de forma global
 llm_service = LLMService()
 
-# --- Mensaje de Sistema --- 
+# --- Mensaje de Sistema ---
 SYSTEM_MESSAGE = SystemMessage(content="""Eres KogniTerm, un asistente de IA experto en terminal.
 Tu propósito es ayudar al usuario a realizar tareas directamente en su sistema.
 
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
 1.  **Analiza la petición**: Entiende lo que el usuario quiere lograr.
-2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal. Úsalas para llevar a cabo la tarea.
+2.  **Usa tus herramientas**: Tienes un conjunto de herramientas a tu disposición, incluyendo `execute_command` para comandos de terminal y herramientas para buscar en la web (`brave_search`) y acceder a contenido de URLs (`web_fetch`). No dudes en usarlas para completar las tareas que lo requieran.
 3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`.
 4.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
 
 La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
+
+**IMPORTANTE**: Cuando uses la herramienta `execute_command`, no la combines con otras herramientas en la misma respuesta. `execute_command` debe ser la única herramienta en la llamada.
 
 Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
 
@@ -35,6 +38,7 @@ class AgentState:
     """Define la estructura del estado que fluye a través del grafo."""
     messages: List[BaseMessage] = field(default_factory=lambda: [SYSTEM_MESSAGE])
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
+    action_needed: Optional[str] = None # Añadido para consistencia con OrchestratorState
 
     @property
     def history_for_api(self) -> list[dict]:
@@ -76,10 +80,10 @@ class AgentState:
 
 # --- Nodos del Grafo ---
 
-def call_model_node(state: AgentState):
+async def call_model_node(state: AgentState):
     """Llama al LLM con el historial actual de mensajes."""
     history = state.history_for_api
-    response = llm_service.invoke(history)
+    response = await llm_service.ainvoke(history)
     
     # Check if response has candidates and parts
     if response.candidates and response.candidates[0].content.parts:
@@ -110,7 +114,7 @@ def call_model_node(state: AgentState):
     
     return state
 
-def explain_command_node(state: AgentState):
+async def explain_command_node(state: AgentState):
     """Genera una explicación en lenguaje natural del comando a ejecutar."""
     # El último mensaje del AI es la llamada a herramienta para execute_command
     last_ai_message = state.messages[-1]
@@ -123,7 +127,7 @@ def explain_command_node(state: AgentState):
     temp_history = state.history_for_api[:-1] # Eliminar el último mensaje del AI con la llamada a herramienta
     temp_history.append({'role': 'user', 'parts': [explanation_prompt]}) # Añadir el prompt de explicación
     
-    response = llm_service.invoke(temp_history)
+    response = await llm_service.ainvoke(temp_history)
     explanation_text = response.candidates[0].content.parts[0].text
 
     # Añadir la explicación a los mensajes
@@ -133,7 +137,7 @@ def explain_command_node(state: AgentState):
     state.command_to_confirm = command
     return state
 
-def execute_tool_node(state: AgentState):
+async def execute_tool_node(state: AgentState):
     """Ejecuta las herramientas solicitadas por el modelo."""
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -146,18 +150,27 @@ def execute_tool_node(state: AgentState):
         tool_id = tool_call['id']
 
         if tool_name == "execute_command":
-            # En lugar de establecer command_to_confirm directamente, transicionar a explain_command
-            # El nodo explain_command_node establecerá command_to_confirm
-            return state # El agente transicionará a explain_command_node
+            # Añadir un ToolMessage para mantener la consistencia en el historial
+            tool_messages.append(ToolMessage(content="Comando enviado para explicación y confirmación.", tool_call_id=tool_id))
+            # El agente transicionará a explain_command_node
+            return state
         else:
+            # Imprimir un mensaje para notificar al usuario que la herramienta se está ejecutando
+            # Esto es útil para herramientas que pueden tardar un poco.
+            print(f"⚙️  Ejecutando herramienta: {tool_name}...", file=sys.stdout, flush=True)
+            
             tool = llm_service.get_tool(tool_name)
             if not tool:
                 tool_output = f"Error: Herramienta '{tool_name}' no encontrada."
             else:
                 try:
-                    tool_output = tool.invoke(tool_args)
+                    # Usar ainvoke para la ejecución asíncrona de la herramienta
+                    tool_output = await tool.ainvoke(tool_args)
                 except Exception as e:
                     tool_output = f"Error al ejecutar la herramienta {tool_name}: {e}"
+            
+            # Imprime una nueva línea para separar la notificación de la salida final.
+            print()
             
             tool_messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_id))
 

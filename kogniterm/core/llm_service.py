@@ -5,6 +5,8 @@ from google.generativeai.client import configure
 from google.generativeai.generative_models import GenerativeModel
 from google.api_core.exceptions import GoogleAPIError
 from langchain_core.tools import BaseTool
+from google.generativeai.types import GenerateContentResponse
+from google.generativeai.protos import Candidate, Content, Part
 
 from .tools import get_callable_tools
 
@@ -60,7 +62,7 @@ class LLMService:
 
         configure(api_key=api_key)
 
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
         
         # Obtener herramientas de LangChain
         self.langchain_tools = get_callable_tools()
@@ -82,51 +84,32 @@ class LLMService:
             generation_config=generation_config
         )
 
-    def invoke(self, history: list, system_message: str = None):
+    async def ainvoke(self, history: list, system_message: str = None):
         """
-        Invoca el modelo Gemini con un historial de conversación y un mensaje de sistema opcional.
+        Invoca el modelo Gemini de forma asíncrona con un historial de conversación.
 
         Args:
-            history: Una lista de diccionarios que representan el historial de la conversación,
-                     en el formato que espera la API de Google AI.
-            system_message: Un mensaje de sistema opcional para guiar al modelo.
+            history: Una lista de diccionarios que representan el historial de la conversación.
+            system_message: Un mensaje de sistema opcional (actualmente no usado por el modelo de chat).
 
         Returns:
-            La respuesta del modelo, que puede incluir texto o llamadas a herramientas.
+            La respuesta del modelo.
         """
-        # Crear una nueva sesión de chat para cada invocación para mantenerla sin estado
-        chat_session = self.model.start_chat(history=history)
-        
-        # El último mensaje del historial es el que se envía
+        chat_session = self.model.start_chat(history=history, enable_automatic_function_calling=True)
         last_message = history[-1]['parts'][0]
 
         try:
-            response = chat_session.send_message(last_message)
+            response = await chat_session.send_message_async(last_message)
             return response
         except GoogleAPIError as e:
             error_message = f"Error de API de Gemini: {e}"
             print(f"ERROR: {error_message}", file=sys.stderr)
-            # Devolver un objeto de respuesta simulado con el error en el texto
-            return genai.types.GenerateContentResponse(
-                candidates=[
-                    genai.types.generation_types.Candidate(
-                        content=genai.types.generation_types.Content(parts=[genai.types.generation_types.Part(text=error_message)]),
-                        finish_reason=genai.types.generation_types.FinishReason.ERROR,
-                    )
-                ],
-            )
+            raise e
         except Exception as e:
             import traceback
             error_message = f"Ocurrió un error inesperado: {e}\n{traceback.format_exc()}"
             print(f"ERROR: {error_message}", file=sys.stderr)
-            return genai.types.GenerateContentResponse(
-                candidates=[
-                    genai.types.generation_types.Candidate(
-                        content=genai.types.generation_types.Content(parts=[genai.types.generation_types.Part(text=error_message)]),
-                        finish_reason=genai.types.generation_types.FinishReason.ERROR,
-                    )
-                ],
-            )
+            raise e
 
     def get_tool(self, tool_name: str) -> BaseTool | None:
         """Encuentra y devuelve una herramienta de LangChain por su nombre."""
@@ -134,3 +117,5 @@ class LLMService:
             if tool.name == tool_name:
                 return tool
         return None
+
+llm_service = LLMService()

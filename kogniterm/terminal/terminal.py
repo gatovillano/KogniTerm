@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 from prompt_toolkit import PromptSession
@@ -11,13 +12,14 @@ try:
     from rich.markdown import Markdown
     from rich.padding import Padding
     from rich.panel import Panel
+    from rich.spinner import Spinner
     rich_available = True
 except ImportError:
     rich_available = False
 
 # --- Importaciones de Agentes ---
 from ..core.agents.bash_agent import bash_agent_app, AgentState
-from ..core.agents.orchestrator_agent import orchestrator_app
+from ..core.agents.orchestrator_agent import orchestrator_app, OrchestratorState # <-- Importar OrchestratorState
 
 # --- Estado Global de la Terminal ---
 current_agent_mode = "bash" # Inicia en modo bash por defecto
@@ -49,10 +51,10 @@ def print_welcome_banner(console):
     
     for i, line in enumerate(lines):
         # Interpolar colores para un degradado más suave
-        console.print(f"[{color}]{line}[/]", justify="center")
+        console.print(f"[{colors[i % len(colors)]}]{line}[/]", justify="center")
 
 
-def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approve
+async def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approve
     """Inicia el bucle principal de la interfaz de la terminal."""
     global current_agent_mode
     session = PromptSession(history=FileHistory('.gemini_interpreter_history'))
@@ -90,7 +92,7 @@ def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approv
             # Obtener el directorio de trabajo actual para el prompt
             cwd = os.getcwd()
             prompt_text = f"({current_agent_mode}) ({os.path.basename(cwd)}) > "
-            user_input = session.prompt(prompt_text)
+            user_input = await session.prompt_async(prompt_text)
 
             if not user_input.strip():
                 continue
@@ -107,132 +109,186 @@ def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approv
             if user_input.lower().strip() == '%agentmode':
                 if current_agent_mode == "bash":
                     current_agent_mode = "orchestrator"
+                    # Iniciar con el estado correcto para el orquestador
+                    agent_state = OrchestratorState()
                 else:
                     current_agent_mode = "bash"
-                agent_state = AgentState() # Reiniciar estado al cambiar de modo
-                print(f"Cambiado al modo '{current_agent_mode}'. Conversación reiniciada.")
-                continue
-
-            if user_input.lower().strip() == '%undo':
-                # El undo ahora debe considerar el mensaje de sistema inicial
-                if len(agent_state.messages) >= 3:
-                    agent_state.messages.pop() # Eliminar respuesta del AI
-                    agent_state.messages.pop() # Eliminar input del usuario
-                    print("Última interacción deshecha.")
+                    agent_state = AgentState() # Volver al estado simple de bash
+                
+                if console:
+                    console.print(f"Cambiado al modo [bold cyan]{current_agent_mode}[/bold cyan]. Conversación reiniciada.")
                 else:
-                    print("No hay nada que deshacer.")
-                continue
-            
-            if user_input.lower().strip() == '%help':
-                print("""
-Comandos disponibles:
-  %help       Muestra este mensaje de ayuda.
-  %reset      Reinicia la conversación del modo actual.
-  %agentmode  Cambia entre el modo 'bash' y 'orchestrator'.
-  %undo       Deshace la última interacción.
-  %salir      Sale del intérprete.
-""" )
+                    print(f"Cambiado al modo '{current_agent_mode}'. Conversación reiniciada.")
                 continue
 
             # --- Invocación del Agente ---
             
-            # Añadir el mensaje del usuario al estado
-            agent_state.messages.append(HumanMessage(content=user_input))
-
-            # Seleccionar el agente activo e invocarlo
             active_agent_app = bash_agent_app if current_agent_mode == "bash" else orchestrator_app
-            final_state_dict = active_agent_app.invoke(agent_state)
 
-            # Actualizar el estado para la siguiente iteración
-            agent_state.messages = final_state_dict['messages']
-            agent_state.command_to_confirm = final_state_dict.get('command_to_confirm') # Obtener comando a confirmar
+            # Lógica para el modo ORCHESTRATOR
+            if current_agent_mode == "orchestrator":
+                # Si es la primera interacción, guardar la query inicial
+                if not agent_state.user_query:
+                    agent_state.user_query = user_input
+                
+                # El orquestador se maneja en un bucle hasta que termina o necesita nueva entrada
+                while True:
+                    with console.status("[bold green]KogniTerm está pensando...", spinner="dots"):
+                        final_state_dict = await active_agent_app.ainvoke(agent_state)
+                    
+                    agent_state = final_state_dict
 
-            # --- Manejo de Confirmación de Comandos ---
-            if agent_state.command_to_confirm:
-                command_to_execute = agent_state.command_to_confirm
-                agent_state.command_to_confirm = None # Limpiar el comando después de obtenerlo
+                    # 1. Esperar aprobación del plan
+                    if agent_state.action_needed == "await_user_approval":
+                        if console:
+                            console.print(Padding(Panel(Markdown(agent_state.plan_presentation), 
+                                                        border_style='yellow', title='Plan del Orquestador'), (1, 2)))
+                        else:
+                            print(f"\nPlan del Orquestador:\n{agent_state.plan_presentation}\n")
+                        
+                        approval_input = ""
+                        if auto_approve:
+                            approval_input = 's'
+                            print("Plan auto-aprobado.")
+                        else:
+                            while approval_input not in ['s', 'n']:
+                                approval_input = input("Respuesta (s/n): ").lower().strip()
 
-                run_command = False
-                if auto_approve:
-                    run_command = True
-                    if console:
-                        console.print(Padding("[yellow]Comando auto-aprobado.[/yellow]", (0, 2)))
-                    else:
-                        print("Comando auto-aprobado.")
-                else:
-                    while True:
-                        approval_input = input(f"\n¿Deseas ejecutar este comando? (s/n): {command_to_execute}\n").lower().strip()
-                        if approval_input == 's':
+                        agent_state.user_approval = (approval_input == 's')
+                        agent_state.action_needed = None # Resetear para que el grafo continúe
+                        # Re-invocar el grafo para que procese la aprobación
+                        continue
+
+                    # 2. Ejecutar un comando
+                    elif agent_state.action_needed == "execute_command":
+                        command_to_execute = agent_state.command_to_execute
+                        run_command = False
+                        if auto_approve:
                             run_command = True
-                            break
-                        elif approval_input == 'n':
-                            print("Comando no ejecutado.")
-                            run_command = False
-                            break
+                            print(f"Comando auto-aprobado: {command_to_execute}")
                         else:
-                            print("Respuesta no válida. Por favor, responde 's' o 'n'.")
+                            approval_input = input(f"\nEjecutar comando: '{command_to_execute}'? (s/n): ").lower().strip()
+                            if approval_input == 's':
+                                run_command = True
 
-                if run_command:
-                    full_command_output = ""
-                    try:
-                        if console:
-                            console.print(Padding("[yellow]Ejecutando comando... (Presiona Ctrl+C para cancelar)[/yellow]", (0, 2)))
+                        full_command_output = ""
+                        if run_command:
+                            try:
+                                for output_chunk in command_executor.execute(command_to_execute, cwd=os.getcwd()):
+                                    full_command_output += output_chunk
+                                    print(output_chunk, end='', flush=True)
+                                print()
+                            except KeyboardInterrupt:
+                                command_executor.terminate()
+                                full_command_output = "Comando cancelado por el usuario."
                         else:
-                            print("Ejecutando comando... (Presiona Ctrl+C para cancelar)")
+                            full_command_output = "Comando no ejecutado por el usuario."
                         
-                        for output_chunk in command_executor.execute(command_to_execute, cwd=os.getcwd()):
-                            full_command_output += output_chunk
-                            print(output_chunk, end='', flush=True)
-                        print() # Asegurar un salto de línea después de la salida del comando
-                        
-                        # Alimentar la salida al agente como un ToolMessage
-                        agent_state.messages.append(ToolMessage(
-                            content=full_command_output, 
-                            tool_call_id="execute_command" # Usar el nombre de la herramienta como ID por simplicidad
-                        ))
-                        
-                        # Re-invocar al agente para procesar la salida del comando
-                        final_state_dict = active_agent_app.invoke(agent_state)
-                        agent_state.messages = final_state_dict['messages'] # Actualizar estado de nuevo
-                        
-                    except KeyboardInterrupt:
-                        command_executor.terminate()
+                        agent_state.tool_output = full_command_output
+                        agent_state.action_needed = None # Resetear
+                        # Re-invocar para procesar la salida
+                        continue
+
+                    # 3. Mostrar respuesta final y salir del bucle del orquestador
+                    elif agent_state.action_needed == "final_response":
                         if console:
-                            console.print(Padding("\n\n[bold red]Comando cancelado por el usuario.[/bold red]", (0, 2)))
+                            console.print(Padding(Panel(Markdown(agent_state.final_response), 
+                                                        border_style='green' if agent_state.status == "finished" else 'red', 
+                                                        title=f'KogniTerm ({current_agent_mode})'), (1, 2)))
                         else:
-                            print("\n\nComando cancelado por el usuario.")
-                        # Señalizar al agente que el comando fue cancelado
+                            print(f"\nKogniTerm ({current_agent_mode}):\n{agent_state.final_response}\n")
+                        break # Salir del bucle while del orquestador
+                    
+                    # Si no hay acción necesaria, pero el grafo no ha terminado, algo salió mal.
+                    else:
+                        print("[bold red]El orquestador ha entrado en un estado inesperado. Reiniciando.[/bold red]")
+                        break
+
+            # Lógica para el modo BASH (la original)
+            else:
+                agent_state.messages.append(HumanMessage(content=user_input))
+                with console.status("[bold green]KogniTerm está pensando...", spinner="dots"):
+                    final_state_dict = await active_agent_app.ainvoke(agent_state)
+                
+                agent_state.messages = final_state_dict['messages']
+                agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+
+                if agent_state.command_to_confirm:
+                    command_to_execute = agent_state.command_to_confirm
+                    agent_state.command_to_confirm = None
+                    run_command = False
+                    if auto_approve:
+                        run_command = True
+                        if console:
+                            console.print(Padding("[yellow]Comando auto-aprobado.[/yellow]", (0, 2)))
+                        else:
+                            print("Comando auto-aprobado.")
+                    else:
+                        while True:
+                            approval_input = input(f"\n¿Deseas ejecutar este comando? (s/n): {command_to_execute}\n").lower().strip()
+                            if approval_input == 's':
+                                run_command = True
+                                break
+                            elif approval_input == 'n':
+                                print("Comando no ejecutado.")
+                                run_command = False
+                                break
+                            else:
+                                print("Respuesta no válida. Por favor, responde 's' o 'n'.")
+
+                    if run_command:
+                        full_command_output = ""
+                        try:
+                            if console:
+                                console.print(Padding("[yellow]Ejecutando comando... (Presiona Ctrl+C para cancelar)[/yellow]", (0, 2)))
+                            else:
+                                print("Ejecutando comando... (Presiona Ctrl+C para cancelar)")
+                            
+                            for output_chunk in command_executor.execute(command_to_execute, cwd=os.getcwd()):
+                                full_command_output += output_chunk
+                                print(output_chunk, end='', flush=True)
+                            print()
+                            
+                            agent_state.messages.append(ToolMessage(
+                                content=full_command_output, 
+                                tool_call_id="execute_command"
+                            ))
+                            
+                            final_state_dict = await active_agent_app.ainvoke(agent_state)
+                            agent_state.messages = final_state_dict['messages']
+                            
+                        except KeyboardInterrupt:
+                            command_executor.terminate()
+                            if console:
+                                console.print(Padding("\n\n[bold red]Comando cancelado por el usuario.[/bold red]", (0, 2)))
+                            else:
+                                print("\n\nComando cancelado por el usuario.")
+                            agent_state.messages.append(ToolMessage(
+                                content="Comando cancelado por el usuario.", 
+                                tool_call_id="execute_command"
+                            ))
+                            final_state_dict = await active_agent_app.ainvoke(agent_state)
+                            agent_state.messages = final_state_dict['messages']
+                    else:
                         agent_state.messages.append(ToolMessage(
-                            content="Comando cancelado por el usuario.", 
+                            content="Comando no ejecutado por el usuario.", 
                             tool_call_id="execute_command"
                         ))
-                        final_state_dict = active_agent_app.invoke(agent_state)
+                        final_state_dict = await active_agent_app.ainvoke(agent_state)
                         agent_state.messages = final_state_dict['messages']
-                else:
-                    # Si el comando no se ejecutó, señalizar al agente
-                    agent_state.messages.append(ToolMessage(
-                        content="Comando no ejecutado por el usuario.", 
-                        tool_call_id="execute_command"
-                    ))
-                    final_state_dict = active_agent_app.invoke(agent_state)
-                    agent_state.messages = final_state_dict['messages']
 
-            # La respuesta final del AI es el último mensaje en el estado
-            final_response_message = agent_state.messages[-1] # Usar agent_state.messages directamente
+                final_response_message = agent_state.messages[-1]
+                if isinstance(final_response_message, AIMessage) and final_response_message.content:
+                    content = final_response_message.content
+                    if not isinstance(content, str):
+                        content = str(content)
 
-            if isinstance(final_response_message, AIMessage) and final_response_message.content:
-                content = final_response_message.content
-                if not isinstance(content, str):
-                    content = str(content)
-
-                if console:
-                    console.print(Padding(Panel(Markdown(content), 
-                                                border_style='blue', title=f'KogniTerm ({current_agent_mode})'), (1, 2)))
-                else:
-                    print(f"\nKogniTerm ({current_agent_mode}):\n{content}\n")
-            
-            # No es necesario actualizar agent_state.messages aquí de nuevo, ya está actualizado
-
+                    if console:
+                        console.print(Padding(Panel(Markdown(content), 
+                                                    border_style='blue', title=f'KogniTerm ({current_agent_mode})'), (1, 2)))
+                    else:
+                        print(f"\nKogniTerm ({current_agent_mode}):\n{content}\n")
+        
         except KeyboardInterrupt:
             print("\nSaliendo...")
             break
