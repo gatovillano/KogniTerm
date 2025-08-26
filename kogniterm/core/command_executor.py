@@ -4,6 +4,7 @@ import select
 import subprocess
 import sys
 import termios
+import time
 import tty
 
 class CommandExecutor:
@@ -36,9 +37,9 @@ class CommandExecutor:
             # Esto pasa todas las teclas directamente al proceso sin procesarlas
             tty.setraw(sys.stdin.fileno())
 
-            # Si el comando contiene 'sudo', añadir la opción '-S' para que lea la contraseña de stdin
-            if command.strip().startswith("sudo ") and "-S" not in command:
-                command = command.replace("sudo", "sudo -S", 1)
+            # Si el comando contiene 'sudo', envolverlo con 'script -qc' para manejar la solicitud de contraseña
+            if command.strip().startswith("sudo "):
+                command = f"script -qc '{command}' /dev/null"
                 
             # Iniciar el proceso del comando en el PTY
             self.process = subprocess.Popen(
@@ -61,15 +62,18 @@ class CommandExecutor:
                     # Manejar la salida del comando
                     if master_fd in readable_fds:
                         try:
-                            output = os.read(master_fd, 1024).decode(errors='ignore')
+                            output = os.read(master_fd, 1024).decode(errors='replace')
                             if output:
                                 yield output
                             else:
-                                # EOF (End Of File) - el proceso ha cerrado su extremo del PTY
-                                break
+                                # Si no hay salida, y el proceso sigue vivo, esperamos un poco
+                                time.sleep(0.01) # Pequeño retardo para evitar bucle busy-wait
                         except OSError:
                             # Error al leer, probablemente el proceso terminó abruptamente
                             break
+                    else:
+                        # Si no hay nada que leer de master_fd, esperamos un poco
+                        time.sleep(0.01)
 
                     # Manejar la entrada del usuario
                     if sys.stdin.fileno() in readable_fds:

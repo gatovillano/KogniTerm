@@ -5,8 +5,8 @@ from google.generativeai.client import configure
 from google.generativeai.generative_models import GenerativeModel
 from google.api_core.exceptions import GoogleAPIError
 from langchain_core.tools import BaseTool
-from google.generativeai.types import GenerateContentResponse
-from google.generativeai.protos import Candidate, Content, Part
+from google.generativeai.types import GenerateContentResponse, GenerationConfig
+from google.generativeai.protos import Candidate, Content, Part, FunctionDeclaration, Schema, Type
 
 from .tools import get_callable_tools
 
@@ -15,35 +15,42 @@ from .tools import get_callable_tools
 def pydantic_to_genai_type(pydantic_type: str):
     """Convierte un tipo de Pydantic a un tipo de google.generativeai.protos.Type."""
     type_map = {
-        'string': genai.protos.Type.STRING,
-        'number': genai.protos.Type.NUMBER,
-        'integer': genai.protos.Type.INTEGER,
-        'boolean': genai.protos.Type.BOOLEAN,
-        'array': genai.protos.Type.ARRAY,
-        'object': genai.protos.Type.OBJECT,
+        'string': Type.STRING,
+        'number': Type.NUMBER,
+        'integer': Type.INTEGER,
+        'boolean': Type.BOOLEAN,
+        'array': Type.ARRAY,
+        'object': Type.OBJECT,
     }
-    return type_map.get(pydantic_type, genai.protos.Type.STRING) # Fallback a STRING
+    return type_map.get(pydantic_type, Type.STRING) # Fallback a STRING
 
 def convert_langchain_tool_to_genai(
     tool: BaseTool
-) -> genai.protos.FunctionDeclaration:
+) -> FunctionDeclaration:
     """Convierte una herramienta de LangChain (BaseTool) a una FunctionDeclaration de Google AI."""
-    args_schema = tool.args_schema.schema()
+    # Asegurarse de que args_schema es un diccionario antes de intentar acceder a .schema()
+    # Si tool.args_schema es un BaseModel, obtener su esquema; de lo contrario, usarlo directamente (si ya es un dict)
+    if hasattr(tool.args_schema, 'schema'):
+        args_schema_dict = tool.args_schema.schema()
+    elif isinstance(tool.args_schema, dict):
+        args_schema_dict = tool.args_schema
+    else:
+        args_schema_dict = {} # Valor por defecto si no es ni BaseModel ni dict
     
     properties = {}
-    required = args_schema.get('required', [])
+    required = args_schema_dict.get('required', [])
 
-    for name, definition in args_schema.get('properties', {}).items():
-        properties[name] = genai.protos.Schema(
+    for name, definition in args_schema_dict.get('properties', {}).items():
+        properties[name] = Schema(
             type=pydantic_to_genai_type(definition.get('type')),
             description=definition.get('description', '')
         )
 
-    return genai.protos.FunctionDeclaration(
+    return FunctionDeclaration(
         name=tool.name,
         description=tool.description,
-        parameters=genai.protos.Schema(
-            type=genai.protos.Type.OBJECT,
+        parameters=Schema(
+            type=Type.OBJECT,
             properties=properties,
             required=required
         )
@@ -62,7 +69,7 @@ class LLMService:
 
         configure(api_key=api_key)
 
-        self.model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         
         # Obtener herramientas de LangChain
         self.langchain_tools = get_callable_tools()
@@ -71,7 +78,7 @@ class LLMService:
         self.google_ai_tools = [convert_langchain_tool_to_genai(tool) for tool in self.langchain_tools]
 
         # Configuración para la generación de contenido
-        generation_config = genai.types.GenerationConfig(
+        generation_config = GenerationConfig(
             temperature=0.7, # Un valor más alto para fomentar la creatividad en la planificación
             # top_p=0.95, # Descomentar si se desea usar nucleous sampling
             # top_k=40,   # Descomentar si se desea usar top-k sampling
@@ -84,22 +91,25 @@ class LLMService:
             generation_config=generation_config
         )
 
-    async def ainvoke(self, history: list, system_message: str = None):
+    async def ainvoke(self, history: list):
         """
         Invoca el modelo Gemini de forma asíncrona con un historial de conversación.
 
         Args:
             history: Una lista de diccionarios que representan el historial de la conversación.
-            system_message: Un mensaje de sistema opcional (actualmente no usado por el modelo de chat).
+                     El mensaje del sistema, si es necesario, debe ser el primer mensaje en este historial.
 
         Returns:
             La respuesta del modelo.
         """
         chat_session = self.model.start_chat(history=history, enable_automatic_function_calling=True)
-        last_message = history[-1]['parts'][0]
+        # El último mensaje del historial es el que se envía al modelo.
+        # Si el historial tiene múltiples mensajes, start_chat los usa para inicializar la conversación.
+        # El mensaje a enviar individualmente es el último del historial.
+        last_message_content = history[-1]['parts'][0]
 
         try:
-            response = await chat_session.send_message_async(last_message)
+            response = await chat_session.send_message_async(last_message_content)
             return response
         except GoogleAPIError as e:
             error_message = f"Error de API de Gemini: {e}"

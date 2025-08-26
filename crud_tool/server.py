@@ -1,1 +1,0 @@
-# Servidor Python para operaciones CRUD

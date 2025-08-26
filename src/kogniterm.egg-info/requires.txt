@@ -2,7 +2,6 @@ langgraph
 prompt_toolkit
 langchain_mcp_adapters
 langchain_community
-langchain
 bs4
 PyGithub
-python-dotenv
+rich

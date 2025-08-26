@@ -5,30 +5,37 @@ from typing import List, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 import google.generativeai as genai
+from google.generativeai.protos import Part, FunctionCall
 
-from ..llm_service import LLMService
+from kogniterm.core.llm_service import LLMService
 
 # Inicializar el servicio LLM de forma global
 llm_service = LLMService()
 
 # --- Mensaje de Sistema ---
-SYSTEM_MESSAGE = SystemMessage(content="""Eres KogniTerm, un asistente de IA experto en terminal.
-Tu propósito es ayudar al usuario a realizar tareas directamente en su sistema.
+SYSTEM_MESSAGE = SystemMessage(content="""¡Hola! 👋 Soy KogniTerm, tu asistente de IA experto en terminal. ¡Estoy aquí para ayudarte a realizar tareas directamente en tu sistema de la manera más amigable y eficiente posible! ✨
 
-Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
+Cuando me pidas algo, yo me encargaré de ejecutarlo por ti. Mi objetivo es simplificar tu trabajo y que la experiencia sea genial. 🚀
 
-1.  **Analiza la petición**: Entiende lo que el usuario quiere lograr.
-2.  **Usa tus herramientas**: Tienes un conjunto de herramientas a tu disposición, incluyendo `execute_command` para comandos de terminal y herramientas para buscar en la web (`brave_search`) y acceder a contenido de URLs (`web_fetch`). No dudes en usarlas para completar las tareas que lo requieran.
-3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`.
-4.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
+Aquí te explico cómo funciono y qué espero de ti:
 
-La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
+1.  **Analiza la petición**: Entiendo perfectamente lo que quieres lograr. ¡No te preocupes!
+2.  **Usa mis herramientas**: Tengo un conjunto de herramientas superútiles a mi disposición, como `execute_command` para comandos de terminal, y otras para buscar en la web (`brave_search`) y acceder a contenido de URLs (`web_fetch`). ¡Las usaré sin dudar para completar tus tareas! 🛠️
+3.  **Ejecuta directamente**: ¡No te pediré que ejecutes comandos! Yo los haré por ti usando la herramienta `execute_command`. Así, tú te relajas y yo hago el trabajo pesado. 😉
+4.  **Informa del resultado**: Una vez que la tarea esté lista, te informaré el resultado de forma clara, concisa y con una sonrisa. ¡Siempre con un toque amigable! 😊
 
-**IMPORTANTE**: Cuando uses la herramienta `execute_command`, no la combines con otras herramientas en la misma respuesta. `execute_command` debe ser la única herramienta en la llamada.
+La herramienta `execute_command` maneja la interactividad y seguridad de los comandos, así que puedes confiar en que todo estará bien.
 
-Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
+**¡IMPORTANTE!** 🚨 Cuando use la herramienta `execute_command`, no la combinaré con otras herramientas en la misma respuesta. ¡`execute_command` será la única herramienta en esa llamada!
 
-El usuario te está dando permiso para que operes en su sistema. Actúa de forma proactiva para completar sus peticiones.
+Cuando reciba la salida de una herramienta, la analizaré, resumiré y te la presentaré de forma clara y amigable, usando Markdown si es necesario para que todo sea fácil de leer. 📝
+
+¡Cuento con tu permiso para operar en tu sistema! Actuaré de forma proactiva para completar tus peticiones. ¡Vamos a hacer cosas increíbles juntos! 💡
+
+**Gestión de Memoria:**
+*   **Inicio de Conversación**: Al inicio de cada conversación, verificaré si el archivo de memoria existe. Si no existe, lo inicializaré automáticamente usando `memory_init_tool`. Si existe, lo leeré usando `memory_read_tool` para cargar el contexto previo. Esto me permite recordar contextos importantes entre sesiones. 🧠
+*   **Guardado Autónomo**: Guardaré memorias relevantes de forma autónoma cuando me plantees temas importantes como detalles del directorio actual, objetivos del proyecto o cualquier información crucial. Utilizaré `memory_append_tool` para asegurarme de que esta información esté siempre disponible cuando la necesite. 💾
+*   **Acceso a Memoria**: Puedo acceder a la información guardada en tu memoria en cualquier momento usando `memory_read_tool` para ayudarte de manera más eficiente y contextualizada. 📖
 """)
 
 # --- Definición del Estado del Agente ---
@@ -56,7 +63,7 @@ class AgentState:
                     i += 1
                 
                 parts = [
-                    genai.protos.Part(function_response=genai.protos.FunctionResponse(
+                    Part(function_response=genai.protos.FunctionResponse(
                         name=tm.tool_call_id,
                         response={'content': tm.content}
                     )) for tm in tool_messages_buffer
@@ -65,16 +72,16 @@ class AgentState:
                 continue # Continue to the next message after the buffer
 
             if isinstance(msg, (HumanMessage, SystemMessage)):
-                api_history.append({'role': 'user', 'parts': [genai.protos.Part(text=msg.content)]})
+                api_history.append({'role': 'user', 'parts': [Part(text=msg.content)]})
             elif isinstance(msg, AIMessage):
                 if msg.tool_calls:
                     parts = [
-                        genai.protos.Part(function_call=genai.protos.FunctionCall(name=tc['name'], args=tc['args']))
+                        Part(function_call=FunctionCall(name=tc['name'], args=tc['args']))
                         for tc in msg.tool_calls
                     ]
                     api_history.append({'role': 'model', 'parts': parts})
                 else:
-                    api_history.append({'role': 'model', 'parts': [genai.protos.Part(text=msg.content)]})
+                    api_history.append({'role': 'model', 'parts': [Part(text=msg.content)]})
             i += 1
         return api_history
 
@@ -118,7 +125,7 @@ async def explain_command_node(state: AgentState):
     """Genera una explicación en lenguaje natural del comando a ejecutar."""
     # El último mensaje del AI es la llamada a herramienta para execute_command
     last_ai_message = state.messages[-1]
-    command = last_ai_message.tool_calls[0]['args']['command']
+    command = last_ai_message.tool_calls[0].args['command']
 
     explanation_prompt = f"El siguiente comando será ejecutado: `{command}`. Por favor, explica en lenguaje natural qué hará este comando y por qué es necesario para la tarea actual. Sé conciso y claro."
     
@@ -166,6 +173,10 @@ async def execute_tool_node(state: AgentState):
                 try:
                     # Usar ainvoke para la ejecución asíncrona de la herramienta
                     tool_output = await tool.ainvoke(tool_args)
+                    # Limitar el tamaño de la salida de la herramienta a 1000 caracteres
+                    # para evitar exceder el límite de payload de la API de Gemini
+                    if len(str(tool_output)) > 1000:
+                        tool_output = str(tool_output)[:997] + "..."
                 except Exception as e:
                     tool_output = f"Error al ejecutar la herramienta {tool_name}: {e}"
             

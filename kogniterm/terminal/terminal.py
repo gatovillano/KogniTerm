@@ -1,10 +1,15 @@
 import asyncio
 import sys
 import os
+import argparse # Added for argument parsing
+from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from ..core.command_executor import CommandExecutor # Nueva importación
+from ..core.command_executor import CommandExecutor
+
+# Cargar variables de entorno desde .env
+load_dotenv()
 
 # --- Estilo de la Interfaz (Rich) ---
 try:
@@ -296,3 +301,13 @@ async def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_
             print(f"Ocurrió un error inesperado: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc()
+
+def main():
+    parser = argparse.ArgumentParser(description="KogniTerm: Un asistente de IA experto en terminal.")
+    parser.add_argument("-y", "--yes", action="store_true", help="Auto-aprobar todas las acciones.")
+    args = parser.parse_args()
+    
+    asyncio.run(start_terminal_interface(auto_approve=args.yes))
+
+if __name__ == "__main__":
+    main()

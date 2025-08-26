@@ -1,0 +1,25 @@
+[project]
+name = "kogniterm"
+version = "0.1.0"
+description = "Un asistente de IA experto en terminal."
+authors = [
+    { name = "Gato Villano", email = "gato@example.com" } # Puedes cambiar esto
+]
+dependencies = [
+    "langgraph",
+    "prompt_toolkit",
+    "langchain_mcp_adapters",
+    "langchain_community",
+    "bs4",
+    "PyGithub",
+    "rich", # Añadido si lo usas para la UI
+]
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.scripts]
+kogniterm = "kogniterm.terminal.terminal:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
