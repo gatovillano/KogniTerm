@@ -2,3 +2,5 @@
 venv
 *.gemini_interpreter_history
 __pycache__
+llm_context.txt
+.kogniterm_conversation_history.json

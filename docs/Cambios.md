@@ -254,90 +254,90 @@ Se ha modificado el archivo `gemini_interpreter/terminal/terminal.py` para integ
  - **Conclusión**: La funcionalidad de streaming ya estaba implementada y no requirió modificaciones adicionales.
 ---
 ## 24-08-2025 Corrección de Doble Mensaje y Formato Markdown en Streaming
-  Descripción general: Se corrigieron dos problemas en la terminal de KogniTerm: el LLM se respondía a sí mismo generando mensajes duplicados, y el texto en streaming no se formateaba correctamente en Markdown.
+   Descripción general: Se corrigieron dos problemas en la terminal de KogniTerm: el LLM se respondía a sí mismo generando mensajes duplicados, y el texto en streaming no se formateaba correctamente en Markdown.
+   
+   - **Eliminación de Doble Invocación del Agente**: Se modificó `kogniterm/terminal/terminal.py` para asegurar que el grafo del agente (`active_agent_app.invoke(agent_state)`) se invoque una única vez después de que el usuario ha ingresado su mensaje o después de que un comando ha sido ejecutado. Esto evita que el LLM genere respuestas duplicadas.
+   - **Formato Markdown en la Salida Final**: Se ajustó la lógica en `kogniterm/terminal/terminal.py` para que los fragmentos de texto del streaming se acumulen en `full_ai_response_content` sin imprimirse directamente. La impresión final del `AIMessage` se movió a una sección única al final del bucle principal, asegurando que toda la respuesta del LLM/agente se muestre en formato Markdown de manera consistente.
+---
+## 26-08-25 Corrección de `NameError` en `terminal.py`
+   Descripción general: Se corrigió un `NameError` en `kogniterm/terminal/terminal.py` que impedía la correcta visualización del banner de bienvenida debido a una variable `color` no definida.
   
-  - **Eliminación de Doble Invocación del Agente**: Se modificó `kogniterm/terminal/terminal.py` para asegurar que el grafo del agente (`active_agent_app.invoke(agent_state)`) se invoque una única vez después de que el usuario ha ingresado su mensaje o después de que un comando ha sido ejecutado. Esto evita que el LLM genere respuestas duplicadas.
-  - **Formato Markdown en la Salida Final**: Se ajustó la lógica en `kogniterm/terminal/terminal.py` para que los fragmentos de texto del streaming se acumulen en `full_ai_response_content` sin imprimirse directamente. La impresión final del `AIMessage` se movió a una sección única al final del bucle principal, asegurando que toda la respuesta del LLM/agente se muestre en formato Markdown de manera consistente.
+   - **Causa del Error**: La variable `color` no estaba siendo inicializada dentro del bucle que imprime el banner, lo que causaba un `NameError`.
+   - **Solución**: Se implementó una lógica para interpolar los colores de una paleta predefinida (`colors`) y asignar el color correspondiente a la variable `color` en cada iteración del bucle, creando un degradado visual en el banner de bienvenida.
 ---
-## 25-08-25 Corrección de `NameError` en `terminal.py`
-  Descripción general: Se corrigió un `NameError` en `kogniterm/terminal/terminal.py` que impedía la correcta visualización del banner de bienvenida debido a una variable `color` no definida.
- 
-  - **Causa del Error**: La variable `color` no estaba siendo inicializada dentro del bucle que imprime el banner, lo que causaba un `NameError`.
-  - **Solución**: Se implementó una lógica para interpolar los colores de una paleta predefinida (`colors`) y asignar el color correspondiente a la variable `color` en cada iteración del bucle, creando un degradado visual en el banner de bienvenida.
+## 26-08-25 Añadir Spinner de Carga en la Terminal
+   Descripción general: Se ha añadido un spinner de carga en la terminal para mejorar la experiencia del usuario mientras el LLM está procesando una respuesta. 
+  
+   - **Punto 1**: Se importó la clase `Spinner` de la librería `rich` en `kogniterm/terminal/terminal.py`.
+   - **Punto 2**: Se ha utilizado el manejador de contexto `console.status` para mostrar un spinner con el mensaje "KogniTerm está pensando..." mientras se invoca al agente del LLM. Esto proporciona una retroalimentación visual al usuario de que la aplicación está trabajando.
+   - **Punto 3**: Se ha añadido un fallback para los casos en que `rich` no esté disponible, mostrando un simple mensaje de texto "Procesando...".
 ---
-## 25-08-25 Añadir Spinner de Carga en la Terminal
-  Descripción general: Se ha añadido un spinner de carga en la terminal para mejorar la experiencia del usuario mientras el LLM está procesando una respuesta. 
- 
-  - **Punto 1**: Se importó la clase `Spinner` de la librería `rich` en `kogniterm/terminal/terminal.py`.
-  - **Punto 2**: Se ha utilizado el manejador de contexto `console.status` para mostrar un spinner con el mensaje "KogniTerm está pensando..." mientras se invoca al agente del LLM. Esto proporciona una retroalimentación visual al usuario de que la aplicación está trabajando.
-  - **Punto 3**: Se ha añadido un fallback para los casos en que `rich` no esté disponible, mostrando un simple mensaje de texto "Procesando...".
+## 26-08-25 Mejora de la UX del terminal, corrección de problemas del agente y adición de documentación de refactorización
+  Descripción general: Se realizaron mejoras significativas en la robustez y la experiencia de usuario del terminal, se corrigieron problemas en el comportamiento del agente y se añadió nueva documentación.
+  
+  - **Robustez del Terminal**: Se corrigió la cancelación con `Ctrl+C`, se manejó la entrada vacía del usuario y se resolvió un `NameError` en el banner de bienvenida.
+  - **Experiencia de Usuario Mejorada**: Se añadió un spinner de carga durante el procesamiento del LLM y se mejoró el formato Markdown para las respuestas en streaming.
+  - **Corrección del Comportamiento del Agente**: Se evitó la doble invocación del grafo del agente activo.
+  - **Nueva Documentación**: Se añadió documentación para el análisis de refactorización de KogniTerm y una propuesta de refactorización del orquestador.
+  - **Servidor CRUD Básico**: Se introdujo un marcador de posición básico para un servidor CRUD.
 ---
-## 25-08-25 Mejora de la UX del terminal, corrección de problemas del agente y adición de documentación de refactorización
- Descripción general: Se realizaron mejoras significativas en la robustez y la experiencia de usuario del terminal, se corrigieron problemas en el comportamiento del agente y se añadió nueva documentación.
- 
- - **Robustez del Terminal**: Se corrigió la cancelación con `Ctrl+C`, se manejó la entrada vacía del usuario y se resolvió un `NameError` en el banner de bienvenida.
- - **Experiencia de Usuario Mejorada**: Se añadió un spinner de carga durante el procesamiento del LLM y se mejoró el formato Markdown para las respuestas en streaming.
- - **Corrección del Comportamiento del Agente**: Se evitó la doble invocación del grafo del agente activo.
- - **Nueva Documentación**: Se añadió documentación para el análisis de refactorización de KogniTerm y una propuesta de refactorización del orquestador.
- - **Servidor CRUD Básico**: Se introdujo un marcador de posición básico para un servidor CRUD.
----
-## 25-08-2025 Lectura del Repositorio KogniTerm
- Se realizó una lectura recursiva de los archivos del repositorio `gatovillano/KogniTerm` para comprender su estructura y funcionamiento.
- 
- - **Listado de archivos**: Se listaron todos los archivos y directorios de forma recursiva dentro de la carpeta `kogniterm`.
- - **Lectura de archivos clave**: Se leyeron los contenidos de los siguientes archivos para entender la lógica del proyecto:
-     - `kogniterm/requirements.txt`: Para conocer las dependencias del proyecto.
-     - `kogniterm/core/__init__.py`: Para entender la inicialización del módulo `core`.
-     - `kogniterm/core/command_executor.py`: Para comprender cómo se ejecutan los comandos.
-     - `kogniterm/core/llm_service.py`: Para entender la interacción con el modelo de lenguaje.
-     - `kogniterm/core/tools.py`: Para conocer las herramientas disponibles para los agentes.
-     - `kogniterm/core/agents/bash_agent.py`: Para entender el funcionamiento del agente bash.
-     - `kogniterm/core/agents/orchestrator_agent.py`: Para entender el funcionamiento del agente orquestador.
-     - `kogniterm/terminal/__init__.py`: Para entender la inicialización del módulo `terminal`.
-     - `kogniterm/terminal/terminal.py`: Para comprender la lógica principal de la interfaz de la terminal.
+## 26-08-2025 Lectura del Repositorio KogniTerm
+  Se realizó una lectura recursiva de los archivos del repositorio `gatovillano/KogniTerm` para comprender su estructura y funcionamiento.
+  
+  - **Listado de archivos**: Se listaron todos los archivos y directorios de forma recursiva dentro de la carpeta `kogniterm`.
+  - **Lectura de archivos clave**: Se leyeron los contenidos de los siguientes archivos para entender la lógica del proyecto:
+      - `kogniterm/requirements.txt`: Para conocer las dependencias del proyecto.
+      - `kogniterm/core/__init__.py`: Para entender la inicialización del módulo `core`.
+      - `kogniterm/core/command_executor.py`: Para comprender cómo se ejecutan los comandos.
+      - `kogniterm/core/llm_service.py`: Para entender la interacción con el modelo de lenguaje.
+      - `kogniterm/core/tools.py`: Para conocer las herramientas disponibles para los agentes.
+      - `kogniterm/core/agents/bash_agent.py`: Para entender el funcionamiento del agente bash.
+      - `kogniterm/core/agents/orchestrator_agent.py`: Para entender el funcionamiento del agente orquestador.
+      - `kogniterm/terminal/__init__.py`: Para entender la inicialización del módulo `terminal`.
+      - `kogniterm/terminal/terminal.py`: Para comprender la lógica principal de la interfaz de la terminal.
 ---
 ## 26-08-2025 Solución de Errores de API de Gemini y Clarificación de Capacidades del LLM
-
+ 
  Descripción general: Se abordaron múltiples errores relacionados con la interacción del LLM con la API de Gemini y la comprensión de sus propias capacidades. Esto incluyó la corrección de errores en el envío de datos de herramientas a la API y la actualización del prompt del modelo para que tenga una visión más precisa de sus permisos y herramientas operativas.
-
+ 
  - **Corrección de `AttributeError: 'ToolMessage' object has no attribute 'tool_name'`**: Se revirtió el cambio que intentaba usar `tm.tool_name` y se restauró `tm.name`, que es el atributo correcto para el nombre de la herramienta en `ToolMessage` de LangChain.
  - **Corrección de `ValueError: Unknown field for FunctionResponse: tool_request_id`**: Se eliminó el campo `tool_request_id` de la construcción de `FunctionResponse` en `bash_agent.py`, ya que no es un campo reconocido por la versión actual de la librería `google.generativeai`.
  - **Corrección de `400 Please ensure that the number of function response parts is equal to the number of function call parts of the function call turn.`**: Se verificó que la construcción de `FunctionResponse` en `bash_agent.py` era correcta (`name=tm.name`, `response={'content': tm.content}`), y se confirmó que el problema anterior (relacionado con el `tool_request_id` inexistente) estaba causando este error al corromper el objeto `FunctionResponse`. Al eliminar el campo inválido, se restauró la correcta correspondencia entre llamadas y respuestas de herramientas.
  - **Clarificación del Prompt del LLM**: Se actualizó y reforzó el `SYSTEM_MESSAGE` en `kogniterm/core/agents/bash_agent.py` para asegurar que el LLM comprenda plenamente que tiene acceso operativo a herramientas como `brave_search`, `web_fetch`, `github_tool`, `execute_command`, y `file_crud_tool`, y que puede y debe utilizarlas para interactuar directamente con el sistema y la web.
 ---
 ## 26-08-2025 Centralización de Variables de Entorno
-
-Descripción general: Se han centralizado las variables de entorno para Brave Search, Google API y GitHub Token en el archivo `.env`, mejorando la seguridad y la gestión de credenciales.
-
-- **Creación/Actualización de `.env`**: Se verificó la existencia del archivo `.env` y se actualizó para incluir `BRAVE_SEARCH_API_KEY`, `GOOGLE_API_KEY` y `GITHUB_TOKEN`.
-- **Integración en `kogniterm/core/tools.py`**: Se añadió la carga de variables de entorno (`load_dotenv()`) al inicio de `kogniterm/core/tools.py` para asegurar que las herramientas (`BraveSearchTool`, `GitHubTool`) puedan acceder a las credenciales directamente desde el entorno. Se ajustó la inicialización de `BraveSearch` para que no requiera `api_key` explícitamente, ya que lo obtiene del entorno.
-- **Verificación en `kogniterm/core/llm_service.py`**: Se confirmó que `kogniterm/core/llm_service.py` ya obtenía la `GOOGLE_API_KEY` de las variables de entorno, por lo que no fue necesario realizar cambios adicionales.
+ 
+ Descripción general: Se han centralizado las variables de entorno para Brave Search, Google API y GitHub Token en el archivo `.env`, mejorando la seguridad y la gestión de credenciales.
+ 
+ - **Creación/Actualización de `.env`**: Se verificó la existencia del archivo `.env` y se actualizó para incluir `BRAVE_SEARCH_API_KEY`, `GOOGLE_API_KEY` y `GITHUB_TOKEN`.
+ - **Integración en `kogniterm/core/tools.py`**: Se añadió la carga de variables de entorno (`load_dotenv()`) al inicio de `kogniterm/core/tools.py` para asegurar que las herramientas (`BraveSearchTool`, `GitHubTool`) puedan acceder a las credenciales directamente desde el entorno. Se ajustó la inicialización de `BraveSearch` para que no requiera `api_key` explícitamente, ya que lo obtiene del entorno.
+ - **Verificación en `kogniterm/core/llm_service.py`**: Se confirmó que `kogniterm/core/llm_service.py` ya obtenía la `GOOGLE_API_KEY` de las variables de entorno, por lo que no fue necesario realizar cambios adicionales.
 ---
 ## 26-08-2025 Implementación de Capa de Abstracción para Herramientas
  Descripción general: Se ha creado una capa de abstracción (`ToolAbstractionLayer`) para centralizar la invocación, el manejo de errores y la normalización de la salida de las herramientas en `kogniterm/core/tools.py`. Esto facilita la adición de nuevas herramientas y mejora la robustez del sistema.
-
+ 
  - **Creación de `ToolAbstractionLayer`**: Se añadió la clase `ToolAbstractionLayer` en `kogniterm/core/tools.py`, la cual envuelve las herramientas (`BaseTool`) y proporciona métodos `run` y `arun` para su ejecución, incluyendo un manejo de excepciones consistente y formateo de la salida.
  - **Modificación de `get_callable_tools`**: La función `get_callable_tools` en `kogniterm/core/tools.py` ahora devuelve instancias de `ToolAbstractionLayer` que encapsulan a cada una de las herramientas originales, asegurando que todas las invocaciones pasen por esta nueva capa.
 ---
 ## 26-08-2025 Refactorización de la Gestión de Memoria con LangChain
  Descripción general: Se ha refactorizado la gestión del historial y la memoria del agente para utilizar `ConversationBufferMemory` de LangChain, con el objetivo de mejorar la consistencia del historial y la interacción del LLM con las herramientas.
-
+ 
  - **Añadir dependencia `langchain`**: Se añadió `langchain` a `kogniterm/requirements.txt` para habilitar el uso de sus módulos de memoria.
  - **Modificación de `AgentState`**: La clase `AgentState` en `kogniterm/core/agents/bash_agent.py` ahora utiliza una instancia de `ConversationBufferMemory` para almacenar el historial de mensajes, reemplazando la lista `messages` directa. El `SYSTEM_MESSAGE` se inicializa correctamente en esta memoria.
  - **Ajuste de `history_for_api`**: La propiedad `history_for_api` en `AgentState` fue actualizada para extraer los mensajes del objeto `ConversationBufferMemory` y convertirlos al formato requerido por la API de Google AI, asegurando que el historial completo se pase al LLM.
  - **Actualización de nodos del grafo**: Los nodos `call_model_node`, `explain_command_node` y `execute_tool_node` en `kogniterm/core/agents/bash_agent.py` fueron modificados para interactuar con el nuevo objeto de memoria (`state.memory.chat_memory.add_message`) al añadir mensajes al historial.
 ---
 ## 26-08-2025 Optimización del Manejo de Prompts del Sistema en LLMService
-
-Descripción general: Se ha optimizado la forma en que el servicio LLM maneja los prompts del sistema, eliminando un parámetro redundante y corrigiendo errores de tipado y acceso a esquemas en la conversión de herramientas.
-
-- **Eliminación de Parámetro Redundante**: Se eliminó el parámetro `system_message` de la función `ainvoke` en `kogniterm/core/llm_service.py`, ya que los modelos Gemini esperan los mensajes del sistema como parte del historial de conversación inicial. El comentario de la función fue actualizado para reflejar esta expectativa.
-- **Corrección de Errores de Tipado y Acceso a Esquemas**: Se corrigieron múltiples errores de Pylance relacionados con el acceso a `genai.protos` y `genai.types` que surgieron tras una refactorización previa. Se ajustaron las importaciones para acceder directamente a `FunctionDeclaration`, `Schema`, y `Type` desde `google.generativeai.protos`, y `GenerationConfig` desde `google.generativeai.types`.
-- **Manejo Robusto de `tool.args_schema`**: Se mejoró la lógica en la función `convert_langchain_tool_to_genai` para manejar de forma más robusta el atributo `tool.args_schema`, asegurando que siempre se obtenga un diccionario válido para el esquema de argumentos de la herramienta.
+ 
+ Descripción general: Se ha optimizado la forma en que el servicio LLM maneja los prompts del sistema, eliminando un parámetro redundante y corrigiendo errores de tipado y acceso a esquemas en la conversión de herramientas.
+ 
+ - **Eliminación de Parámetro Redundante**: Se eliminó el parámetro `system_message` de la función `ainvoke` en `kogniterm/core/llm_service.py`, ya que los modelos Gemini esperan los mensajes del sistema como parte del historial de conversación inicial. El comentario de la función fue actualizado para reflejar esta expectativa.
+ - **Corrección de Errores de Tipado y Acceso a Esquemas**: Se corrigieron múltiples errores de Pylance relacionados con el acceso a `genai.protos` y `genai.types` que surgieron tras una refactorización previa. Se ajustaron las importaciones para acceder directamente a `FunctionDeclaration`, `Schema`, y `Type` desde `google.generativeai.types`, y `GenerationConfig` desde `google.generativeai.types`.
+ - **Manejo Robusto de `tool.args_schema`**: Se mejoró la lógica en la función `convert_langchain_tool_to_genai` para manejar de forma más robusta el atributo `tool.args_schema`, asegurando que siempre se obtenga un diccionario válido para el esquema de argumentos de la herramienta.
 ---
 ## 26-08-25 Extensión de `FileCRUDTool` con Lectura de Directorios
  Descripción general: Se añadió la capacidad a `FileCRUDTool` para leer el contenido de directorios, tanto de forma no recursiva como recursiva, y se corrigieron errores de Pylance existentes.
-
+ 
  - **Nuevas Acciones**: Se añadieron las acciones `read_directory` y `read_recursive_directory` a `FileCRUDTool`.
  - **Lectura de Directorios**: Implementación de la función `_read_directory` para listar contenidos de un directorio.
  - **Lectura Recursiva**: Implementación de la función `_read_recursive_directory` para leer archivos y directorios de forma recursiva.
@@ -345,25 +345,25 @@ Descripción general: Se ha optimizado la forma en que el servicio LLM maneja lo
  - **Corrección de Errores Pylance**: Se corrigieron errores de tipado y argumentos en `BraveSearchTool` y `WebFetchTool`.
 ---
 ## 26-08-2025 Mejora en el Manejo de Errores de FileCRUDTool
-Descripción general: Se mejoró la herramienta `FileCRUDTool` para proporcionar mensajes de error más claros y diagnósticos específicos para `FileNotFoundError` y `PermissionError` durante las operaciones de archivo.
-
-- **Mensajes de Error Específicos**: Se modificaron los bloques `try-except` en la función `_run` de `FileCRUDTool` para capturar `FileNotFoundError` y `PermissionError` de forma explícita, devolviendo mensajes más informativos al usuario.
-- **Logs de Depuración**: Se añadieron sentencias `logger.debug` en el método `_run` de `FileCRUDTool` para rastrear las operaciones de creación y apertura de archivos, facilitando la depuración de problemas relacionados con rutas y permisos.
+ Descripción general: Se mejoró la herramienta `FileCRUDTool` para proporcionar mensajes de error más claros y diagnósticos específicos para `FileNotFoundError` y `PermissionError` durante las operaciones de archivo.
+ 
+ - **Mensajes de Error Específicos**: Se modificaron los bloques `try-except` en la función `_run` de `FileCRUDTool` para capturar `FileNotFoundError` y `PermissionError` de forma explícita, devolviendo mensajes más informativos al usuario.
+ - **Logs de Depuración**: Se añadieron sentencias `logger.debug` en el método `_run` de `FileCRUDTool` para rastrear las operaciones de creación y apertura de archivos, facilitando la depuración de problemas relacionados con rutas y permisos.
 ---
 ## 26-08-2025 Mejora en el Manejo de Errores de FileCRUDTool
-Descripción general: Se mejoró la herramienta `FileCRUDTool` para proporcionar mensajes de error más claros y diagnósticos específicos para `FileNotFoundError` y `PermissionError` durante las operaciones de archivo.
-
-- **Mensajes de Error Específicos**: Se modificaron los bloques `try-except` en la función `_run` de `FileCRUDTool` para capturar `FileNotFoundError` y `PermissionError` de forma explícita, devolviendo mensajes más informativos al usuario.
-- **Logs de Depuración**: Se añadieron sentencias `logger.debug` en el método `_run` de `FileCRUDTool` para rastrear las operaciones de creación y apertura de archivos, facilitando la depuración de problemas relacionados con rutas y permisos.
+ Descripción general: Se mejoró la herramienta `FileCRUDTool` para proporcionar mensajes de error más claros y diagnósticos específicos para `FileNotFoundError` y `PermissionError` durante las operaciones de archivo.
+ 
+ - **Mensajes de Error Específicos**: Se modificaron los bloques `try-except` en la función `_run` de `FileCRUDTool` para capturar `FileNotFoundError` y `PermissionError` de forma explícita, devolviendo mensajes más informativos al usuario.
+ - **Logs de Depuración**: Se añadieron sentencias `logger.debug` en el método `_run` de `FileCRUDTool` para rastrear las operaciones de creación y apertura de archivos, facilitando la depuración de problemas relacionados con rutas y permisos.
 ---
 ## 26-08-2025 Verificación de Permisos de Escritura en FileCRUDTool
-Descripción general: Se añadió una verificación explícita de permisos de escritura en el directorio padre antes de intentar crear un archivo con la `FileCRUDTool`, proporcionando un diagnóstico más claro para problemas de permisos.
-
-- **Verificación de `os.access(dir_name, os.W_OK)`**: Se implementó una comprobación en la acción `create` de `FileCRUDTool` para verificar si el proceso tiene permisos de escritura (`os.W_OK`) en el directorio padre del archivo. Si no los tiene, se lanza un `PermissionError` con un mensaje específico.
+ Descripción general: Se añadió una verificación explícita de permisos de escritura en el directorio padre antes de intentar crear un archivo con la `FileCRUDTool`, proporcionando un diagnóstico más claro para problemas de permisos.
+ 
+ - **Verificación de `os.access(dir_name, os.W_OK)`**: Se implementó una comprobación en la acción `create` de `FileCRUDTool` para verificar si el proceso tiene permisos de escritura (`os.W_OK`) en el directorio padre del archivo. Si no los tiene, se lanza un `PermissionError` con un mensaje específico.
 ---
 ## 26-08-2025 Modularización de Herramientas en `kogniterm/core/tools/`
  Descripción general: Se refactorizó el archivo `kogniterm/core/tools.py` para separar cada herramienta en su propio archivo dentro de la nueva carpeta `kogniterm/core/tools/`, mejorando la modularidad y mantenibilidad del código.
-
+ 
  - **Creación de la carpeta `kogniterm/core/tools/`**: Se creó un nuevo directorio para alojar los archivos individuales de las herramientas.
  - **Archivos de Herramientas Individuales**: Cada clase de herramienta (ej. `BraveSearchTool`, `WebFetchTool`, `FileCreateTool`, etc.) fue movida a un archivo Python independiente (ej. `brave_search_tool.py`, `web_fetch_tool.py`, `file_create_tool.py`).
  - **Actualización de Importaciones**: Se actualizaron las importaciones en `kogniterm/core/tools.py` para importar las herramientas desde sus nuevos módulos.
@@ -371,50 +371,203 @@ Descripción general: Se añadió una verificación explícita de permisos de es
 ---
 ## 26-08-2025 Corrección de ImportError en Módulo `tools`
  Descripción general: Se solucionó el `ImportError` al importar `get_callable_tools` moviendo la función al archivo `__init__.py` del paquete `tools`, asegurando que la importación funcione correctamente.
-
+ 
  - **Movimiento de `get_callable_tools`**: La función `get_callable_tools()` y sus importaciones asociadas fueron movidas de `kogniterm/core/tools.py` a `kogniterm/core/tools/__init__.py`.
  - **Limpieza de `kogniterm/core/tools.py`**: El archivo `kogniterm/core/tools.py` fue vaciado o convertido en un marcador de posición, ya que su contenido principal fue reubicado.
 ---
 ## 26-08-2025 Mejoras de Visibilidad y Confirmación Gráfica en Herramientas de Archivos
  Descripción general: Se modificaron las herramientas `FileCreateTool` y `FileUpdateTool` para mejorar la experiencia del usuario, proporcionando visibilidad del contenido escrito en la terminal y una confirmación gráfica de las modificaciones mediante un diff colorizado.
-
+ 
  - **Visibilidad del Contenido en `FileCreateTool`**: La `FileCreateTool` ahora incluye un log de nivel `INFO` que muestra un fragmento del contenido escrito, haciéndolo visible en la terminal si la configuración de logging lo permite.
  - **Diff Colorizado en `FileUpdateTool`**: La `FileUpdateTool` ahora genera un diff que utiliza códigos ANSI para colorear las líneas eliminadas en rojo y las líneas añadidas en verde, proporcionando una confirmación visual clara de los cambios.
 ---
 ## 26-08-2025 Implementación de Herramientas de Memoria Persistente
  Descripción general: Se implementaron nuevas herramientas para gestionar una memoria persistente para el LLM, permitiendo la lectura, adición y inicialización de un archivo de contexto por sesión.
-
+ 
  - **`MemoryReadTool`**: Permite al LLM leer el contenido del archivo `llm_context.txt` en el directorio actual.
  - **`MemoryAppendTool`**: Permite al LLM añadir contenido al final del archivo `llm_context.txt`.
  - **`MemoryInitTool`**: Permite inicializar `llm_context.txt` desde una plantilla o como un archivo vacío, asegurando una memoria contextual por carpeta.
  - **Modularización**: Estas herramientas fueron implementadas en archivos separados dentro de `kogniterm/core/tools/` y añadidas a la lista de herramientas callable.
-
+ 
 ---
 ## 26-08-25 Actualización de la Personalidad del Agente y Gestión de Memoria
  Descripción general: Se modificó el `SYSTEM_MESSAGE` del `BashAgent` para reflejar una personalidad más amigable, usar emojis y establecer directrices para el uso autónomo de las herramientas de memoria (`memory_init_tool`, `memory_append_tool`, `memory_read_tool`).
-
+ 
  - **Tono Amigable y Emojis**: El mensaje del sistema fue reescrito para que el agente se comunique de manera más cercana y utilice emojis para adornar el texto.
  - **Inicio de Memoria Persistente**: Se instruyó al agente para que inicie la memoria persistente (`memory_init_tool`) al comienzo de cada conversación.
  - **Guardado Autónomo de Memorias**: Se añadió una directriz para que el agente guarde automáticamente información relevante (directorio, objetivos, proyecto) utilizando `memory_append_tool`.
  - **Corrección de Errores Pylance (Ignorados)**: Se realizaron correcciones menores para intentar resolver errores de Pylance relacionados con `genai.protos` y el acceso a `tool_calls` en `AIMessage`, aunque se decidió ignorar los errores persistentes según la instrucción del usuario.
-
+ 
 ---
 ## 26-08-25 Limitación del Tamaño de la Salida de Herramientas
  Descripción general: Se implementó una limitación en el tamaño de la salida de las herramientas antes de ser añadidas al historial de la conversación, para evitar exceder el límite de payload de la API de Gemini.
-
+ 
  - **Truncamiento de Salida**: Se añadió lógica en `kogniterm/core/agents/bash_agent.py` para truncar la salida de las herramientas a 1000 caracteres si excede este límite, añadiendo "..." al final.
-
+ 
 ---
 ## 26-08-25 Verificación y Carga de Memoria al Inicio de Conversación
  Descripción general: Se actualizó el `SYSTEM_MESSAGE` del `BashAgent` para especificar que el agente debe verificar la existencia del archivo de memoria al inicio de la conversación. Si existe, debe leerlo para cargar el contexto; de lo contrario, debe inicializarlo.
-
+ 
  - **Verificación de Existencia**: Se instruyó al agente para usar una lógica condicional antes de inicializar la memoria, verificando si el archivo de memoria ya existe.
  - **Carga de Contexto**: Si el archivo existe, se le indica al agente que utilice `memory_read_tool` para cargar el contenido existente como contexto.
  - **Inicialización Condicional**: Si el archivo no existe, se mantiene la instrucción de usar `memory_init_tool` para crear uno nuevo.
-
+ 
 ---
 ## 26-08-25 Corrección de `AttributeError` en `bash_agent.py`
  Descripción general: Se corrigió un `AttributeError: 'dict' object has no attribute 'args'` en la función `explain_command_node` de `kogniterm/core/agents/bash_agent.py`.
-
+ 
  - **Causa del Error**: El error ocurría porque se intentaba acceder a `last_ai_message.tool_calls[0].args['command']`, asumiendo que `tool_calls` contenía objetos con un atributo `args`, cuando en realidad era un diccionario.
  - **Solución**: Se modificó el acceso a `last_ai_message.tool_calls[0]['args']['command']` para usar la notación de diccionario, corrigiendo el error.
+---
+## 26-08-25 Verificación de Herramienta Web Scraper
+ Descripción general: El usuario solicitó una herramienta de web scraper. Se verificó que la herramienta `web_scraping_tool.py` ya existía en `kogniterm/core/tools/` y que estaba correctamente integrada en `kogniterm/core/tools/__init__.py`. Por lo tanto, no se requirieron modificaciones ni la creación de un nuevo archivo.
+ 
+ - **Verificación de `web_scraping_tool.py`**: Se confirmó la existencia y funcionalidad de `web_scraping_tool.py` como una herramienta para extraer datos de HTML usando selectores CSS.
+ - **Integración Existente**: Se verificó que `WebScrapingTool` ya estaba importada e inicializada en `kogniterm/core/tools/__init__.py`, lo que significa que la herramienta ya estaba disponible para su uso.
+---
+## 26-08-2025 Supresión de Mensajes de gRPC en la Terminal
+Descripción general: Se implementó una solución para suprimir los mensajes informativos de gRPC (`I0000 00:00:xxxxxx fork_posix.cc:71] Other threads are currently calling into gRPC...`) que aparecían al ejecutar comandos en la terminal.
+ 
+ - **Identificación del Origen**: Se determinó que los mensajes se originaban en la librería gRPC subyacente durante las operaciones de `fork` realizadas por `subprocess.Popen` en `kogniterm/core/command_executor.py`, y no eran errores críticos.
+ - **Configuración de Variables de Entorno**: Se modificó `kogniterm/terminal/terminal.py` para establecer las variables de entorno `GRPC_VERBOSITY` a `ERROR` y `GRPC_TRACE` a `""` (vacío) al inicio del script. Esto instruye a gRPC a solo reportar errores y a no mostrar mensajes de traza o informativos.
+ 
+---
+## 26-08-2025 Instrucción al LLM para Considerar Historial de Comandos
+ Descripción general: Se modificó el mensaje del sistema del LLM para instruirlo a considerar el historial de comandos de la terminal como parte del contexto al iniciar una nueva sesión, además del archivo de memoria existente.
+ 
+ - **Actualización de `SYSTEM_MESSAGE`**: Se añadió una nueva viñeta en la sección "Gestión de Memoria" del `SYSTEM_MESSAGE` en `kogniterm/core/agents/bash_agent.py` para indicar que el LLM debe considerar el historial de comandos de la terminal para comprender mejor el contexto de la sesión.
+ 
+---
+## 26-08-25 Habilitar Ejecución Consecutiva de Herramientas en Bash Agent
+
+Descripción general: Se modificó el `Bash Agent` para permitir la ejecución consecutiva de herramientas, eliminando la necesidad de confirmación manual y permitiendo que el LLM encadene acciones de forma autónoma.
+
+- **`SYSTEM_MESSAGE` Actualizado**: Se eliminó la restricción que impedía combinar `execute_command` con otras herramientas y se clarificó que la ejecución de comandos es directa y sin confirmación explícita.
+- **Lógica de Continuación (`should_continue`) Simplificada**: Se eliminó la lógica relacionada con la confirmación y explicación de comandos. Ahora, después de la ejecución de cualquier herramienta, el flujo regresa al `call_model` para que el LLM decida la siguiente acción.
+- **Ejecución Directa de Comandos (`execute_tool_node`)**: El nodo `execute_tool_node` fue modificado para ejecutar `execute_command` directamente, sin pausar para explicación o confirmación.
+- **Grafo Simplificado**: Se eliminaron los nodos y transiciones (`explain_command`, `confirm_command`) relacionados con la explicación y confirmación de comandos, agilizando el flujo de ejecución.
+## 26-08-2025 Persistencia del Historial de Conversación del LLM
+ Descripción general: Se implementó la persistencia del historial de conversación del LLM entre sesiones, guardándolo en un archivo JSON en la carpeta de la aplicación.
+ 
+ - **Archivo de Historial**: Se definió `.kogniterm_conversation_history.json` como el archivo para almacenar el historial de conversación.
+ - **Carga de Historial**: Se implementó la función `_load_conversation_history()` en `kogniterm/terminal/terminal.py` para leer el archivo JSON y reconstruir los objetos `BaseMessage` de LangChain al iniciar la terminal.
+ - **Guardado de Historial**: Se implementó la función `_save_conversation_history()` en `kogniterm/terminal/terminal.py` para serializar los mensajes de LangChain a JSON y guardarlos al final de cada interacción.
+ - **Modificación de `AgentState`**: Se actualizó la clase `AgentState` en `kogniterm/core/agents/bash_agent.py` para que acepte un historial inicial de mensajes y asegure que el `SYSTEM_MESSAGE` esté siempre al comienzo del historial, incluso si se carga un historial previo.
+ - **Integración en `terminal.py`**: El bucle principal en `start_terminal_interface()` en `kogniterm/terminal/terminal.py` fue modificado para cargar el historial al inicio y guardarlo después de cada interacción del agente.
+---
+## 26-08-2025 Implementación de Previsualización en Herramientas CRUD
+ Descripción general: Se implementó la funcionalidad de previsualización en las herramientas CRUD (`FileCreateTool`, `FileDeleteTool`, `FileUpdateTool`) para que el usuario pueda revisar los cambios antes de que se apliquen.
+
+ - **`FileCreateTool`**: Se añadió un parámetro `preview` a la herramienta. Si `preview` es `True`, la herramienta devuelve una representación del contenido que se crearía sin escribir realmente el archivo.
+ - **`FileDeleteTool`**: Se añadió un parámetro `preview` a la herramienta. Si `preview` es `True`, la herramienta devuelve una previsualización del archivo que se eliminaría, incluyendo su contenido actual.
+ - **`FileUpdateTool`**: Se verificó que la herramienta ya utilizaba `difflib` para mostrar un diff colorizado de los cambios, cumpliendo con la solicitud de previsualización de adiciones y eliminaciones.
+---
+## 26-08-2025 Corrección de Flujo de Aprobación del Orquestador
+ Descripción general: Se corrigió el flujo del grafo del agente orquestador para asegurar que, después de presentar un plan, el sistema espere la aprobación del usuario y, una vez recibida, proceda con la ejecución del plan en lugar de generar uno nuevo o cancelar automáticamente.
+
+ - **Corrección de Arista Condicional en `orchestrator_agent.py`**: Se modificó la arista condicional desde el nodo `present_plan` para que, si `state.action_needed` es `"await_user_approval"`, la transición sea a `handle_approval`. En caso contrario, el grafo finalizará (`END`). Esto corrige el problema de "unknown target 'END'" y asegura que el flujo de aprobación sea el esperado.
+ - **Flexibilidad en Extracción de JSON**: Se hizo más flexible la expresión regular en `create_plan_node` para extraer bloques JSON, permitiendo que la etiqueta `json` sea opcional.
+ - **Mensaje de Depuración Mejorado**: Se añadió un mensaje de depuración en `create_plan_node` para proporcionar más información en caso de errores al procesar el plan JSON.
+---
+## 26-08-2025 Implementación de Truncamiento de Salida en GitHubTool
+Descripción general: Se implementó una funcionalidad de truncamiento en la herramienta `github_tool` para limitar el tamaño de la salida de los archivos y directorios, evitando así posibles problemas de truncamiento en el lado del consumidor de la herramienta.
+
+- **Añadir `max_output_length`**: Se añadió un nuevo parámetro `max_output_length` (con un valor por defecto de 4000 caracteres) a la clase `GitHubToolInput` en `kogniterm/core/tools/github_tool.py`.
+- **Truncamiento en `_get_file_content`**: Se modificó el método `_get_file_content` en `kogniterm/core/tools/github_tool.py` para truncar el contenido del archivo si excede `max_output_length` y añadir un mensaje indicando que el contenido ha sido truncado.
+- **Paso de `max_output_length`**: Se ajustaron las llamadas a `_get_file_content` dentro de `_list_contents`, `_read_directory_recursive` y `_run` para que reciban y utilicen el nuevo parámetro `max_output_length`.
+---
+## 26-08-2025 Solución al Truncamiento de Salida en GitHubTool mediante Archivos Temporales
+Descripción general: Para evitar el truncamiento de la salida de la herramienta `github_tool` por limitaciones del LLM o del sistema, se implementó una opción para guardar el contenido completo en un archivo temporal y devolver la ruta de este archivo.
+
+- **Añadir `save_to_temp_file`**: Se añadió un nuevo parámetro booleano `save_to_temp_file` a la clase `GitHubToolInput` en `kogniterm/core/tools/github_tool.py`.
+- **Guardado en Archivo Temporal**: Se modificó el método `_get_file_content` en `kogniterm/core/tools/github_tool.py` para que, si `save_to_temp_file` es `True`, el contenido completo se escriba en un archivo temporal y la ruta de este archivo se devuelva como salida.
+- **Integración con Métodos de Lectura**: Se ajustaron las llamadas a `_get_file_content` en `_list_contents`, `_read_directory_recursive` y `_run` para que reciban y pasen el nuevo parámetro `save_to_temp_file`.
+---
+## 26-08-2025 Eliminación del Truncamiento de Salida en Bash Agent
+Descripción general: Se eliminó la limitación de 1000 caracteres que el `bash_agent` aplicaba a la salida de todas las herramientas, ya que esta limitación causaba un truncamiento indeseado, especialmente cuando las herramientas de GitHub devolvían contenido extenso.
+
+- **Eliminación de Truncamiento**: Se eliminó la lógica de truncamiento en la función `execute_tool_node` en `kogniterm/core/agents/bash_agent.py` (líneas 190-192), que limitaba la salida de las herramientas a 1000 caracteres. Esto permite que la salida completa de las herramientas (o la ruta al archivo temporal, si se usa esa opción) sea procesada por el LLM sin truncamiento adicional.
+---
+## 26-08-2025 Instrucción al LLM para Usar `save_to_temp_file` en GitHubTool
+Descripción general: Se actualizó el mensaje del sistema del LLM (`SYSTEM_MESSAGE`) para instruirlo a utilizar el parámetro `save_to_temp_file=True` en la herramienta `github_tool` al leer contenido de archivos, con el fin de evitar el truncamiento de la salida por limitaciones del LLM.
+
+- **Actualización de `SYSTEM_MESSAGE`**: Se modificó la línea 23 del `SYSTEM_MESSAGE` en `kogniterm/core/agents/bash_agent.py` para añadir una directriz explícita al LLM, indicándole que debe usar `save_to_temp_file=True` cuando invoque la `github_tool` para leer archivos.
+---
+## 26-08-2025 Mejora en la Proactividad y Comunicación del LLM
+Descripción general: Se actualizó el mensaje del sistema del LLM (`SYSTEM_MESSAGE`) para instruirlo a ser más proactivo en la ejecución de múltiples acciones y a comunicar su progreso de forma clara y continua.
+
+- **Ejecución de Múltiples Acciones**: Se añadió una directriz en el `SYSTEM_MESSAGE` en `kogniterm/core/agents/bash_agent.py` para que el LLM considere la ejecución de múltiples acciones por turno si esto beneficia la tarea global.
+- **Comunicación de Progreso**: Se instruyó al LLM para que, después de cada ejecución de herramienta, informe brevemente lo que hizo y lo que hará a continuación, manteniendo un flujo constante de información para el usuario.
+---
+## 26-08-25 Corrección de `SyntaxError` en `kogniterm/core/llm_service.py`
+ Descripción general: Se corrigió un `SyntaxError` en el archivo `kogniterm/core/llm_service.py` que impedía la correcta ejecución debido a un paréntesis faltante en una f-string.
+
+ - **Causa del Error**: En la línea 164, la f-string `f"Ocurrió un error inesperado: {e}\n{traceback.format_exc()"` carecía de un paréntesis de cierre, provocando un error de sintaxis.
+ - **Solución**: Se añadió el paréntesis de cierre `)` en la línea 164, resultando en `f"Ocurrió un error inesperado: {e}\n{traceback.format_exc()}"`, lo que resuelve el `SyntaxError`.
+---
+## 26-08-25 Corrección de `AttributeError` y errores de Pylance en `kogniterm/core/llm_service.py`
+ Descripción general: Se corrigieron varios errores en el archivo `kogniterm/core/llm_service.py`, incluyendo un `AttributeError` relacionado con `generation_config` y múltiples errores de Pylance debido a incompatibilidades de tipo con las APIs de OpenAI y Google Gemini.
+
+ - **Corrección de `AttributeError`**: Se ajustó el acceso a `generation_config` en la función `_ainvoke_google` para usar `self.model._generation_config`, resolviendo el `AttributeError` reportado.
+ - **Corrección de errores de Pylance (OpenAI)**: Se ajustó la construcción de `self.openai_tools` para que sea una lista de `ChatCompletionToolParam` y se modificó la forma en que se añaden los mensajes al historial en `_convert_history_to_openai_format` para que sean de tipo `ChatCompletionMessageParam`, eliminando los errores de tipado.
+ - **Corrección de errores de Pylance (Google Gemini)**: Se aseguró que el parámetro `tools` en `_ainvoke_google` reciba `self.google_ai_tools` y que `tool_config` se construya como un diccionario literal compatible con `GenaiToolConfigDict`, eliminando los errores de tipado restantes.
+---
+## 26-08-25 Implementación de Gestión de Memoria con LangChain
+Descripción general: Se ha refactorizado la gestión del historial de conversación en KogniTerm para utilizar las capacidades de memoria de LangChain, mejorando la persistencia y la gestión de tokens.
+
+- **Actualización de Dependencias**: Se añadió `tiktoken` a `kogniterm/requirements.txt` para el conteo de tokens, necesario para futuras implementaciones de resumen de memoria.
+- **Refactorización de Herramientas de Memoria**:
+   - `kogniterm/core/tools/memory_init_tool.py`: Modificado para inicializar un `FileChatMessageHistory` de LangChain, creando un archivo JSON para el historial de mensajes.
+   - `kogniterm/core/tools/memory_append_tool.py`: Actualizado para añadir mensajes (humanos, IA, sistema, función, herramienta) directamente al `FileChatMessageHistory` de LangChain.
+   - `kogniterm/core/tools/memory_read_tool.py`: Adaptado para leer y devolver los mensajes del `FileChatMessageHistory` de LangChain.
+- **Integración en `llm_service.py`**: El servicio LLM (`kogniterm/core/llm_service.py`) fue modificado para aceptar y procesar listas de objetos `BaseMessage` de LangChain directamente, eliminando la necesidad de conversiones manuales de historial.
+- **Gestión de Memoria en `orchestrator_agent.py`**:
+   - La clase `OrchestratorState` ahora incluye un campo `chat_history` de tipo `List[BaseMessage]` y `memory_file_path`.
+   - Los nodos `create_plan_node` y `handle_output_node` fueron actualizados para cargar y guardar mensajes desde/hacia el `FileChatMessageHistory`, asegurando que el historial persistente se use en las invocaciones del LLM y que las respuestas se añadan correctamente.
+---
+## 26-08-25 Implementación de Resumen de Historial de Conversación
+ Descripción general: Se ha implementado la funcionalidad de resumir el historial de conversación del LLM utilizando LangChain, lo que ayuda a gestionar el consumo de tokens y a mantener el contexto en conversaciones largas.
+
+ - **Creación de `MemorySummarizeTool`**: Se creó la herramienta `kogniterm/core/tools/memory_summarize_tool.py`, que utiliza `langchain.chains.summarize.load_summarize_chain` para generar un resumen del historial de mensajes cuando este excede un umbral de tokens predefinido.
+ - **Integración en `kogniterm/core/tools/__init__.py`**: La nueva herramienta `MemorySummarizeTool` fue añadida a la lista de herramientas disponibles para el LLM.
+ - **Integración en `orchestrator_agent.py`**:
+    - Se añadió lógica en `create_plan_node` para verificar el tamaño del historial de conversación. Si el número de tokens excede `MEMORY_THRESHOLD` (4000 tokens por defecto), se invoca la `memory_summarize_tool` para resumir el historial.
+    - Se incluyó una heurística simple para el conteo de tokens (caracteres / 4) y se añadió el manejo de posibles errores durante el proceso de resumen.
+    - Se ajustó la extracción del contenido de los mensajes de LangChain para el cálculo de tokens, manejando tanto el contenido de tipo `str` como listas de diccionarios (para mensajes de herramientas).
+---
+## 26-08-25 Mejora de la Secuencialidad y Autonomía del Bash Agent
+ Descripción general: Se ha mejorado la capacidad del `Bash Agent` para ejecutar herramientas de forma secuencial y autónoma, eliminando las pausas innecesarias para la confirmación del usuario y permitiendo un flujo de trabajo más eficiente.
+
+ - **Eliminación de `explain_command_node`**: Se eliminó el nodo `explain_command_node` y toda su lógica asociada, incluyendo la propiedad `command_to_confirm` de `AgentState`. Esto simplifica el flujo de ejecución, ya que los comandos no requieren una explicación y confirmación previa.
+ - **Ejecución Directa de Herramientas**: La lógica de `should_continue` fue modificada para que, cuando el LLM solicite la ejecución de una herramienta (incluyendo `execute_command`), siempre se transite directamente al nodo `execute_tool`, eliminando el paso intermedio de explicación o confirmación.
+ - **Grafo Simplificado**: Se simplificó la estructura del grafo en `bash_agent.py` al eliminar los nodos y las aristas condicionales relacionadas con la explicación y confirmación de comandos, resultando en un flujo de ejecución más lineal y autónomo para las herramientas.
+ - **Actualización del `SYSTEM_MESSAGE`**: Se actualizó el `SYSTEM_MESSAGE` en `bash_agent.py` para reflejar esta nueva capacidad de ejecución directa y secuencial de herramientas, instruyendo al LLM a ser más proactivo y a encadenar acciones sin interrupciones.
+---
+## 26-08-25 Re-habilitación de Confirmación Explícita para Comandos en Bash Agent
+ Descripción general: Se revirtieron los cambios que eliminaban la confirmación explícita para la ejecución de comandos en el `Bash Agent`, asegurando que el usuario siempre tenga control sobre la ejecución de comandos bash críticos.
+
+ - **Re-introducción de `command_to_confirm`**: Se añadió nuevamente el campo `command_to_confirm: Optional[str]` a la clase `AgentState` en `kogniterm/core/agents/bash_agent.py`.
+ - **Re-introducción de `explain_command_node`**: La función `explain_command_node` fue re-introducida en `kogniterm/core/agents/bash_agent.py` para que el LLM genere una explicación del comando a ejecutar antes de solicitar la confirmación.
+ - **Lógica Condicional en `should_continue`**: La función `should_continue` fue modificada para que, cuando se detecte una llamada a la herramienta `execute_command`, el flujo se dirija al nodo `explain_command` para la confirmación del usuario. Para otras llamadas a herramientas o para la continuación interna, el flujo se mantiene sin interrupción.
+ - **Actualización del Grafo**: El grafo del `Bash Agent` fue actualizado para incluir el nodo `explain_command_node` y sus aristas condicionales, permitiendo la pausa para la confirmación.
+ - **Actualización del `SYSTEM_MESSAGE`**: Se modificó el `SYSTEM_MESSAGE` en `bash_agent.py` para aclarar que la ejecución de comandos requiere confirmación explícita, mientras que otras herramientas pueden ejecutarse de forma más autónoma, y se mantiene la funcionalidad de `[CONTINUE_TASK]` para la secuencialidad interna.
+ - **Actualización de `kogniterm/terminal/terminal.py`**: El bucle principal del modo `bash` en `terminal.py` fue ajustado para manejar el estado `command_to_confirm` del agente, solicitando la aprobación del usuario antes de ejecutar el comando y re-invocando al agente con la respuesta de la confirmación.
+---
+## 26-08-25 Mejora de la Secuencialidad con Mensajes Internos en Bash Agent
+ Descripción general: Se ha mejorado la capacidad del LLM para mantener la secuencialidad de la tarea sin intervención del usuario, permitiendo que el agente envíe mensajes internos y continúe ejecutando herramientas hasta que la tarea finalice.
+
+ - **Campo `internal_continue` en `AgentState`**: Se añadió un nuevo campo booleano `internal_continue` a la clase `AgentState` en `kogniterm/core/agents/bash_agent.py`. Este campo se utiliza para indicar si el agente debe continuar su procesamiento interno sin esperar una nueva entrada del usuario.
+ - **Instrucción `[CONTINUE_TASK]` en `SYSTEM_MESSAGE`**: Se actualizó el `SYSTEM_MESSAGE` del `Bash Agent` para instruir al LLM a usar la frase `[CONTINUE_TASK]` al final de su mensaje cuando necesite realizar pasos intermedios o pensar en el siguiente paso sin interactuar directamente con el usuario.
+ - **Parseo de `[CONTINUE_TASK]` en `call_model_node`**: La función `call_model_node` en `kogniterm/core/agents/bash_agent.py` fue modificada para detectar la presencia de `[CONTINUE_TASK]` en la respuesta del LLM y, si se encuentra, establecer `state.internal_continue` a `True` y eliminar la frase del contenido del mensaje.
+ - **Lógica de Continuación en `should_continue`**: La función `should_continue` en `kogniterm/core/agents/bash_agent.py` fue modificada para que, si `state.internal_continue` es `True`, el grafo regrese al nodo `call_model`, permitiendo un bucle interno de pensamiento-acción hasta que el LLM determine que la tarea ha finalizado o que requiere interacción del usuario.
+ - **Actualización del Grafo**: Se añadió una nueva arista condicional en el grafo del `Bash Agent` para permitir el bucle interno (`"call_model": "call_model"`) cuando `internal_continue` es `True`.
+---
+## 26-08-25 Re-habilitación de Confirmación Explícita para Comandos en Bash Agent
+ Descripción general: Se revirtieron los cambios que eliminaban la confirmación explícita para la ejecución de comandos en el `Bash Agent`, asegurando que el usuario siempre tenga control sobre la ejecución de comandos bash críticos.
+
+ - **Re-introducción de `command_to_confirm`**: Se añadió nuevamente el campo `command_to_confirm: Optional[str]` a la clase `AgentState` en `kogniterm/core/agents/bash_agent.py`.
+ - **Re-introducción de `explain_command_node`**: La función `explain_command_node` fue re-introducida en `kogniterm/core/agents/bash_agent.py` para que el LLM genere una explicación del comando a ejecutar antes de solicitar la confirmación.
+ - **Lógica Condicional en `should_continue`**: La función `should_continue` fue modificada para que, cuando se detecte una llamada a la herramienta `execute_command`, el flujo se dirija al nodo `explain_command` para la confirmación del usuario. Para otras llamadas a herramientas o para la continuación interna, el flujo se mantiene sin interrupción.
+ - **Actualización del Grafo**: El grafo del `Bash Agent` fue actualizado para incluir el nodo `explain_command_node` y sus aristas condicionales, permitiendo la pausa para la confirmación.
+ - **Actualización del `SYSTEM_MESSAGE`**: Se modificó el `SYSTEM_MESSAGE` en `bash_agent.py` para aclarar que la ejecución de comandos requiere confirmación explícita, mientras que otras herramientas pueden ejecutarse de forma más autónoma, y se mantiene la funcionalidad de `[CONTINUE_TASK]` para la secuencialidad interna.
+ - **Actualización de `kogniterm/terminal/terminal.py`**: El bucle principal del modo `bash` en `terminal.py` fue ajustado para manejar el estado `command_to_confirm` del agente, solicitando la aprobación del usuario antes de ejecutar el comando y re-invocando al agente con la respuesta de la confirmación.

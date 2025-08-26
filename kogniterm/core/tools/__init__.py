@@ -17,6 +17,8 @@ from .file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
 from .memory_read_tool import MemoryReadTool
 from .memory_append_tool import MemoryAppendTool
 from .memory_init_tool import MemoryInitTool
+from .memory_summarize_tool import MemorySummarizeTool # Nueva importación
+from .set_llm_instructions_tool import SetLLMInstructionsTool
 
 # Configuración básica del logger
 logger = logging.getLogger(__name__)
@@ -42,5 +44,7 @@ def get_callable_tools():
         FileReadRecursiveDirectoryTool(),
         MemoryReadTool(),
         MemoryAppendTool(),
-        MemoryInitTool()
+        MemoryInitTool(),
+        MemorySummarizeTool(), # Nueva herramienta
+        SetLLMInstructionsTool()
     ]

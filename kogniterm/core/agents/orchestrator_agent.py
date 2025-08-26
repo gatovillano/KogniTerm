@@ -1,6 +1,7 @@
 import json
 import re
 import sys
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -9,11 +10,13 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
     ToolMessage,
+    BaseMessage
 )
 from langgraph.graph import END, StateGraph
+from langchain.memory import FileChatMessageHistory
 
-from ..llm_service import llm_service
-from .bash_agent import AgentState as BaseAgentState
+from kogniterm.core.llm_service import llm_service
+from kogniterm.core.agents.bash_agent import AgentState as BaseAgentState
 
 # --- Mensaje de Sistema Mejorado para el Orquestador ---
 SYSTEM_MESSAGE = SystemMessage(content='''Eres un agente orquestador experto con acceso a un conjunto de herramientas, incluyendo acceso a internet. Tu misión es descomponer problemas complejos en una secuencia de pasos ejecutables y llevarlos a cabo usando tus herramientas.
@@ -70,18 +73,79 @@ class OrchestratorState(BaseAgentState):
     action_needed: Optional[str] = None  # "await_user_approval", "execute_command", "final_response"
     final_response: str = ""
     status: str = "planning"  # planning, presenting_plan, executing, finished, failed
+    custom_system_message: Optional[str] = None # Nuevo campo para el mensaje del sistema personalizado
+    # Nueva adición para la memoria de LangChain
+    chat_history: List[BaseMessage] = field(default_factory=list)
+    memory_file_path: str = "llm_context.json" # Ruta por defecto para el archivo de memoria
 
 # --- Nodos del Grafo del Orquestador ---
+
+# --- Constantes para la gestión de memoria ---
+MEMORY_THRESHOLD = 4000  # Tokens a partir de los cuales se intenta resumir
+LLM_SUMMARIZE_MODEL = "gemini-1.5-flash" # Modelo para el resumen, podría ser más pequeño/barato
 
 async def create_plan_node(state: OrchestratorState):
     """Genera un plan de acción estructurado en formato JSON."""
     print("🤖 Orquestador: Creando un plan...", file=sys.stdout, flush=True)
-    temp_history = [SYSTEM_MESSAGE, HumanMessage(content=state.user_query)]
-    response = await llm_service.ainvoke(history=temp_history)
+    
+    # Usar el mensaje del sistema personalizado si existe, de lo contrario usar el predeterminado
+    system_message_content = state.custom_system_message if state.custom_system_message else SYSTEM_MESSAGE.content
+    
+    # Cargar el historial de chat desde el archivo para pasarlo al LLM
+    # Asegurarse de que el archivo exista antes de intentar leerlo
+    file_history = FileChatMessageHistory(file_path=state.memory_file_path)
+    state.chat_history = file_history.messages
+
+    # --- Lógica de Resumen de Memoria ---
+    # Convertir el historial a un solo string para estimación de tokens
+    # LangChain messages can have content as str or list of dicts (for tool calls).
+    # We need to extract only string content for summarization.
+    string_contents = []
+    for msg in state.chat_history:
+        if isinstance(msg.content, str):
+            string_contents.append(msg.content)
+        elif isinstance(msg.content, list): # Handle tool messages or multi-part content
+            for part in msg.content:
+                if isinstance(part, dict) and 'text' in part:
+                    string_contents.append(part['text'])
+                elif isinstance(part, str):
+                    string_contents.append(part)
+
+    full_content_for_token_count = "\n".join(string_contents)
+    # Simple estimación de tokens (aproximada)
+    current_tokens = len(full_content_for_token_count) // 4 # Ajustar esta heurística o usar tiktoken si es posible para OpenAI
+
+    if current_tokens > MEMORY_THRESHOLD:
+        print(f"🤖 Orquestador: Historial de memoria excede el umbral ({current_tokens} tokens). Intentando resumir...", file=sys.stdout, flush=True)
+        summarize_tool = llm_service.get_tool("memory_summarize_tool")
+        if summarize_tool:
+            try:
+                # Pasar la clave API del LLM principal para el resumen
+                llm_api_key = os.getenv("LLM_API_KEY") if llm_service.provider == "openai" else os.getenv("GOOGLE_API_KEY")
+                summary_output = await summarize_tool.ainvoke({
+                    "filename": state.memory_file_path,
+                    "max_tokens": MEMORY_THRESHOLD,
+                    "llm_model_name": LLM_SUMMARIZE_MODEL,
+                    "llm_api_key": llm_api_key
+                })
+                print(f"🤖 Orquestador: Resumen de memoria completado: {summary_output}", file=sys.stdout, flush=True)
+                # Recargar el historial después del resumen
+                file_history = FileChatMessageHistory(file_path=state.memory_file_path)
+                state.chat_history = file_history.messages
+            except Exception as e:
+                print(f"⚠️ Orquestador: Error al intentar resumir la memoria: {e}", file=sys.stderr, flush=True)
+        else:
+            print("⚠️ Orquestador: Herramienta 'memory_summarize_tool' no encontrada para resumir la memoria.", file=sys.stderr, flush=True)
+    # --- Fin Lógica de Resumen ---
+
+    # Añadir el mensaje del sistema y la consulta del usuario al historial para la invocación actual
+    temp_history_for_llm = [SystemMessage(content=system_message_content)] + state.chat_history + [HumanMessage(content=state.user_query)]
+    
+    response = await llm_service.ainvoke(history=temp_history_for_llm)
     ai_message_content = response.candidates[0].content.parts[0].text
 
     try:
-        json_match = re.search(r"```json\s*(\{.*?\})\s*```", ai_message_content, re.DOTALL)
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", ai_message_content, re.DOTALL)
         if not json_match:
             json_match = re.search(r"(\{.*?\})", ai_message_content, re.DOTALL)
 
@@ -91,11 +155,15 @@ async def create_plan_node(state: OrchestratorState):
             if not state.plan:
                  raise ValueError("El plan generado está vacío o tiene un formato incorrecto.")
             state.status = "presenting_plan"
+            
+            # Añadir el mensaje de IA al historial persistente
+            file_history.add_ai_message(ai_message_content)
             state.messages.append(AIMessage(content="Plan generado."))
         else:
             raise ValueError("El modelo no generó un plan en formato JSON.")
     except (json.JSONDecodeError, ValueError) as e:
         error_message = f"Error al procesar el plan: {e}. Respuesta del modelo:\n{ai_message_content}"
+        print(f"DEBUG: {error_message}", file=sys.stderr, flush=True) # Añadido para depuración
         state.final_response = error_message
         state.status = "failed"
         state.action_needed = "final_response"
@@ -175,7 +243,16 @@ def handle_output_node(state: OrchestratorState):
     
     task = state.plan[state.current_task_index]
     tool_name = task.get("action", {}).get("tool_name", "unknown_tool")
+    # Add tool output to the persistent chat history
+    file_history = FileChatMessageHistory(file_path=state.memory_file_path)
+    file_history.add_message(ToolMessage(content=str(output), tool_call_id=tool_name))
+    
     state.messages.append(ToolMessage(content=str(output), tool_call_id=tool_name))
+
+    # Si la herramienta ejecutada fue set_llm_instructions, actualizamos el mensaje del sistema personalizado
+    if tool_name == "set_llm_instructions":
+        state.custom_system_message = str(output)
+        print(f"🤖 Orquestador: Mensaje del sistema personalizado actualizado: {state.custom_system_message}", file=sys.stdout, flush=True)
 
     state.current_task_index += 1
     return state
@@ -192,6 +269,12 @@ orchestrator_graph.add_node("handle_output", handle_output_node)
 orchestrator_graph.set_entry_point("create_plan")
 
 orchestrator_graph.add_edge("create_plan", "present_plan")
+
+orchestrator_graph.add_conditional_edges(
+    "present_plan",
+    lambda state: "handle_approval" if state.action_needed == "await_user_approval" else END,
+    {"handle_approval": "handle_approval"}
+)
 
 orchestrator_graph.add_conditional_edges(
     "handle_approval",

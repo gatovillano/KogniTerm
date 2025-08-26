@@ -6,3 +6,7 @@ langchain
 bs4
 PyGithub
 python-dotenv
+lxml
+openai
+tiktoken
+langchain_google_genai
