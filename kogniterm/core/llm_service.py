@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+from collections import deque
 import google.generativeai as genai
 from google.generativeai.client import configure
 from google.generativeai.generative_models import GenerativeModel
@@ -26,7 +28,13 @@ def convert_langchain_tool_to_genai(
     tool: BaseTool
 ) -> genai.protos.FunctionDeclaration:
     """Convierte una herramienta de LangChain (BaseTool) a una FunctionDeclaration de Google AI."""
-    args_schema = tool.args_schema.schema()
+    try:
+        args_schema = tool.args_schema.schema()
+    except AttributeError as e:
+        tool_name = getattr(tool, 'name', 'Desconocido') # Obtener el nombre de forma segura
+        tool_type = type(tool)
+        print(f"ERROR: La herramienta '{tool_name}' de tipo '{tool_type}' no tiene un 'args_schema' válido o no tiene el método '.schema()'. Error: {e}", file=sys.stderr)
+        raise # Re-lanza la excepción para que el programa falle y podamos depurar.
     
     properties = {}
     required = args_schema.get('required', [])
@@ -52,6 +60,7 @@ def convert_langchain_tool_to_genai(
 class LLMService:
     """Un servicio para interactuar con el modelo Gemini de Google AI."""
     def __init__(self):
+        print("DEBUG: Inicializando instancia de LLMService...", file=sys.stderr)
         """Inicializa el servicio, configura la API y prepara las herramientas."""
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
@@ -82,6 +91,35 @@ class LLMService:
             generation_config=generation_config
         )
 
+        # Atributos para el rate limiting
+        self.call_timestamps = deque() # Almacena las marcas de tiempo de las llamadas
+        self.rate_limit_calls = 10     # Límite de 10 llamadas
+        self.rate_limit_period = 60    # En segundos (1 minuto)
+
+        # Atributos para el truncamiento del historial
+        self.max_history_chars = 15000 # Aproximación de tokens (ajustar según pruebas)
+                                      # 250,000 tokens/minuto es un límite alto,
+                                      # 15,000 caracteres por historial debería ser seguro.
+                                      # Un token es aproximadamente 4 caracteres para inglés.
+                                      # Para español, puede variar.
+
+        # Inicializar la memoria al inicio del servicio
+        self._initialize_memory()
+
+    def _initialize_memory(self):
+        """Inicializa la memoria si no existe."""
+        memory_init_tool = self.get_tool("memory_init")
+        if memory_init_tool:
+            try:
+                print("Inicializando memoria...", file=sys.stderr)
+                # Invocar la herramienta sin argumentos para usar el valor por defecto de file_path
+                memory_init_tool.invoke({})
+                print("Memoria inicializada o ya existente. ✅", file=sys.stderr)
+            except Exception as e:
+                print(f"Error al inicializar la memoria: {e} ❌", file=sys.stderr)
+        else:
+            print("Advertencia: La herramienta 'memory_init' no se encontró. La memoria no será inicializada automáticamente. ⚠️", file=sys.stderr)
+
     def invoke(self, history: list, system_message: str = None):
         """
         Invoca el modelo Gemini con un historial de conversación y un mensaje de sistema opcional.
@@ -94,14 +132,79 @@ class LLMService:
         Returns:
             La respuesta del modelo, que puede incluir texto o llamadas a herramientas.
         """
-        # Crear una nueva sesión de chat para cada invocación para mantenerla sin estado
-        chat_session = self.model.start_chat(history=history)
-        
-        # El último mensaje del historial es el que se envía
-        last_message = history[-1]['parts'][0]
+        # Lógica de Rate Limiting
+        current_time = time.time()
+        # Eliminar marcas de tiempo antiguas
+        while self.call_timestamps and self.call_timestamps[0] <= current_time - self.rate_limit_period:
+            self.call_timestamps.popleft()
 
+        # Si se excede el límite, esperar
+        if len(self.call_timestamps) >= self.rate_limit_calls:
+            time_to_wait = self.rate_limit_period - (current_time - self.call_timestamps[0])
+            if time_to_wait > 0:
+                print(f"Rate limit alcanzado. Esperando {time_to_wait:.2f} segundos...", file=sys.stderr)
+                time.sleep(time_to_wait)
+                current_time = time.time() # Actualizar el tiempo después de esperar
+                # Volver a limpiar por si acaso
+                while self.call_timestamps and self.call_timestamps[0] <= current_time - self.rate_limit_period:
+                    self.call_timestamps.popleft()
+
+        # --- Lógica de Truncamiento del Historial ---
+        truncated_history = []
+        current_chars = 0
+        
+        # El último mensaje (el del usuario actual) siempre debe incluirse
+        last_message_for_send = history[-1]['parts'][0]
+        
+        # El historial para start_chat debe excluir el último mensaje (el actual)
+        history_for_start_chat = history[:-1]
+
+        # Recorrer el historial de atrás hacia adelante para mantener los mensajes más recientes
+        for msg_dict in reversed(history_for_start_chat):
+            # Estimar caracteres en el mensaje
+            msg_chars = 0
+            for part in msg_dict.get('parts', []):
+                if 'text' in part:
+                    msg_chars += len(part['text'])
+                elif 'function_call' in part:
+                    # Estimar caracteres de llamadas a funciones (nombre + args)
+                    msg_chars += len(part['function_call'].get('name', ''))
+                    msg_chars += len(str(part['function_call'].get('args', {})))
+                elif 'function_response' in part:
+                    # Estimar caracteres de respuestas de funciones
+                    msg_chars += len(str(part['function_response'].get('response', {})))
+            
+            if current_chars + msg_chars <= self.max_history_chars:
+                truncated_history.insert(0, msg_dict) # Insertar al principio para mantener el orden original
+                current_chars += msg_chars
+            else:
+                # Si añadir este mensaje excede el límite, truncar aquí
+                break
+        
+        # Asegurarse de que el system_message (si existe) esté al principio del historial truncado
+        # y que no exceda el límite por sí solo.
+        # Nota: El system_message se añade como un mensaje de 'user' en el formato de la API de Google AI
+        # y se asume que es el primer mensaje en el historial.
+        if history and history[0]['role'] == 'user' and 'text' in history[0]['parts'][0]:
+            system_message_content = history[0]['parts'][0]['text']
+            system_message_chars = len(system_message_content)
+            
+            # Si el system_message ya está en truncated_history, no lo añadimos de nuevo.
+            # Esto es una heurística, asumiendo que el system_message es el primer elemento.
+            if not truncated_history or (truncated_history[0]['role'] == 'user' and 'text' in truncated_history[0]['parts'][0] and truncated_history[0]['parts'][0]['text'] != system_message_content):
+                if current_chars + system_message_chars <= self.max_history_chars:
+                    truncated_history.insert(0, {'role': 'user', 'parts': [genai.protos.Part(text=system_message_content)]})
+                else:
+                    # Si el system_message es demasiado grande, lo truncamos si es el único mensaje
+                    if not truncated_history:
+                        truncated_history.insert(0, {'role': 'user', 'parts': [genai.protos.Part(text=system_message_content[:self.max_history_chars])]})
+        
+        # Crear una nueva sesión de chat para cada invocación para mantenerla sin estado
+        chat_session = self.model.start_chat(history=truncated_history)
+        
         try:
-            response = chat_session.send_message(last_message)
+            response = chat_session.send_message(last_message_for_send)
+            self.call_timestamps.append(time.time()) # Registrar la llamada exitosa
             return response
         except GoogleAPIError as e:
             error_message = f"Error de API de Gemini: {e}"
@@ -109,9 +212,9 @@ class LLMService:
             # Devolver un objeto de respuesta simulado con el error en el texto
             return genai.types.GenerateContentResponse(
                 candidates=[
-                    genai.types.generation_types.Candidate(
-                        content=genai.types.generation_types.Content(parts=[genai.types.generation_types.Part(text=error_message)]),
-                        finish_reason=genai.types.generation_types.FinishReason.ERROR,
+                    genai.types.Candidate(
+                        content=genai.types.Content(parts=[genai.types.Part(text=error_message)]),
+                        finish_reason=genai.types.FinishReason.ERROR,
                     )
                 ],
             )
@@ -121,9 +224,9 @@ class LLMService:
             print(f"ERROR: {error_message}", file=sys.stderr)
             return genai.types.GenerateContentResponse(
                 candidates=[
-                    genai.types.generation_types.Candidate(
-                        content=genai.types.generation_types.Content(parts=[genai.types.generation_types.Part(text=error_message)]),
-                        finish_reason=genai.types.generation_types.FinishReason.ERROR,
+                    genai.types.Candidate(
+                        content=genai.types.Content(parts=[genai.types.Part(text=error_message)]),
+                        finish_reason=genai.types.FinishReason.ERROR,
                     )
                 ],
             )

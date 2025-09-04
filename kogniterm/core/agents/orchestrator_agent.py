@@ -6,9 +6,9 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMe
 import google.generativeai as genai
 
 from ..llm_service import LLMService
+from .bash_agent import llm_service # Importar la instancia global de llm_service
 
-# Inicializar el servicio LLM de forma global
-llm_service = LLMService()
+
 
 # --- Mensaje de Sistema para el Orquestador ---
 SYSTEM_MESSAGE = SystemMessage(content="""Eres un agente orquestador experto.

@@ -4,8 +4,11 @@ from typing import List, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 import google.generativeai as genai
+from rich.console import Console
 
 from ..llm_service import LLMService
+
+console = Console()
 
 # Inicializar el servicio LLM de forma global
 llm_service = LLMService()
@@ -17,11 +20,14 @@ Tu propósito es ayudar al usuario a realizar tareas directamente en su sistema.
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
 1.  **Analiza la petición**: Entiende lo que el usuario quiere lograr.
-2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal. Úsalas para llevar a cabo la tarea.
-3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`.
-4.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
+2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal y `file_operations` para interactuar con archivos y directorios. Úsalas para llevar a cabo la tarea.
+3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command` o `file_operations` según corresponda.
+4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
+5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
+6.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
 
 La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
+La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
 
 Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
 
@@ -145,9 +151,12 @@ def execute_tool_node(state: AgentState):
         tool_args = tool_call['args']
         tool_id = tool_call['id']
 
+        # --- Añadir logs para la ejecución de herramientas ---
+        console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_name}[/yellow]")
+        console.print(f"[bold blue]⚙️ Argumentos:[/bold blue] [cyan]{tool_args}[/cyan]")
+        # --- Fin de logs ---
+
         if tool_name == "execute_command":
-            # En lugar de establecer command_to_confirm directamente, transicionar a explain_command
-            # El nodo explain_command_node establecerá command_to_confirm
             return state # El agente transicionará a explain_command_node
         else:
             tool = llm_service.get_tool(tool_name)
@@ -159,6 +168,10 @@ def execute_tool_node(state: AgentState):
                 except Exception as e:
                     tool_output = f"Error al ejecutar la herramienta {tool_name}: {e}"
             
+            # --- Añadir logs para la salida de la herramienta ---
+            console.print(f"[bold green]✅ Salida de la herramienta:[/bold green]\n[dim]{tool_output}[/dim]")
+            # --- Fin de logs ---
+
             tool_messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_id))
 
     state.messages.extend(tool_messages)

@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv() # Cargar variables de entorno desde .env
+
 import sys
 from kogniterm.terminal.terminal import start_terminal_interface
 

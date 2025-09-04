@@ -2,8 +2,10 @@ import sys
 import os
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.completion import Completer, Completion
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from ..core.command_executor import CommandExecutor # Nueva importación
+from ..core.command_executor import CommandExecutor
+from ..core.llm_service import LLMService # Importar la CLASE LLMService
 
 # --- Estilo de la Interfaz (Rich) ---
 try:
@@ -22,6 +24,10 @@ from ..core.agents.orchestrator_agent import orchestrator_app
 # --- Estado Global de la Terminal ---
 current_agent_mode = "bash" # Inicia en modo bash por defecto
 command_executor = CommandExecutor() # Nueva instancia global
+
+# Crear una instancia de LLMService para que la terminal pueda acceder a las herramientas
+# Esto asegura que la terminal tenga su propia instancia de las herramientas
+terminal_llm_service = LLMService()
 
 def print_welcome_banner(console):
     """Imprime el banner de bienvenida con un degradado de colores."""
@@ -49,13 +55,80 @@ def print_welcome_banner(console):
     
     for i, line in enumerate(lines):
         # Interpolar colores para un degradado más suave
-        console.print(f"[{color}]{line}[/]", justify="center")
+        console.print(f"[{colors[i % len(colors)]}]{line}[/]", justify="center")
+
+
+class FileCompleter(Completer):
+    def __init__(self, file_operations_tool):
+        self.file_operations_tool = file_operations_tool
+
+    def get_completions(self, document, complete_event):
+        text_before_cursor = document.text_before_cursor
+        
+        if '@' not in text_before_cursor:
+            return # No estamos en modo de autocompletado de archivos
+
+        # Extraer la parte relevante para el autocompletado después del último '@'
+        current_input_part = text_before_cursor.split('@')[-1]
+        
+        base_path = os.getcwd() # Directorio base para la búsqueda
+
+        # Determinar el directorio a listar y el prefijo a buscar
+        dir_to_list = base_path
+        search_prefix = current_input_part
+
+        if '/' in current_input_part:
+            # Si hay barras, el usuario está especificando una ruta parcial
+            parts = current_input_part.rsplit('/', 1)
+            dir_part = parts[0]
+            search_prefix = parts[1] if len(parts) > 1 else '' # Prefijo para el nombre del archivo/directorio
+
+            # Resolver la ruta del directorio a listar
+            if dir_part.startswith('/'): # Ruta absoluta
+                dir_to_list = dir_part
+            else: # Ruta relativa
+                dir_to_list = os.path.join(base_path, dir_part)
+            
+            # Asegurarse de que dir_to_list sea un directorio existente
+            if not os.path.isdir(dir_to_list):
+                return # El directorio no existe, no hay sugerencias
+
+        try:
+            # Usar la herramienta list_directory para obtener el contenido del directorio
+            # Ahora _list_directory devuelve una lista directamente
+            all_items = self.file_operations_tool._list_directory(dir_to_list)
+            
+            for item in all_items:
+                # Si el item es un directorio, añadir un '/' al final para autocompletar
+                full_item_path = os.path.join(dir_to_list, item)
+                display_item = item
+                if os.path.isdir(full_item_path):
+                    display_item += '/'
+
+                if display_item.startswith(search_prefix):
+                    # Calcular la posición de inicio para el reemplazo
+                    # Queremos reemplazar solo la parte que el usuario está escribiendo
+                    start_position = -len(search_prefix)
+                    yield Completion(display_item, start_position=start_position)
+
+        except Exception as e:
+            # Loggear el error para depuración, pero no romper la interfaz
+            print(f"Error en FileCompleter: {e}", file=sys.stderr)
 
 
 def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approve
     """Inicia el bucle principal de la interfaz de la terminal."""
     global current_agent_mode
-    session = PromptSession(history=FileHistory('.gemini_interpreter_history'))
+    
+    # Obtener la instancia de FileOperationsTool
+    file_operations_tool = terminal_llm_service.get_tool("file_operations")
+    if not file_operations_tool:
+        print("Advertencia: La herramienta 'file_operations' no se encontró. El autocompletado de archivos no estará disponible.", file=sys.stderr)
+        completer = None
+    else:
+        completer = FileCompleter(file_operations_tool)
+
+    session = PromptSession(history=FileHistory('.gemini_interpreter_history'), completer=completer) # Pasar el completer
     console = Console() if rich_available else None
 
     # Imprimir mensaje de bienvenida
@@ -136,8 +209,13 @@ Comandos disponibles:
 
             # --- Invocación del Agente ---
             
+            # Eliminar el '@' del inicio si existe, ya que es solo para el autocompletado de la terminal
+            processed_input = user_input.strip()
+            if processed_input.startswith('@'):
+                processed_input = processed_input[1:] # Eliminar el primer '@'
+
             # Añadir el mensaje del usuario al estado
-            agent_state.messages.append(HumanMessage(content=user_input))
+            agent_state.messages.append(HumanMessage(content=processed_input))
 
             # Seleccionar el agente activo e invocarlo
             active_agent_app = bash_agent_app if current_agent_mode == "bash" else orchestrator_app

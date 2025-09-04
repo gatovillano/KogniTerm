@@ -2,3 +2,4 @@
 venv
 *.gemini_interpreter_history
 __pycache__
+llm_context.md
