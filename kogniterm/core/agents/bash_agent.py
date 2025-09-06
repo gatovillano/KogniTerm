@@ -5,29 +5,33 @@ from typing import List, Optional
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 import google.generativeai as genai
 from rich.console import Console
+import functools
+from langchain_core.runnables import RunnableConfig # Nueva importación
+from rich.markup import escape # Nueva importación
+import sys # Nueva importación
 
 from ..llm_service import LLMService
 
 console = Console()
 
-# Inicializar el servicio LLM de forma global
-llm_service = LLMService()
 
-# --- Mensaje de Sistema --- 
+
+# --- Mensaje de Sistema ---
 SYSTEM_MESSAGE = SystemMessage(content="""Eres KogniTerm, un asistente de IA experto en terminal.
 Tu propósito es ayudar al usuario a realizar tareas directamente en su sistema.
 
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
 1.  **Analiza la petición**: Entiende lo que el usuario quiere lograr.
-2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal y `file_operations` para interactuar con archivos y directorios. Úsalas para llevar a cabo la tarea.
-3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command` o `file_operations` según corresponda.
+2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, y `python_executor` para ejecutar código Python. Úsalas para llevar a cabo la tarea.
+3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`, `file_operations` o `python_executor` según corresponda.
 4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
 5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
 6.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
 
 La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
 La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
+La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código.
 
 Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
 
@@ -78,11 +82,12 @@ class AgentState:
                 else:
                     api_history.append({'role': 'model', 'parts': [genai.protos.Part(text=msg.content)]})
             i += 1
+        print(f"DEBUG: history_for_api generado (longitud: {len(api_history)}): {api_history[:2]}...", file=sys.stderr)
         return api_history
 
 # --- Nodos del Grafo ---
 
-def call_model_node(state: AgentState):
+def call_model_node(state: AgentState, llm_service: LLMService):
     """Llama al LLM con el historial actual de mensajes."""
     history = state.history_for_api
     response = llm_service.invoke(history)
@@ -116,7 +121,7 @@ def call_model_node(state: AgentState):
     
     return state
 
-def explain_command_node(state: AgentState):
+def explain_command_node(state: AgentState, llm_service: LLMService):
     """Genera una explicación en lenguaje natural del comando a ejecutar."""
     # El último mensaje del AI es la llamada a herramienta para execute_command
     last_ai_message = state.messages[-1]
@@ -139,7 +144,7 @@ def explain_command_node(state: AgentState):
     state.command_to_confirm = command
     return state
 
-def execute_tool_node(state: AgentState):
+def execute_tool_node(state: AgentState, llm_service: LLMService):
     """Ejecuta las herramientas solicitadas por el modelo."""
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -169,7 +174,7 @@ def execute_tool_node(state: AgentState):
                     tool_output = f"Error al ejecutar la herramienta {tool_name}: {e}"
             
             # --- Añadir logs para la salida de la herramienta ---
-            console.print(f"[bold green]✅ Salida de la herramienta:[/bold green]\n[dim]{tool_output}[/dim]")
+            console.print(f"[bold green]✅ Salida de la herramienta:[/bold green]\n[dim]{escape(str(tool_output))}[/dim]")
             # --- Fin de logs ---
 
             tool_messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_id))
@@ -195,28 +200,29 @@ def should_continue(state: AgentState) -> str:
 
 # --- Construcción del Grafo ---
 
-bash_agent_graph = StateGraph(AgentState)
+def create_bash_agent(llm_service: LLMService):
+    bash_agent_graph = StateGraph(AgentState)
 
-bash_agent_graph.add_node("call_model", call_model_node)
-bash_agent_graph.add_node("execute_tool", execute_tool_node)
-bash_agent_graph.add_node("explain_command", explain_command_node) # Nuevo nodo
-bash_agent_graph.add_node("confirm_command", lambda state: state) # Nuevo nodo, solo pasa el estado
+    bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service))
+    bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service))
+    bash_agent_graph.add_node("explain_command", functools.partial(explain_command_node, llm_service=llm_service)) # Nuevo nodo
+    bash_agent_graph.add_node("confirm_command", lambda state: state) # Nuevo nodo, solo pasa el estado
 
-bash_agent_graph.set_entry_point("call_model")
+    bash_agent_graph.set_entry_point("call_model")
 
-bash_agent_graph.add_conditional_edges(
-    "call_model",
-    should_continue,
-    {
-        "execute_tool": "execute_tool",
-        "explain_command": "explain_command", # Nueva transición
-        "confirm_command": "confirm_command",
-        END: END
-    }
-)
+    bash_agent_graph.add_conditional_edges(
+        "call_model",
+        should_continue,
+        {
+            "execute_tool": "execute_tool",
+            "explain_command": "explain_command", # Nueva transición
+            "confirm_command": "confirm_command",
+            END: END
+        }
+    )
 
-bash_agent_graph.add_edge("execute_tool", "call_model")
-bash_agent_graph.add_edge("explain_command", "confirm_command") # Nueva transición
-bash_agent_graph.add_edge("confirm_command", END) # El agente termina aquí, la terminal toma el control
+    bash_agent_graph.add_edge("execute_tool", "call_model")
+    bash_agent_graph.add_edge("explain_command", "confirm_command") # Nueva transición
+    bash_agent_graph.add_edge("confirm_command", END) # El agente termina aquí, la terminal toma el control
 
-bash_agent_app = bash_agent_graph.compile()
+    return bash_agent_graph.compile()

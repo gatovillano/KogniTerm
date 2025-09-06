@@ -40,7 +40,7 @@ class MemoryInitTool(BaseTool):
         except PermissionError:
             return f"Error de Permisos: No se tienen los permisos necesarios para inicializar el archivo de memoria '{file_path}'. Asegúrate de que la aplicación tenga los permisos de escritura adecuados."
         except Exception as e:
-            logger.error(f"Error inesperado en MemoryInitTool al inicializar '{file_path}': {e}", exc_info=True)
+            logger.error(f"Error inesperado en MemoryInitTool al inicializar '{file_path}': {e}") # Eliminado exc_info=True
             return f"Error inesperado en MemoryInitTool: {e}. Por favor, revisa los logs para más detalles."
 
     async def _arun(self, file_path: str = "llm_context.md") -> str:

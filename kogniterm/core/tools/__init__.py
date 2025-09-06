@@ -8,6 +8,7 @@ from .memory_read_tool import MemoryReadTool
 from .memory_append_tool import MemoryAppendTool
 from .memory_summarize_tool import MemorySummarizeTool
 from .file_operations_tool import FileOperationsTool # Nuevo import
+from .python_executor import PythonTool # Importar la nueva herramienta Python
 
 # You can also define a list of all tools here for easy access
 ALL_TOOLS = [
@@ -20,7 +21,8 @@ ALL_TOOLS = [
     MemoryReadTool(),
     MemoryAppendTool(),
     MemorySummarizeTool(),
-    FileOperationsTool() # Nueva herramienta
+    FileOperationsTool(), # Nueva herramienta
+    PythonTool() # Añadir PythonTool a la lista de herramientas
 ]
 
 def get_callable_tools():

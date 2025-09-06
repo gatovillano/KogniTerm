@@ -1,5 +1,5 @@
 import logging
-from .tools import ALL_TOOLS # Import ALL_TOOLS from the new directory
+from .python_executor import PythonTool # Importar la nueva herramienta Python
 
 # Configuración básica del logger
 logger = logging.getLogger(__name__)
@@ -9,12 +9,18 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-# This function will now instantiate all tools from the ALL_TOOLS list
+# Lista para registrar todas las clases de herramientas disponibles para el LLM.
+# Aquí se añadirán las clases de las herramientas que se implementen.
+ALL_TOOLS = [
+    PythonTool, # Añadir PythonTool a la lista de herramientas
+]
+
+# Esta función instanciará todas las herramientas de la lista ALL_TOOLS
 def get_callable_tools():
     callable_tools = []
     for tool_class in ALL_TOOLS:
         try:
             callable_tools.append(tool_class())
         except Exception as e:
-            logger.error(f"Error instantiating tool {tool_class.__name__}: {e}")
+            logger.error(f"Error instanciando la herramienta {tool_class.__name__}: {e}")
     return callable_tools

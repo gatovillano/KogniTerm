@@ -269,3 +269,9 @@ Descripción general: Se corrigió un `NameError` en la función `print_welcome_
 
 - **Causa del Error**: La variable `color` no estaba definida dentro del bucle que itera sobre las líneas del banner, lo que causaba que el programa fallara al intentar formatear el texto con un color inexistente.
 - **Solución**: Se modificó la línea de impresión del banner para utilizar un color de la lista `colors` basado en el índice de la línea (`colors[i % len(colors)]`), asegurando que siempre se utilice un color válido y se mantenga el efecto de degradado.
+---
+## 04-09-25 Resolución de Conflictos de Merge con `git reset --hard`
+ Descripción general: Se resolvieron conflictos de merge en el repositorio al revertir todos los archivos a la versión de un commit específico, descartando los cambios de la rama rebasada.
+
+ - **Solicitud del usuario**: El usuario solicitó resolver conflictos de merge y restaurar el estado de todos los archivos a la versión del commit `62c36e2c06dc7f2fd41b4c623d653b76800b9d8d`, reemplazando las versiones de la rama que estaba rebasando.
+ - **Solución propuesta**: Se utilizó el comando `git reset --hard 62c36e2c06dc7f2fd41b4c623d653b76800b9d8d` para forzar el estado del repositorio al commit especificado, eliminando los conflictos y los cambios no deseados.

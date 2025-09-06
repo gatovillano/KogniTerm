@@ -18,8 +18,8 @@ except ImportError:
     rich_available = False
 
 # --- Importaciones de Agentes ---
-from ..core.agents.bash_agent import bash_agent_app, AgentState
-from ..core.agents.orchestrator_agent import orchestrator_app
+from ..core.agents.bash_agent import create_bash_agent, AgentState
+from ..core.agents.orchestrator_agent import create_orchestrator_agent
 
 # --- Estado Global de la Terminal ---
 current_agent_mode = "bash" # Inicia en modo bash por defecto
@@ -154,6 +154,10 @@ def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approv
         console.print(Padding("[bold yellow]Modo de auto-aprobación activado.[/bold yellow]", (0, 2)))
     elif auto_approve:
         print("Modo de auto-aprobación activado.")
+
+    # Crear las instancias de los agentes con la instancia de llm_service de la terminal
+    bash_agent_app = create_bash_agent(terminal_llm_service)
+    orchestrator_app = create_orchestrator_agent(terminal_llm_service)
 
     # El estado del agente persistirá durante la sesión de cada modo
     agent_state = AgentState()

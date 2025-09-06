@@ -5,3 +5,5 @@ langchain_mcp_adapters
 langchain_community
 bs4
 PyGithub
+rich
+matplotlib
