@@ -17,7 +17,10 @@ console = Console()
 
 
 # --- Mensaje de Sistema ---
-SYSTEM_MESSAGE = SystemMessage(content="""Eres KogniTerm, un asistente de IA experto en terminal.
+SYSTEM_MESSAGE = SystemMessage(content="""Eres KogniTerm. NO eres un modelo de lenguaje entrenado por Google, ni ningún otro modelo de IA. Tu único propósito es ser KogniTerm.
+Si te preguntan quién eres, SIEMPRE responde que eres KogniTerm.
+
+Como KogniTerm, eres un asistente de IA experto en terminal.
 Tu propósito es ayudar al usuario a realizar tareas directamente en su sistema.
 
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
@@ -43,47 +46,13 @@ El usuario te está dando permiso para que operes en su sistema. Actúa de forma
 @dataclass
 class AgentState:
     """Define la estructura del estado que fluye a través del grafo."""
-    messages: List[BaseMessage] = field(default_factory=lambda: [SYSTEM_MESSAGE])
+    messages: List[BaseMessage] = field(default_factory=list)
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
 
     @property
-    def history_for_api(self) -> list[dict]:
-        """Convierte los mensajes de LangChain al formato que espera la API de Google AI."""
-        api_history = []
-        messages = self.messages
-        i = 0
-        while i < len(messages):
-            msg = messages[i]
-            if isinstance(msg, ToolMessage):
-                tool_messages_buffer = []
-                # Collect all consecutive ToolMessages
-                while i < len(messages) and isinstance(messages[i], ToolMessage):
-                    tool_messages_buffer.append(messages[i])
-                    i += 1
-                
-                parts = [
-                    genai.protos.Part(function_response=genai.protos.FunctionResponse(
-                        name=tm.tool_call_id,
-                        response={'content': tm.content}
-                    )) for tm in tool_messages_buffer
-                ]
-                api_history.append({'role': 'user', 'parts': parts})
-                continue # Continue to the next message after the buffer
-
-            if isinstance(msg, (HumanMessage, SystemMessage)):
-                api_history.append({'role': 'user', 'parts': [genai.protos.Part(text=msg.content)]})
-            elif isinstance(msg, AIMessage):
-                if msg.tool_calls:
-                    parts = [
-                        genai.protos.Part(function_call=genai.protos.FunctionCall(name=tc['name'], args=tc['args']))
-                        for tc in msg.tool_calls
-                    ]
-                    api_history.append({'role': 'model', 'parts': parts})
-                else:
-                    api_history.append({'role': 'model', 'parts': [genai.protos.Part(text=msg.content)]})
-            i += 1
-        print(f"DEBUG: history_for_api generado (longitud: {len(api_history)}): {api_history[:2]}...", file=sys.stderr)
-        return api_history
+    def history_for_api(self) -> list[BaseMessage]:
+        """Devuelve el historial de mensajes de LangChain directamente."""
+        return self.messages
 
 # --- Nodos del Grafo ---
 
@@ -92,6 +61,12 @@ def call_model_node(state: AgentState, llm_service: LLMService):
     history = state.history_for_api
     response = llm_service.invoke(history)
     
+    # --- INICIO DE LA CORRECCIÓN ---
+    if isinstance(response, AIMessage):
+        state.messages.append(response)
+        return state
+    # --- FIN DE LA CORRECCIÓN ---
+
     # Check if response has candidates and parts
     if response.candidates and response.candidates[0].content.parts:
         # Iterate through all parts to find tool calls
@@ -132,7 +107,7 @@ def explain_command_node(state: AgentState, llm_service: LLMService):
     # Llamar al modelo para obtener una explicación
     # Necesitamos una copia del historial sin la última llamada a herramienta para que el modelo genere texto
     temp_history = state.history_for_api[:-1] # Eliminar el último mensaje del AI con la llamada a herramienta
-    temp_history.append({'role': 'user', 'parts': [explanation_prompt]}) # Añadir el prompt de explicación
+    temp_history.append(HumanMessage(content=explanation_prompt)) # Añadir el prompt de explicación como HumanMessage
     
     response = llm_service.invoke(temp_history)
     explanation_text = response.candidates[0].content.parts[0].text
@@ -158,7 +133,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
 
         # --- Añadir logs para la ejecución de herramientas ---
         console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_name}[/yellow]")
-        console.print(f"[bold blue]⚙️ Argumentos:[/bold blue] [cyan]{tool_args}[/cyan]")
+        
         # --- Fin de logs ---
 
         if tool_name == "execute_command":
@@ -226,3 +201,4 @@ def create_bash_agent(llm_service: LLMService):
     bash_agent_graph.add_edge("confirm_command", END) # El agente termina aquí, la terminal toma el control
 
     return bash_agent_graph.compile()
+

@@ -43,21 +43,47 @@ from .bash_agent import call_model_node, execute_tool_node, should_continue
 
 # Nuevo nodo para crear el plan
 async def create_plan_node(state: AgentState, llm_service: LLMService):
-    """
-    Genera un plan de acción utilizando el LLM.
-    """
-    response = llm_service.invoke(history=state.history_for_api)
+    """Genera un plan de acción utilizando el LLM y cede actualizaciones de estado para streaming."""
+    history = state.history_for_api
+    
+    # Inicializar un AIMessage para acumular la respuesta del LLM
+    current_ai_message = AIMessage(content="")
+    state.messages.append(current_ai_message) # Añadir el mensaje vacío al estado
 
-    ai_message_content = ""
-    if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-        for part in response.candidates[0].content.parts:
-            if part.text:
-                ai_message_content += part.text
-            elif part.function_call:
-                ai_message_content += f"Tool Call: {part.function_call.name}({part.function_call.args})"
+    try:
+        response_stream = llm_service.invoke(history) # Esto ahora devuelve un iterador
+        
+        full_text_content = ""
+        accumulated_tool_calls = []
 
-    state.messages.append(AIMessage(content=ai_message_content))
-    return state
+        for chunk in response_stream: # Usar for normal para iterar sobre el stream síncrono
+            # Cada chunk es un GenerateContentResponse
+            if chunk.candidates:
+                for part in chunk.candidates[0].content.parts:
+                    if part.text:
+                        full_text_content += part.text
+                        # Actualizar el contenido del mensaje del AI en el estado
+                        current_ai_message.content = full_text_content
+                        yield state.copy() # Ceder una copia del estado actualizado
+                    
+                    if part.function_call:
+                        tool_name = part.function_call.name
+                        tool_args = {key: value for key, value in part.function_call.args.items()}
+                        accumulated_tool_calls.append({"name": tool_name, "args": tool_args, "id": tool_name})
+                        # No cedemos aquí para tool_calls, se añadirán al final del mensaje del AI
+                        # o se manejarán en el siguiente nodo si es una herramienta de ejecución
+
+        # Al final del stream, actualizar el mensaje del AI con el contenido completo y tool_calls
+        current_ai_message.content = full_text_content
+        if accumulated_tool_calls:
+            current_ai_message.tool_calls = accumulated_tool_calls
+        
+        yield state.copy() # Ceder el estado final después de procesar todo el stream
+
+    except Exception as e:
+        error_message = f"Ocurrió un error durante la llamada al modelo: {e}"
+        current_ai_message.content = error_message
+        yield state.copy() # Ceder el estado con el mensaje de error
 
 # --- Construcción del Grafo del Orquestador ---
 

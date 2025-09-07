@@ -3,9 +3,11 @@ import os
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from ..core.command_executor import CommandExecutor
-from ..core.llm_service import LLMService # Importar la CLASE LLMService
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
+from kogniterm.core.command_executor import CommandExecutor
+from kogniterm.core.llm_service import LLMService # Importar la CLASE LLMService
+from kogniterm.core.tools.python_executor import PythonTool
+from kogniterm.core.tools.file_operations_tool import FileOperationsTool # Importar FileOperationsTool para acceder a glob
 
 # --- Estilo de la Interfaz (Rich) ---
 try:
@@ -18,16 +20,14 @@ except ImportError:
     rich_available = False
 
 # --- Importaciones de Agentes ---
-from ..core.agents.bash_agent import create_bash_agent, AgentState
-from ..core.agents.orchestrator_agent import create_orchestrator_agent
+from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
+from kogniterm.core.agents.orchestrator_agent import create_orchestrator_agent
 
 # --- Estado Global de la Terminal ---
 current_agent_mode = "bash" # Inicia en modo bash por defecto
 command_executor = CommandExecutor() # Nueva instancia global
 
-# Crear una instancia de LLMService para que la terminal pueda acceder a las herramientas
-# Esto asegura que la terminal tenga su propia instancia de las herramientas
-terminal_llm_service = LLMService()
+
 
 def print_welcome_banner(console):
     """Imprime el banner de bienvenida con un degradado de colores."""
@@ -71,57 +71,49 @@ class FileCompleter(Completer):
         # Extraer la parte relevante para el autocompletado después del último '@'
         current_input_part = text_before_cursor.split('@')[-1]
         
-        base_path = os.getcwd() # Directorio base para la búsqueda
+        base_path = os.getcwd()
 
-        # Determinar el directorio a listar y el prefijo a buscar
-        dir_to_list = base_path
-        search_prefix = current_input_part
-
-        if '/' in current_input_part:
-            # Si hay barras, el usuario está especificando una ruta parcial
-            parts = current_input_part.rsplit('/', 1)
-            dir_part = parts[0]
-            search_prefix = parts[1] if len(parts) > 1 else '' # Prefijo para el nombre del archivo/directorio
-
-            # Resolver la ruta del directorio a listar
-            if dir_part.startswith('/'): # Ruta absoluta
-                dir_to_list = dir_part
-            else: # Ruta relativa
-                dir_to_list = os.path.join(base_path, dir_part)
-            
-            # Asegurarse de que dir_to_list sea un directorio existente
-            if not os.path.isdir(dir_to_list):
-                return # El directorio no existe, no hay sugerencias
+        # Determinar si se deben incluir archivos y directorios ocultos
+        include_hidden = current_input_part.startswith('.')
 
         try:
-            # Usar la herramienta list_directory para obtener el contenido del directorio
-            # Ahora _list_directory devuelve una lista directamente
-            all_items = self.file_operations_tool._list_directory(dir_to_list)
+            # Usar _list_directory con recursive=True para obtener todos los archivos y directorios
+            # Esto devuelve rutas relativas al base_path
+            all_relative_items = self.file_operations_tool._list_directory(path=base_path, recursive=True, include_hidden=include_hidden)
             
-            for item in all_items:
-                # Si el item es un directorio, añadir un '/' al final para autocompletar
-                full_item_path = os.path.join(dir_to_list, item)
-                display_item = item
-                if os.path.isdir(full_item_path):
+            suggestions = []
+            for relative_item_path in all_relative_items:
+                # Construir la ruta absoluta para verificar si es un directorio
+                absolute_item_path = os.path.join(base_path, relative_item_path)
+                
+                display_item = relative_item_path
+                if os.path.isdir(absolute_item_path):
                     display_item += '/'
 
-                if display_item.startswith(search_prefix):
-                    # Calcular la posición de inicio para el reemplazo
-                    # Queremos reemplazar solo la parte que el usuario está escribiendo
-                    start_position = -len(search_prefix)
-                    yield Completion(display_item, start_position=start_position)
+                # Filtrar por el input actual del usuario
+                if current_input_part.lower() in display_item.lower():
+                    suggestions.append(display_item)
+            
+            # Ordenar las sugerencias para una mejor experiencia de usuario
+            suggestions.sort()
+
+            for suggestion in suggestions:
+                # Calcular la posición de inicio para el reemplazo
+                # Queremos reemplazar solo la parte que el usuario está escribiendo después del '@'
+                start_position = -len(current_input_part)
+                yield Completion(suggestion, start_position=start_position)
 
         except Exception as e:
             # Loggear el error para depuración, pero no romper la interfaz
             print(f"Error en FileCompleter: {e}", file=sys.stderr)
 
 
-def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approve
+def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-introduciendo auto_approve
     """Inicia el bucle principal de la interfaz de la terminal."""
     global current_agent_mode
     
     # Obtener la instancia de FileOperationsTool
-    file_operations_tool = terminal_llm_service.get_tool("file_operations")
+    file_operations_tool = llm_service.get_tool("file_operations")
     if not file_operations_tool:
         print("Advertencia: La herramienta 'file_operations' no se encontró. El autocompletado de archivos no estará disponible.", file=sys.stderr)
         completer = None
@@ -156,11 +148,24 @@ def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approv
         print("Modo de auto-aprobación activado.")
 
     # Crear las instancias de los agentes con la instancia de llm_service de la terminal
-    bash_agent_app = create_bash_agent(terminal_llm_service)
-    orchestrator_app = create_orchestrator_agent(terminal_llm_service)
+    bash_agent_app = create_bash_agent(llm_service)
+    orchestrator_app = create_orchestrator_agent(llm_service)
 
     # El estado del agente persistirá durante la sesión de cada modo
     agent_state = AgentState()
+    loaded_llm_history = llm_service.conversation_history[:] 
+    
+    # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial del agente.
+    # Si el historial cargado ya contiene el SYSTEM_MESSAGE, no lo añadimos de nuevo.
+    # Si no lo contiene, lo añadimos.
+    # También nos aseguramos de que el SYSTEM_MESSAGE sea el primer elemento si no hay historial cargado.
+    if not loaded_llm_history or not (isinstance(loaded_llm_history[0], SystemMessage) and loaded_llm_history[0].content == SYSTEM_MESSAGE.content):
+        agent_state.messages.append(SYSTEM_MESSAGE) # Añadir el SYSTEM_MESSAGE
+    
+    # Filtrar cualquier SYSTEM_MESSAGE duplicado del historial cargado si ya lo hemos añadido
+    filtered_loaded_history = [msg for msg in loaded_llm_history if not (isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content)]
+    
+    agent_state.messages.extend(filtered_loaded_history)
 
     while True:
         try:
@@ -178,6 +183,8 @@ def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approv
 
             if user_input.lower().strip() == '%reset':
                 agent_state = AgentState() # Reiniciar el estado
+                # También reiniciamos el historial de llm_service al resetear la conversación
+                llm_service.conversation_history = []
                 print(f"Conversación reiniciada para el modo '{current_agent_mode}'.")
                 continue
 
@@ -187,6 +194,8 @@ def start_terminal_interface(auto_approve=False): # Re-introduciendo auto_approv
                 else:
                     current_agent_mode = "bash"
                 agent_state = AgentState() # Reiniciar estado al cambiar de modo
+                # También reiniciamos el historial de llm_service al cambiar de modo
+                llm_service.conversation_history = []
                 print(f"Cambiado al modo '{current_agent_mode}'. Conversación reiniciada.")
                 continue
 
@@ -208,7 +217,7 @@ Comandos disponibles:
   %agentmode  Cambia entre el modo 'bash' y 'orchestrator'.
   %undo       Deshace la última interacción.
   %salir      Sale del intérprete.
-""" )
+""")
                 continue
 
             # --- Invocación del Agente ---
@@ -302,6 +311,65 @@ Comandos disponibles:
             # La respuesta final del AI es el último mensaje en el estado
             final_response_message = agent_state.messages[-1] # Usar agent_state.messages directamente
 
+            # --- Manejo de la salida de PythonTool ---
+            if isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "python_executor":
+                # Asumiendo que la instancia de PythonTool está disponible a través de llm_service
+                python_tool_instance = llm_service.get_tool("python_executor")
+                if python_tool_instance and hasattr(python_tool_instance, 'get_last_structured_output'):
+                    structured_output = python_tool_instance.get_last_structured_output()
+                    if structured_output and "result" in structured_output:
+                        if console:
+                            console.print(Padding(Panel("[bold green]Salida del Código Python:[/bold green]", border_style='green'), (1, 2)))
+                        else:
+                            print("\n--- Salida del Código Python ---\n")
+
+                        for item in structured_output["result"]:
+                            if item['type'] == 'stream':
+                                if console:
+                                    console.print(f"[cyan]STDOUT:[/cyan] {item['text']}")
+                                else:
+                                    print(f"STDOUT: {item['text']}")
+                            elif item['type'] == 'error':
+                                if console:
+                                    console.print(f"[red]ERROR ({item['ename']}):[/red] {item['evalue']}")
+                                    console.print(f"[red]TRACEBACK:[/red]\n{''.join(item['traceback'])}")
+                                else:
+                                    print(f"ERROR ({item['ename']}): {item['evalue']}")
+                                    print(f"TRACEBACK:\n{''.join(item['traceback'])}")
+                            elif item['type'] == 'execute_result':
+                                data_str = item['data'].get('text/plain', str(item['data']))
+                                if console:
+                                    console.print(f"[green]RESULTADO:[/green] {data_str}")
+                                else:
+                                    print(f"RESULTADO: {data_str}")
+                            elif item['type'] == 'display_data':
+                                if 'image/png' in item['data']:
+                                    if console:
+                                        console.print("[magenta]IMAGEN PNG GENERADA[/magenta]")
+                                    else:
+                                        print("IMAGEN PNG GENERADA")
+                                elif 'text/html' in item['data']:
+                                    if console:
+                                        console.print(f"[magenta]HTML GENERADO:[/magenta] {item['data']['text/html'][:100]}...")
+                                    else:
+                                        print(f"HTML GENERADO: {item['data']['text/html'][:100]}...")
+                                else:
+                                    if console:
+                                        console.print(f"[magenta]DATOS DE VISUALIZACIÓN:[/magenta] {str(item['data'])}")
+                                    else:
+                                        print(f"DATOS DE VISUALIZACIÓN: {str(item['data'])}")
+                        if console:
+                            console.print(Padding(Panel("[bold green]Fin de la Salida Python[/bold green]", border_style='green'), (1, 2)))
+                        else:
+                            print("\n--- Fin de la Salida Python ---\n")
+                    elif "error" in structured_output:
+                        if console:
+                            console.print(f"[red]Error en la ejecución de Python:[/red] {structured_output['error']}")
+                        else:
+                            print(f"Error en la ejecución de Python: {structured_output['error']}")
+                # No imprimir el ToolMessage crudo si ya lo hemos manejado
+                continue # Salir del if para no procesar como AIMessage
+
             if isinstance(final_response_message, AIMessage) and final_response_message.content:
                 content = final_response_message.content
                 if not isinstance(content, str):
@@ -314,6 +382,10 @@ Comandos disponibles:
                     print(f"\nKogniTerm ({current_agent_mode}):\n{content}\n")
             
             # No es necesario actualizar agent_state.messages aquí de nuevo, ya está actualizado
+
+            # --- MODIFICACIÓN 2: Guardar el historial después de cada interacción ---
+            llm_service._save_history(agent_state.messages)
+            # ----------------------------------------------------------------------
 
         except KeyboardInterrupt:
             print("\nSaliendo...")

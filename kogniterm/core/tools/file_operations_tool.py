@@ -96,12 +96,17 @@ class FileOperationsTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error al eliminar el archivo '{path}': {e}")
 
-    def _list_directory(self, path: str, recursive: bool = False) -> List[str]: # Añadir recursive
+    def _list_directory(self, path: str, recursive: bool = False, include_hidden: bool = False) -> List[str]:
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:
             if recursive:
                 all_items = []
                 for root, dirs, files in os.walk(path):
+                    # Filtrar directorios ocultos si no se deben incluir
+                    if not include_hidden:
+                        dirs[:] = [d for d in dirs if not d.startswith('.')]
+                        files[:] = [f for f in files if not f.startswith('.')]
+
                     # Calcular la ruta relativa desde el directorio inicial
                     relative_root = os.path.relpath(root, path)
                     if relative_root == ".": # Si es el directorio raíz, no añadir prefijo
@@ -118,6 +123,9 @@ class FileOperationsTool(BaseTool):
                 items = []
                 with os.scandir(path) as entries:
                     for entry in entries:
+                        # En modo no recursivo, también podemos filtrar ocultos si se desea
+                        if not include_hidden and entry.name.startswith('.'):
+                            continue
                         items.append(entry.name)
                 return items
         except FileNotFoundError:
