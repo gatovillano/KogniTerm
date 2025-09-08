@@ -1,6 +1,7 @@
 import time
 import threading
 import queue
+import sys # Añadir esta importación
 from jupyter_client import KernelManager
 
 class KogniTermKernel:
@@ -13,7 +14,7 @@ class KogniTermKernel:
 
     def start_kernel(self):
         print("Iniciando kernel de Python...")
-        self.km = KernelManager(kernel_name='python3')
+        self.km = KernelManager(kernel_name='kogniterm_venv')
         self.km.start_kernel()
         self.kc = self.km.client()
         self.kc.start_channels()

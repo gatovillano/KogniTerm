@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, System
 
 from .tools import get_callable_tools
 
-HISTORY_FILE = "kogniterm_history.json"
+HISTORY_FILE = os.path.join(os.getcwd(), "kogniterm_history.json")
 
 def _to_gemini_content(message):
     """Convierte un mensaje de LangChain a un objeto Content de Gemini."""
@@ -207,16 +207,17 @@ class LLMService:
                                 # Asegurarse de que los args sean diccionarios
                                 formatted_tool_calls = []
                                 for tc in tool_calls:
+                                    tool_call_id = tc.get('id') # Obtener el id de forma segura
                                     if isinstance(tc['args'], dict):
-                                        formatted_tool_calls.append({'name': tc['name'], 'args': tc['args']})
+                                        formatted_tool_calls.append({'name': tc['name'], 'args': tc['args'], 'id': tool_call_id})
                                     else:
                                         # Si args no es un dict, intentar parsearlo
                                         try:
                                             parsed_args = json.loads(tc['args'])
-                                            formatted_tool_calls.append({'name': tc['name'], 'args': parsed_args})
+                                            formatted_tool_calls.append({'name': tc['name'], 'args': parsed_args, 'id': tool_call_id})
                                         except (json.JSONDecodeError, TypeError):
                                             print(f"Advertencia: No se pudieron parsear los argumentos de la herramienta: {tc['args']}", file=sys.stderr)
-                                            formatted_tool_calls.append({'name': tc['name'], 'args': {}})
+                                            formatted_tool_calls.append({'name': tc['name'], 'args': {}, 'id': tool_call_id})
                                 loaded_history.append(AIMessage(content=item['content'], tool_calls=formatted_tool_calls))
                             else:
                                 loaded_history.append(AIMessage(content=item['content']))
@@ -243,7 +244,7 @@ class LLMService:
                 elif isinstance(msg, AIMessage):
                     # Incluir tool_calls si existen
                     if msg.tool_calls:
-                        serializable_history.append({'type': 'ai', 'content': msg.content, 'tool_calls': [{'name': tc['name'], 'args': tc['args']} for tc in msg.tool_calls]})
+                        serializable_history.append({'type': 'ai', 'content': msg.content, 'tool_calls': [{'name': tc['name'], 'args': tc['args'], 'id': tc['id']} for tc in msg.tool_calls]})
                     else:
                         serializable_history.append({'type': 'ai', 'content': msg.content})
                 elif isinstance(msg, ToolMessage):

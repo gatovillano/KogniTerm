@@ -19,7 +19,7 @@ class KogniTermKernel:
     def start_kernel(self):
         print("Iniciando kernel de Python...")
         try:
-            self.km = KernelManager(kernel_name='python3')
+            self.km = KernelManager(kernel_name='kogniterm_venv')
             self.km.start_kernel()
             self.kc = self.km.client()
             self.kc.start_channels()
@@ -104,6 +104,7 @@ class PythonTool(BaseTool):
     description: str = "Ejecuta código Python utilizando un kernel de Jupyter. Mantiene el estado entre ejecuciones."
     args_schema: type[BaseModel] = PythonToolArgs
     last_structured_output: dict = None # Declarar como atributo de clase con tipo y valor por defecto
+    auto_approve: bool = False # Nuevo atributo para controlar la aprobación automática
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -116,9 +117,16 @@ class PythonTool(BaseTool):
         Este método es el que será llamado por LangChain/Gemini.
         La salida se convierte a una cadena para ser procesada por el LLM.
         """
-        print(f"DEBUG: PythonTool._run llamado con código:\n{code}", file=sys.stderr)
+        if not self.auto_approve:
+            print(f"\n🚨 Se requiere aprobación para ejecutar el siguiente código Python:\n```python\n{code}\n```")
+            response = input("¿Deseas aprobar la ejecución de este código? (s/n): ")
+            if response.lower() != 's':
+                return "Ejecución de código Python cancelada por el usuario."
+
+        print(f"Ejecutando código Python:\n```python\n{code}\n```")
         raw_output = self._kernel.execute_code(code)
         self.last_structured_output = raw_output # Almacenar la salida estructurada
+
 
         # Procesar la salida bruta a un formato más amigable para el LLM
         formatted_output = []

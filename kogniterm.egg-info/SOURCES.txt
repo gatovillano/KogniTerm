@@ -17,6 +17,7 @@ kogniterm/core/tools/__init__.py
 kogniterm/core/tools/brave_search_tool.py
 kogniterm/core/tools/execute_command_tool.py
 kogniterm/core/tools/file_operations_tool.py
+kogniterm/core/tools/file_search_tool.py
 kogniterm/core/tools/github_tool.py
 kogniterm/core/tools/memory_append_tool.py
 kogniterm/core/tools/memory_init_tool.py

@@ -153,19 +153,32 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
 
     # El estado del agente persistirá durante la sesión de cada modo
     agent_state = AgentState()
-    loaded_llm_history = llm_service.conversation_history[:] 
+    # Usar el historial de llm_service directamente como el estado del agente
+    agent_state.messages = llm_service.conversation_history
     
-    # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial del agente.
+    # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial.
     # Si el historial cargado ya contiene el SYSTEM_MESSAGE, no lo añadimos de nuevo.
-    # Si no lo contiene, lo añadimos.
-    # También nos aseguramos de que el SYSTEM_MESSAGE sea el primer elemento si no hay historial cargado.
-    if not loaded_llm_history or not (isinstance(loaded_llm_history[0], SystemMessage) and loaded_llm_history[0].content == SYSTEM_MESSAGE.content):
-        agent_state.messages.append(SYSTEM_MESSAGE) # Añadir el SYSTEM_MESSAGE
+    if not agent_state.messages or not (isinstance(agent_state.messages[0], SystemMessage) and agent_state.messages[0].content == SYSTEM_MESSAGE.content):
+        # Si el historial no está vacío y el primer mensaje no es el SYSTEM_MESSAGE,
+        # o si el historial está vacío, añadir el SYSTEM_MESSAGE al principio.
+        if agent_state.messages and not (isinstance(agent_state.messages[0], SystemMessage) and agent_state.messages[0].content == SYSTEM_MESSAGE.content):
+            agent_state.messages.insert(0, SYSTEM_MESSAGE)
+        elif not agent_state.messages:
+            agent_state.messages.append(SYSTEM_MESSAGE)
     
-    # Filtrar cualquier SYSTEM_MESSAGE duplicado del historial cargado si ya lo hemos añadido
-    filtered_loaded_history = [msg for msg in loaded_llm_history if not (isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content)]
-    
-    agent_state.messages.extend(filtered_loaded_history)
+    # Filtrar cualquier SYSTEM_MESSAGE duplicado del historial si ya lo hemos añadido
+    # Esto es importante si el historial cargado ya tenía SYSTEM_MESSAGE y lo insertamos de nuevo.
+    # Solo mantenemos la primera instancia del SYSTEM_MESSAGE.
+    system_message_count = sum(1 for msg in agent_state.messages if isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content)
+    if system_message_count > 1:
+        first_system_message_index = -1
+        for i, msg in enumerate(agent_state.messages):
+            if isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content:
+                if first_system_message_index == -1:
+                    first_system_message_index = i
+                else:
+                    agent_state.messages.pop(i)
+                    break # Asumimos que solo hay un duplicado a eliminar
 
     while True:
         try:

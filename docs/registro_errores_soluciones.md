@@ -76,7 +76,7 @@ La aplicación fallaba con un `SyntaxError` indicando una f-string no terminada 
 Durante una refactorización previa de `terminal.py`, la f-string utilizada para `summary_prompt` fue formateada incorrectamente, lo que llevó a un error de sintaxis. Esto se debió a un manejo inadecuado de las comillas y los saltos de línea dentro de la f-string.
 
 **Solución:**
-Se corrigió la f-string de `summary_prompt` en `gemini_interpreter/terminal/terminal.py` para utilizar comillas triples (`""") de forma adecuada, lo que permite un formato multilínea correcto y resuelve el `SyntaxError`. Se sobrescribió toda la función `start_terminal_interface` para asegurar la integridad estructural del archivo.
+Se corrigió la f-string de `summary_prompt` en `gemini_interpreter/terminal/terminal.py` para utilizar comillas triples (`"""`) de forma adecuada, lo que permite un formato multilínea correcto y resuelve el `SyntaxError`. Se sobrescribió toda la función `start_terminal_interface` para asegurar la integridad estructural del archivo.
 
 ---
 
@@ -150,15 +150,19 @@ Se ha añadido una medida de robustez en `kogniterm/core/interpreter.py` para as
 La aplicación fallaba con un `SyntaxError` indicando `f-string: single '}' is not allowed` en la línea donde se intentaba imprimir el traceback de un error de Python en `kogniterm/terminal/terminal.py`.
 
 **Causa Raíz:**
-Durante la implementación de la visualización formateada de la salida de `python_executor`, se introdujo un error de sintaxis en un f-string. Específicamente, la expresión `{''}.join(item['traceback'])}` fue escrita incorrectamente como `{''}\n.join(item['traceback'])}`, lo que causó que el intérprete de Python detectara un cierre de llave (`}`) inesperado dentro del f-string.
+Durante la implementación de la visualización formateada de la salida de `python_executor`, se introdujo un error de sintaxis en un f-string. Específicamente, la expresión `{''.join(item['traceback'])}` fue escrita incorrectamente como `{'}
+.join(item['traceback'])}`, lo que causó que el intérprete de Python detectara un cierre de llave (`}`) inesperado dentro del f-string.
 
 **Solución:**
-Se corrigió la sintaxis del f-string en `kogniterm/terminal/terminal.py`. La línea `console.print(f"[red]TRACEBACK:[/red]\n{''}\n.join(item['traceback'])}`")` fue reemplazada por `console.print(f"[red]TRACEBACK:[/red]\n{''.join(item['traceback'])}`")` para asegurar que la expresión `join` se evalúe correctamente dentro del f-string.
+Se corrigió la sintaxis del f-string en `kogniterm/terminal/terminal.py`. La línea `console.print(f"[red]TRACEBACK:[/red]
+{''}
+.join(item['traceback'])}")` fue reemplazada por `console.print(f"[red]TRACEBACK:[/red]
+{''}.join(item['traceback'])}}")` para asegurar que la expresión `join` se evalúe correctamente dentro del f-string.
 ---
 ### 07-09-25: Error de API de Gemini: "400 Please ensure that function call turn comes immediately after a user turn or after a function response turn"
 
 **Error:**
-La aplicación fallaba con un error de la API de Gemini indicando que el turno de llamada a función no seguía inmediatamente a un turno de usuario o a un turno de respuesta de función. Esto ocurría después de una cierta cantidad de mensajes en la conversación.
+La aplicación fallaba con un `Error` de la API de Gemini indicando que el turno de llamada a función no seguía inmediatamente a un turno de usuario o a un turno de respuesta de función. Esto ocurría después de una cierta cantidad de mensajes en la conversación.
 
 **Causa Raíz:**
 La causa principal fue una doble conversión y un manejo incorrecto del historial de mensajes entre el formato de LangChain y el formato esperado por la API de Gemini.
@@ -179,3 +183,66 @@ El problema se originó en la función `explain_command_node` dentro de `kognite
 
 **Solución:**
 Se modificó `kogniterm/core/agents/bash_agent.py`: En la función `explain_command_node`, la línea que añadía el prompt de explicación al historial temporal fue cambiada para que, en lugar de un diccionario, se añada un objeto `HumanMessage` (`HumanMessage(content=explanation_prompt)`). Esto asegura que todos los elementos en el historial de mensajes sean instancias válidas de `BaseMessage` de LangChain, resolviendo así el `ValueError` y manteniendo la consistencia en el tipo de datos esperados por el servicio LLM.
+---
+### 07-09-25: `SyntaxError: invalid syntax` en `bash_agent.py`
+
+**Error:**
+La aplicación fallaba con un `SyntaxError` indicando `f-string: single '}' is not allowed` en `kogniterm/core/agents/bash_agent.py` en la línea 184, específicamente en un `else`.
+
+**Causa Raíz:**
+El error se debía a un `else` redundante en la función `should_continue` dentro de `kogniterm/core/agents/bash_agent.py`. Había un `else` sin un `if` o `elif` correspondiente que lo precediera directamente, lo que causaba un error de sintaxis.
+
+**Solución:**
+Se eliminó el `else` redundante en la línea 184 de `kogniterm/core/agents/bash_agent.py` y se ajustó la indentación del bloque de código subsiguiente para que se alineara correctamente con la lógica del `if/elif/else` principal. Esto resolvió el `SyntaxError` y aseguró la correcta estructura del código.
+---
+### 07-09-25: Mejora: Habilitar Continuación de Tareas en Agente Bash
+
+**Descripción:**
+Se implementó una mejora en el agente Bash para permitir una interacción más fluida y secuencial entre la ejecución de herramientas y las respuestas conversacionales del LLM, similar al comportamiento de Gemini CLI.
+
+**Detalles:**
+1.  **Señal de Continuación**: Se introdujo una señal de continuación (`[CONTINUE_AGENT_FLOW]`) que el LLM puede incluir en sus mensajes conversacionales. Esta señal indica al sistema que el LLM necesita seguir procesando o ejecutando herramientas después de haber proporcionado una respuesta al usuario.
+2.  **Lógica de `should_continue`**: La función `should_continue` en `kogniterm/core/agents/bash_agent.py` fue ajustada para detectar esta señal. Si un `AIMessage` (respuesta conversacional) contiene la señal, el flujo del agente vuelve al nodo `call_model`, permitiendo que el LLM genere la siguiente acción (ya sea otra herramienta o más conversación).
+3.  **Instrucción al LLM**: El `SYSTEM_MESSAGE` en `kogniterm/core/agents/bash_agent.py` fue actualizado para instruir al LLM sobre cuándo y cómo usar la señal `[CONTINUE_AGENT_FLOW]`. Esto asegura que el LLM sea consciente de esta capacidad y la utilice proactivamente cuando sea necesario para completar tareas complejas que requieran múltiples pasos de interacción.
+
+**Beneficio:**
+Esta mejora permite que el agente Bash encadene operaciones de manera más autónoma, reduciendo la necesidad de intervención manual del usuario entre pasos y mejorando la experiencia general de interacción, haciendo que el agente se sienta más proactivo y capaz de manejar flujos de trabajo complejos de forma continua.
+---
+### 07-09-25: Corrección de KeyError en Grafo de LangGraph
+
+**Error:**
+La aplicación fallaba con un `KeyError: 'call_model'` en el grafo de LangGraph. Esto ocurría cuando la función `should_continue` intentaba transicionar al nodo `'call_model'` pero este no estaba explícitamente definido en las transiciones condicionales del grafo.
+
+**Causa Raíz:**
+La función `should_continue` en `kogniterm/core/agents/bash_agent.py` puede devolver la cadena `'call_model'` para indicar que el flujo debe regresar al nodo `call_model`. Sin embargo, en la definición del grafo (`add_conditional_edges`), el diccionario de transiciones no incluía `'call_model'` como una clave válida para el nodo de origen `call_model`.
+
+**Solución:**
+Se añadió la entrada `'call_model': 'call_model'` al diccionario de transiciones en la sección `add_conditional_edges` del grafo en `kogniterm/core/agents/bash_agent.py`. Esto asegura que el grafo reconozca `'call_model'` como un destino válido para la transición, resolviendo el `KeyError` y permitiendo que el flujo del agente continúe correctamente cuando el LLM necesita volver a ser invocado.
+---
+### 07-09-25: Corrección de IndexError en LLMService
+
+**Error:**
+La aplicación fallaba con un `IndexError: list index out of range` en `kogniterm/core/llm_service.py` en la línea `if response.candidates[0].finish_reason not in (`.
+
+**Causa Raíz:**
+El error se debía a que la API de Gemini no devolvía candidatos en su respuesta (`response.candidates` estaba vacío), lo que provocaba un intento de acceso a un índice inexistente (`[0]`) en la lista `response.candidates`.
+
+**Solución:**
+Se añadió una verificación `if not response.candidates:` justo después de la llamada a `chat_session.send_message(last_message_for_send)` en la función `invoke` de `LLMService`. Si `response.candidates` está vacío, se devuelve un `AIMessage` con un mensaje de error indicando que el modelo no proporcionó una respuesta válida o que fue bloqueada, evitando así el `IndexError`.
+---
+### 07-09-25: `GraphRecursionError: Recursion limit of 25 reached without hitting a stop condition.`
+
+**Error:**
+La aplicación fallaba con un `GraphRecursionError` indicando que se alcanzó el límite de recursión de 25 sin que se encontrara una condición de parada. Esto ocurre en el método `invoke` de `langgraph.pregel.main.py`.
+
+**Causa Raíz:**
+Este error sugiere que el agente de LangGraph está entrando en un bucle infinito o un ciclo muy largo sin una condición de parada clara. Esto puede deberse a:
+1.  **Condiciones de transición incorrectas:** La lógica en `should_continue` o en otras funciones de enrutamiento puede estar dirigiendo el flujo de vuelta a un nodo anterior de forma repetitiva sin una salida.
+2.  **Estado del agente no actualizado:** El estado del agente no se está actualizando de manera que permita que las condiciones de parada se cumplan.
+3.  **Bucle de herramientas/LLM:** El LLM o las herramientas están generando respuestas que hacen que el agente se invoque a sí mismo repetidamente.
+
+**Solución Propuesta:**
+1.  **Revisar `should_continue`:** Analizar la lógica de la función `should_continue` en `kogniterm/core/agents/bash_agent.py` para asegurar que todas las rutas de transición tienen una condición de parada o una progresión lógica.
+2.  **Depurar el estado del agente:** Monitorear el estado del agente (`agent_state`) en cada iteración para identificar si hay un patrón que cause la recursión.
+3.  **Ajustar el `SYSTEM_MESSAGE`:** Asegurarse de que las instrucciones al LLM en `SYSTEM_MESSAGE` guían al modelo a finalizar la tarea o a indicar claramente cuándo ha terminado.
+4.  **Considerar `recursion_limit`:** Aunque no es una solución a la causa raíz, se podría aumentar temporalmente el `recursion_limit` en la configuración de LangGraph para depurar el flujo y ver dónde se produce el bucle. Sin embargo, la solución ideal es corregir la lógica del grafo.

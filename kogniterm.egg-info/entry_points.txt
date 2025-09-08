@@ -1,2 +1,2 @@
 [console_scripts]
-kogniterm = main:run_kogniterm
+kogniterm = kogniterm.main:run_kogniterm

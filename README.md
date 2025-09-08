@@ -1,5 +1,5 @@
 # 🤖 KogniTerm
-
+![alt text](image.png)
 Un intérprete de línea de comandos interactivo que permite a los modelos de lenguaje (LLMs) ejecutar comandos en tu sistema, proporcionando una interfaz conversacional y asistida.
 
 > **Inspiración:** Este proyecto está inspirado en [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter). Nace de la necesidad de una integración más robusta y funcional con modelos de Google Gemini, ya que la compatibilidad directa de Open Interpreter con Gemini no siempre es óptima.

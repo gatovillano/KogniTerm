@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Type, Optional, List
+from typing import Type, Optional, List, ClassVar
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 
@@ -9,6 +9,8 @@ logger = logging.getLogger(__name__)
 class FileOperationsTool(BaseTool):
     name: str = "file_operations"
     description: str = "Permite realizar operaciones CRUD (Crear, Leer, Actualizar, Borrar) en archivos y directorios."
+
+    ignored_directories: ClassVar[List[str]] = ['venv', '.git', '__pycache__', '.venv']
 
     # --- Sub-clases para los esquemas de argumentos de cada operación ---
 
@@ -28,17 +30,6 @@ class FileOperationsTool(BaseTool):
 
     class ReadManyFilesInput(BaseModel):
         paths: List[str] = Field(description="Una lista de rutas absolutas o patrones glob de archivos a leer.")
-
-    # Definir FileOperationsInput fuera del método args_schema
-    class FileOperationsInput(BaseModel):
-        operation: str = Field(description="La operación a realizar (read_file, write_file, delete_file, list_directory, read_many_files).")
-        # Los siguientes campos son opcionales y se usarán según la operación
-        path: Optional[str] = Field(None, description="La ruta absoluta del archivo o directorio.")
-        content: Optional[str] = Field(None, description="El contenido a escribir en el archivo (para write_file).")
-        paths: Optional[List[str]] = Field(None, description="Una lista de rutas absolutas o patrones glob de archivos a leer (para read_many_files).")
-
-    # Asignar args_schema directamente a la clase Pydantic
-    args_schema: Type[BaseModel] = FileOperationsInput
 
     # --- Implementación de las operaciones ---
 
@@ -62,6 +53,8 @@ class FileOperationsTool(BaseTool):
                     return f"Contenido del directorio '{kwargs['path']}':\n{', '.join(items)}"
             elif operation == "read_many_files":
                 return self._read_many_files(kwargs["paths"])
+            elif operation == "create_directory":
+                return self._create_directory(kwargs["path"])
             else:
                 return "Operación no soportada."
         except (FileNotFoundError, PermissionError, Exception) as e:
@@ -141,7 +134,8 @@ class FileOperationsTool(BaseTool):
                     content = f.read()
                 combined_content.append(f"""--- Contenido de '{p}' ---
 {content}
-""")
+"""
+            )
             except FileNotFoundError:
                 combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---
 """)
@@ -150,6 +144,14 @@ class FileOperationsTool(BaseTool):
 """)
         return "\n".join(combined_content)
 
+    def _create_directory(self, path: str) -> str:
+        path = path.strip().replace('@', '') # Limpiar la ruta
+        try:
+            os.makedirs(path, exist_ok=True)
+            return f"Directorio '{path}' creado exitosamente."
+        except Exception as e:
+            raise Exception(f"Error al crear el directorio '{path}': {e}")
+
     async def _arun(self, **kwargs) -> str:
         raise NotImplementedError("FileOperationsTool does not support async")
 
@@ -157,7 +159,7 @@ class FileOperationsTool(BaseTool):
     # @property # <-- Eliminar este decorador
     # args_schema: Type[BaseModel] = FileOperationsInput # <-- Asignar directamente la clase
     class FileOperationsInput(BaseModel):
-        operation: str = Field(description="La operación a realizar (read_file, write_file, delete_file, list_directory, read_many_files).")
+        operation: str = Field(description="La operación a realizar (read_file, write_file, delete_file, list_directory, read_many_files, create_directory).")
         # Los siguientes campos son opcionales y se usarán según la operación
         path: Optional[str] = Field(None, description="La ruta absoluta del archivo o directorio.")
         content: Optional[str] = Field(None, description="El contenido a escribir en el archivo (para write_file).")
