@@ -16,7 +16,7 @@ Descripción general: Se corrigió un `NameError: name 'os' is not defined` que 
 
 - **Punto 1**: Se añadió `import os` a la lista de importaciones en `kogniterm/core/llm_service.py`.
 ---
-## 07-09-25 Corrección de TypeError y NameError en LLMService
+## 07-09-25 Corrección de TypeError y NameError en LLMService (Carga de Historial)
 
 Descripción general: Se corrigió un `TypeError: tool_call() missing 1 required keyword-only argument: 'id'` y un `NameError: name 'sys' is not defined` en `kogniterm/core/llm_service.py`. El `TypeError` se debía a que los `tool_calls` de `AIMessage` ahora requieren un argumento `id`. El `NameError` se resolvió al asegurar que `sys` estuviera correctamente importado y accesible en el contexto de manejo de errores.
 
@@ -188,3 +188,10 @@ Se ha corregido un error inesperado (`tool_call() missing 1 required keyword-onl
 
 - **Punto 1**: Se modificó la función `_save_history` en `kogniterm/core/llm_service.py` para incluir el atributo `id` de los objetos `ToolMessage` al serializar el historial en `kogniterm_history.json`.
 - **Punto 2**: Se modificó la función `_load_history` en `kogniterm/core/llm_service.py` para leer el atributo `id` del historial serializado y pasarlo al constructor de `ToolMessage` al reconstruir los mensajes. Se utilizó `.get('id')` para asegurar compatibilidad con historiales antiguos que no contengan este campo.
+---
+## 08-09-25 Mejora en el Truncamiento del Historial de Conversación para la API de Gemini
+
+Descripción general: Se mejoró la lógica de truncamiento del historial de conversación en `llm_service.py` para asegurar que la secuencia de turnos enviada a la API de Gemini sea siempre válida, evitando el error "function call turn comes immediately after a user turn or after a function response turn".
+
+- **Punto 1**: Se ajustó la lógica de truncamiento en el método `invoke` de `LLMService`.
+- **Punto 2**: Se modificó la condición para incluir `AIMessage` con `tool_calls` y su `ToolMessage` correspondiente, asegurando que si el par no puede ser incluido completamente debido al límite de caracteres, ninguno de los dos mensajes se incluya en el historial truncado para `start_chat`. Esto previene secuencias de turnos incompletas o inválidas.

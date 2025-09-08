@@ -33,6 +33,7 @@ def _to_gemini_content(message):
         else:
             return genai.protos.Content(role='model', parts=[genai.protos.Part(text=message.content)])
     elif isinstance(message, ToolMessage):
+
         # ToolMessage se mapea a un rol 'user' con una function_response
         return genai.protos.Content(
             role='user',
@@ -258,8 +259,7 @@ class LLMService:
             print(f"Error al guardar el historial: {e}", file=sys.stderr)
 
     def invoke(self, history: list, system_message: str = None):
-        """
-        Invoca el modelo Gemini con un historial de conversación y un mensaje de sistema opcional.
+        """Invoca el modelo Gemini con un historial de conversación y un mensaje de sistema opcional.
 
         Args:
             history: El historial completo de la conversación en el formato de la API de Google AI.
@@ -383,6 +383,23 @@ class LLMService:
                     if not truncated_history:
                         truncated_history.insert(0, genai.protos.Content(role='user', parts=[genai.protos.Part(text=system_message[:self.max_history_chars])]))
         
+        # --- Lógica de alternancia de roles para el historial de start_chat ---
+        # Asegurar que el historial termine con el rol correcto para la siguiente invocación.
+
+        # Si el último mensaje a enviar es un mensaje de 'user' (nueva entrada del usuario),
+        # el historial para start_chat debe terminar con un mensaje de 'model'.
+        if last_message_for_send.role == 'user':
+            while truncated_history and truncated_history[-1].role == 'user':
+                print(f"DEBUG: Eliminando mensaje de 'user' para corregir alternancia de roles (terminar con 'model'): {truncated_history[-1].parts[0].text if truncated_history[-1].parts else 'N/A'}")
+                truncated_history.pop()
+        # Si el último mensaje a enviar es un mensaje de 'model' (respuesta del modelo, posible tool_call),
+        # el historial para start_chat debe terminar con un mensaje de 'user'.
+        elif last_message_for_send.role == 'model':
+            while truncated_history and truncated_history[-1].role == 'model':
+                print(f"DEBUG: Eliminando mensaje de 'model' para corregir alternancia de roles (terminar con 'user'): {truncated_history[-1].parts[0].text if truncated_history[-1].parts else 'N/A'}")
+                truncated_history.pop()
+        # --- FIN NUEVA LÓGICA ---
+
         # Crear una nueva sesión de chat para cada invocación para mantenerla sin estado
         chat_session = self.model.start_chat(history=truncated_history)
         

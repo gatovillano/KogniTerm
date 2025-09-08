@@ -48,9 +48,9 @@ class FileOperationsTool(BaseTool):
                 items = self._list_directory(kwargs["path"], recursive=recursive) # Pasar recursive
                 
                 if recursive:
-                    return f"Contenido recursivo del directorio '{kwargs['path']}':\n" + "\n".join(items)
+                    return "\n".join(items)
                 else:
-                    return f"Contenido del directorio '{kwargs['path']}':\n{', '.join(items)}"
+                    return "\n".join(items)
             elif operation == "read_many_files":
                 return self._read_many_files(kwargs["paths"])
             elif operation == "create_directory":
@@ -66,7 +66,7 @@ class FileOperationsTool(BaseTool):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            return f"Contenido de '{path}':\n```\n{content}\n```"
+            return f"FILE_CONTENT_START: {path}\n{content}\n:FILE_CONTENT_END"
         except FileNotFoundError:
             raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
         except Exception as e:
@@ -76,14 +76,14 @@ class FileOperationsTool(BaseTool):
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            return f"Archivo '{path}' escrito/creado exitosamente."
+            return ""
         except Exception as e:
             raise Exception(f"Error al escribir/crear el archivo '{path}': {e}")
 
     def _delete_file(self, path: str) -> str:
         try:
             os.remove(path)
-            return f"Archivo '{path}' eliminado exitosamente."
+            return ""
         except FileNotFoundError:
             raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
         except Exception as e:
@@ -132,10 +132,7 @@ class FileOperationsTool(BaseTool):
             try:
                 with open(p, 'r', encoding='utf-8') as f:
                     content = f.read()
-                combined_content.append(f"""--- Contenido de '{p}' ---
-{content}
-"""
-            )
+                combined_content.append(content)
             except FileNotFoundError:
                 combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---
 """)
@@ -148,7 +145,7 @@ class FileOperationsTool(BaseTool):
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:
             os.makedirs(path, exist_ok=True)
-            return f"Directorio '{path}' creado exitosamente."
+            return ""
         except Exception as e:
             raise Exception(f"Error al crear el directorio '{path}': {e}")
 

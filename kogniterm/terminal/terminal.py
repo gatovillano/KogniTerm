@@ -28,7 +28,6 @@ current_agent_mode = "bash" # Inicia en modo bash por defecto
 command_executor = CommandExecutor() # Nueva instancia global
 
 
-
 def print_welcome_banner(console):
     """Imprime el banner de bienvenida con un degradado de colores."""
     console.print() # Margen superior
@@ -38,7 +37,7 @@ def print_welcome_banner(console):
 █████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║
 ██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║
 ██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
-╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚╚═╝  ╚═╝╚═╝     ╚═╝
 """
     # Paleta de lilas y morados para un degradado más suave
     colors = [
@@ -136,7 +135,7 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
 █████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║
 ██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║
 ██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
-╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚╚═╝  ╚═╝╚═╝     ╚═╝
 """
         print(banner_text)
         print("\n¡Bienvenido a KogniTerm! Escribe '%salir' para terminar.")
@@ -198,6 +197,8 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
                 agent_state = AgentState() # Reiniciar el estado
                 # También reiniciamos el historial de llm_service al resetear la conversación
                 llm_service.conversation_history = []
+                # ¡IMPORTANTE! Re-añadir el SYSTEM_MESSAGE después de resetear
+                llm_service.conversation_history.append(SYSTEM_MESSAGE)
                 print(f"Conversación reiniciada para el modo '{current_agent_mode}'.")
                 continue
 
@@ -345,10 +346,10 @@ Comandos disponibles:
                             elif item['type'] == 'error':
                                 if console:
                                     console.print(f"[red]ERROR ({item['ename']}):[/red] {item['evalue']}")
-                                    console.print(f"[red]TRACEBACK:[/red]\n{''.join(item['traceback'])}")
+                                    console.print(f"[red]TRACEBACK:[/red]\n{'' .join(item['traceback'])}")
                                 else:
                                     print(f"ERROR ({item['ename']}): {item['evalue']}")
-                                    print(f"TRACEBACK:\n{''.join(item['traceback'])}")
+                                    print(f"TRACEBACK:\n{'' .join(item['traceback'])}")
                             elif item['type'] == 'execute_result':
                                 data_str = item['data'].get('text/plain', str(item['data']))
                                 if console:
@@ -382,6 +383,27 @@ Comandos disponibles:
                             print(f"Error en la ejecución de Python: {structured_output['error']}")
                 # No imprimir el ToolMessage crudo si ya lo hemos manejado
                 continue # Salir del if para no procesar como AIMessage
+            # --- Manejo de la salida de FileOperationsTool ---
+            elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
+                import re
+                # Convertir content a str para evitar errores de tipado
+                content_str = str(final_response_message.content)
+                file_content_match = re.match(r"FILE_CONTENT_START: (.*?)\n(.*)\n:FILE_CONTENT_END", content_str, re.DOTALL)
+                if file_content_match:
+                    file_path_read = file_content_match.group(1)
+                    if console:
+                        console.print(Padding(Panel(f"[bold green]Contenido del archivo '{file_path_read}' cargado para el LLM.[/bold green]", border_style='green'), (1, 2)))
+                    else:
+                        print(f"\n--- Contenido del archivo '{file_path_read}' cargado para el LLM. ---\n")
+                    # No es necesario modificar final_response_message.content aquí, ya que el LLM ya lo tiene completo.
+                    continue # Salir del if para no procesar como AIMessage
+                else:
+                    # Para otras operaciones de file_operations (write, delete, list, create)
+                    if console:
+                        console.print(Padding(Panel(f"[bold green]Operación de archivo:[/bold green]\n{final_response_message.content}", border_style='green'), (1, 2)))
+                    else:
+                        print(f"\n--- Operación de archivo ---\n{final_response_message.content}\n")
+                    continue # Salir del if para no procesar como AIMessage
 
             if isinstance(final_response_message, AIMessage) and final_response_message.content:
                 content = final_response_message.content
