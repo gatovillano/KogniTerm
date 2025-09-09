@@ -3,13 +3,11 @@ from dataclasses import dataclass, field
 from typing import List
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
-import google.generativeai as genai
 import functools
 from langchain_core.runnables import RunnableConfig # Nueva importación
 
-from ..llm_service import LLMService
-
-
+from kogniterm.core.llm_service import LLMService
+from kogniterm.core.agents.bash_agent import AgentState, call_model_node, execute_tool_node, should_continue
 
 
 # --- Mensaje de Sistema para el Orquestador ---
@@ -35,11 +33,11 @@ Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala
 
 # Usaremos el mismo AgentState que el bash_agent para mantener la consistencia
 # ya que la estructura fundamental del flujo (mensajes) es la misma.
-from .bash_agent import AgentState # Reutilizamos el estado
+
 
 # --- Nodos del Grafo (Reutilizamos los del bash_agent) ---
 # La lógica de llamar al modelo y ejecutar herramientas es idéntica.
-from .bash_agent import call_model_node, execute_tool_node, should_continue
+
 
 # Nuevo nodo para crear el plan
 async def create_plan_node(state: AgentState, llm_service: LLMService):
@@ -51,34 +49,40 @@ async def create_plan_node(state: AgentState, llm_service: LLMService):
     state.messages.append(current_ai_message) # Añadir el mensaje vacío al estado
 
     try:
-        response_stream = llm_service.invoke(history) # Esto ahora devuelve un iterador
-        
-        full_text_content = ""
-        accumulated_tool_calls = []
+        response = llm_service.invoke(history)
 
-        for chunk in response_stream: # Usar for normal para iterar sobre el stream síncrono
-            # Cada chunk es un GenerateContentResponse
-            if chunk.candidates:
-                for part in chunk.candidates[0].content.parts:
-                    if part.text:
-                        full_text_content += part.text
-                        # Actualizar el contenido del mensaje del AI en el estado
-                        current_ai_message.content = full_text_content
-                        yield state.copy() # Ceder una copia del estado actualizado
-                    
-                    if part.function_call:
-                        tool_name = part.function_call.name
-                        tool_args = {key: value for key, value in part.function_call.args.items()}
-                        accumulated_tool_calls.append({"name": tool_name, "args": tool_args, "id": tool_name})
-                        # No cedemos aquí para tool_calls, se añadirán al final del mensaje del AI
-                        # o se manejarán en el siguiente nodo si es una herramienta de ejecución
+        if isinstance(response, AIMessage):
+            current_ai_message.content = response.content
+            if response.tool_calls:
+                current_ai_message.tool_calls = response.tool_calls
+            yield state.copy()
+        elif hasattr(response, '__iter__'): # Si es un iterador (stream)
+            full_text_content = ""
+            accumulated_tool_calls = []
 
-        # Al final del stream, actualizar el mensaje del AI con el contenido completo y tool_calls
-        current_ai_message.content = full_text_content
-        if accumulated_tool_calls:
-            current_ai_message.tool_calls = accumulated_tool_calls
-        
-        yield state.copy() # Ceder el estado final después de procesar todo el stream
+            for chunk in response:
+                if hasattr(chunk, 'candidates') and chunk.candidates:
+                    for part in chunk.candidates[0].content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            full_text_content += part.text
+                            current_ai_message.content = full_text_content
+                            yield state.copy()
+                        
+                        if hasattr(part, 'function_call') and part.function_call:
+                            tool_name = part.function_call.name
+                            tool_args = {key: value for key, value in part.function_call.args.items()}
+                            accumulated_tool_calls.append({"name": tool_name, "args": tool_args, "id": tool_name})
+                            # No cedemos aquí para tool_calls, se añadirán al final del mensaje del AI
+                            # o se manejarán en el siguiente nodo si es una herramienta de ejecución
+
+            current_ai_message.content = full_text_content
+            if accumulated_tool_calls:
+                current_ai_message.tool_calls = accumulated_tool_calls
+            
+            yield state.copy()
+        else:
+            current_ai_message.content = f"Error: Tipo de respuesta inesperado del LLM: {type(response)}"
+            yield state.copy()
 
     except Exception as e:
         error_message = f"Ocurrió un error durante la llamada al modelo: {e}"

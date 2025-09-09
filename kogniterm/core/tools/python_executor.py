@@ -1,7 +1,7 @@
 import time
 import threading
 import queue
-import sys # Añadir esta importación
+import sys
 from jupyter_client import KernelManager
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -13,8 +13,8 @@ class KogniTermKernel:
         self.output_queue = queue.Queue()
         self.listener_thread = None
         self.stop_event = threading.Event()
-        self.execution_complete_event = threading.Event() # Evento para señalar la finalización de la ejecución
-        self.current_execution_outputs = [] # Para recolectar las salidas de la ejecución actual
+        self.execution_complete_event = threading.Event()
+        self.current_execution_outputs = []
 
     def start_kernel(self):
         print("Iniciando kernel de Python...")
@@ -24,7 +24,6 @@ class KogniTermKernel:
             self.kc = self.km.client()
             self.kc.start_channels()
 
-            # Esperar a que el kernel esté listo
             self.kc.wait_for_ready()
             print("Kernel de Python iniciado y listo.")
 
@@ -33,15 +32,13 @@ class KogniTermKernel:
             self.listener_thread.start()
         except Exception as e:
             print(f"Error al iniciar el kernel: {e}")
-            self.stop_kernel() # Intentar limpiar si falla el inicio
+            self.stop_kernel()
 
     def _iopub_listener(self):
         while not self.stop_event.is_set():
             try:
-                # Esperar mensajes del canal iopub
                 msg = self.kc.iopub_channel.get_msg(timeout=0.1)
                 self.output_queue.put(msg)
-                # Si el mensaje es de estado y indica 'idle', señalamos que la ejecución ha terminado
                 if msg['header']['msg_type'] == 'status' and msg['content']['execution_state'] == 'idle':
                     self.execution_complete_event.set()
             except queue.Empty:
@@ -55,11 +52,10 @@ class KogniTermKernel:
             return {"error": "El kernel no está iniciado."}
 
         print(f"\nEjecutando código:\n---\n{code}\n---")
-        self.execution_complete_event.clear() # Limpiar el evento antes de una nueva ejecución
-        self.current_execution_outputs = [] # Limpiar las salidas anteriores
+        self.execution_complete_event.clear()
+        self.current_execution_outputs = []
         msg_id = self.kc.execute(code)
 
-        # Esperar hasta que la ejecución esté completa (estado 'idle' capturado por el listener)
         while not self.execution_complete_event.is_set():
             try:
                 msg = self.output_queue.get(timeout=0.1)
@@ -92,10 +88,9 @@ class KogniTermKernel:
             self.km.shutdown_kernel()
         self.stop_event.set()
         if self.listener_thread and self.listener_thread.is_alive():
-            self.listener_thread.join(timeout=2) # Esperar a que el hilo termine
+            self.listener_thread.join(timeout=2)
         print("Kernel detenido.")
 
-# Definir el esquema de argumentos para la herramienta Python
 class PythonToolArgs(BaseModel):
     code: str = Field(description="El código Python a ejecutar.")
 
@@ -103,8 +98,9 @@ class PythonTool(BaseTool):
     name: str = "python_executor"
     description: str = "Ejecuta código Python utilizando un kernel de Jupyter. Mantiene el estado entre ejecuciones."
     args_schema: type[BaseModel] = PythonToolArgs
-    last_structured_output: dict = None # Declarar como atributo de clase con tipo y valor por defecto
-    auto_approve: bool = False # Nuevo atributo para controlar la aprobación automática
+    last_structured_output: dict = None
+    # El atributo auto_approve se eliminará de la herramienta, ya que la lógica de confirmación
+    # se manejará en el grafo del agente.
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -117,18 +113,15 @@ class PythonTool(BaseTool):
         Este método es el que será llamado por LangChain/Gemini.
         La salida se convierte a una cadena para ser procesada por el LLM.
         """
-        if not self.auto_approve:
-            print(f"\n🚨 Se requiere aprobación para ejecutar el siguiente código Python:\n```python\n{code}\n```")
-            response = input("¿Deseas aprobar la ejecución de este código? (s/n): ")
-            if response.lower() != 's':
-                return "Ejecución de código Python cancelada por el usuario."
-
-        print(f"Ejecutando código Python:\n```python\n{code}\n```")
+        # Eliminamos la lógica de confirmación directa de la herramienta.
+        # Esto será manejado por el grafo del agente.
+        print(f"Ejecutando código Python:
+```python
+{code}
+```")
         raw_output = self._kernel.execute_code(code)
-        self.last_structured_output = raw_output # Almacenar la salida estructurada
+        self.last_structured_output = raw_output
 
-
-        # Procesar la salida bruta a un formato más amigable para el LLM
         formatted_output = []
         if "result" in raw_output:
             for item in raw_output["result"]:
@@ -137,16 +130,13 @@ class PythonTool(BaseTool):
                 elif item['type'] == 'error':
                     formatted_output.append(f"Error ({item['ename']}): {item['evalue']}\nTraceback:\n{'\n'.join(item['traceback'])}")
                 elif item['type'] == 'execute_result':
-                    # Intentar obtener 'text/plain' primero, si no, usar la representación de los datos
                     data_str = item['data'].get('text/plain', str(item['data']))
                     formatted_output.append(f"Result: {data_str}")
                 elif item['type'] == 'display_data':
-                    # Podríamos añadir lógica para tipos específicos como imágenes o HTML
-                    # Por ahora, una representación simple
                     if 'image/png' in item['data']:
                         formatted_output.append("[IMAGEN PNG GENERADA]")
                     elif 'text/html' in item['data']:
-                        formatted_output.append(f"[HTML GENERADO]: {item['data']['text/html'][:100]}...") # Snippet
+                        formatted_output.append(f"[HTML GENERADO]: {item['data']['text/html'][:100]}...")
                     else:
                         formatted_output.append(f"Display Data: {str(item['data'])}")
             return "\n".join(formatted_output)
