@@ -1,3 +1,4 @@
+<<<<<<<< HEAD:kogniterm/core/tools/github_tool.py
 import os
 import logging
 from typing import Type, Optional, Any
@@ -107,3 +108,8 @@ class GitHubTool(BaseTool):
 
     async def _arun(self, action: str, repo_name: str, path: Optional[str] = "", github_token: Optional[str] = None) -> str:
         raise NotImplementedError("github_tool does not support async")
+========
+# Este archivo ahora es principalmente un marcador de posición, ya que las herramientas
+# han sido modularizadas en el subdirectorio 'tools/' y la función
+# 'get_callable_tools' se ha movido a 'tools/__init__.py'.
+>>>>>>>> 1cb72b82c6cf6602f40d3f8b1e7c95e6b4dd2a68:kogniterm/core/tools.py
