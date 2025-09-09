@@ -1,25 +1,25 @@
 # 🤖 KogniTerm
 ![alt text](image.png)
-Un intérprete de línea de comandos interactivo que permite a los modelos de lenguaje (LLMs) ejecutar comandos en tu sistema, proporcionando una interfaz conversacional y asistida.
+Un asistente de terminal interactivo impulsado por IA que permite a los modelos de lenguaje (LLMs) ejecutar comandos de terminal y código Python en tu sistema, proporcionando una interfaz conversacional y asistida.
 
 > **Inspiración:** Este proyecto está inspirado en [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter). Nace de la necesidad de una integración más robusta y funcional con modelos de Google Gemini, ya que la compatibilidad directa de Open Interpreter con Gemini no siempre es óptima.
 
 ## ✨ Características
 
-*   **Interacción Conversacional:** Comunícate con el intérprete en lenguaje natural.
-*   **Ejecución de Comandos:** El LLM puede generar y ejecutar comandos de terminal en tu sistema.
-*   **Confirmación de Comandos:** Siempre se te pedirá confirmación antes de ejecutar cualquier comando (a menos que uses el modo de auto-aprobación).
-*   **Manejo Interactivo:** Soporte para comandos que requieren interacción del usuario (ej. contraseñas, confirmaciones `[Y/n]`).
-*   **Cancelación de Comandos:** Cancela comandos en ejecución con `Ctrl+C` sin salir de la aplicación.
+*   **Interacción Conversacional:** Comunícate con el intérprete en lenguaje natural. 💬
+*   **Ejecución de Comandos y Código Python:** El LLM puede generar y ejecutar comandos de terminal y bloques de código Python en tu sistema. 💻🐍
+*   **Confirmación de Comandos y Código:** Siempre se te pedirá confirmación antes de ejecutar cualquier comando de terminal o bloque de código Python (a menos que uses el modo de auto-aprobación). ✅
+*   **Manejo Interactivo:** Soporte para comandos y scripts Python que requieren interacción del usuario (ej. contraseñas, confirmaciones `[Y/n]`). 🤝
+*   **Cancelación de Comandos:** Cancela comandos en ejecución con `Ctrl+C` sin salir de la aplicación. 🛑
 *   **Comandos Mágicos:**
-    *   `%help`: Muestra los comandos disponibles.
-    *   `%reset`: Reinicia la conversación.
-    *   `%undo`: Deshace la última interacción (tu mensaje y la respuesta del LLM).
-    *   `%agentmode`: Cambia entre el modo `bash` (para comandos directos) y `orchestrator` (para tareas complejas y planificación).
-*   **Modo de Auto-Aprobación:** Inicia el intérprete con la bandera `-y` para ejecutar comandos automáticamente sin confirmación.
-*   **Interfaz de Usuario Mejorada:** Salida de terminal formateada con Markdown y colores gracias a la librería `rich`.
-*   **Agentes Inteligentes**: Alterna entre el modo `bash` para ejecución directa de comandos y el modo `orchestrator` para planificación y ejecución de tareas complejas.
-*   **Herramientas Integradas**: Accede a funcionalidades avanzadas como búsqueda web (`brave_search`), obtención de contenido web (`web_fetch`, `web_scraping`) y una potente herramienta unificada de GitHub (`github_tool`) para listar, leer archivos y directorios.
+    *   `%help`: Muestra los comandos disponibles. ❓
+    *   `%reset`: Reinicia la conversación. 🔄
+    *   `%undo`: Deshace la última interacción (tu mensaje y la respuesta del LLM). ↩️
+    *   `%agentmode`: Cambia entre el modo `bash` (para comandos directos) y `orchestrator` (para tareas complejas y planificación). 🧠
+*   **Modo de Auto-Aprobación:** Inicia el intérprete con la bandera `-y` para ejecutar comandos y código automáticamente sin confirmación. 🚀
+*   **Interfaz de Usuario Mejorada:** Salida de terminal formateada con Markdown y colores gracias a la librería `rich`. ✨
+*   **Agentes Inteligentes**: Alterna entre el modo `bash` para ejecución directa de comandos y el modo `orchestrator` para planificación y ejecución de tareas complejas. 🤖
+*   **Herramientas Integradas**: Accede a funcionalidades avanzadas como búsqueda web (`brave_search`), obtención de contenido web (`web_fetch`, `web_scraping`), una potente herramienta unificada de GitHub (`github_tool`) para listar, leer archivos y directorios, y un `python_executor` con un kernel de Jupyter persistente para ejecutar y depurar código Python de forma interactiva y con estado. 🌐🐙🐍
 
 ## 🚀 Instalación
 
@@ -28,24 +28,20 @@ Un intérprete de línea de comandos interactivo que permite a los modelos de le
     git clone <URL_DEL_REPOSITORIO_KOGNITOINTERPRETER>
     cd KogniTerm
     ```
-2.  **Crear y activar el entorno virtual:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-3.  **Instalar dependencias:**
-    ```bash
-    pip install -r kogniterm/requirements.txt
-    ```
+2.  **Instalar KogniTerm:**
+    Puedes instalar KogniTerm directamente usando `pip`.
+    *   **Instalación estándar:**
+        ```bash
+        pip install .
+        ```
+    *   **Instalación en modo editable (para desarrollo):**
+        Si deseas que los cambios en el código fuente se reflejen sin reinstalar, usa:
+        ```bash
+        pip install -e .
+        ```
+    Esto instalará KogniTerm y sus dependencias, y el comando `kogniterm` estará disponible en tu entorno virtual.
 
-4.  **Instalación en modo editable (desarrollo):**
-    Si deseas instalar `kogniterm` localmente en modo editable para desarrollo (lo que permite que los cambios en el código fuente se reflejen sin reinstalar), puedes usar:
-    ```bash
-    pip install -e .
-    ```
-    Esto instalará el paquete `kogniterm` y el comando `kogniterm` estará disponible en tu entorno virtual.
-
-5.  **Configurar la API Key de Google Gemini:**
+3.  **Configurar la API Key de Google Gemini:**
     Asegúrate de tener tu clave de API de Google Gemini configurada como una variable de entorno:
     ```bash
     export GOOGLE_API_KEY="TU_CLAVE_API_AQUI"
@@ -53,14 +49,14 @@ Un intérprete de línea de comandos interactivo que permite a los modelos de le
 
 ## 💻 Uso
 
-Para iniciar el intérprete:
+Para iniciar KogniTerm:
 
 ```bash
-python3 main.py
+kogniterm
 ```
 
-Para iniciar en modo de auto-aprobación (ejecuta comandos sin pedir confirmación):
+Para iniciar en modo de auto-aprobación (ejecuta comandos y código sin pedir confirmación):
 
 ```bash
-python3 main.py -y
+kogniterm -y
 ```

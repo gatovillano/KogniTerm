@@ -115,10 +115,10 @@ class PythonTool(BaseTool):
         """
         # Eliminamos la lógica de confirmación directa de la herramienta.
         # Esto será manejado por el grafo del agente.
-        print(f"Ejecutando código Python:
+        print(f"""Ejecutando código Python:
 ```python
 {code}
-```")
+```""")
         raw_output = self._kernel.execute_code(code)
         self.last_structured_output = raw_output
 
@@ -128,7 +128,8 @@ class PythonTool(BaseTool):
                 if item['type'] == 'stream':
                     formatted_output.append(f"Output ({item['name']}): {item['text']}")
                 elif item['type'] == 'error':
-                    formatted_output.append(f"Error ({item['ename']}): {item['evalue']}\nTraceback:\n{'\n'.join(item['traceback'])}")
+                    traceback_str = '\n'.join(item['traceback'])
+                    formatted_output.append(f"Error ({item['ename']}): {item['evalue']}\nTraceback:\n{traceback_str}")
                 elif item['type'] == 'execute_result':
                     data_str = item['data'].get('text/plain', str(item['data']))
                     formatted_output.append(f"Result: {data_str}")
