@@ -113,7 +113,17 @@ def explain_command_node(state: AgentState, llm_service: LLMService):
     temp_history.append(HumanMessage(content=explanation_prompt)) # Añadir el prompt de explicación como HumanMessage
     
     response = llm_service.invoke(temp_history)
-    explanation_text = response.candidates[0].content.parts[0].text
+    explanation_text = ""
+    if isinstance(response, AIMessage):
+        explanation_text = response.content
+    elif hasattr(response, 'candidates') and response.candidates:
+        # Asumiendo que el primer candidato y la primera parte contienen el texto
+        if hasattr(response.candidates[0], 'content') and response.candidates[0].content.parts:
+            explanation_text = response.candidates[0].content.parts[0].text
+        else:
+            explanation_text = "No se pudo extraer la explicación del modelo."
+    else:
+        explanation_text = "Respuesta inesperada del modelo al intentar generar la explicación."
 
     # Añadir la explicación a los mensajes
     state.messages.append(AIMessage(content=explanation_text))

@@ -1,4 +1,3 @@
-python-dotenv
 langgraph
 prompt_toolkit
 langchain_mcp_adapters
@@ -6,7 +5,3 @@ langchain_community
 bs4
 PyGithub
 rich
-matplotlib
-google-generativeai
-jupyter_client
-loguru

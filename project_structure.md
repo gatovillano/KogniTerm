@@ -1,81 +1,88 @@
-# Estructura del Proyecto KogniTerm 🤖
+# Estructura del Proyecto KogniTerm
 
-Este documento describe la organización de archivos y directorios del proyecto KogniTerm, un intérprete de línea de comandos interactivo impulsado por LLMs.
+Aquí se describe la estructura del proyecto KogniTerm, basada en una exploración profunda de sus directorios y archivos.
 
-## 📁 Directorio Raíz
+## Directorio Raíz del Proyecto
 
-*   `README.md`: Descripción general del proyecto, características, instalación y uso.
-*   `kogniterm_kernel.py`: Archivo relacionado con el kernel del intérprete.
-*   `kogniterm_history.json`: Historial de interacciones.
-*   `llm_context.md`: Contexto de la memoria del LLM.
-*   `setup.py`: Script de configuración para la instalación del paquete.
-*   `mermaid_diagram_1754863457462.png`: Diagrama visual del proyecto.
+*   `README.md`: Documentación principal del proyecto.
+*   `pyproject.toml`: Configuración del proyecto y dependencias.
+*   `setup.py`: Script de configuración para la instalación.
+*   `kogniterm_kernel.py`: Probablemente relacionado con el kernel de ejecución.
+*   `kogniterm_history.json`: Historial de interacciones o comandos.
+*   `project_structure.md`: Este mismo archivo de documentación de la estructura.
+*   `llm_context.md`: Archivo para la memoria contextual del LLM.
+*   `src/`: Directorio para el código fuente.
+*   `venv/`: Entorno virtual de Python.
+*   `docs/`: Documentación adicional.
+*   `kogniterm/`: Directorio principal de la aplicación KogniTerm.
 
-## 📦 kogniterm/ (Directorio Principal de la Aplicación)
+## Directorio `kogniterm/`
 
-Este es el corazón de la aplicación KogniTerm.
+Este es el directorio principal de la aplicación KogniTerm.
 
 *   `main.py`: Punto de entrada principal de la aplicación.
-*   `requirements.txt`: Lista de dependencias de Python necesarias para el proyecto.
-*   `__init__.py`: Marca el directorio como un paquete Python.
+*   `requirements.txt`: Dependencias del proyecto.
+*   `core/`: Contiene la lógica central y los componentes principales de KogniTerm.
+*   `terminal/`: Gestiona la interfaz y la interacción con la terminal.
+*   `kogniterm.egg-info/`: Metadatos de la distribución del paquete.
 
-### 💻 kogniterm/terminal/
+## Directorio `kogniterm/core`
 
-Contiene la lógica relacionada con la interfaz de la terminal.
+El corazón de KogniTerm, donde reside la inteligencia y la capacidad de acción.
 
-*   `terminal.py`: Implementación de la interfaz de la terminal.
-*   `__init__.py`: Marca el directorio como un paquete Python.
-
-### 🧠 kogniterm/core/
-
-Contiene la lógica central del sistema, servicios LLM, agentes y herramientas.
-
-*   `command_executor.py`: Gestiona la ejecución de comandos.
+*   `agents/`: Módulos que definen los diferentes agentes de KogniTerm.
+*   `tools/`: Colección de herramientas que los agentes utilizan para interactuar con el sistema y la web.
 *   `llm_service.py`: Servicio para interactuar con los modelos de lenguaje.
-*   `tools.py`: Definiciones y orquestación de herramientas.
-*   `__init__.py`: Marca el directorio como un paquete Python.
+*   `llm_providers.py`: Define los proveedores de modelos de lenguaje.
+*   `command_executor.py`: Módulo para la ejecución de comandos.
+*   `google_tools_converter.py`: Un conversor para herramientas de Google.
 
-#### 🧑‍💻 kogniterm/core/agents/
+### Dentro de `kogniterm/core/agents`
 
-Define los diferentes tipos de agentes que KogniTerm puede utilizar.
+Aquí se definen los diferentes tipos de agentes que operan en KogniTerm.
 
-*   `orchestrator_agent.py`: Agente para la planificación y ejecución de tareas complejas.
-*   `bash_agent.py`: Agente para la ejecución directa de comandos Bash.
+*   `orchestrator_agent.py`: El agente encargado de orquestar y coordinar las tareas.
+*   `bash_agent.py`: Un agente especializado en la ejecución de comandos bash.
 
-#### 🛠️ kogniterm/core/tools/
+### Dentro de `kogniterm/core/tools`
 
-Implementaciones de las diversas herramientas que KogniTerm puede utilizar.
+Este directorio contiene una amplia gama de herramientas que extienden las capacidades de KogniTerm.
 
-*   `brave_search_tool.py`: Herramienta para realizar búsquedas web con Brave Search.
-*   `execute_command_tool.py`: Herramienta para ejecutar comandos del sistema.
-*   `file_operations_tool.py`: Herramienta para operaciones CRUD en archivos y directorios.
-*   `github_tool.py`: Herramienta para interactuar con repositorios de GitHub.
-*   `memory_append_tool.py`: Herramienta para añadir contenido a la memoria.
-*   `memory_init_tool.py`: Herramienta para inicializar la memoria.
-*   `memory_read_tool.py`: Herramienta para leer la memoria.
-*   `memory_summarize_tool.py`: Herramienta para resumir la memoria.
-*   `python_executor.py`: Herramienta para ejecutar código Python.
-*   `web_fetch_tool.py`: Herramienta para obtener contenido HTML de una URL.
-*   `web_scraping_tool.py`: Herramienta para extraer datos de páginas web.
-*   `file_search_tool.py`: Herramienta para buscar archivos por patrón glob.
-*   `__init__.py`: Marca el directorio como un paquete Python.
+*   `web_fetch_tool.py`: Para obtener el contenido HTML de una URL.
+*   `execute_command_tool.py`: Para ejecutar comandos bash.
+*   `file_operations_tool.py`: Operaciones CRUD básicas en archivos y directorios.
+*   `file_create_tool.py`: Creación de archivos.
+*   `file_read_tool.py`: Lectura de archivos.
+*   `file_delete_tool.py`: Borrado de archivos.
+*   `file_update_tool.py`: Actualización de archivos.
+*   `file_read_directory_tool.py`: Listado de contenido de directorios.
+*   `file_read_recursive_directory_tool.py`: Listado recursivo de contenido de directorios.
+*   `file_search_tool.py`: Búsqueda de archivos.
+*   `memory_init_tool.py`: Inicialización de la memoria contextual.
+*   `memory_read_tool.py`: Lectura de la memoria contextual.
+*   `memory_append_tool.py`: Añadir contenido a la memoria contextual.
+*   `memory_summarize_tool.py`: Resumen de la memoria contextual.
+*   `brave_search_tool.py`: Para realizar búsquedas en la web (requiere API Key).
+*   `web_scraping_tool.py`: Para extraer datos estructurados de HTML.
+*   `python_executor.py`: Para ejecutar código Python.
+*   `github_tool.py`: Para interactuar con repositorios de GitHub.
+*   `set_llm_instructions_tool.py`: Para establecer instrucciones al LLM.
 
-## 📚 docs/ (Documentación)
+## Directorio `kogniterm/terminal`
 
-Contiene archivos de documentación adicionales.
+Gestiona la interfaz de usuario y la interacción directa a través de la terminal.
 
-*   `registro_errores_soluciones.md`: Registro de errores y soluciones.
-*   `development_log.md`: Registro de desarrollo.
-*   `flow_diagram.md`: Diagrama de flujo.
-*   `gemini_cli_files.md`: Archivos relacionados con la CLI de Gemini.
-*   `overview.md`: Vista general.
-*   `modules.md`: Descripción de módulos.
-*   `Cambios.md`: Registro de cambios.
+*   `terminal.py`: Módulo principal para la gestión de la terminal.
 
-## 🏗️ build/ (Artefactos de Construcción)
+---
 
-Contiene los archivos generados durante el proceso de construcción del paquete.
+### Ideas para un Nuevo Agente (Inspirado en OpenInterpreter)
 
-## 📦 kogniterm.egg-info/ (Metadatos del Paquete Python)
+Con esta comprensión de la estructura de KogniTerm, podemos empezar a pensar en cómo integrar un nuevo agente similar a OpenInterpreter. Este agente podría:
 
-Contiene metadatos del paquete generados por `setuptools`.
+*   Utilizar el `python_executor.py` y el `execute_command_tool.py` para interactuar con el sistema.
+*   Aprovechar las herramientas de `file_operations` para la gestión de archivos.
+*   Coordinarse a través del `orchestrator_agent.py`.
+*   Extender las capacidades de interacción con el usuario a través del módulo `terminal`.
+
+¡Esta base nos será muy útil para el diseño!

@@ -10,7 +10,7 @@ from google.api_core.exceptions import GoogleAPIError
 from langchain_core.tools import BaseTool
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 
-from .tools import get_callable_tools
+from .tools.tool_manager import get_callable_tools
 
 HISTORY_FILE = os.path.join(os.getcwd(), "kogniterm_history.json")
 
@@ -143,14 +143,14 @@ class LLMService:
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         
         # Obtener herramientas de LangChain
-        self.langchain_tools = get_callable_tools()
+        self.langchain_tools = get_callable_tools(llm_service_instance=self)
         
         
         # Convertir herramientas al formato de Google AI
         self.google_ai_tools = [convert_langchain_tool_to_genai(tool) for tool in self.langchain_tools]
 
         # Configuración para la generación de contenido
-        generation_config = genai.types.GenerationConfig(
+        self.generation_config = genai.types.GenerationConfig(
             temperature=0.7, # Un valor más alto para fomentar la creatividad en la planificación
             # top_p=0.95, # Descomentar si se desea usar nucleous sampling
             # top_k=40,   # Descomentar si se desea usar top-k sampling
@@ -160,7 +160,7 @@ class LLMService:
         self.model = GenerativeModel(
             self.model_name,
             tools=self.google_ai_tools,
-            generation_config=generation_config
+            generation_config=self.generation_config
         )
 
         # Atributos para el rate limiting
@@ -294,6 +294,7 @@ class LLMService:
         truncated_history = []
         current_chars = 0
         
+        # Recorrer el historial de atrás hacia adelante para truncar
         i = len(history_for_start_chat) - 1
         while i >= 0:
             msg_content = history_for_start_chat[i]
@@ -318,11 +319,12 @@ class LLMService:
                         is_tool_call_message = True
                         break
             
-            # Si es un AIMessage con tool_calls, intentar incluir el siguiente ToolMessage
+            # Si es un AIMessage con tool_calls, intentar incluir el siguiente ToolMessage (respuesta)
+            # para mantener el par tool_call/tool_response junto.
             if is_tool_call_message and i + 1 < len(history_for_start_chat):
                 next_msg_content = history_for_start_chat[i + 1]
                 is_tool_response_message = False
-                if next_msg_content.role == 'user':
+                if next_msg_content.role == 'user': # La respuesta de la herramienta es un mensaje de usuario
                     for part in next_msg_content.parts:
                         if hasattr(part, 'function_response') and part.function_response is not None:
                             is_tool_response_message = True
@@ -341,15 +343,15 @@ class LLMService:
                             next_msg_chars += len(part.function_response.name)
                             next_msg_chars += len(str(part.function_response.response))
                     
-                    # Si ambos mensajes caben, añadirlos como una unidad
+                    # Si ambos mensajes (llamada y respuesta de herramienta) caben, añadirlos como una unidad
                     if current_chars + msg_chars + next_msg_chars <= self.max_history_chars:
                         truncated_history.insert(0, next_msg_content) # Añadir ToolMessage primero
                         truncated_history.insert(0, msg_content)      # Luego AIMessage
                         current_chars += msg_chars + next_msg_chars
-                        i -= 1 # Saltar el ToolMessage ya que lo hemos procesado
+                        i -= 1 # Saltar el ToolMessage ya que lo hemos procesado junto con el AIMessage
                     else:
                         break # No caben, truncar aquí
-                else: # No es un ToolMessage, procesar solo el mensaje actual
+                else: # No es un ToolMessage de respuesta, procesar solo el mensaje actual
                     if current_chars + msg_chars <= self.max_history_chars:
                         truncated_history.insert(0, msg_content)
                         current_chars += msg_chars
@@ -384,21 +386,21 @@ class LLMService:
                         truncated_history.insert(0, genai.protos.Content(role='user', parts=[genai.protos.Part(text=system_message[:self.max_history_chars])]))
         
         # --- Lógica de alternancia de roles para el historial de start_chat ---
-        # Asegurar que el historial termine con el rol correcto para la siguiente invocación.
-
-        # Si el último mensaje a enviar es un mensaje de 'user' (nueva entrada del usuario),
-        # el historial para start_chat debe terminar con un mensaje de 'model'.
-        if last_message_for_send.role == 'user':
-            while truncated_history and truncated_history[-1].role == 'user':
-                print(f"DEBUG: Eliminando mensaje de 'user' para corregir alternancia de roles (terminar con 'model'): {truncated_history[-1].parts[0].text if truncated_history[-1].parts else 'N/A'}")
-                truncated_history.pop()
-        # Si el último mensaje a enviar es un mensaje de 'model' (respuesta del modelo, posible tool_call),
-        # el historial para start_chat debe terminar con un mensaje de 'user'.
-        elif last_message_for_send.role == 'model':
-            while truncated_history and truncated_history[-1].role == 'model':
-                print(f"DEBUG: Eliminando mensaje de 'model' para corregir alternancia de roles (terminar con 'user'): {truncated_history[-1].parts[0].text if truncated_history[-1].parts else 'N/A'}")
-                truncated_history.pop()
-        # --- FIN NUEVA LÓGICA ---
+        # La API de Gemini espera que el historial de start_chat alterne roles.
+        # Si el historial no está vacío, el último mensaje debe tener el rol opuesto al
+        # primer mensaje que se enviará con send_message (last_message_for_send).
+        
+        # Si el historial truncado no está vacío y el rol del último mensaje
+        # es el mismo que el rol del mensaje que se va a enviar,
+        # entonces necesitamos ajustar el historial.
+        if truncated_history and truncated_history[-1].role == last_message_for_send.role:
+            # Si el último mensaje del historial truncado es un 'user' y el mensaje a enviar también es 'user',
+            # o si ambos son 'model', esto rompe la alternancia.
+            # En este caso, eliminamos el último mensaje del historial truncado.
+            # Esto es un último recurso para forzar la alternancia, asumiendo que
+            # los pares tool_call/tool_response ya se manejaron.
+            truncated_history.pop()
+        # --- FIN LÓGICA DE ALTERNANCIA ---
 
         # Crear una nueva sesión de chat para cada invocación para mantenerla sin estado
         chat_session = self.model.start_chat(history=truncated_history)
@@ -417,6 +419,39 @@ class LLMService:
             error_message = f"Ocurrió un error inesperado: {e}\n{traceback.format_exc()}"
             # Devolver un diccionario simple con el mensaje de error
             return AIMessage(content=error_message)
+
+    def summarize_conversation_history(self) -> str:
+        """Resume el historial de conversación actual utilizando el modelo LLM."""
+        if not self.conversation_history:
+            return "No hay historial para resumir."
+
+        # Crear un prompt para el resumen
+        summarize_prompt = HumanMessage(content="Por favor, resume la siguiente conversación de manera concisa y detallada, capturando los puntos clave, decisiones tomadas y tareas pendientes. El resumen debe ser útil para retomar la conversación más tarde.")
+        
+        # Crear un historial temporal para el resumen, incluyendo el prompt de resumen
+        # y excluyendo el SYSTEM_MESSAGE inicial para evitar que el modelo lo resuma
+        temp_history_for_summary = self.conversation_history[1:] + [summarize_prompt]
+
+        try:
+            # Convertir el historial de LangChain a objetos Content de Gemini
+            gemini_history_for_summary = [_to_gemini_content(msg) for msg in temp_history_for_summary]
+            
+            # Iniciar un chat con el historial para el resumen
+            # No pasamos herramientas aquí porque queremos que el modelo genere texto, no llamadas a herramientas
+            summary_model = GenerativeModel(self.model_name, generation_config=self.generation_config)
+            chat_session = summary_model.start_chat(history=gemini_history_for_summary[:-1]) # Excluir el último mensaje (el prompt de resumen)
+            
+            response = chat_session.send_message(gemini_history_for_summary[-1]) # Enviar el prompt de resumen
+            
+            if response.candidates and response.candidates[0].content.parts:
+                summary_text = response.candidates[0].content.parts[0].text
+                return summary_text
+            else:
+                return "No se pudo generar un resumen."
+        except GoogleAPIError as e:
+            return f"Error de API al intentar resumir el historial: {e}"
+        except Exception as e:
+            return f"Ocurrió un un error inesperado al resumir el historial: {e}"
 
     def get_tool(self, tool_name: str) -> BaseTool | None:
         """Encuentra y devuelve una herramienta de LangChain por su nombre."""

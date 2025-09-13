@@ -1,8 +1,12 @@
 import sys
 import os
+from dotenv import load_dotenv # Importar load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
+
+load_dotenv() # Cargar variables de entorno al inicio
+
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.llm_service import LLMService # Importar la CLASE LLMService
@@ -230,8 +234,34 @@ Comandos disponibles:
   %reset      Reinicia la conversación del modo actual.
   %agentmode  Cambia entre el modo 'bash' y 'orchestrator'.
   %undo       Deshace la última interacción.
+  %compress   Resume el historial de conversación actual.
   %salir      Sale del intérprete.
 """)
+                continue
+
+            if user_input.lower().strip() == '%compress':
+                if console:
+                    console.print(Padding("[yellow]Resumiendo historial de conversación...[/yellow]", (0, 2)))
+                else:
+                    print("Resumiendo historial de conversación...")
+                
+                summary = llm_service.summarize_conversation_history()
+                
+                if summary.startswith("Error") or summary.startswith("No se pudo"):
+                    if console:
+                        console.print(Padding(f"[red]{summary}[/red]", (0, 2)))
+                    else:
+                        print(summary)
+                else:
+                    # Reemplazar el historial con el SYSTEM_MESSAGE y el resumen
+                    llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
+                    agent_state.messages = llm_service.conversation_history
+                    if console:
+                        console.print(Padding(Panel(Markdown(summary), 
+                                                    border_style='green', title='Historial Comprimido'), (1, 2)))
+                    else:
+                        print(f"""Historial comprimido:
+{summary}""")
                 continue
 
             # --- Invocación del Agente ---
@@ -429,3 +459,12 @@ Comandos disponibles:
             print(f"Ocurrió un error inesperado: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc()
+
+def main():
+    """Función principal para iniciar la terminal de KogniTerm."""
+    # Inicializar LLMService aquí, ya que es necesario para start_terminal_interface
+    llm_service = LLMService()
+    start_terminal_interface(llm_service)
+
+if __name__ == "__main__":
+    main()
