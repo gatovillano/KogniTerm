@@ -25,7 +25,7 @@ except ImportError:
 
 # --- Importaciones de Agentes ---
 from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
-from kogniterm.core.agents.orchestrator_agent import create_orchestrator_agent
+
 
 # --- Estado Global de la Terminal ---
 current_agent_mode = "bash" # Inicia en modo bash por defecto
@@ -152,7 +152,7 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
 
     # Crear las instancias de los agentes con la instancia de llm_service de la terminal
     bash_agent_app = create_bash_agent(llm_service)
-    orchestrator_app = create_orchestrator_agent(llm_service)
+    # orchestrator_app = create_orchestrator_agent(llm_service) # Eliminado
 
     # El estado del agente persistirá durante la sesión de cada modo
     agent_state = AgentState()
@@ -206,16 +206,16 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
                 print(f"Conversación reiniciada para el modo '{current_agent_mode}'.")
                 continue
 
-            if user_input.lower().strip() == '%agentmode':
-                if current_agent_mode == "bash":
-                    current_agent_mode = "orchestrator"
-                else:
-                    current_agent_mode = "bash"
-                agent_state = AgentState() # Reiniciar estado al cambiar de modo
-                # También reiniciamos el historial de llm_service al cambiar de modo
-                llm_service.conversation_history = []
-                print(f"Cambiado al modo '{current_agent_mode}'. Conversación reiniciada.")
-                continue
+            # if user_input.lower().strip() == '%agentmode': # Eliminado
+            #     if current_agent_mode == "bash":
+            #         current_agent_mode = "orchestrator"
+            #     else:
+            #         current_agent_mode = "bash"
+            #     agent_state = AgentState() # Reiniciar estado al cambiar de modo
+            #     # También reiniciamos el historial de llm_service al cambiar de modo
+            #     llm_service.conversation_history = []
+            #     print(f"Cambiado al modo '{current_agent_mode}'. Conversación reiniciada.")
+            #     continue
 
             if user_input.lower().strip() == '%undo':
                 # El undo ahora debe considerar el mensaje de sistema inicial
@@ -232,7 +232,6 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
 Comandos disponibles:
   %help       Muestra este mensaje de ayuda.
   %reset      Reinicia la conversación del modo actual.
-  %agentmode  Cambia entre el modo 'bash' y 'orchestrator'.
   %undo       Deshace la última interacción.
   %compress   Resume el historial de conversación actual.
   %salir      Sale del intérprete.
@@ -275,7 +274,8 @@ Comandos disponibles:
             agent_state.messages.append(HumanMessage(content=processed_input))
 
             # Seleccionar el agente activo e invocarlo
-            active_agent_app = bash_agent_app if current_agent_mode == "bash" else orchestrator_app
+            # active_agent_app = bash_agent_app if current_agent_mode == "bash" else orchestrator_app # Eliminado
+            active_agent_app = bash_agent_app # Siempre usaremos bash_agent_app
             final_state_dict = active_agent_app.invoke(agent_state)
 
             # Actualizar el estado para la siguiente iteración
