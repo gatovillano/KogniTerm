@@ -60,77 +60,59 @@ class AgentState:
 # --- Nodos del Grafo ---
 
 def call_model_node(state: AgentState, llm_service: LLMService):
-    """Llama al LLM con el historial actual de mensajes."""
+    """Llama al LLM con el historial actual de mensajes y obtiene el resultado final."""
     history = state.history_for_api
-    response = llm_service.invoke(history)
     
-    # --- INICIO DE LA CORRECCIÓN ---
-    if isinstance(response, AIMessage):
-        state.messages.append(response)
-        return state
-    # --- FIN DE LA CORRECCIÓN ---
+    full_response_content = ""
+    final_ai_message_from_llm = None
+    text_streamed = False # Bandera para saber si hubo contenido de texto transmitido
 
-    # Check if response has candidates and parts
-    if response.candidates and response.candidates[0].content.parts:
-        # Iterate through all parts to find tool calls
-        tool_calls = []
-        text_response_parts = []
-        for part in response.candidates[0].content.parts:
-            if part.function_call.name:
-                tool_name = part.function_call.name
-                tool_args = {key: value for key, value in part.function_call.args.items()}
-                tool_calls.append({"name": tool_name, "args": tool_args, "id": tool_name})
-            elif part.text:
-                text_response_parts.append(part.text)
-        
-        if tool_calls:
-            ai_message = AIMessage(content="", tool_calls=tool_calls)
-            state.messages.append(ai_message)
-        elif text_response_parts:
-            text_response = "".join(text_response_parts)
-            state.messages.append(AIMessage(content=text_response))
-    else:
-        # Handle cases where there's no content (e.g., blocked response)
-        # The llm_service.invoke should return an error message in this case
-        error_message = "El modelo no proporcionó una respuesta válida."
-        if response.prompt_feedback and response.prompt_feedback.block_reason:
-            error_message += f" Razón de bloqueo: {response.prompt_feedback.block_reason.name}"
-        state.messages.append(AIMessage(content=error_message))
-    
-    return state
-
-def explain_command_node(state: AgentState, llm_service: LLMService):
-    """Genera una explicación en lenguaje natural del comando a ejecutar."""
-    # El último mensaje del AI es la llamada a herramienta para execute_command
-    last_ai_message = state.messages[-1]
-    command = last_ai_message.tool_calls[0]['args']['command']
-
-    explanation_prompt = f"El siguiente comando será ejecutado: `{command}`. Por favor, explica en lenguaje natural qué hará este comando y por qué es necesario para la tarea actual. Sé conciso y claro."
-    
-    # Llamar al modelo para obtener una explicación
-    # Necesitamos una copia del historial sin la última llamada a herramienta para que el modelo genere texto
-    temp_history = state.history_for_api[:-1] # Eliminar el último mensaje del AI con la llamada a herramienta
-    temp_history.append(HumanMessage(content=explanation_prompt)) # Añadir el prompt de explicación como HumanMessage
-    
-    response = llm_service.invoke(temp_history)
-    explanation_text = ""
-    if isinstance(response, AIMessage):
-        explanation_text = response.content
-    elif hasattr(response, 'candidates') and response.candidates:
-        # Asumiendo que el primer candidato y la primera parte contienen el texto
-        if hasattr(response.candidates[0], 'content') and response.candidates[0].content.parts:
-            explanation_text = response.candidates[0].content.parts[0].text
+    # El generador de invoke produce chunks de texto para streaming y un AIMessage final.
+    # Iteramos sobre el generador para procesar el streaming y capturar el AIMessage final.
+    for part in llm_service.invoke(history=history, system_message=SYSTEM_MESSAGE.content):
+        if isinstance(part, AIMessage):
+            final_ai_message_from_llm = part
+            if part.content:
+                full_response_content += part.content
         else:
-            explanation_text = "No se pudo extraer la explicación del modelo."
-    else:
-        explanation_text = "Respuesta inesperada del modelo al intentar generar la explicación."
+            # Este 'part' es un chunk de texto (str)
+            full_response_content += part
+            text_streamed = True # Hubo streaming de texto
 
-    # Añadir la explicación a los mensajes
-    state.messages.append(AIMessage(content=explanation_text))
+    # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
+
+    # Si hubo tool_calls, el AIMessage ya los contendrá.
+    if final_ai_message_from_llm and final_ai_message_from_llm.tool_calls:
+        # Añadimos el AIMessage con tool_calls al historial.
+        # El contenido de este AIMessage será el que el LLMService ya generó.
+        state.messages.append(final_ai_message_from_llm)
+        
+        # Si la herramienta es 'execute_command', establecemos command_to_confirm
+        command_to_execute = None
+        for tc in final_ai_message_from_llm.tool_calls:
+            if tc['name'] == 'execute_command':
+                command_to_execute = tc['args'].get('command')
+                break # Asumimos una sola llamada a comando por ahora
+
+        return {
+            "messages": state.messages,
+            "command_to_confirm": command_to_execute # Devolver el comando para confirmación
+        }
     
-    # Ahora establecer el comando para confirmar
-    state.command_to_confirm = command
-    return state
+    elif final_ai_message_from_llm: # Si es solo un AIMessage de texto (sin tool_calls)
+        # Crear un nuevo AIMessage para el historial del agente.
+        # Siempre incluimos el full_response_content para que el panel final lo muestre.
+        ai_message_for_history = AIMessage(
+            content=full_response_content
+        )
+        state.messages.append(ai_message_for_history)
+        return {"messages": state.messages}
+    else:
+        # Fallback si por alguna razón no se obtuvo un AIMessage (poco probable con llm_service.py)
+        error_message = "El modelo no proporcionó una respuesta AIMessage válida después de procesar los chunks."
+        state.messages.append(AIMessage(content=error_message))
+        return {"messages": state.messages}
+
 
 def execute_tool_node(state: AgentState, llm_service: LLMService):
     """Ejecuta las herramientas solicitadas por el modelo."""
@@ -150,7 +132,10 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
         # --- Fin de logs ---
 
         if tool_name == "execute_command":
-            return state # El agente transicionará a explain_command_node
+            # Si es execute_command, establecer command_to_confirm y terminar el grafo aquí.
+            # La terminal se encargará de la confirmación y ejecución.
+            state.command_to_confirm = tool_args['command']
+            return state # Esto hará que el grafo termine en este nodo si no hay más tool_calls
         else:
             tool = llm_service.get_tool(tool_name)
             if not tool:
@@ -175,14 +160,15 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
 def should_continue(state: AgentState) -> str:
     """Decide si continuar llamando a herramientas o finalizar."""
     last_message = state.messages[-1]
-    if state.command_to_confirm: # Si hay un comando para confirmar, necesitamos ir a un paso de confirmación
-        return "confirm_command"
-    elif isinstance(last_message, AIMessage) and last_message.tool_calls:
-        # Si es una llamada a herramienta execute_command, ir a explain_command
-        if last_message.tool_calls[0]['name'] == "execute_command":
-            return "explain_command"
-        else:
-            return "execute_tool"
+    
+    # Si hay un comando pendiente de confirmación, siempre terminamos el grafo aquí
+    # para que la terminal lo maneje.
+    if state.command_to_confirm:
+        return END
+
+    # Si el último mensaje del AI tiene tool_calls, ejecutar herramientas
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        return "execute_tool"
     else:
         return END
 
@@ -193,8 +179,6 @@ def create_bash_agent(llm_service: LLMService):
 
     bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service))
     bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service))
-    bash_agent_graph.add_node("explain_command", functools.partial(explain_command_node, llm_service=llm_service)) # Nuevo nodo
-    bash_agent_graph.add_node("confirm_command", lambda state: state) # Nuevo nodo, solo pasa el estado
 
     bash_agent_graph.set_entry_point("call_model")
 
@@ -203,16 +187,10 @@ def create_bash_agent(llm_service: LLMService):
         should_continue,
         {
             "execute_tool": "execute_tool",
-            "explain_command": "explain_command", # Nueva transición
-            "confirm_command": "confirm_command",
             END: END
         }
     )
 
     bash_agent_graph.add_edge("execute_tool", "call_model")
-    bash_agent_graph.add_edge("explain_command", "confirm_command") # Nueva transición
-    bash_agent_graph.add_edge("confirm_command", END) # El agente termina aquí, la terminal toma el control
 
     return bash_agent_graph.compile()
-
-

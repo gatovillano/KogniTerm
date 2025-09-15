@@ -14,14 +14,65 @@ from kogniterm.core.tools.python_executor import PythonTool
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool # Importar FileOperationsTool para acceder a glob
 
 # --- Estilo de la Interfaz (Rich) ---
+from rich.text import Text
+from rich.syntax import Syntax
+import re
+
 try:
     from rich.console import Console
     from rich.markdown import Markdown
     from rich.padding import Padding
     from rich.panel import Panel
+    from rich.live import Live # Re-adding Live
     rich_available = True
 except ImportError:
     rich_available = False
+
+# New helper function
+def _format_text_with_basic_markdown(text: str) -> Text:
+    """Applies basic Markdown-like formatting to a string using rich.Text."""
+    formatted_text = Text()
+    
+    lines = text.split('\n')
+    
+    in_code_block = False
+    code_block_lang = ""
+    code_block_content = []
+
+    for line in lines:
+        code_block_match = re.match(r"```(\w*)", line)
+        if code_block_match:
+            if in_code_block: # End of code block
+                in_code_block = False
+                if code_block_content:
+                    code_str = "\n".join(code_block_content)
+                    lexer = code_block_lang if code_block_lang else "plaintext"
+                    formatted_text.append(Syntax(code_str, lexer, theme="monokai", line_numbers=False))
+                    code_block_content = []
+                formatted_text.append("\n")
+            else: # Start of code block
+                in_code_block = True
+                code_block_lang = code_block_match.group(1) if code_block_match.group(1) else ""
+                formatted_text.append("\n")
+        elif in_code_block:
+            code_block_content.append(line)
+        else:
+            # Apply inline formatting (bold)
+            parts = re.split(r"(\>**.*?\*\*)", line)
+            for part in parts:
+                if part.startswith('**') and part.endswith('**'):
+                    formatted_text.append(part[2:-2], style="bold")
+                else:
+                    formatted_text.append(part)
+            formatted_text.append("\n")
+
+    if in_code_block and code_block_content:
+        code_str = "\n".join(code_block_content)
+        lexer = code_block_lang if code_block_lang else "plaintext"
+        formatted_text.append(Syntax(code_str, lexer, theme="monokai", line_numbers=False))
+
+    return formatted_text
+
 
 # --- Importaciones de Agentes ---
 from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
@@ -41,7 +92,7 @@ def print_welcome_banner(console):
 █████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║
 ██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║
 ██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
-╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚╚═╝  ╚═╝╚═╝     ╚═╝
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
 """
     # Paleta de lilas y morados para un degradado más suave
     colors = [
@@ -126,6 +177,10 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
     session = PromptSession(history=FileHistory('.gemini_interpreter_history'), completer=completer) # Pasar el completer
     console = Console() if rich_available else None
 
+    # Establecer la consola en el servicio LLM para permitir el streaming
+    if hasattr(llm_service, 'set_console'):
+        llm_service.set_console(console)
+
     # Imprimir mensaje de bienvenida
     if console:
         print_welcome_banner(console) # Imprime el banner
@@ -139,7 +194,7 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
 █████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║
 ██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║
 ██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
-╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚╚═╝  ╚═╝╚═╝     ╚═╝
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
 """
         print(banner_text)
         print("\n¡Bienvenido a KogniTerm! Escribe '%salir' para terminar.")
@@ -201,6 +256,7 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
                 agent_state = AgentState() # Reiniciar el estado
                 # También reiniciamos el historial de llm_service al resetear la conversación
                 llm_service.conversation_history = []
+                llm_service._save_history(llm_service.conversation_history) # Guardar historial vacío
                 # ¡IMPORTANTE! Re-añadir el SYSTEM_MESSAGE después de resetear
                 llm_service.conversation_history.append(SYSTEM_MESSAGE)
                 print(f"Conversación reiniciada para el modo '{current_agent_mode}'.")
@@ -255,6 +311,7 @@ Comandos disponibles:
                     # Reemplazar el historial con el SYSTEM_MESSAGE y el resumen
                     llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
                     agent_state.messages = llm_service.conversation_history
+                    llm_service._save_history(llm_service.conversation_history) # Guardar historial comprimido
                     if console:
                         console.print(Padding(Panel(Markdown(summary), 
                                                     border_style='green', title='Historial Comprimido'), (1, 2)))
@@ -276,17 +333,87 @@ Comandos disponibles:
             # Seleccionar el agente activo e invocarlo
             # active_agent_app = bash_agent_app if current_agent_mode == "bash" else orchestrator_app # Eliminado
             active_agent_app = bash_agent_app # Siempre usaremos bash_agent_app
+            
+            if console:
+                console.print("\n╭─ KogniTerm ───────────", style="cyan")
+            else:
+                print("\n--- KogniTerm ---")
+            
             final_state_dict = active_agent_app.invoke(agent_state)
+
+            if console:
+                console.print("\n╰────────────────────────", style="cyan")
+                console.print()
+            else:
+                print("--- End KogniTerm ---\n")
 
             # Actualizar el estado para la siguiente iteración
             agent_state.messages = final_state_dict['messages']
+            llm_service._save_history(agent_state.messages) # Guardar historial
             agent_state.command_to_confirm = final_state_dict.get('command_to_confirm') # Obtener comando a confirmar
 
             # --- Manejo de Confirmación de Comandos ---
             if agent_state.command_to_confirm:
                 command_to_execute = agent_state.command_to_confirm
-                agent_state.command_to_confirm = None # Limpiar el comando después de obtenerlo
+                agent_state.command_to_confirm = None
 
+                # 1. Recuperar el tool_call_id del AIMessage más reciente
+                last_ai_message = None
+                for msg in reversed(agent_state.messages):
+                    if isinstance(msg, AIMessage) and msg.tool_calls:
+                        last_ai_message = msg
+                        break
+                
+                tool_call_id = None
+                if last_ai_message and last_ai_message.tool_calls:
+                    tool_call_id = last_ai_message.tool_calls[0]['id']
+
+                # 2. Generar la explicación del comando
+                explanation_text = ""
+                if tool_call_id:
+                    # Crear un historial temporal para la explicación
+                    temp_history_for_explanation = [
+                        msg for msg in agent_state.messages if msg is not last_ai_message
+                    ]
+                    explanation_prompt = HumanMessage(
+                        content=f"Explica en lenguaje natural y de forma concisa qué hará el siguiente comando y por qué es útil para la tarea actual. No incluyas el comando en la explicación, solo el texto explicativo. Comando: `{command_to_execute}`"
+                    )
+                    temp_history_for_explanation.append(explanation_prompt)
+                    
+                    try:
+                        # Usar llm_service.invoke para obtener la explicación como un string
+                        explanation_response = llm_service.invoke(temp_history_for_explanation)
+                        
+                        # El resultado de invoke puede ser un generador, así que lo procesamos
+                        full_response_content = ""
+                        if hasattr(explanation_response, '__iter__'):
+                            for chunk in explanation_response:
+                                if isinstance(chunk, AIMessage):
+                                    full_response_content += chunk.content
+                                elif isinstance(chunk, str):
+                                    full_response_content += chunk
+                        else:
+                            full_response_content = str(explanation_response)
+
+                        explanation_text = full_response_content.strip()
+
+                    except Exception as e:
+                        explanation_text = f"No se pudo generar una explicación para el comando. Error: {e}"
+
+                if not explanation_text:
+                    explanation_text = "No se pudo generar una explicación para el comando."
+
+                # 3. Mostrar la explicación y pedir confirmación
+                if console:
+                    console.print(Padding(Panel(
+                        Markdown(f"**Comando a ejecutar:**\n```bash\n{command_to_execute}\n```\n**Explicación:**\n{explanation_text}"),
+                        border_style='yellow',
+                        title='Confirmación de Comando'
+                    ), (1, 2)))
+                else:
+                    print(f"\n--- Confirmación de Comando ---\nComando a ejecutar: {command_to_execute}\nExplicación: {explanation_text}\n")
+
+                # 4. Solicitar aprobación al usuario
                 run_command = False
                 if auto_approve:
                     run_command = True
@@ -296,17 +423,18 @@ Comandos disponibles:
                         print("Comando auto-aprobado.")
                 else:
                     while True:
-                        approval_input = input(f"\n¿Deseas ejecutar este comando? (s/n): {command_to_execute}\n").lower().strip()
+                        approval_input = session.prompt("¿Deseas ejecutar este comando? (s/n): ").lower().strip()
                         if approval_input == 's':
                             run_command = True
                             break
                         elif approval_input == 'n':
-                            print("Comando no ejecutado.")
                             run_command = False
                             break
                         else:
                             print("Respuesta no válida. Por favor, responde 's' o 'n'.")
 
+                # 5. Ejecutar el comando y manejar la salida
+                tool_message_content = ""
                 if run_command:
                     full_command_output = ""
                     try:
@@ -314,43 +442,62 @@ Comandos disponibles:
                             console.print(Padding("[yellow]Ejecutando comando... (Presiona Ctrl+C para cancelar)[/yellow]", (0, 2)))
                         else:
                             print("Ejecutando comando... (Presiona Ctrl+C para cancelar)")
-                        
+
                         for output_chunk in command_executor.execute(command_to_execute, cwd=os.getcwd()):
                             full_command_output += output_chunk
                             print(output_chunk, end='', flush=True)
-                        print() # Asegurar un salto de línea después de la salida del comando
-                        
-                        # Alimentar la salida al agente como un ToolMessage
-                        agent_state.messages.append(ToolMessage(
-                            content=full_command_output, 
-                            tool_call_id="execute_command" # Usar el nombre de la herramienta como ID por simplicidad
-                        ))
-                        
-                        # Re-invocar al agente para procesar la salida del comando
-                        final_state_dict = active_agent_app.invoke(agent_state)
-                        agent_state.messages = final_state_dict['messages'] # Actualizar estado de nuevo
-                        
+                        print()
+                        tool_message_content = full_command_output if full_command_output.strip() else "El comando se ejecutó correctamente y no produjo ninguna salida."
+
                     except KeyboardInterrupt:
                         command_executor.terminate()
+                        tool_message_content = "Comando cancelado por el usuario."
                         if console:
                             console.print(Padding("\n\n[bold red]Comando cancelado por el usuario.[/bold red]", (0, 2)))
                         else:
                             print("\n\nComando cancelado por el usuario.")
-                        # Señalizar al agente que el comando fue cancelado
-                        agent_state.messages.append(ToolMessage(
-                            content="Comando cancelado por el usuario.", 
-                            tool_call_id="execute_command"
-                        ))
-                        final_state_dict = active_agent_app.invoke(agent_state)
-                        agent_state.messages = final_state_dict['messages']
                 else:
-                    # Si el comando no se ejecutó, señalizar al agente
+                    tool_message_content = "Comando no ejecutado por el usuario."
+                    print("Comando no ejecutado.")
+
+                # 6. Añadir ToolMessage al historial
+                if tool_call_id:
                     agent_state.messages.append(ToolMessage(
-                        content="Comando no ejecutado por el usuario.", 
-                        tool_call_id="execute_command"
+                        content=tool_message_content,
+                        tool_call_id=tool_call_id
                     ))
-                    final_state_dict = active_agent_app.invoke(agent_state)
-                    agent_state.messages = final_state_dict['messages']
+                else:
+                    # Si no hay tool_call_id, no podemos continuar el flujo del agente.
+                    # Esto es un caso de error que debemos registrar.
+                    print("Error: No se encontró el tool_call_id para asociar la salida del comando.", file=sys.stderr)
+                    continue
+
+                # 7. Guardar el historial antes de la re-invocación
+                llm_service._save_history(agent_state.messages)
+
+                # 8. Re-invocar al agente para procesar la salida de la herramienta
+                if console:
+                    console.print(Padding("[cyan]Procesando salida del comando...[/cyan]", (1, 2)))
+                else:
+                    print("\nProcesando salida del comando...")
+                
+                if console:
+                    console.print("\n╭─ KogniTerm ───────────", style="cyan")
+                else:
+                    print("\n--- KogniTerm ---")
+                
+                final_state_dict = active_agent_app.invoke(agent_state)
+
+                if console:
+                    console.print("\n╰────────────────────────", style="cyan")
+                    console.print()
+                else:
+                    print("--- End KogniTerm ---\n")
+
+                agent_state.messages = final_state_dict['messages']
+                
+                # 9. Guardar el historial final después de la respuesta del agente
+                llm_service._save_history(agent_state.messages)
 
             # La respuesta final del AI es el último mensaje en el estado
             final_response_message = agent_state.messages[-1] # Usar agent_state.messages directamente
@@ -376,10 +523,10 @@ Comandos disponibles:
                             elif item['type'] == 'error':
                                 if console:
                                     console.print(f"[red]ERROR ({item['ename']}):[/red] {item['evalue']}")
-                                    console.print(f"[red]TRACEBACK:[/red]\n{'' .join(item['traceback'])}")
+                                    console.print(f"[red]TRACEBACK:[/red]\n{"".join(item['traceback'])}")
                                 else:
                                     print(f"ERROR ({item['ename']}): {item['evalue']}")
-                                    print(f"TRACEBACK:\n{'' .join(item['traceback'])}")
+                                    print(f"TRACEBACK:\n{"".join(item['traceback'])}")
                             elif item['type'] == 'execute_result':
                                 data_str = item['data'].get('text/plain', str(item['data']))
                                 if console:
@@ -435,20 +582,14 @@ Comandos disponibles:
                         print(f"\n--- Operación de archivo ---\n{final_response_message.content}\n")
                     continue # Salir del if para no procesar como AIMessage
 
-            if isinstance(final_response_message, AIMessage) and final_response_message.content:
-                content = final_response_message.content
-                if not isinstance(content, str):
-                    content = str(content)
-
-                if console:
-                    console.print(Padding(Panel(Markdown(content), 
-                                                border_style='blue', title=f'KogniTerm ({current_agent_mode})'), (1, 2)))
-                else:
-                    print(f"\nKogniTerm ({current_agent_mode}):\n{content}\n")
+            # --- Manejo de la respuesta final del AIMessage --- (MODIFICADO)
+            # La impresión del panel final se ha eliminado para priorizar el streaming en tiempo real.
+            if isinstance(final_response_message, AIMessage):
+                pass
             
             # No es necesario actualizar agent_state.messages aquí de nuevo, ya está actualizado
 
-            # --- MODIFICACIÓN 2: Guardar el historial después de cada interacción ---
+            # --- Guardar el historial después de cada interacción ---
             llm_service._save_history(agent_state.messages)
             # ----------------------------------------------------------------------
 
