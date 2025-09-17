@@ -17,7 +17,6 @@ class KogniTermKernel:
         self.current_execution_outputs = []
 
     def start_kernel(self):
-        print("Iniciando kernel de Python...")
         try:
             self.km = KernelManager(kernel_name='kogniterm_venv')
             self.km.start_kernel()
@@ -25,7 +24,6 @@ class KogniTermKernel:
             self.kc.start_channels()
 
             self.kc.wait_for_ready()
-            print("Kernel de Python iniciado y listo.")
 
             self.listener_thread = threading.Thread(target=self._iopub_listener)
             self.listener_thread.daemon = True
@@ -51,7 +49,6 @@ class KogniTermKernel:
         if not self.kc:
             return {"error": "El kernel no está iniciado."}
 
-        print(f"\nEjecutando código:\n---\n{code}\n---")
         self.execution_complete_event.clear()
         self.current_execution_outputs = []
         msg_id = self.kc.execute(code)
@@ -122,24 +119,40 @@ class PythonTool(BaseTool):
         if "result" in raw_output:
             for item in raw_output["result"]:
                 if item['type'] == 'stream':
-                    formatted_output.append(f"Output ({item['name']}): {item['text']}")
+                    output_line = f"Output ({item['name']}): {item['text']}"
+                    formatted_output.append(output_line)
+                    print(output_line) # Imprimir directamente en la terminal
                 elif item['type'] == 'error':
                     traceback_str = '\n'.join(item['traceback'])
-                    formatted_output.append(f"Error ({item['ename']}): {item['evalue']}\nTraceback:\n{traceback_str}")
+                    error_line = f"Error ({item['ename']}): {item['evalue']}\nTraceback:\n{traceback_str}"
+                    formatted_output.append(error_line)
+                    print(error_line) # Imprimir directamente en la terminal
                 elif item['type'] == 'execute_result':
                     data_str = item['data'].get('text/plain', str(item['data']))
-                    formatted_output.append(f"Result: {data_str}")
+                    result_line = f"Result: {data_str}"
+                    formatted_output.append(result_line)
+                    print(result_line) # Imprimir directamente en la terminal
                 elif item['type'] == 'display_data':
                     if 'image/png' in item['data']:
-                        formatted_output.append("[IMAGEN PNG GENERADA]")
+                        display_line = "[IMAGEN PNG GENERADA]"
+                        formatted_output.append(display_line)
+                        print(display_line) # Imprimir directamente en la terminal
                     elif 'text/html' in item['data']:
-                        formatted_output.append(f"[HTML GENERADO]: {item['data']['text/html'][:100]}...")
+                        display_line = f"[HTML GENERADO]: {item['data']['text/html'][:100]}..."
+                        formatted_output.append(display_line)
+                        print(display_line) # Imprimir directamente en la terminal
                     else:
-                        formatted_output.append(f"Display Data: {str(item['data'])}")
+                        display_line = f"Display Data: {str(item['data'])}"
+                        formatted_output.append(display_line)
+                        print(display_line) # Imprimir directamente en la terminal
             return "\n".join(formatted_output)
         elif "error" in raw_output:
-            return f"Error en el kernel de Python: {raw_output['error']}"
-        return "PythonTool: No se recibió salida discernible."
+            error_message = f"Error en el kernel de Python: {raw_output['error']}"
+            print(error_message) # Imprimir directamente en la terminal
+            return error_message
+        no_output_message = "PythonTool: No se recibió salida discernible."
+        print(no_output_message) # Imprimir directamente en la terminal
+        return no_output_message
 
     def get_last_structured_output(self):
         """Devuelve la última salida estructurada generada por la ejecución del código Python."""

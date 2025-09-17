@@ -56,12 +56,35 @@ def _format_text_with_basic_markdown(text: str) -> Text:
 # --- Importar KogniTermApp ---
 from kogniterm.terminal.kogniterm_app import KogniTermApp
 from kogniterm.core.llm_service import LLMService # Importar la CLASE LLMService
-from kogniterm.core.tools.file_operations_tool import FileOperationsTool # Importar FileOperationsTool para acceder a glob
+# from kogniterm.core.tools.file_operations_tool import FileOperationsTool # Eliminada
+from kogniterm.core.tools.file_read_directory_tool import FileReadDirectoryTool
+from kogniterm.core.tools.file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
+from prompt_toolkit.completion import Completer, Completion
+import os
+from rich.text import Text
+from rich.syntax import Syntax
+from rich.console import Console
+from rich.padding import Padding
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.status import Status
+import json
+import asyncio
+import re
+
+from .agent_interaction_manager import AgentInteractionManager
+from .command_approval_handler import CommandApprovalHandler
+from .meta_command_processor import MetaCommandProcessor
+from .terminal_ui import TerminalUI
+
+console = Console()
 
 class FileCompleter(Completer):
-    def __init__(self, file_operations_tool, show_indicator: bool = True):
-        self.file_operations_tool = file_operations_tool
+    def __init__(self, *, file_read_directory_tool: FileReadDirectoryTool, file_read_recursive_directory_tool: FileReadRecursiveDirectoryTool, show_indicator: bool = True):
+        self.file_read_directory_tool = file_read_directory_tool
+        self.file_read_recursive_directory_tool = file_read_recursive_directory_tool
         self.show_indicator = show_indicator
+        self.current_completions = []
 
     def get_completions(self, document, complete_event):
         text_before_cursor = document.text_before_cursor
@@ -73,22 +96,27 @@ class FileCompleter(Completer):
         
         base_path = os.getcwd()
 
-        include_hidden = current_input_part.startswith('.')
+        # include_hidden = current_input_part.startswith('.') # No se usa directamente en las nuevas herramientas
 
         try:
-            all_relative_items = self.file_operations_tool._list_directory(
-                path=base_path,
-                recursive=True,
-                include_hidden=include_hidden,
-                silent_mode=not self.show_indicator
-            )
+            # Usar file_read_recursive_directory_tool para obtener todos los elementos
+            all_relative_items_str = self.file_read_recursive_directory_tool._run(path=base_path)
+            
+            # Parsear la salida de la herramienta para obtener una lista de elementos
+            all_relative_items = []
+            for line in all_relative_items_str.split('\n'):
+                line = line.strip()
+                if line.startswith('- Archivo: '):
+                    all_relative_items.append(line[len('- Archivo: '):])
+                elif line.startswith('- Directorio: '):
+                    all_relative_items.append(line[len('- Directorio: '):].rstrip('/'))
             
             suggestions = []
             for relative_item_path in all_relative_items:
                 absolute_item_path = os.path.join(base_path, relative_item_path)
                 
                 display_item = relative_item_path
-                if os.path.isdir(absolute_item_path):
+                if os.path.isdir(absolute_item_path): # Verificar si es directorio para añadir '/'
                     display_item += '/'
 
                 if current_input_part.lower() in display_item.lower():
@@ -102,6 +130,9 @@ class FileCompleter(Completer):
 
         except Exception as e:
             print(f"Error en FileCompleter: {e}", file=sys.stderr)
+
+
+
 
 
 def main():

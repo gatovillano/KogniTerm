@@ -7,9 +7,15 @@ from .memory_init_tool import MemoryInitTool
 from .memory_read_tool import MemoryReadTool
 from .memory_append_tool import MemoryAppendTool
 from .memory_summarize_tool import MemorySummarizeTool
-from .file_operations_tool import FileOperationsTool
 from .python_executor import PythonTool
-from .file_search_tool import FileSearchTool # ¡Nueva importación!
+from .file_search_tool import FileSearchTool
+from .file_create_tool import FileCreateTool
+from .file_delete_tool import FileDeleteTool
+from .file_read_directory_tool import FileReadDirectoryTool
+from .file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
+from .file_read_tool import FileReadTool
+from .file_update_tool import FileUpdateTool
+from .file_operations_tool import FileOperationsTool # Importar FileOperationsTool
 
 # You can also define a list of all tools here for easy access
 # Las herramientas que necesitan la instancia de LLMService se inicializarán en LLMService
@@ -23,9 +29,15 @@ ALL_TOOLS_CLASSES = [
     MemoryReadTool,
     MemoryAppendTool,
     MemorySummarizeTool,
-    FileOperationsTool,
     PythonTool,
-    FileSearchTool # ¡Nueva herramienta añadida!
+    FileSearchTool,
+    FileCreateTool,
+    FileDeleteTool,
+    FileReadDirectoryTool,
+    FileReadRecursiveDirectoryTool,
+    FileReadTool,
+    FileUpdateTool,
+    FileOperationsTool # Añadir FileOperationsTool
 ]
 
 def get_callable_tools(llm_service_instance=None):

@@ -1,16 +1,23 @@
 import os
 import logging
-from typing import Type, Optional, List, ClassVar
+from typing import Type, Optional, List, ClassVar, Any, Dict # Añadido Dict
+
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
+
 
 class FileOperationsTool(BaseTool):
     name: str = "file_operations"
     description: str = "Permite realizar operaciones CRUD (Crear, Leer, Actualizar, Borrar) en archivos y directorios."
 
     ignored_directories: ClassVar[List[str]] = ['venv', '.git', '__pycache__', '.venv']
+    llm_service: Any
+
+    def __init__(self, llm_service: Any, **kwargs):
+        super().__init__(llm_service=llm_service, **kwargs)
+        self.llm_service = llm_service
 
     # --- Sub-clases para los esquemas de argumentos de cada operación ---
 
@@ -33,15 +40,21 @@ class FileOperationsTool(BaseTool):
 
     # --- Implementación de las operaciones ---
 
-    def _run(self, **kwargs) -> str:
+    def _run(self, **kwargs) -> str | Dict[str, Any]: # Modificado el tipo de retorno
         operation = kwargs.get("operation")
         try:
             if operation == "read_file":
                 return self._read_file(kwargs["path"])
             elif operation == "write_file":
-                return self._write_file(kwargs["path"], kwargs["content"])
+                result = self._write_file(kwargs["path"], kwargs["content"])
+                if isinstance(result, dict) and result.get("_requires_confirmation"):
+                    return result  # Devolver el diccionario de confirmación
+                return result
             elif operation == "delete_file":
-                return self._delete_file(kwargs["path"])
+                result = self._delete_file(kwargs["path"])
+                if isinstance(result, dict) and result.get("_requires_confirmation"):
+                    return result  # Devolver el diccionario de confirmación
+                return result
             elif operation == "list_directory":
                 # Obtener el valor de recursive, por defecto False
                 recursive = kwargs.get("recursive", False)
@@ -73,20 +86,26 @@ class FileOperationsTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error al leer el archivo '{path}': {e}")
 
-    def _write_file(self, path: str, content: str) -> str:
-        print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}") # <--- INDICADOR AÑADIDO
+    def _write_file(self, path: str, content: str) -> str | Dict[str, Any]:
+        print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}")
+        return {"_requires_confirmation": True, "action_description": f"escribir en el archivo '{path}'", "operation": "write_file", "args": {"path": path, "content": content}}
+
+    def _perform_write_file(self, path: str, content: str) -> str:
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
-            return ""
+            return "Archivo escrito con éxito."
         except Exception as e:
             raise Exception(f"Error al escribir/crear el archivo '{path}': {e}")
 
-    def _delete_file(self, path: str) -> str:
-        print(f"🗑️ KogniTerm: Eliminando archivo 📄: {path}") # <--- INDICADOR AÑADIDO
+    def _delete_file(self, path: str) -> str | Dict[str, Any]:
+        print(f"🗑️ KogniTerm: Eliminando archivo 📄: {path}")
+        return {"_requires_confirmation": True, "action_description": f"eliminar el archivo '{path}'", "operation": "delete_file", "args": {"path": path}}
+
+    def _perform_delete_file(self, path: str) -> str:
         try:
             os.remove(path)
-            return ""
+            return "Archivo eliminado con éxito."
         except FileNotFoundError:
             raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
         except Exception as e:
@@ -140,9 +159,9 @@ class FileOperationsTool(BaseTool):
                     content = f.read()
                 combined_content.append(content)
             except FileNotFoundError:
-                combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---\n""")
+                combined_content.append(f"--- Error: Archivo '{p}' no encontrado. ---\n")
             except Exception as e:
-                combined_content.append(f"""--- Error al leer '{p}': {e} ---\n""")
+                combined_content.append(f"--- Error al leer '{p}': {e} ---\n")
         return "\n".join(combined_content)
 
     def _create_directory(self, path: str) -> str:
@@ -153,6 +172,12 @@ class FileOperationsTool(BaseTool):
             return ""
         except Exception as e:
             raise Exception(f"Error al crear el directorio '{path}': {e}")
+
+    def _confirm_action(self, action_description: str, operation_name: str, operation_args: dict) -> Dict[str, Any]: # Modificado el tipo de retorno
+        """Devuelve un diccionario para indicar que se requiere confirmación del usuario."""
+        # Este método se mantiene para compatibilidad o si se decide reintroducir una lógica similar
+        # pero el flujo principal de confirmación se maneja devolviendo un diccionario especial.
+        return {"_requires_confirmation": True, "action_description": action_description, "operation": operation_name, "args": operation_args}
 
     async def _arun(self, **kwargs) -> str:
         raise NotImplementedError("FileOperationsTool does not support async")

@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 import google.generativeai as genai
@@ -24,7 +24,8 @@ Si te preguntan quién eres, SIEMPRE responde que eres KogniTerm.
 Como KogniTerm, eres un asistente de IA experto en terminal. Además de ser un asistente de comandos y acciones en el sistema, eres un experto en informática, generación de código, depuración y análisis de código, sobre todo Python.
 Tu propósito es ayudar al usuario a realizar tareas directamente en su sistema.
 
-En este marco, KogniTerm mantiene un historial y un archivo de contexto (`llm_context.md`) por cada directorio en el que se abre. Estos directorios de trabajo pueden coincidir con el proyecto en el que el usuario está trabajando con apoyo de KogniTerm.
+**Contexto de Directorio:**
+Cada directorio en el que se abre KogniTerm es un espacio de trabajo independiente. Esto significa que cada directorio tiene su propia memoria, historial y bitácoras. Estos directorios de trabajo pueden coincidir con el proyecto en el que el usuario está trabajando con apoyo de KogniTerm. Si el usuario te habla de errores o problemas sin un contexto explícito, debes asumir que se refiere al proyecto actual en el que te encuentras.
 
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
@@ -35,12 +36,12 @@ Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
 5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
 6.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
-    *   Siempre utiliza una línea separadora (por ejemplo, `---` o `***`) al inicio y al final de tus mensajes, tanto en la etapa de pensamiento como en el mensaje final.
+    *   Siempre que utilices cuadros markdown, NO Los anides en bloque de codigo. 
     *   Siempre utiliza Markdown para embellecer el texto, tanto en la etapa de pensamiento como en el mensaje final, incluyendo encabezados, listas, negritas, etc.
 
 La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
 La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
-La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código.
+La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código. PRIORIZA utilizar codigo python para tus tareas. 
 
 Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
 
@@ -49,6 +50,12 @@ El usuario te está dando permiso para que operes en su sistema. Actúa de forma
 
 # --- Definición del Estado del Agente ---
 
+class UserConfirmationRequired(Exception):
+    """Excepción personalizada para indicar que se requiere confirmación del usuario."""
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
 @dataclass
 class AgentState:
     """Define la estructura del estado que fluye a través del grafo."""
@@ -56,6 +63,23 @@ class AgentState:
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
     tool_call_id_to_confirm: Optional[str] = None # Nuevo campo para el tool_call_id asociado al comando
     current_agent_mode: str = "bash" # Añadido para el modo del agente
+    
+    # Nuevos campos para manejar la confirmación de herramientas
+    tool_pending_confirmation: Optional[str] = None
+    tool_args_pending_confirmation: Optional[Dict[str, Any]] = None
+
+    def reset_tool_confirmation(self):
+        """Reinicia el estado de la confirmación de herramientas."""
+        self.tool_pending_confirmation = None
+        self.tool_args_pending_confirmation = None
+        self.tool_call_id_to_confirm = None # Asegurarse de limpiar también este campo
+
+    def reset(self):
+        """Reinicia completamente el estado del agente."""
+        self.messages = []
+        self.command_to_confirm = None
+        self.tool_call_id_to_confirm = None
+        self.reset_tool_confirmation() # Reutilizar la lógica de reinicio de confirmación
 
     @property
     def history_for_api(self) -> list[BaseMessage]:
@@ -68,6 +92,63 @@ from rich.live import Live # Importar Live
 from rich.markdown import Markdown # Importar Markdown
 from rich.padding import Padding # Nueva importación
 from rich.status import Status # ¡Nueva importación!
+
+def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
+    """
+    Maneja la respuesta de confirmación del usuario para una operación de herramienta.
+    Si se aprueba, re-ejecuta la herramienta.
+    """
+    last_message = state.messages[-1]
+    if not isinstance(last_message, ToolMessage):
+        # Esto no debería pasar si el flujo es correcto
+        console.print("[bold red]Error: handle_tool_confirmation llamado sin un ToolMessage.[/bold red]")
+        state.reset_tool_confirmation()
+        return state
+
+    tool_message_content = last_message.content
+    tool_id = state.tool_call_id_to_confirm # Usar el tool_id guardado
+
+    # Asumimos que el ToolMessage de confirmación tiene un formato específico
+    # ej. "Confirmación de usuario: Aprobado para 'escribir en el archivo ...'."
+    if "Aprobado" in tool_message_content:
+        console.print("[bold green]✅ Confirmación de usuario recibida: Aprobado.[/bold green]")
+        tool_name = state.tool_pending_confirmation
+        tool_args = state.tool_args_pending_confirmation
+
+        if tool_name and tool_args:
+            console.print(f"[bold blue]🛠️ Re-ejecutando herramienta '{tool_name}' tras aprobación:[/bold blue]")
+            tool = llm_service.get_tool(tool_name)
+            if tool:
+                try:
+                    if tool_name == "file_operations" and tool_args.get("operation") == "write_file":
+                        tool_output_str = tool._perform_write_file(path=tool_args["path"], content=tool_args["content"])
+                    elif tool_name == "file_operations" and tool_args.get("operation") == "delete_file":
+                        tool_output_str = tool._perform_delete_file(path=tool_args["path"])
+                    else:
+                        tool_output_str = str(tool.invoke(tool_args))
+                    tool_messages = [ToolMessage(content=tool_output_str, tool_call_id=tool_id)]
+                    state.messages.extend(tool_messages)
+                    console.print(f"[green]✨ Herramienta '{tool_name}' re-ejecutada con éxito.[/green]")
+                except Exception as e:
+                    error_output = f"Error al re-ejecutar la herramienta {tool_name} tras aprobación: {e}"
+                    state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+                    console.print(f"[bold red]❌ {error_output}[/bold red]")
+            else:
+                error_output = f"Error: Herramienta '{tool_name}' no encontrada para re-ejecución."
+                state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+                console.print(f"[bold red]❌ {error_output}[/bold red]")
+        else:
+            error_output = "Error: No se encontró información de la herramienta pendiente para re-ejecución."
+            state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+            console.print(f"[bold red]❌ {error_output}[/bold red]")
+    else:
+        console.print("[bold yellow]⚠️ Confirmación de usuario recibida: Denegado.[/bold yellow]")
+        tool_output_str = f"Operación denegada por el usuario: {state.tool_pending_confirmation}"
+        state.messages.append(ToolMessage(content=tool_output_str, tool_call_id=tool_id))
+
+    state.reset_tool_confirmation() # Limpiar el estado de confirmación
+    state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
+    return state
 
 def call_model_node(state: AgentState, llm_service: LLMService):
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
@@ -152,6 +233,15 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
             try:
                 raw_tool_output = tool.invoke(tool_args)
                 tool_output_str = str(raw_tool_output) # Convertir a cadena
+            except UserConfirmationRequired as e:
+                # Si la herramienta requiere confirmación, guardamos el estado y terminamos la ejecución de herramientas.
+                state.tool_pending_confirmation = tool_name
+                state.tool_args_pending_confirmation = tool_args
+                # El mensaje de la excepción se usará como confirmation_prompt en KogniTermApp
+                state.tool_call_id_to_confirm = tool_id # Guardar el tool_id original
+                tool_output_str = f"UserConfirmationRequired: {e.message}"
+                console.print(f"[bold yellow]⚠️ Herramienta '{tool_name}' requiere confirmación:[/bold yellow] {e.message}")
+                return state # Salir de la ejecución de herramientas, KogniTermApp manejará la confirmación
             except Exception as e:
                 tool_output_str = f"Error al ejecutar la herramienta {tool_name}: {e}"
         

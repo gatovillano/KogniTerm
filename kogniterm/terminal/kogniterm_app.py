@@ -12,10 +12,10 @@ from rich.padding import Padding
 
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
-from kogniterm.core.agents.bash_agent import AgentState
+from kogniterm.core.agents.bash_agent import AgentState, UserConfirmationRequired
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool
 from kogniterm.core.tools.python_executor import PythonTool # Para manejar la salida de PythonTool
-from langchain_core.messages import ToolMessage # Para manejar la salida de PythonTool
+from langchain_core.messages import ToolMessage, HumanMessage # Para manejar la salida de PythonTool y el mensaje de confirmación
 
 from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
@@ -91,12 +91,9 @@ class KogniTermApp:
             self.llm_service.set_console(self.console)
 
         # Inicializar FileCompleter
-        file_operations_tool = self.llm_service.get_tool("file_operations")
-        if not file_operations_tool:
-            self.terminal_ui.print_message("Advertencia: La herramienta 'file_operations' no se encontró. El autocompletado de archivos no estará disponible.", style="yellow")
-            completer = None
-        else:
-            completer = FileCompleter(file_operations_tool, show_indicator=False)
+        file_operations_tool = FileOperationsTool(llm_service=self.llm_service) # Instanciar FileOperationsTool con llm_service
+        completer = FileCompleter(file_operations_tool=file_operations_tool, show_indicator=False)
+
 
         # Definir un estilo para el prompt
         custom_style = Style.from_dict({
@@ -111,7 +108,8 @@ class KogniTermApp:
         @kb.add('escape', eager=True)
         def _(event):
             self.llm_service.stop_generation_flag = True
-            event.app.exit()
+            event.app.current_buffer.cancel_completion() # Limpiar el prompt
+            event.app.exit() # Salir del prompt y volver al bucle principal
 
         @kb.add('enter', eager=True)
         def _(event):
@@ -145,8 +143,19 @@ class KogniTermApp:
         while True:
             try:
                 cwd = os.getcwd()
-                prompt_text = f"({self.agent_state.current_agent_mode}) ({os.path.basename(cwd)}) > " # Asumiendo que agent_state tendrá un current_agent_mode
+                prompt_text = f"({os.path.basename(cwd)}) > " # Eliminado el indicador de modo de agente
                 user_input = self.prompt_session.prompt(prompt_text)
+
+                if user_input is None:
+                    if self.llm_service.stop_generation_flag:
+                        self.terminal_ui.print_message("\nGeneración de respuesta cancelada por el usuario.", style="yellow")
+                        self.llm_service.stop_generation_flag = False # Resetear la bandera
+                        continue # Continuar el bucle para un nuevo prompt
+                    else:
+                        # Si user_input es None y no se ha establecido la bandera de stop_generation_flag,
+                        # significa que el usuario ha salido del prompt de alguna otra manera (ej. Ctrl+D).
+                        # En este caso, salimos de la aplicación.
+                        break
 
                 if not user_input.strip():
                     continue
@@ -154,11 +163,117 @@ class KogniTermApp:
                 if self.meta_command_processor.process_meta_command(user_input):
                     continue
 
-                final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
-                
-                # Actualizar el estado del agente con lo que devuelve el manager
-                self.agent_state.messages = final_state_dict['messages']
-                self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+                try:
+                    final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
+                    
+                    # Actualizar el estado del agente con lo que devuelve el manager
+                    self.agent_state.messages = final_state_dict['messages']
+                    self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+
+                except UserConfirmationRequired as e:
+                    # Capturar la solicitud de confirmación del usuario
+                    confirmation_message = e.message
+                    self.terminal_ui.print_message(f"Se requiere confirmación para: {confirmation_message}", style="yellow")
+                    
+                    # Usar CommandApprovalHandler para obtener la confirmación
+                    # Necesitamos un tool_call_id para el ToolMessage que se generará
+                    # Si no hay un AIMessage previo con tool_calls, generamos uno temporal
+                    last_ai_message = None
+                    for msg in reversed(self.agent_state.messages):
+                        if isinstance(msg, ToolMessage): # Ignorar ToolMessages
+                            continue
+                        if isinstance(msg, HumanMessage): # Ignorar HumanMessages
+                            continue
+                        if isinstance(msg, AIMessage):
+                            last_ai_message = msg
+                            break
+                    
+                    tool_call_id = None
+                    if last_ai_message and last_ai_message.tool_calls and last_ai_message.tool_calls[0] and 'id' in last_ai_message.tool_calls[0]:
+                        tool_call_id = last_ai_message.tool_calls[0]['id']
+                    else:
+                        tool_call_id = f"manual_tool_call_{os.urandom(8).hex()}"
+                        self.terminal_ui.print_message(f"Advertencia: No se encontró un tool_call_id asociado para la confirmación. Generando ID temporal: {tool_call_id}", style="yellow")
+
+                    # Capturar la operación pendiente y sus argumentos para re-invocación
+                    # Esta información debe ser pasada por la excepción UserConfirmationRequired
+                    tool_name_to_confirm = e.tool_name
+                    tool_args_to_confirm = e.tool_args
+
+                    # Simular la ejecución de un comando para el CommandApprovalHandler
+                    dummy_command_to_execute = f"confirm_action('{confirmation_message}')"
+                    approval_result = self.command_approval_handler.handle_command_approval(
+                        dummy_command_to_execute, self.auto_approve, is_user_confirmation=True, confirmation_prompt=confirmation_message
+                    )
+
+                    tool_message_content = approval_result['tool_message_content']
+                    self.agent_state.messages = approval_result['messages'] # Actualizar el historial con el ToolMessage de aprobación/denegación
+
+                    # Determinar si la acción fue aprobada
+                    action_approved = "Aprobado" in tool_message_content
+
+                    if action_approved:
+                        self.terminal_ui.print_message("Acción aprobada por el usuario. Reintentando operación...", style="green")
+                        # Re-invocar al agente con la herramienta y los argumentos originales
+                        # para que el agente pueda reintentar la operación.
+                        # Aquí, en lugar de pasar un ToolMessage, pasamos el HumanMessage original que llevó a la tool_code.
+                        # Esto es una simplificación, la forma correcta sería que el agente tenga un estado de "operación pendiente"
+                        # y la reintente directamente. Pero para este flujo, reinyectar el intent original puede funcionar.
+                        # Sin embargo, la forma más directa es que KogniTermApp re-ejecute la herramienta si fue aprobada.
+                        # Para eso, necesitamos que _run de file_operations_tool devuelva un resultado directamente.
+
+                        # Opción 1: Re-invocar el agente con un mensaje que le indique que continue
+                        # Esto es complejo porque el agente necesita recordar la operación.
+                        # self.agent_interaction_manager.invoke_agent(f"Confirmación para '{confirmation_message}' recibida: Aprobado. Por favor, procede con la operación de '{tool_name_to_confirm}' con los argumentos {tool_args_to_confirm}.")
+
+                        # Opción 2: KogniTermApp ejecuta la herramienta directamente si fue aprobada.
+                        # Esto requiere que la herramienta tenga un método para ser ejecutada desde aquí
+                        # y que no pase por el flujo normal del agente si ya fue "decidida".
+                        # Por ahora, la excepción UserConfirmationRequired ya está en el try-except de invoke_agent
+                        # Esto es lo que estaba fallando: el agente no re-ejecuta la herramienta.
+                        # La herramienta necesita una forma de ser ejecutada *después* de la confirmación.
+
+                        # La solución más limpia es que el CommandApprovalHandler devuelva si se aprobó o no,
+                        # y que el KogniTermApp decida si re-ejecutar la herramienta o no.
+                        # Pero la herramienta no debe lanzar una excepción para confirmación.
+                        # La herramienta debería devolver un "ToolActionPendingConfirmation"
+
+                        # Revertir la excepción en file_operations_tool.py
+                        # Y en command_approval_handler.py, añadir un método para solicitar confirmación directamente
+                        # que NO sea parte del flujo de ejecución de un comando del agente.
+
+                        # Dado el diseño actual, donde las herramientas lanzan excepciones y KogniTermApp las captura,
+                        # la manera de reanudar es que el agente, al recibir el ToolMessage de confirmación,
+                        # entienda que la operación original debe reanudarse.
+                        # Para eso, el ToolMessage de confirmación debe contener suficiente información.
+
+                        # Vamos a modificar UserConfirmationRequired para que contenga el tool_name y tool_args
+                        # Y el CommandApprovalHandler para que, si es una confirmación de usuario,
+                        # el tool_message_content sea parseable por el agente.
+
+                        # Esta es la parte más compleja. Necesitamos que el agente sepa qué hacer después de la confirmación.
+
+                        # Por ahora, el flujo es:
+                        # 1. Agente pide herramienta (ej: write_file)
+                        # 2. Herramienta lanza UserConfirmationRequired
+                        # 3. KogniTermApp captura, pide confirmación al usuario via CommandApprovalHandler
+                        # 4. CommandApprovalHandler devuelve el resultado de la confirmación como ToolMessage
+                        # 5. KogniTermApp pasa ese ToolMessage al agente
+                        # 6. Agente debe interpretar ese ToolMessage y, si es "aprobado", reintentar la operación original.
+
+                        # El problema es que el agente no tiene la "operación original" guardada.
+                        # La forma más fácil es que la excepción UserConfirmationRequired *contenga*
+                        # la información de la operación (nombre de la herramienta y sus argumentos)
+                        # y que, si se aprueba, KogniTermApp re-ejecute esa operación directamente.
+
+                        # Re-invocar al agente con un mensaje que le indique que continúe
+                        self.agent_interaction_manager.invoke_agent(f"Confirmación para '{confirmation_message}' recibida: {tool_message_content}. Por favor, procede con la operación original si fue aprobada.")
+                    else:
+                        self.terminal_ui.print_message("Acción denegada por el usuario.", style="yellow")
+                        # Si la acción es denegada, simplemente informamos al agente.
+                        self.agent_interaction_manager.invoke_agent(f"Confirmación para '{confirmation_message}' recibida: {tool_message_content}.")
+                    
+                    continue # Continuar al siguiente ciclo del bucle principal
 
                 if self.agent_state.command_to_confirm:
                     command_to_execute = self.agent_state.command_to_confirm

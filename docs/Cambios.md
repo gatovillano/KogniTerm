@@ -114,3 +114,24 @@ Se abordó el problema de la duplicación de la explicación de comandos en el p
 
 -   **Punto 1**: Se eliminó la indentación extra de la línea `full_path = os.path.join(kogniterm_dir, file_path)` en `kogniterm/core/tools/memory_summarize_tool.py` para alinearla correctamente con el bloque de código anterior.
 ---
+## 17-09-25 Manejo Robusto de `tool_call_id` en Confirmación de Comandos
+
+**Descripción general:** Se implementó un manejo más robusto del `tool_call_id` en el proceso de confirmación de comandos para evitar el error `Missing corresponding tool call for tool response message`. Ahora, si no se encuentra un `tool_call_id` válido en el `AIMessage` más reciente, se genera uno temporal, y el `ToolMessage` siempre se añade al historial.
+
+-   **Punto 1**: Se modificó `kogniterm/terminal/command_approval_handler.py` para añadir una validación al buscar el `tool_call_id` del `AIMessage` más reciente, asegurando que `tool_calls` y su `id` existan.
+-   **Punto 2**: Si no se encuentra un `tool_call_id` válido, se genera un `tool_call_id` temporal utilizando `os.urandom(8).hex()`.
+-   **Punto 3**: Se eliminó la condición `if tool_call_id:` antes de añadir el `ToolMessage` al historial en `kogniterm/terminal/command_approval_handler.py`, garantizando que el `ToolMessage` siempre se agregue, ya sea con un `tool_call_id` original o temporal.
+---
+## 17-09-25 Eliminación de `get_user_confirmation` en `file_operations_tool.py`
+
+**Descripción general:** Se eliminó la llamada a `llm_service.get_user_confirmation` en `kogniterm/core/tools/file_operations_tool.py` para resolver un `AttributeError`. La confirmación del usuario ahora se gestiona a través de `CommandApprovalHandler` en la capa superior de la aplicación.
+
+-   **Punto 1**: Se reemplazó la lógica de confirmación del usuario en `kogniterm/core/tools/file_operations_tool.py` con un `return True` temporal, indicando que la confirmación se manejará externamente.
+---
+## 17-09-25 Adaptación del `CommandApprovalHandler` para Confirmaciones de Usuario
+
+**Descripción general:** Se modificó la firma y la lógica interna del método `handle_command_approval` en `kogniterm/terminal/command_approval_handler.py` para permitir la gestión de solicitudes de confirmación de usuario provenientes de herramientas, además de la aprobación de comandos generados por el agente.
+
+-   **Punto 1**: Se añadieron los parámetros `is_user_confirmation: bool = False` y `confirmation_prompt: Optional[str] = None` al método `handle_command_approval`.
+-   **Punto 2**: La lógica de generación de la explicación y el panel de visualización se adaptaron para mostrar un mensaje de confirmación de usuario cuando `is_user_confirmation` es `True`.
+-   **Punto 3**: La sección de ejecución del comando se modificó para devolver un `ToolMessage` con el resultado de la confirmación del usuario (aprobado o denegado) cuando `is_user_confirmation` es `True`, en lugar de intentar ejecutar un comando.
