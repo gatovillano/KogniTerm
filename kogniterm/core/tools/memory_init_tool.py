@@ -19,15 +19,9 @@ class MemoryInitTool(BaseTool):
     args_schema: Type[BaseModel] = MemoryInitInput
 
     def _run(self, file_path: str = "llm_context.md") -> str:
-        full_path = os.path.join(os.getcwd(), file_path)
-        dir_name = os.path.dirname(full_path)
-
-        if not os.path.exists(dir_name):
-            try:
-                os.makedirs(dir_name, exist_ok=True)
-                logger.debug(f"MemoryInitTool - Creando directorios para '{file_path}'")
-            except OSError as e:
-                return f"Error de Permisos: No se tienen permisos de escritura en el directorio '{dir_name}'. {e}"
+        kogniterm_dir = os.path.join(os.getcwd(), ".kogniterm")
+        os.makedirs(kogniterm_dir, exist_ok=True)
+        full_path = os.path.join(kogniterm_dir, file_path)
 
         if os.path.exists(full_path):
             return f"La memoria '{file_path}' ya existe en el directorio actual. No se requiere inicialización."

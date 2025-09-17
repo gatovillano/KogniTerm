@@ -51,7 +51,7 @@ Descripción general: Se ha implementado un panel visual para envolver el mensaj
 
 **Descripción general:** Se corrigió un `SyntaxError: unexpected character after line continuation character` en `kogniterm/core/tools/file_operations_tool.py` en la línea 134. El error se debía a un escape incorrecto de comillas dentro de un f-string.
 
--   **Punto 1**: Se reemplazó `{\', \'.join(paths)}` con `{', '.join(paths)}` en la línea 134 de `kogniterm/core/tools/file_operations_tool.py`.
+-   **Punto 1**: Se reemplazó `{\', \'.join(paths)}` con `{'`.join(paths)}` en la línea 134 de `kogniterm/core/tools/file_operations_tool.py`.
 ---
 ## 16-09-25 Margen en la Salida de Streaming del LLM
 
@@ -101,3 +101,16 @@ Se abordó el problema de la duplicación de la explicación de comandos en el p
 **Descripción general:** Se resolvió un `ImportError` causado por una importación circular en el archivo `kogniterm/terminal/terminal_ui.py`. El error ocurría debido a una importación redundante de `TerminalUI` dentro de su propio módulo, lo que generaba un conflicto durante la inicialización del módulo.
 
 -   **Punto 1**: Se eliminó la línea `from kogniterm.terminal.terminal_ui import TerminalUI` de `kogniterm/terminal/terminal_ui.py`, ya que la clase `TerminalUI` se define en el mismo archivo y no requiere auto-importación. Esta corrección elimina la dependencia circular y permite la correcta inicialización del módulo.
+---
+## 17-09-25 Corrección de TypeError en `FileSearchTool`
+
+**Descripción general:** Se corrigió un `TypeError` que ocurría al iniciar KogniTerm, específicamente en la instanciación de `FileSearchTool`. El error se debía a una discrepancia en el nombre del parámetro `llm_service` esperado por el constructor de `FileSearchTool` y el nombre `llm_service_instance` utilizado en `tool_manager.py`.
+
+-   **Punto 1**: Se modificó `kogniterm/core/tools/tool_manager.py` para que, al instanciar las herramientas, verifique si el constructor espera un parámetro llamado `llm_service` o `llm_service_instance` y le pase el `llm_service_instance` con el nombre correcto.
+---
+## 17-09-25 Corrección de IndentationError en `memory_summarize_tool.py`
+
+**Descripción general:** Se corrigió un `IndentationError` en el archivo `kogniterm/core/tools/memory_summarize_tool.py` en la línea 28. El error se debía a una indentación incorrecta de la línea `full_path = os.path.join(kogniterm_dir, file_path)`.
+
+-   **Punto 1**: Se eliminó la indentación extra de la línea `full_path = os.path.join(kogniterm_dir, file_path)` en `kogniterm/core/tools/memory_summarize_tool.py` para alinearla correctamente con el bloque de código anterior.
+---

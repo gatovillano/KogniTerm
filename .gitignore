@@ -7,3 +7,6 @@ build
 kogniterm_history.json
 .venv
 .qodo
+.kogniterm/.kogniterm_history
+.kogniterm/.project_structure.md
+project_structure.md

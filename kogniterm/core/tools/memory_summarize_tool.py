@@ -23,7 +23,9 @@ class MemorySummarizeTool(BaseTool):
     args_schema: Type[BaseModel] = MemorySummarizeInput
 
     def _run(self, file_path: str = "llm_context.md", max_length: int = 500) -> str:
-        full_path = os.path.join(os.getcwd(), file_path)
+        kogniterm_dir = os.path.join(os.getcwd(), ".kogniterm")
+        os.makedirs(kogniterm_dir, exist_ok=True)
+        full_path = os.path.join(kogniterm_dir, file_path)
 
         if not os.path.exists(full_path):
             return f"Error: El archivo de memoria '{file_path}' no fue encontrado para resumir."

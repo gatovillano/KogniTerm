@@ -1,4 +1,5 @@
 import os
+import glob # ¡Nueva importación!
 from typing import List, Optional, Any
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, SkipValidation
@@ -22,25 +23,15 @@ class FileSearchTool(BaseTool):
             raise ValueError("El 'path' debe ser una ruta absoluta.")
         
         try:
-            # Usar la función glob directamente, ya que es una herramienta de bajo nivel del entorno
-            # Si no está disponible, esto causará un NameError o similar, que deberá ser manejado.
-            glob_tool = self.llm_service.get_tool("glob")
-            if not glob_tool:
-                return [f"Error: La herramienta 'glob' no está disponible a través de LLMService."]
-            result = glob_tool.invoke({"pattern": pattern, "path": path})
+            search_path = path if path else os.getcwd()
+            full_pattern = os.path.join(search_path, pattern)
             
-            # La función glob devuelve un diccionario con una clave 'glob_response'
-            if isinstance(result, dict) and 'glob_response' in result and isinstance(result['glob_response'], list):
-                return result['glob_response']
-            else:
-                # Manejar el caso donde la respuesta no es la esperada
-                return [f"Error: La función glob devolvió un formato inesperado: {result}"]
-        except NameError:
-            return [f"Error: La función 'glob' no está disponible en el entorno."]
+            # Usar glob.glob directamente
+            found_files = [os.path.abspath(f) for f in glob.glob(full_pattern, recursive=True)]
+            return found_files
         except Exception as e:
             return [f"Error al ejecutar la búsqueda de archivos: {e}"]
 
     async def _arun(self, pattern: str, path: Optional[str] = None) -> List[str]:
         # Implementar si se necesita una versión asíncrona
         raise NotImplementedError("file_search does not support async")
-

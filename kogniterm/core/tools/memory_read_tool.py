@@ -19,7 +19,9 @@ class MemoryReadTool(BaseTool):
     args_schema: Type[BaseModel] = MemoryReadInput
 
     def _run(self, file_path: str = "llm_context.md") -> str:
-        full_path = os.path.join(os.getcwd(), file_path)
+        kogniterm_dir = os.path.join(os.getcwd(), ".kogniterm")
+        os.makedirs(kogniterm_dir, exist_ok=True)
+        full_path = os.path.join(kogniterm_dir, file_path)
         logger.debug(f"MemoryReadTool - Intentando leer memoria desde '{full_path}'")
 
         if not os.path.exists(full_path):

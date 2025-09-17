@@ -42,6 +42,7 @@ class FileCompleter(Completer):
         include_hidden = current_input_part.startswith('.')
 
         try:
+            EXCLUDE_DIRS = ['build/', 'venv/', '.git/', '__pycache__/', 'kogniterm.egg-info/', 'src/']
             all_relative_items = self.file_operations_tool._list_directory(
                 path=base_path, 
                 recursive=True, 
@@ -51,6 +52,10 @@ class FileCompleter(Completer):
             
             suggestions = []
             for relative_item_path in all_relative_items:
+                # Excluir directorios específicos
+                if any(relative_item_path.startswith(ed) for ed in EXCLUDE_DIRS):
+                    continue
+
                 absolute_item_path = os.path.join(base_path, relative_item_path)
                 
                 display_item = relative_item_path
@@ -76,7 +81,7 @@ class KogniTermApp:
         self.console = Console()
         self.llm_service = LLMService()
         self.command_executor = CommandExecutor()
-        self.agent_state = AgentState()
+        self.agent_state = AgentState(messages=self.llm_service.conversation_history)
         
         # Inicializar TerminalUI
         self.terminal_ui = TerminalUI(console=self.console)
@@ -102,6 +107,11 @@ class KogniTermApp:
 
         # Crear key bindings personalizados
         kb = KeyBindings()
+
+        @kb.add('escape', eager=True)
+        def _(event):
+            self.llm_service.stop_generation_flag = True
+            event.app.exit()
 
         @kb.add('enter', eager=True)
         def _(event):

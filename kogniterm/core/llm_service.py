@@ -11,7 +11,8 @@ import uuid
 
 from .tools.tool_manager import get_callable_tools
 
-HISTORY_FILE = os.path.join(os.getcwd(), "kogniterm_history.json")
+KOGNITERM_DIR = os.path.join(os.getcwd(), ".kogniterm")
+HISTORY_FILE = os.path.join(KOGNITERM_DIR, "kogniterm_history.json")
 
 def _to_litellm_message(message):
     """Convierte un mensaje de LangChain a un formato compatible con LiteLLM."""
@@ -33,9 +34,17 @@ def _to_litellm_message(message):
         else:
             return {"role": "assistant", "content": message.content}
     elif isinstance(message, ToolMessage):
+        # Asegurarse de que tool_call_id es una cadena. Si es None, usar una cadena vacía o generar una.
+        # El error "Missing corresponding tool call for tool response message" sugiere que el tool_call_id
+        # en el ToolMessage no está siendo reconocido por LiteLLM. Esto puede ser porque no coincide
+        # con un ID de tool_call generado por LiteLLM previamente.
+        # La forma correcta es que el ToolMessage.tool_call_id sea el ID de la tool_call
+        # que LiteLLM generó en el AIMessage anterior.
+        # Si message.tool_call_id es None o no es válido, LiteLLM no puede emparejarlo.
+        tool_call_id = message.tool_call_id if message.tool_call_id is not None else ""
         return {
             "role": "tool",
-            "tool_call_id": message.tool_call_id,
+            "tool_call_id": str(tool_call_id),
             "content": message.content
         }
     elif isinstance(message, SystemMessage):
@@ -102,9 +111,14 @@ class LLMService:
 
         self.max_history_chars = 60000
         self.max_history_messages = 100
+        self.stop_generation_flag = False # Bandera para detener la generación
+
+        # Asegurarse de que el directorio .kogniterm exista
+        os.makedirs(KOGNITERM_DIR, exist_ok=True)
 
         self._initialize_memory()
         self.conversation_history = self._load_history()
+        print(f"DEBUG: LLMService.__init__ - Historial cargado inicialmente: {len(self.conversation_history)} mensajes")
 
     def set_console(self, console):
         """Establece la consola para el streaming de salida."""
@@ -123,9 +137,15 @@ class LLMService:
         """Carga el historial de conversación desde un archivo JSON."""
         
         if os.path.exists(HISTORY_FILE):
+            print(f"DEBUG: _load_history - Archivo de historial encontrado: {HISTORY_FILE}", file=sys.stderr)
             try:
                 with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-                    serializable_history = json.load(f)
+                    file_content = f.read()
+                    if not file_content.strip():
+                        print(f"DEBUG: _load_history - Archivo de historial vacío o solo con espacios en blanco.", file=sys.stderr)
+                        return []
+                    serializable_history = json.loads(file_content)
+                    print(f"DEBUG: _load_history - Historial serializado cargado: {len(serializable_history)} elementos", file=sys.stderr)
                     loaded_history = []
                     for item in serializable_history:
                         if item['type'] == 'human':
@@ -157,6 +177,7 @@ class LLMService:
                     
                     return loaded_history
             except json.JSONDecodeError as e:
+                print(f"DEBUG: _load_history - Historial de LangChain reconstruido: {len(loaded_history)} mensajes", file=sys.stderr)
                 print(f"Error al decodificar el historial JSON: {e}", file=sys.stderr)
             except Exception as e:
                 print(f"Error inesperado al cargar el historial: {e}", file=sys.stderr)
@@ -214,6 +235,8 @@ class LLMService:
                 # Volver a limpiar por si acaso
                 while self.call_timestamps and self.call_timestamps[0] <= current_time - self.rate_limit_period:
                     self.call_timestamps.popleft()
+
+        self.stop_generation_flag = False # Resetear la bandera al inicio de cada invocación
 
         # Convertir el historial de LangChain a un formato compatible con LiteLLM
         litellm_messages = [_to_litellm_message(msg) for msg in history]
@@ -327,6 +350,10 @@ class LLMService:
             full_response_content = ""
             tool_calls = []
             for chunk in response_generator:
+                if self.stop_generation_flag:
+                    print("DEBUG: Generación detenida por bandera.", file=sys.stderr)
+                    break
+
                 # Se espera que 'chunk' sea un objeto con un atributo 'choices'
                 # Acceso seguro a chunk.choices y chunk.choices[0].delta
                 choices = getattr(chunk, 'choices', None)
@@ -353,14 +380,18 @@ class LLMService:
                         # Actualizar tool_calls de forma segura
                         if getattr(tc, 'id', None) is not None:
                             tool_calls[tc.index]["id"] = tc.id
+                            print(f"DEBUG: Capturando tool_call ID: {tc.id}", file=sys.stderr)
                         if getattr(tc, 'function', None) is not None:
                             if getattr(tc.function, 'name', None) is not None:
                                 tool_calls[tc.index]["function"]["name"] = tc.function.name
                             if getattr(tc.function, 'arguments', None) is not None:
                                 tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
             
+            # Si la generación fue detenida, devolver un mensaje de interrupción
+            if self.stop_generation_flag:
+                yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
             # Si hay tool_calls, devolverlos como AIMessage
-            if tool_calls:
+            elif tool_calls:
                 # Convertir los argumentos de string JSON a dict
                 formatted_tool_calls = []
                 for tc in tool_calls:
