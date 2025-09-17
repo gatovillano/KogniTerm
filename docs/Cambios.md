@@ -65,3 +65,39 @@ Descripción general: Se ha implementado un panel visual para envolver el mensaj
 **Descripción general:** Se corrigió un `SyntaxError: invalid syntax` en el archivo `kogniterm/terminal/terminal.py` en la línea 557. El error se debía a un bloque de código duplicado y mal indentado (`else:` sin un `if` correspondiente) en el manejo de la salida de `PythonTool`.
 
 -   **Punto 1**: Se eliminó el bloque de código duplicado y mal indentado que comenzaba con `else:` en la línea 557 de `kogniterm/terminal/terminal.py`.
+---
+## 17-09-25 Corrección de Mensajes Duplicados en Terminal
+Se abordó el problema de mensajes de explicación de código duplicados en la terminal, que ocurría debido a la forma en que se manejaba el streaming y la respuesta final del agente.
+
+- **Punto 1**: Se modificó `kogniterm/terminal/terminal.py` para asegurar que la explicación de los comandos se muestre una única vez antes de la confirmación del usuario.
+- **Punto 2**: Se eliminó la lógica de impresión explícita de la respuesta final del agente en `kogniterm/terminal/terminal.py`, delegando esta responsabilidad completamente al `llm_service`. Esto evita la duplicación de mensajes cuando el `llm_service` ya está haciendo streaming de la respuesta.
+---
+## 17-09-25 Corrección de Duplicación en Explicación de Comandos
+Se abordó el problema de la duplicación de la explicación de comandos en el panel de confirmación, que ocurría debido a la forma en que se procesaba la salida del `llm_service.invoke` cuando era un generador.
+
+- **Punto 1**: Se modificó `kogniterm/terminal/terminal.py` para que, al generar la `explanation_text`, si la respuesta del `llm_service.invoke` es un generador, solo se tome el contenido del último chunk. Esto asegura que la explicación se muestre una única vez en el panel de confirmación.
+---
+## 17-09-25 Refactorización de KogniTerm/terminal/terminal.py
+
+**Descripción general:** Se ha refactorizado el módulo `kogniterm/terminal/terminal.py` para mejorar su modularidad y mantenibilidad, siguiendo la propuesta de crear clases con responsabilidades específicas. Se han introducido las clases `TerminalUI`, `MetaCommandProcessor`, `AgentInteractionManager` y `CommandApprovalHandler`, y una clase `KogniTermApp` central para orquestar su funcionamiento.
+
+-   **Punto 1**: Se creó la clase `TerminalUI` en `kogniterm/terminal/terminal_ui.py` para manejar la presentación visual y la interacción del usuario. Incluye el banner de bienvenida y métodos para imprimir mensajes.
+-   **Punto 2**: Se creó la clase `MetaCommandProcessor` en `kogniterm/terminal/meta_command_processor.py` para gestionar comandos especiales de la terminal (`%salir`, `%reset`, `%undo`, `%help`, `%compress`).
+-   **Punto 3**: Se creó la clase `AgentInteractionManager` en `kogniterm/terminal/agent_interaction_manager.py` para la creación, invocación y gestión del estado de los agentes de IA.
+-   **Punto 4**: Se creó la clase `CommandApprovalHandler` en `kogniterm/terminal/command_approval_handler.py` para encapsular la lógica de solicitar confirmación al usuario antes de ejecutar un comando generado por el agente.
+-   **Punto 5**: Se creó la clase `KogniTermApp` en `kogniterm/terminal/kogniterm_app.py` como la clase central que orquesta todos los componentes y contiene el bucle principal de la terminal.
+-   **Punto 6**: Se modificó `kogniterm/terminal/terminal.py` para eliminar la lógica que ahora es manejada por las nuevas clases, y se actualizó la función `main()` para inicializar y ejecutar `KogniTermApp`.
+---
+## 17-09-25 Corrección de Errores en kogniterm/terminal/terminal_ui.py
+
+**Descripción general:** Se corrigieron múltiples errores de Pylance en el archivo `kogniterm/terminal/terminal_ui.py`. Estos errores incluían un literal de cadena sin terminar y la falta de definición del método `print_message` en la clase `TerminalUI`, así como la importación de `Console` de la librería `rich`.
+
+-   **Punto 1**: Se corrigió el literal de cadena sin terminar en la línea 84, cambiando el delimitador de la f-string a comillas dobles triples (`"""`) para permitir cadenas multilínea.
+-   **Punto 2**: Se añadió la importación de `Console` de `rich.console` al principio del archivo.
+-   **Punto 3**: Se implementó el método `print_message(self, message: str, style: str = "")` en la clase `TerminalUI` para manejar la impresión de mensajes en la consola con estilo opcional.
+---
+## 17-09-25 Corrección de Importación Circular en `kogniterm/terminal/terminal_ui.py`
+
+**Descripción general:** Se resolvió un `ImportError` causado por una importación circular en el archivo `kogniterm/terminal/terminal_ui.py`. El error ocurría debido a una importación redundante de `TerminalUI` dentro de su propio módulo, lo que generaba un conflicto durante la inicialización del módulo.
+
+-   **Punto 1**: Se eliminó la línea `from kogniterm.terminal.terminal_ui import TerminalUI` de `kogniterm/terminal/terminal_ui.py`, ya que la clase `TerminalUI` se define en el mismo archivo y no requiere auto-importación. Esta corrección elimina la dependencia circular y permite la correcta inicialización del módulo.

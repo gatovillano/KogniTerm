@@ -9,6 +9,7 @@ import functools
 from langchain_core.runnables import RunnableConfig # Nueva importación
 from rich.markup import escape # Nueva importación
 import sys # Nueva importación
+import json # Importar json para verificar si la salida es un JSON
 
 from ..llm_service import LLMService
 
@@ -54,6 +55,7 @@ class AgentState:
     messages: List[BaseMessage] = field(default_factory=list)
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
     tool_call_id_to_confirm: Optional[str] = None # Nuevo campo para el tool_call_id asociado al comando
+    current_agent_mode: str = "bash" # Añadido para el modo del agente
 
     @property
     def history_for_api(self) -> list[BaseMessage]:
@@ -65,6 +67,7 @@ class AgentState:
 from rich.live import Live # Importar Live
 from rich.markdown import Markdown # Importar Markdown
 from rich.padding import Padding # Nueva importación
+from rich.status import Status # ¡Nueva importación!
 
 def call_model_node(state: AgentState, llm_service: LLMService):
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
@@ -142,7 +145,37 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
         # --- Añadir logs para la ejecución de herramientas ---
         console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_name}[/yellow]")
         
-        # --- Fin de logs ---
+        tool = llm_service.get_tool(tool_name)
+        if not tool:
+            tool_output_str = f"Error: Herramienta '{tool_name}' no encontrada."
+        else:
+            try:
+                raw_tool_output = tool.invoke(tool_args)
+                tool_output_str = str(raw_tool_output) # Convertir a cadena
+            except Exception as e:
+                tool_output_str = f"Error al ejecutar la herramienta {tool_name}: {e}"
+        
+        # --- Procesar y mostrar el mensaje descriptivo de la herramienta ---
+        first_line = tool_output_str.split('\n')[0].strip()
+        remaining_output = tool_output_str
+
+        # Heurística simple para detectar un mensaje descriptivo
+        is_descriptive_message = False
+        if first_line and first_line.endswith('.') and len(first_line) > 10: # Si termina en punto y es lo suficientemente largo
+            try:
+                json.loads(first_line) # Intenta parsear como JSON, si falla, es probable que sea descriptivo
+            except json.JSONDecodeError:
+                is_descriptive_message = True
+        
+        if is_descriptive_message:
+            console.print(f"[green]✨ {first_line}[/green]")
+            remaining_output = '\n'.join(tool_output_str.split('\n')[1:]).strip() # Eliminar la primera línea
+            if not remaining_output: # Si no queda más contenido después del mensaje descriptivo
+                remaining_output = "La herramienta se ejecutó correctamente y no produjo más salida."
+        elif tool_output_str.strip() == "":
+            remaining_output = "La herramienta se ejecutó correctamente y no produjo ninguna salida."
+
+        # --- Fin de procesamiento de mensaje descriptivo ---
 
         if tool_name == "execute_command":
             # Si es execute_command, establecer command_to_confirm y terminar el grafo aquí.
@@ -150,19 +183,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
             state.command_to_confirm = tool_args['command']
             return state # Esto hará que el grafo termine en este nodo si no hay más tool_calls
         else:
-            tool = llm_service.get_tool(tool_name)
-            if not tool:
-                tool_output = f"Error: Herramienta '{tool_name}' no encontrada."
-            else:
-                try:
-                    tool_output = tool.invoke(tool_args)
-                except Exception as e:
-                    tool_output = f"Error al ejecutar la herramienta {tool_name}: {e}"
-            
-            # --- Añadir logs para la salida de la herramienta ---
-            # --- Fin de logs ---
-
-            tool_messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_id))
+            tool_messages.append(ToolMessage(content=remaining_output, tool_call_id=tool_id))
 
     state.messages.extend(tool_messages)
     return state

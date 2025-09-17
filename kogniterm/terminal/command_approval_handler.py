@@ -3,55 +3,11 @@ from prompt_toolkit import PromptSession
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState
+from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
-
-"""
-This module contains the TerminalUI class, responsible for handling all user interface
-related interactions in the KogniTerm application.
-"""
-
-class TerminalUI:
-    def __init__(self, console: Console | None = None):
-        self.console = console if console else Console()
-
-    def print_message(self, message: str, style: str = ""):
-        """Prints a message to the console with optional styling."""
-        self.console.print(message, style=style)
-
-    def print_welcome_banner(self):
-        """Prints the welcome banner for KogniTerm."""
-        banner_text = """
-██╗  ██╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗███████╗██████╗ ███╗   ███╗
-██║ ██╔╝██╔═══██╗██╔════╝ ████╗  ██║██║╚══██╔══╝██╔════╝██╔══██╗████╗ ████║
-█████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║
-██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║
-██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
-╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
-"""
-        self.console.print() # Margen superior
-        # Paleta de lilas y morados para un degradado más suave
-        colors = [
-            "#d1c4e9", # Light Lilac
-            "#c5b7e0",
-            "#b9aad7",
-            "#ad9dce",
-            "#a190c5",
-            "#9583bc",
-        ]
-        
-        lines = banner_text.strip().split('\n')
-        num_lines = len(lines)
-        
-        for i, line in enumerate(lines):
-            # Interpolar colores para un degradado más suave
-            self.console.print(f"[{colors[i % len(colors)]}]{line}[/]", justify="center")
-        
-        self.console.print(Panel(f"""Escribe '%salir' para terminar o '%help' para ver los comandos.""", title="[bold green]Bienvenido[/bold green]", expand=False), justify="center")
-
 
 """
 This module contains the CommandApprovalHandler class, responsible for

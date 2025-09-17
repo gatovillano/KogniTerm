@@ -327,24 +327,36 @@ class LLMService:
             full_response_content = ""
             tool_calls = []
             for chunk in response_generator:
-                # Asegurarse de que chunk y sus atributos existan antes de acceder a ellos
-                if hasattr(chunk, 'choices') and chunk.choices and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta:
-                    delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
-                        # Asegurarse de que delta.content sea un string antes de concatenar
-                        full_response_content += str(delta.content)
-                        yield str(delta.content) # Devolver el contenido en streaming
-                    if hasattr(delta, 'tool_calls') and delta.tool_calls:
-                        for tc in delta.tool_calls:
-                            # LiteLLM puede enviar tool_calls en chunks, necesitamos reconstruirlos
-                            if len(tool_calls) <= tc.index:
-                                tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
-                            
-                            if hasattr(tc, 'id') and tc.id:
-                                tool_calls[tc.index]["id"] = tc.id
-                            if hasattr(tc, 'function') and hasattr(tc.function, 'name') and tc.function.name:
+                # Se espera que 'chunk' sea un objeto con un atributo 'choices'
+                # Acceso seguro a chunk.choices y chunk.choices[0].delta
+                choices = getattr(chunk, 'choices', None)
+                if not choices or not isinstance(choices, list) or not choices[0]:
+                    continue
+                
+                choice = choices[0]
+                delta = getattr(choice, 'delta', None)
+                if not delta:
+                    continue
+                
+                if getattr(delta, 'content', None) is not None:
+                    full_response_content += str(delta.content)
+                    yield str(delta.content) # Devolver el contenido en streaming
+                
+                tool_calls_from_delta = getattr(delta, 'tool_calls', None)
+                if tool_calls_from_delta is not None:
+                    for tc in tool_calls_from_delta:
+                        # Asegurar que tc.index es válido para tool_calls
+                        if tc.index >= len(tool_calls):
+                            # Extender la lista si el índice es mayor que la longitud actual
+                            tool_calls.extend([{"id": "", "function": {"name": "", "arguments": ""}}] * (tc.index - len(tool_calls) + 1))
+                        
+                        # Actualizar tool_calls de forma segura
+                        if getattr(tc, 'id', None) is not None:
+                            tool_calls[tc.index]["id"] = tc.id
+                        if getattr(tc, 'function', None) is not None:
+                            if getattr(tc.function, 'name', None) is not None:
                                 tool_calls[tc.index]["function"]["name"] = tc.function.name
-                            if hasattr(tc, 'function') and hasattr(tc.function, 'arguments') and tc.function.arguments:
+                            if getattr(tc.function, 'arguments', None) is not None:
                                 tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
             
             # Si hay tool_calls, devolverlos como AIMessage
@@ -408,11 +420,16 @@ class LLMService:
                 **summary_completion_kwargs
             )
             
-            if getattr(response, 'choices', None) and response.choices and len(response.choices) > 0 and getattr(response.choices[0], 'message', None) and getattr(response.choices[0].message, 'content', None):
-                summary_text = response.choices[0].message.content
-                return summary_text
-            else:
-                return None # Retorna None si no se pudo generar un resumen.
+            if getattr(response, 'choices', None) and response.choices and len(response.choices) > 0:
+                # Acceso seguro a response.choices y response.choices[0].message
+                choices = getattr(response, 'choices', None)
+                if choices and isinstance(choices, list) and len(choices) > 0:
+                    first_choice = choices[0]
+                    message = getattr(first_choice, 'message', None)
+                    if message and getattr(message, 'content', None) is not None:
+                        summary_text = message.content
+                        return summary_text
+            return None # Retorna None si no se pudo generar un resumen.
         except Exception as e:
             import traceback
             # Imprimir el traceback completo a stderr para depuración
