@@ -131,7 +131,7 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al listar el directorio '{path}': {e}")
 
     def _read_many_files(self, paths: List[str]) -> str:
-        print(f"📚 KogniTerm: Leyendo múltiples archivos 📄: {\', \'.join(paths)}") # <--- INDICADOR AÑADIDO
+        print(f"📚 KogniTerm: Leyendo múltiples archivos 📄: {', '.join(paths)}") # <--- INDICADOR AÑADIDO
         combined_content = []
         for p in paths:
             try:
