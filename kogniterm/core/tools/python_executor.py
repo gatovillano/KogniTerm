@@ -115,10 +115,6 @@ class PythonTool(BaseTool):
         """
         # Eliminamos la lógica de confirmación directa de la herramienta.
         # Esto será manejado por el grafo del agente.
-        print(f"""Ejecutando código Python:
-```python
-{code}
-```""")
         raw_output = self._kernel.execute_code(code)
         self.last_structured_output = raw_output
 

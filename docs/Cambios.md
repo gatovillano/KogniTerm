@@ -52,3 +52,16 @@ Descripción general: Se ha implementado un panel visual para envolver el mensaj
 **Descripción general:** Se corrigió un `SyntaxError: unexpected character after line continuation character` en `kogniterm/core/tools/file_operations_tool.py` en la línea 134. El error se debía a un escape incorrecto de comillas dentro de un f-string.
 
 -   **Punto 1**: Se reemplazó `{\', \'.join(paths)}` con `{', '.join(paths)}` en la línea 134 de `kogniterm/core/tools/file_operations_tool.py`.
+---
+## 16-09-25 Margen en la Salida de Streaming del LLM
+
+**Descripción general:** Se ha añadido un margen a la salida de streaming del LLM en la terminal para mejorar la legibilidad y la presentación visual.
+
+-   **Punto 1**: Se añadió la importación de `Padding` de `rich.padding` en `kogniterm/core/agents/bash_agent.py`.
+-   **Punto 2**: Se modificó la función `call_model_node` en `kogniterm/core/agents/bash_agent.py` para envolver el `Markdown` de la respuesta del LLM con `Padding((1, 4))` antes de actualizar el `Live` stream.
+---
+## 17-09-25 Corrección de SyntaxError en `terminal.py`
+
+**Descripción general:** Se corrigió un `SyntaxError: invalid syntax` en el archivo `kogniterm/terminal/terminal.py` en la línea 557. El error se debía a un bloque de código duplicado y mal indentado (`else:` sin un `if` correspondiente) en el manejo de la salida de `PythonTool`.
+
+-   **Punto 1**: Se eliminó el bloque de código duplicado y mal indentado que comenzaba con `else:` en la línea 557 de `kogniterm/terminal/terminal.py`.

@@ -2,54 +2,16 @@ import os
 import sys
 import time
 import json
+from typing import Optional
 from collections import deque
-import google.generativeai as genai
-from google.generativeai.client import configure
-from google.generativeai.generative_models import GenerativeModel
-from google.api_core.exceptions import GoogleAPIError
 from langchain_core.tools import BaseTool
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-from litellm import completion, litellm # <--- Modificar esta línea para importar litellm
-import uuid # <--- Añadir esta línea
+from litellm import completion, litellm
+import uuid
 
 from .tools.tool_manager import get_callable_tools
 
 HISTORY_FILE = os.path.join(os.getcwd(), "kogniterm_history.json")
-
-def _to_gemini_content(message):
-    """Convierte un mensaje de LangChain a un objeto Content de Gemini."""
-    if isinstance(message, (HumanMessage, SystemMessage)):
-        return genai.protos.Content(role='user', parts=[genai.protos.Part(text=message.content)])
-    elif isinstance(message, AIMessage):
-        if message.tool_calls:
-            # Si el AIMessage tiene tool_calls, se convierte a FunctionCall
-            function_calls = []
-            for tc in message.tool_calls:
-                function_calls.append(genai.protos.Part(
-                    function_call=genai.protos.FunctionCall(
-                        name=tc['name'],
-                        args=tc['args']
-                    )
-                ))
-            return genai.protos.Content(role='model', parts=function_calls)
-        else:
-            return genai.protos.Content(role='model', parts=[genai.protos.Part(text=message.content)])
-    elif isinstance(message, ToolMessage):
-
-        # ToolMessage se mapea a un rol 'user' con una function_response
-        return genai.protos.Content(
-            role='user',
-            parts=[
-                genai.protos.Part(
-                    function_response=genai.protos.FunctionResponse(
-                        name=message.tool_call_id, # Usamos tool_call_id como nombre de la función
-                        response={'output': message.content} # La respuesta de la herramienta
-                    )
-                )
-            ]
-        )
-    else:
-        raise ValueError(f"Tipo de mensaje desconocido: {type(message)}")
 
 def _to_litellm_message(message):
     """Convierte un mensaje de LangChain a un formato compatible con LiteLLM."""
@@ -57,23 +19,20 @@ def _to_litellm_message(message):
         return {"role": "user", "content": message.content}
     elif isinstance(message, AIMessage):
         if message.tool_calls:
-            # LiteLLM espera tool_calls en un formato específico
             litellm_tool_calls = []
             for tc in message.tool_calls:
                 litellm_tool_calls.append({
-                    "id": tc.get("id", str(uuid.uuid4())), # Asegurar un ID para LiteLLM
+                    "id": tc.get("id", str(uuid.uuid4())),
                     "function": {
                         "name": tc["name"],
-                        "arguments": json.dumps(tc["args"]) # Los argumentos deben ser un string JSON
+                        "arguments": json.dumps(tc["args"])
                     }
                 })
-            # Asegurarse de que el contenido no sea None si hay tool_calls
             content = message.content if message.content is not None else ""
             return {"role": "assistant", "content": content, "tool_calls": litellm_tool_calls}
         else:
             return {"role": "assistant", "content": message.content}
     elif isinstance(message, ToolMessage):
-        # LiteLLM espera tool_response en un formato específico
         return {
             "role": "tool",
             "tool_call_id": message.tool_call_id,
@@ -84,95 +43,27 @@ def _to_litellm_message(message):
     else:
         raise ValueError(f"Tipo de mensaje desconocido para LiteLLM: {type(message)}")
 
-def _to_json_serializable(obj):
-    if isinstance(obj, genai.protos.Part):
-        if hasattr(obj, 'text') and obj.text is not None:
-            return {'text': obj.text}
-        elif hasattr(obj, 'function_call') and obj.function_call is not None:
-            return {'function_call': {'name': obj.function_call.name, 'args': dict(obj.function_call.args)}}
-        elif hasattr(obj, 'function_response') and obj.function_response is not None:
-            return {'function_response': {'name': obj.function_response.name, 'response': dict(obj.function_response.response)}}
-    elif hasattr(obj, 'role') and hasattr(obj, 'parts'): # Manejar objetos tipo Content
-        return {'role': obj.role, 'parts': [_to_json_serializable(part) for part in obj.parts]}
-    elif isinstance(obj, dict):
-        return {k: _to_json_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_to_json_serializable(elem) for elem in obj]
-    return obj
-
-def _from_json_serializable(data):
-    if isinstance(data, dict):
-        if 'text' in data:
-            return genai.protos.Part(text=data['text'])
-        elif 'function_call' in data:
-            return genai.protos.Part(function_call=genai.protos.FunctionCall(name=data['function_call']['name'], args=data['function_call']['args']))
-        elif 'function_response' in data:
-            return genai.protos.Part(function_response=genai.protos.FunctionResponse(name=data['function_response']['name'], response=data['function_response']['response']))
-        elif 'role' in data and 'parts' in data:
-            # Al deserializar, creamos un diccionario con objetos Part para el historial
-            return genai.protos.Content(role=data['role'], parts=[_from_json_serializable(part) for part in data['parts']])
-        return {k: _from_json_serializable(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [_from_json_serializable(elem) for elem in data]
-    return data
-
-# --- Funciones de Ayuda para Conversión de Herramientas ---
-
-def pydantic_to_genai_type(pydantic_type: str):
-    """Convierte un tipo de Pydantic a un tipo de google.generativeai.protos.Type."""
-    type_map = {
-        'string': genai.protos.Type.STRING,
-        'number': genai.protos.Type.NUMBER,
-        'integer': genai.protos.Type.INTEGER,
-        'boolean': genai.protos.Type.BOOLEAN,
-        'array': genai.protos.Type.ARRAY,
-        'object': genai.protos.Type.OBJECT,
-    }
-    return type_map.get(pydantic_type, genai.protos.Type.STRING) # Fallback a STRING
-
-def convert_langchain_tool_to_genai(
-    tool: BaseTool
-) -> genai.protos.FunctionDeclaration:
-    """Convierte una herramienta de LangChain (BaseTool) a una FunctionDeclaration de Google AI."""
-    try:
-        args_schema = tool.args_schema.schema()
-    except AttributeError as e:
-        tool_name = getattr(tool, 'name', 'Desconocido') # Obtener el nombre de forma segura
-        tool_type = type(tool)
-        print(f"ERROR: La herramienta '{tool_name}' de tipo '{tool_type}' no tiene un 'args_schema' válido o no tiene el método '.schema()'. Error: {e}", file=sys.stderr)
-        raise # Re-lanza la excepción para que el programa falle y podamos depurar.
-    
-    properties = {}
-    required = args_schema.get('required', [])
-
-    for name, definition in args_schema.get('properties', {}).items():
-        properties[name] = genai.protos.Schema(
-            type=pydantic_to_genai_type(definition.get('type')),
-            description=definition.get('description', '')
-        )
-
-    return genai.protos.FunctionDeclaration(
-        name=tool.name,
-        description=tool.description,
-        parameters=genai.protos.Schema(
-            type=genai.protos.Type.OBJECT,
-            properties=properties,
-            required=required
-        )
-    )
-
 def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
-    try:
-        args_schema = tool.args_schema.schema()
-    except AttributeError as e:
-        tool_name = getattr(tool, 'name', 'Desconocido')
-        tool_type = type(tool)
-        print(f"ERROR: La herramienta '{tool_name}' de tipo '{tool_type}' no tiene un 'args_schema' válido o no tiene el método '.schema()'. Error: {e}", file=sys.stderr)
-        raise
+    # Intentar obtener el esquema de argumentos. Algunas herramientas pueden no tener un args_schema
+    # o su args_schema puede no tener un método .schema().
+    args_schema = {"type": "object", "properties": {}} # Esquema predeterminado vacío
+    if hasattr(tool, 'args_schema') and tool.args_schema is not None:
+        if hasattr(tool.args_schema, 'schema'):
+            try:
+                args_schema = tool.args_schema.schema()
+            except Exception as e:
+                tool_name = getattr(tool, 'name', 'Desconocido')
+                tool_type = type(tool)
+                print(f"Advertencia: Error al obtener el esquema de la herramienta '{tool_name}' de tipo '{tool_type}': {e}. Se usará un esquema vacío.", file=sys.stderr)
+        elif isinstance(tool.args_schema, dict):
+            # Si args_schema ya es un diccionario, usarlo directamente
+            args_schema = tool.args_schema
+        else:
+            tool_name = getattr(tool, 'name', 'Desconocido')
+            tool_type = type(tool)
+            print(f"Advertencia: La herramienta '{tool_name}' de tipo '{tool_type}' tiene un 'args_schema' de tipo inesperado ({type(tool.args_schema)}). Se usará un esquema vacío.", file=sys.stderr)
 
-    # LiteLLM espera el esquema de parámetros directamente en 'parameters'
-    # y los tipos de Pydantic son generalmente compatibles.
     return {
         "type": "function",
         "function": {
@@ -182,63 +73,37 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
         }
     }
 
-# --- Clase Principal del Servicio LLM ---
-
 class LLMService:
-    """Un servicio para interactuar con el modelo Gemini de Google AI."""
+    """Un servicio para interactuar con el modelo LLM a través de LiteLLM."""
     def __init__(self):
-        
         self.console = None
-        
-        """Inicializa el servicio, configura la API y prepara las herramientas."""
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             print("Error: La variable de entorno GOOGLE_API_KEY no está configurada.", file=sys.stderr)
             raise ValueError("La variable de entorno GOOGLE_API_KEY no está configurada.")
 
-        configure(api_key=api_key)
-
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         if not self.model_name.startswith("gemini/"):
-            self.model_name = f"gemini/{self.model_name}" # <--- Añadir esta línea
-        
-        # Obtener herramientas de LangChain
-        self.langchain_tools = get_callable_tools(llm_service_instance=self)
-        
-        
-        # Convertir herramientas al formato de Google AI
-        self.google_ai_tools = [convert_langchain_tool_to_genai(tool) for tool in self.langchain_tools]
+            self.model_name = f"gemini/{self.model_name}"
 
-        # Convertir herramientas al formato de LiteLLM
+        self.langchain_tools = get_callable_tools(llm_service_instance=self)
+
         self.litellm_tools = [_convert_langchain_tool_to_litellm(tool) for tool in self.langchain_tools]
 
-        # Configuración para la generación de contenido
-        self.generation_config = genai.types.GenerationConfig(
-            temperature=0.7, # Un valor más alto para fomentar la creatividad en la planificación
-            # top_p=0.95, # Descomentar si se desea usar nucleous sampling
-            # top_k=40,   # Descomentar si se desea usar top-k sampling
-        )
+        self.generation_params = {
+            "temperature": 0.4,
+            # "top_p": 0.95, # Descomentar si se desea usar nucleous sampling
+            # "top_k": 40,   # Descomentar si se desea usar top-k sampling
+        }
 
-        # Inicializar el modelo con las herramientas y la configuración de generación
-        self.model = GenerativeModel(
-            self.model_name,
-            tools=self.google_ai_tools,
-            generation_config=self.generation_config
-        )
+        self.call_timestamps = deque()
+        self.rate_limit_calls = 10
+        self.rate_limit_period = 60
 
-        # Atributos para el rate limiting
-        self.call_timestamps = deque() # Almacena las marcas de tiempo de las llamadas
-        self.rate_limit_calls = 10     # Límite de 10 llamadas
-        self.rate_limit_period = 60    # En segundos (1 minuto)
+        self.max_history_chars = 60000
+        self.max_history_messages = 100
 
-        # Atributos para el truncamiento del historial
-        self.max_history_chars = 30000 # Aproximación de tokens (ajustar según pruebas)
-        self.max_history_messages = 50 # Límite de mensajes en el historial para evitar que crezca indefinidamente
-
-        # Inicializar la memoria al inicio del servicio
         self._initialize_memory()
-        
-        # Cargar historial de conversación
         self.conversation_history = self._load_history()
 
     def set_console(self, console):
@@ -322,7 +187,7 @@ class LLMService:
         except Exception as e:
             print(f"Error al guardar el historial: {e}", file=sys.stderr)
 
-    def invoke(self, history: list, system_message: str = None):
+    def invoke(self, history: list, system_message: Optional[str] = None):
         """Invoca el modelo LLM con un historial de conversación y un mensaje de sistema opcional.
 
         Args:
@@ -400,23 +265,60 @@ class LLMService:
             current_chars -= len(json.dumps(removed_msg)) # Restar el tamaño del mensaje eliminado
 
         try:
-            # Extraer parámetros de generación para LiteLLM
-            litellm_generation_params = {
-                "temperature": self.generation_config.temperature,
-                "top_p": self.generation_config.top_p if hasattr(self.generation_config, 'top_p') else None,
-                "top_k": self.generation_config.top_k if hasattr(self.generation_config, 'top_k') else None,
+            # Extraer parámetros de generación para LiteLLM y filtrar los no válidos
+            litellm_generation_params = self.generation_params.copy()
+            # Eliminar 'temperature' si no es un parámetro aceptado directamente por completion en este contexto
+            # Si LiteLLM maneja 'temperature' directamente, esto puede no ser necesario.
+            # Sin embargo, los errores de Pylance sugieren que los tipos no coinciden.
+            # Es mejor pasar solo los parámetros que LiteLLM espera explícitamente, o asegurarse de que los tipos sean correctos.
+            # Para este caso, solo 'temperature' debería ser un float.
+            # Otros parámetros como 'top_p', 'top_k' se manejan por separado o se asume que son correctos.
+            
+            # Se asume que 'temperature' es el único float que se pasa directamente y que los errores de Pylance
+            # se refieren a que otros parámetros (como n, stream_options, etc.) no deberían recibir un float.
+            # La solución más robusta es no pasar **litellm_generation_params si no se sabe qué contiene.
+            # Sin embargo, si se espera que contenga solo 'temperature', se puede filtrar.
+            # Por ahora, se asume que los errores de tipado se deben a que parámetros como 'n' o 'max_tokens'
+            # están recibiendo el valor float de 'temperature' a través del desempaquetado.
+            # La forma correcta es pasar `temperature` directamente y no desempaquetar `generation_params` si contiene
+            # otros valores que no son para `completion`.
+
+            # Si self.generation_params solo contiene 'temperature', podemos pasarlo directamente.
+            # Si contiene más, debemos filtrarlos o pasarlos explícitamente.
+            
+            # Para solucionar los errores de Pylance, vamos a crear un diccionario con los parámetros
+            # que sabemos que son aceptados por `completion` y tienen el tipo correcto.
+            # Por ejemplo, 'temperature' es un float, y completion lo acepta.
+            # Los errores de Pylance indican que otros parámetros están recibiendo 'float'.
+            # Esto sugiere que se están pasando parámetros inesperados a `completion` a través de `**litellm_generation_params`.
+            # La solución es pasar solo los parámetros esperados.
+            
+            # Opción 1: Pasar solo los parámetros conocidos y con tipos correctos.
+            # Esto requiere conocer la firma exacta de `completion`.
+            # Por simplicidad, asumiremos que `temperature` es el único parámetro de `generation_params`
+            # que debe ser pasado directamente y que los otros errores son falsos positivos o que LiteLLM
+            # los maneja internamente. Si `completion` espera un `int` para `n` o `max_tokens`,
+            # y `litellm_generation_params` tiene un `float` llamado `temperature`,
+            # entonces `temperature` se está pasando como `n` o `max_tokens` (por el orden de los argumentos o por cómo LiteLLM los maneja).
+            # La solución más segura es:
+            
+            completion_kwargs = {
+                "model": self.model_name,
+                "messages": litellm_messages,
+                "tools": self.litellm_tools,
+                "stream": True,
+                "api_key": os.getenv("GOOGLE_API_KEY"),
+                "temperature": litellm_generation_params.get("temperature", 0.7), # Default si no está
             }
-            # Filtrar None para evitar errores si un parámetro no está establecido
-            litellm_generation_params = {k: v for k, v in litellm_generation_params.items() if v is not None}
+            # Añadir otros parámetros si existen y son válidos
+            if "top_p" in litellm_generation_params:
+                completion_kwargs["top_p"] = litellm_generation_params["top_p"]
+            if "top_k" in litellm_generation_params:
+                completion_kwargs["top_k"] = litellm_generation_params["top_k"]
 
             start_time = time.perf_counter() # Medir el tiempo de inicio
             response_generator = completion(
-                model=self.model_name,
-                messages=litellm_messages,
-                tools=self.litellm_tools,
-                stream=True,
-                api_key=os.getenv("GOOGLE_API_KEY"), # <--- Añadir esta línea
-                **litellm_generation_params
+                **completion_kwargs
             )
             end_time = time.perf_counter() # Medir el tiempo de finalización
             self.call_timestamps.append(time.time()) # Registrar la llamada exitosa
@@ -425,23 +327,24 @@ class LLMService:
             full_response_content = ""
             tool_calls = []
             for chunk in response_generator:
-                if chunk.choices and chunk.choices[0].delta:
+                # Asegurarse de que chunk y sus atributos existan antes de acceder a ellos
+                if hasattr(chunk, 'choices') and chunk.choices and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta:
                     delta = chunk.choices[0].delta
-                    if delta.content:
+                    if hasattr(delta, 'content') and delta.content:
                         # Asegurarse de que delta.content sea un string antes de concatenar
                         full_response_content += str(delta.content)
                         yield str(delta.content) # Devolver el contenido en streaming
-                    if delta.tool_calls:
+                    if hasattr(delta, 'tool_calls') and delta.tool_calls:
                         for tc in delta.tool_calls:
                             # LiteLLM puede enviar tool_calls en chunks, necesitamos reconstruirlos
                             if len(tool_calls) <= tc.index:
                                 tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
                             
-                            if tc.id:
+                            if hasattr(tc, 'id') and tc.id:
                                 tool_calls[tc.index]["id"] = tc.id
-                            if tc.function.name:
+                            if hasattr(tc, 'function') and hasattr(tc.function, 'name') and tc.function.name:
                                 tool_calls[tc.index]["function"]["name"] = tc.function.name
-                            if tc.function.arguments:
+                            if hasattr(tc, 'function') and hasattr(tc.function, 'arguments') and tc.function.arguments:
                                 tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
             
             # Si hay tool_calls, devolverlos como AIMessage
@@ -467,13 +370,13 @@ class LLMService:
             # Imprimir el traceback completo a stderr para depuración
             print(f"Error de LiteLLM: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
-            error_message = f"¡Ups! 😵 Ocurrió un error inesperado al comunicarme con el modelo (LiteLLM): {e}. Por favor, revisa los logs para más detalles. ¡Intentemos de nuevo!"
+            error_message = f"¡Ups! 😵 Ocurrió un error inesperado al comunicarme con el modelo (LiteLLM): {e}. Por favor, revisa los logs para más detalles. ¡Intentemos de nuevo!\""
             yield AIMessage(content=error_message)
 
-    def summarize_conversation_history(self) -> str:
+    def summarize_conversation_history(self) -> Optional[str]:
         """Resume el historial de conversación actual utilizando el modelo LLM a través de LiteLLM."""
         if not self.conversation_history:
-            return "No hay historial para resumir."
+            return None # Retorna None si no hay historial para resumir.
 
         # Crear un prompt para el resumen
         summarize_prompt = HumanMessage(content="Por favor, resume la siguiente conversación de manera concisa y detallada, capturando los puntos clave, decisiones tomadas y tareas pendientes. El resumen debe ser útil para retomar la conversación más tarde.")
@@ -487,32 +390,35 @@ class LLMService:
             
             # Llamar a LiteLLM para obtener el resumen
             # Extraer parámetros de generación para LiteLLM
-            litellm_generation_params = {
-                "temperature": self.generation_config.temperature,
-                "top_p": self.generation_config.top_p if hasattr(self.generation_config, 'top_p') else None,
-                "top_k": self.generation_config.top_k if hasattr(self.generation_config, 'top_k') else None,
+            litellm_generation_params = self.generation_params
+
+            summary_completion_kwargs = {
+                "model": self.model_name,
+                "messages": litellm_messages_for_summary,
+                "api_key": os.getenv("GOOGLE_API_KEY"),
+                "temperature": litellm_generation_params.get("temperature", 0.7),
+                "stream": False, # Asegurar que no sea streaming para el resumen
             }
-            # Filtrar None para evitar errores si un parámetro no está establecido
-            litellm_generation_params = {k: v for k, v in litellm_generation_params.items() if v is not None}
+            if "top_p" in litellm_generation_params:
+                summary_completion_kwargs["top_p"] = litellm_generation_params["top_p"]
+            if "top_k" in litellm_generation_params:
+                summary_completion_kwargs["top_k"] = litellm_generation_params["top_k"]
 
             response = completion(
-                model=self.model_name,
-                messages=litellm_messages_for_summary,
-                api_key=os.getenv("GOOGLE_API_KEY"), # <--- Añadir esta línea
-                **litellm_generation_params
+                **summary_completion_kwargs
             )
             
-            if response.choices and response.choices[0].message.content:
+            if getattr(response, 'choices', None) and response.choices and len(response.choices) > 0 and getattr(response.choices[0], 'message', None) and getattr(response.choices[0].message, 'content', None):
                 summary_text = response.choices[0].message.content
                 return summary_text
             else:
-                return "No se pudo generar un resumen."
+                return None # Retorna None si no se pudo generar un resumen.
         except Exception as e:
             import traceback
             # Imprimir el traceback completo a stderr para depuración
             print(f"Error de LiteLLM al resumir el historial: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
-            return f"¡Ups! 😵 Ocurrió un error inesperado al resumir el historial con LiteLLM: {e}. Por favor, revisa los logs para más detalles. ¡Intentemos de nuevo!"
+            return f"¡Ups! 😵 Ocurrió un error inesperado al resumir el historial con LiteLLM: {e}. Por favor, revisa los logs para más detalles. ¡Intentemos de nuevo!\""
 
     def get_tool(self, tool_name: str) -> BaseTool | None:
         """Encuentra y devuelve una herramienta de LangChain por su nombre."""

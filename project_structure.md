@@ -2,19 +2,25 @@
 
 Aquí se describe la estructura del proyecto KogniTerm, basada en una exploración profunda de sus directorios y archivos.
 
-## Directorio Raíz del Proyecto
+## Contenido del Directorio Raíz
 
+*   `image.png`: Archivo de imagen.
 *   `README.md`: Documentación principal del proyecto.
-*   `pyproject.toml`: Configuración del proyecto y dependencias.
-*   `setup.py`: Script de configuración para la instalación.
+*   `mermaid_diagram_1754863457462.png`: Diagrama generado con Mermaid.
 *   `kogniterm_kernel.py`: Probablemente relacionado con el kernel de ejecución.
+*   `kogniterm.egg-info/`: Metadatos de la distribución del paquete.
+*   `kogniterm/`: Directorio principal de la aplicación KogniTerm.
+*   `build/`: Directorio de construcción.
+*   `typescript/`: Directorio relacionado con TypeScript.
 *   `kogniterm_history.json`: Historial de interacciones o comandos.
+*   `pyproject.toml`: Configuración del proyecto y dependencias.
 *   `project_structure.md`: Este mismo archivo de documentación de la estructura.
-*   `llm_context.md`: Archivo para la memoria contextual del LLM.
 *   `src/`: Directorio para el código fuente.
 *   `venv/`: Entorno virtual de Python.
+*   `img_1757367894519.png`: Archivo de imagen.
+*   `llm_context.md`: Archivo para la memoria contextual del LLM.
 *   `docs/`: Documentación adicional.
-*   `kogniterm/`: Directorio principal de la aplicación KogniTerm.
+*   `setup.py`: Script de configuración para la instalación.
 
 ## Directorio `kogniterm/`
 

@@ -34,6 +34,8 @@ Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
 5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
 6.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
+    *   Siempre utiliza una línea separadora (por ejemplo, `---` o `***`) al inicio y al final de tus mensajes, tanto en la etapa de pensamiento como en el mensaje final.
+    *   Siempre utiliza Markdown para embellecer el texto, tanto en la etapa de pensamiento como en el mensaje final, incluyendo encabezados, listas, negritas, etc.
 
 La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
 La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
@@ -62,6 +64,7 @@ class AgentState:
 
 from rich.live import Live # Importar Live
 from rich.markdown import Markdown # Importar Markdown
+from rich.padding import Padding # Nueva importación
 
 def call_model_node(state: AgentState, llm_service: LLMService):
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
@@ -84,7 +87,7 @@ def call_model_node(state: AgentState, llm_service: LLMService):
                 full_response_content += part
                 text_streamed = True # Hubo streaming de texto
                 # Actualizar el contenido de Live con el Markdown acumulado
-                live.update(Markdown(full_response_content))
+                live.update(Padding(Markdown(full_response_content), (1, 4)))
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
 
@@ -178,6 +181,10 @@ def should_continue(state: AgentState) -> str:
     # Si el último mensaje del AI tiene tool_calls, ejecutar herramientas
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         return "execute_tool"
+    # Si el último mensaje es un ToolMessage (resultado de una herramienta),
+    # volver a llamar al modelo para que genere una respuesta final.
+    elif isinstance(last_message, ToolMessage):
+        return "call_model"
     else:
         return END
 

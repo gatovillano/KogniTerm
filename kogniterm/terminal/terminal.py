@@ -4,8 +4,8 @@ from dotenv import load_dotenv # Importar load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.application import get_app
 
 load_dotenv() # Cargar variables de entorno al inicio
 
@@ -14,6 +14,7 @@ from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.llm_service import LLMService # Importar la CLASE LLMService
 from kogniterm.core.tools.python_executor import PythonTool
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool # Importar FileOperationsTool para acceder a glob
+from typing import cast # Importar cast
 
 # --- Estilo de la Interfaz (Rich) ---
 from rich.text import Text
@@ -26,6 +27,7 @@ try:
     from rich.padding import Padding
     from rich.panel import Panel
     from rich.live import Live # Re-adding Live
+    from rich.status import Status # ¡Nueva importación!
     rich_available = True
 except ImportError:
     rich_available = False
@@ -49,7 +51,7 @@ def _format_text_with_basic_markdown(text: str) -> Text:
                 if code_block_content:
                     code_str = "\n".join(code_block_content)
                     lexer = code_block_lang if code_block_lang else "plaintext"
-                    formatted_text.append(Syntax(code_str, lexer, theme="monokai", line_numbers=False))
+                    formatted_text.append(Text.from_ansi(str(Syntax(code_str, lexer, theme="monokai", line_numbers=False))))
                     code_block_content = []
                 formatted_text.append("\n")
             else: # Start of code block
@@ -60,7 +62,7 @@ def _format_text_with_basic_markdown(text: str) -> Text:
             code_block_content.append(line)
         else:
             # Apply inline formatting (bold)
-            parts = re.split(r"(.*?)", line)
+            parts = re.split(r"(\*\*.*?\*\*)", line)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
                     formatted_text.append(part[2:-2], style="bold")
@@ -71,7 +73,7 @@ def _format_text_with_basic_markdown(text: str) -> Text:
     if in_code_block and code_block_content:
         code_str = "\n".join(code_block_content)
         lexer = code_block_lang if code_block_lang else "plaintext"
-        formatted_text.append(Syntax(code_str, lexer, theme="monokai", line_numbers=False))
+        formatted_text.append(Text.from_ansi(str(Syntax(code_str, lexer, theme="monokai", line_numbers=False))))
 
     return formatted_text
 
@@ -115,8 +117,9 @@ def print_welcome_banner(console):
 
 
 class FileCompleter(Completer):
-    def __init__(self, file_operations_tool):
+    def __init__(self, file_operations_tool, show_indicator: bool = True):
         self.file_operations_tool = file_operations_tool
+        self.show_indicator = show_indicator
 
     def get_completions(self, document, complete_event):
         text_before_cursor = document.text_before_cursor
@@ -135,7 +138,12 @@ class FileCompleter(Completer):
         try:
             # Usar _list_directory con recursive=True para obtener todos los archivos y directorios
             # Esto devuelve rutas relativas al base_path
-            all_relative_items = self.file_operations_tool._list_directory(path=base_path, recursive=True, include_hidden=include_hidden, silent_mode=True)
+            all_relative_items = self.file_operations_tool._list_directory(
+                path=base_path, 
+                recursive=True, 
+                include_hidden=include_hidden, 
+                silent_mode=not self.show_indicator # Usar el nuevo parámetro
+            )
             
             suggestions = []
             for relative_item_path in all_relative_items:
@@ -174,26 +182,43 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
         print("Advertencia: La herramienta 'file_operations' no se encontró. El autocompletado de archivos no estará disponible.", file=sys.stderr)
         completer = None
     else:
-        completer = FileCompleter(file_operations_tool)
+        completer = FileCompleter(file_operations_tool, show_indicator=False)
 
-    # Crear key bindings personalizados para el autocompletado
+    # Definir un estilo para el prompt, incluyendo el color gris para el texto de entrada
+    custom_style = Style.from_dict({
+        'prompt': '#aaaaaa',  # Color gris para el texto de entrada del usuario
+        'rprompt': '#aaaaaa', # También para el rprompt si se usa
+        'output': '#aaaaaa',  # Color gris para la salida general del prompt
+    })
+
+    # Crear key bindings personalizados
     kb = KeyBindings()
 
-    @kb.add('enter')
+    @kb.add('enter', eager=True)
     def _(event):
         """
-        Cuando se presiona Enter, si hay una sugerencia de autocompletado,
-        la inserta. De lo contrario, acepta la línea.
+        Al presionar Enter, si hay sugerencias de autocompletado,
+        inserta la primera sugerencia y luego acepta el input.
         """
         buffer = event.app.current_buffer
         if buffer.complete_state:
-            # Si hay un estado de completado, inserta la sugerencia actual.
-            buffer.apply_completion(buffer.complete_state.current_completion)
-        else:
-            # Si no hay completado, acepta la línea.
-            buffer.validate_and_accept()
+            # Si hay sugerencias de autocompletado activas
+            if buffer.complete_state.current_completion:
+                # Si hay una sugerencia resaltada, la acepta
+                buffer.apply_completion(buffer.complete_state.current_completion)
+            elif buffer.complete_state.completions:
+                # Si no hay una resaltada pero hay sugerencias, acepta la primera
+                buffer.apply_completion(buffer.complete_state.completions[0])
+        
+        # Aceptar el input (enviar el comando)
+        buffer.validate_and_handle()
 
-    session = PromptSession(history=FileHistory('.gemini_interpreter_history'), completer=completer, key_bindings=kb) # Pasar el completer y los key bindings
+    session = PromptSession(
+        history=FileHistory('.gemini_interpreter_history'),
+        completer=completer,
+        style=custom_style,
+        key_bindings=kb # Pasar los key bindings personalizados
+    )
     console = Console() if rich_available else None
 
     # Establecer la consola en el servicio LLM para permitir el streaming
@@ -204,7 +229,7 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
     if console:
         print_welcome_banner(console) # Imprime el banner
         console.print(Padding("Escribe '%salir' para terminar o '%help' para ver los comandos.", (1, 2)), justify="center")
-        console.print(f"Modo inicial: [bold cyan]{current_agent_mode}[/bold cyan]")
+        
     else:
         # Fallback para cuando rich no está disponible
         banner_text = """
@@ -217,7 +242,7 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
 """
         print(banner_text)
         print("\n¡Bienvenido a KogniTerm! Escribe '%salir' para terminar.")
-        print(f"Modo inicial: {current_agent_mode}")
+        
 
     if console and auto_approve: # Nuevo mensaje de auto_approve
         console.print(Padding("[bold yellow]Modo de auto-aprobación activado.[/bold yellow]", (0, 2)))
@@ -347,16 +372,11 @@ Comandos disponibles:
                 processed_input = processed_input[1:] # Eliminar el primer '@'
 
             # Añadir el mensaje del usuario al estado
-            if console:
-                console.print(Padding(Panel(Markdown(f"""**Tu mensaje:**
-{processed_input}"""), border_style='blue', title='Entrada del Usuario'), (1, 2)))
             agent_state.messages.append(HumanMessage(content=processed_input))
 
             # Seleccionar el agente activo e invocarlo
             # active_agent_app = bash_agent_app if current_agent_mode == "bash" else orchestrator_app # Eliminado
             active_agent_app = bash_agent_app # Siempre usaremos bash_agent_app
-            
-            
             
             final_state_dict = active_agent_app.invoke(agent_state)
 
@@ -402,13 +422,24 @@ Comandos disponibles:
                         # El resultado de invoke puede ser un generador, así que lo procesamos
                         full_response_content = ""
                         if hasattr(explanation_response, '__iter__'):
+                            # Si es un generador, acumulamos los chunks y tomamos el último como la explicación final
+                            # Esto asume que el generador produce la explicación completa al final
+                            last_chunk_content = ""
                             for chunk in explanation_response:
                                 if isinstance(chunk, AIMessage):
-                                    full_response_content += chunk.content
+                                    if isinstance(chunk.content, str):
+                                        last_chunk_content = chunk.content
+                                    else:
+                                        last_chunk_content = str(chunk.content)
                                 elif isinstance(chunk, str):
-                                    full_response_content += chunk
+                                    last_chunk_content = chunk
+                            full_response_content = last_chunk_content
                         else:
-                            full_response_content = str(explanation_response)
+                            # Si no es un generador, es una respuesta directa
+                            if isinstance(explanation_response, str):
+                                full_response_content = explanation_response
+                            else:
+                                full_response_content = str(explanation_response)
 
                         explanation_text = full_response_content.strip()
 
@@ -496,19 +527,6 @@ Comandos disponibles:
                 else:
                     print("\nProcesando salida del comando...")
                 
-                if console:
-                    console.print("\n╭─ KogniTerm ───────────", style="cyan")
-                else:
-                    print("\n--- KogniTerm ---")
-                
-                final_state_dict = active_agent_app.invoke(agent_state)
-
-                if console:
-                    console.print("\n╰────────────────────────", style="cyan")
-                    console.print()
-                else:
-                    print("--- End KogniTerm ---\n")
-
                 agent_state.messages = final_state_dict['messages']
                 
                 # 9. Guardar el historial final después de la respuesta del agente
@@ -520,7 +538,8 @@ Comandos disponibles:
             # --- Manejo de la salida de PythonTool ---
             if isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "python_executor":
                 # Asumiendo que la instancia de PythonTool está disponible a través de llm_service
-                python_tool_instance = llm_service.get_tool("python_executor")
+                # Usar cast para asegurar que Pylance reconoce el tipo correcto
+                python_tool_instance = cast(PythonTool, llm_service.get_tool("python_executor"))
                 if python_tool_instance and hasattr(python_tool_instance, 'get_last_structured_output'):
                     structured_output = python_tool_instance.get_last_structured_output()
                     if structured_output and "result" in structured_output:
@@ -579,11 +598,6 @@ Comandos disponibles:
             elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
                 # Suprimir la salida de file_operations_tool al usuario, pero permitir que el LLM la procese.
                 continue # Salir del if para no procesar como AIMessage
-
-            # La respuesta final del AI es el último mensaje en el estado
-            final_response_message = agent_state.messages[-1] # Usar agent_state.messages directamente
-            
-            # No es necesario actualizar agent_state.messages aquí de nuevo, ya está actualizado
 
             # --- Guardar el historial después de cada interacción ---
             llm_service._save_history(agent_state.messages)
