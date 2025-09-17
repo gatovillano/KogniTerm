@@ -4,6 +4,8 @@ from dotenv import load_dotenv # Importar load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.application import get_app
 
 load_dotenv() # Cargar variables de entorno al inicio
 
@@ -133,7 +135,7 @@ class FileCompleter(Completer):
         try:
             # Usar _list_directory con recursive=True para obtener todos los archivos y directorios
             # Esto devuelve rutas relativas al base_path
-            all_relative_items = self.file_operations_tool._list_directory(path=base_path, recursive=True, include_hidden=include_hidden)
+            all_relative_items = self.file_operations_tool._list_directory(path=base_path, recursive=True, include_hidden=include_hidden, silent_mode=True)
             
             suggestions = []
             for relative_item_path in all_relative_items:
@@ -174,7 +176,24 @@ def start_terminal_interface(llm_service: LLMService, auto_approve=False): # Re-
     else:
         completer = FileCompleter(file_operations_tool)
 
-    session = PromptSession(history=FileHistory('.gemini_interpreter_history'), completer=completer) # Pasar el completer
+    # Crear key bindings personalizados para el autocompletado
+    kb = KeyBindings()
+
+    @kb.add('enter')
+    def _(event):
+        """
+        Cuando se presiona Enter, si hay una sugerencia de autocompletado,
+        la inserta. De lo contrario, acepta la línea.
+        """
+        buffer = event.app.current_buffer
+        if buffer.complete_state:
+            # Si hay un estado de completado, inserta la sugerencia actual.
+            buffer.apply_completion(buffer.complete_state.current_completion)
+        else:
+            # Si no hay completado, acepta la línea.
+            buffer.validate_and_accept()
+
+    session = PromptSession(history=FileHistory('.gemini_interpreter_history'), completer=completer, key_bindings=kb) # Pasar el completer y los key bindings
     console = Console() if rich_available else None
 
     # Establecer la consola en el servicio LLM para permitir el streaming

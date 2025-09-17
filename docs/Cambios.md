@@ -16,9 +16,7 @@
 
 **Descripción general:** Se corrigió un `SyntaxError: unterminated string literal` en el archivo `kogniterm/terminal/terminal.py` en la línea 90. El error se debía a una cadena de salto de línea mal formada.
 
--   **Punto 1**: Se corrigió la cadena de salto de línea de `"
-"` a `"
-"` en la línea 90 de `kogniterm/terminal/terminal.py`.
+-   **Punto 1**: Se corrigió la cadena de salto de línea de "\n" a "\n" en la línea 90 de `kogniterm/terminal/terminal.py`.
 ---
 ## 16-09-25 Adición de la función `main()` en `terminal.py`
 
@@ -48,3 +46,9 @@ Descripción general: Se ha implementado un panel visual para envolver el mensaj
 - **Punto 3**: Se corrigió el `SyntaxError: unterminated f-string literal` en `kogniterm/terminal/terminal.py` cambiando la f-string `f"**Tu mensaje:**
 {processed_input}"` a `f"""**Tu mensaje:**
 {processed_input}"""` para permitir saltos de línea.
+---
+## 16-09-25 Corrección de SyntaxError en `file_operations_tool.py`
+
+**Descripción general:** Se corrigió un `SyntaxError: unexpected character after line continuation character` en `kogniterm/core/tools/file_operations_tool.py` en la línea 134. El error se debía a un escape incorrecto de comillas dentro de un f-string.
+
+-   **Punto 1**: Se reemplazó `{\', \'.join(paths)}` con `{', '.join(paths)}` en la línea 134 de `kogniterm/core/tools/file_operations_tool.py`.

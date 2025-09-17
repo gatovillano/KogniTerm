@@ -92,8 +92,9 @@ class FileOperationsTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error al eliminar el archivo '{path}': {e}")
 
-    def _list_directory(self, path: str, recursive: bool = False, include_hidden: bool = False) -> List[str]:
-        print(f"📂 KogniTerm: Listando directorio 📁: {path} (Recursivo: {recursive})") # <--- INDICADOR AÑADIDO
+    def _list_directory(self, path: str, recursive: bool = False, include_hidden: bool = False, silent_mode: bool = False) -> List[str]:
+        if not silent_mode:
+            print(f"📂 KogniTerm: Listando directorio 📁: {path} (Recursivo: {recursive})") # <--- INDICADOR AÑADIDO
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:
             if recursive:
