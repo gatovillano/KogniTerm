@@ -370,8 +370,20 @@ class LLMService:
             litellm_messages.insert(0, {"role": "system", "content": system_message})
 
         # Lógica de truncamiento del historial para evitar exceder el límite de tokens y mensajes.
+        # Asegurarse de que el mensaje del sistema (si existe) y el último mensaje del usuario
+        # (y su posible respuesta de herramienta) siempre se mantengan.
+
         # Primero, truncar por número de mensajes si es necesario
-        while len(litellm_messages) > self.max_history_messages and len(litellm_messages) > 2:
+        # Mantener al menos el mensaje del sistema + el último par de interacción (usuario + AI/herramienta)
+        min_messages_to_keep = 1 # Para el mensaje del sistema
+        if len(litellm_messages) > min_messages_to_keep:
+            # Si el último mensaje es una respuesta de herramienta, necesitamos mantener el AIMessage anterior
+            if litellm_messages[-1].get('role') == 'tool' and len(litellm_messages) > 1:
+                min_messages_to_keep += 2 # Usuario + AI + Herramienta
+            else:
+                min_messages_to_keep += 1 # Usuario + AI
+
+        while len(litellm_messages) > self.max_history_messages and len(litellm_messages) > min_messages_to_keep:
             # Asegurarse de no eliminar el mensaje del sistema si es el primero
             if litellm_messages[0].get('role') == 'system' and len(litellm_messages) > 1:
                 litellm_messages.pop(1) # Eliminar el siguiente mensaje más antiguo
@@ -379,9 +391,8 @@ class LLMService:
                 litellm_messages.pop(0) # Eliminar el mensaje más antiguo
 
         # Luego, truncar por caracteres si es necesario
-        # Calcular el tamaño del historial una vez
         current_chars = sum(len(json.dumps(msg)) for msg in litellm_messages)
-        while current_chars > self.max_history_chars and len(litellm_messages) > 2:
+        while current_chars > self.max_history_chars and len(litellm_messages) > min_messages_to_keep:
             if litellm_messages[0].get('role') == 'system' and len(litellm_messages) > 1:
                 removed_msg = litellm_messages.pop(1)
             else:
@@ -408,7 +419,6 @@ class LLMService:
                 **litellm_generation_params
             )
             end_time = time.perf_counter() # Medir el tiempo de finalización
-            print(f"DEBUG: LiteLLM completion call took {end_time - start_time:.2f} seconds", file=sys.stderr) # Log al stderr
             self.call_timestamps.append(time.time()) # Registrar la llamada exitosa
             
             # Procesar la respuesta en streaming
@@ -418,10 +428,9 @@ class LLMService:
                 if chunk.choices and chunk.choices[0].delta:
                     delta = chunk.choices[0].delta
                     if delta.content:
-                        full_response_content += delta.content
-                        if self.console:
-                            self.console.print(delta.content, end="")
-                        yield delta.content # Devolver el contenido en streaming
+                        # Asegurarse de que delta.content sea un string antes de concatenar
+                        full_response_content += str(delta.content)
+                        yield str(delta.content) # Devolver el contenido en streaming
                     if delta.tool_calls:
                         for tc in delta.tool_calls:
                             # LiteLLM puede enviar tool_calls en chunks, necesitamos reconstruirlos

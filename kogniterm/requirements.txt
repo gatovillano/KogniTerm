@@ -10,3 +10,4 @@ matplotlib
 google-generativeai
 jupyter_client
 loguru
+colorama

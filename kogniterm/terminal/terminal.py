@@ -58,7 +58,7 @@ def _format_text_with_basic_markdown(text: str) -> Text:
             code_block_content.append(line)
         else:
             # Apply inline formatting (bold)
-            parts = re.split(r"(\>**.*?\*\*)", line)
+            parts = re.split(r"(.*?)", line)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
                     formatted_text.append(part[2:-2], style="bold")
@@ -328,24 +328,20 @@ Comandos disponibles:
                 processed_input = processed_input[1:] # Eliminar el primer '@'
 
             # Añadir el mensaje del usuario al estado
+            if console:
+                console.print(Padding(Panel(Markdown(f"""**Tu mensaje:**
+{processed_input}"""), border_style='blue', title='Entrada del Usuario'), (1, 2)))
             agent_state.messages.append(HumanMessage(content=processed_input))
 
             # Seleccionar el agente activo e invocarlo
             # active_agent_app = bash_agent_app if current_agent_mode == "bash" else orchestrator_app # Eliminado
             active_agent_app = bash_agent_app # Siempre usaremos bash_agent_app
             
-            if console:
-                console.print("\n╭─ KogniTerm ───────────", style="cyan")
-            else:
-                print("\n--- KogniTerm ---")
+            
             
             final_state_dict = active_agent_app.invoke(agent_state)
 
-            if console:
-                console.print("\n╰────────────────────────", style="cyan")
-                console.print()
-            else:
-                print("--- End KogniTerm ---\n")
+            
 
             # Actualizar el estado para la siguiente iteración
             agent_state.messages = final_state_dict['messages']
@@ -562,30 +558,11 @@ Comandos disponibles:
                 continue # Salir del if para no procesar como AIMessage
             # --- Manejo de la salida de FileOperationsTool ---
             elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
-                import re
-                # Convertir content a str para evitar errores de tipado
-                content_str = str(final_response_message.content)
-                file_content_match = re.match(r"FILE_CONTENT_START: (.*?)\n(.*)\n:FILE_CONTENT_END", content_str, re.DOTALL)
-                if file_content_match:
-                    file_path_read = file_content_match.group(1)
-                    if console:
-                        console.print(Padding(Panel(f"[bold green]Contenido del archivo '{file_path_read}' cargado para el LLM.[/bold green]", border_style='green'), (1, 2)))
-                    else:
-                        print(f"\n--- Contenido del archivo '{file_path_read}' cargado para el LLM. ---\n")
-                    # No es necesario modificar final_response_message.content aquí, ya que el LLM ya lo tiene completo.
-                    continue # Salir del if para no procesar como AIMessage
-                else:
-                    # Para otras operaciones de file_operations (write, delete, list, create)
-                    if console:
-                        console.print(Padding(Panel(f"[bold green]Operación de archivo:[/bold green]\n{final_response_message.content}", border_style='green'), (1, 2)))
-                    else:
-                        print(f"\n--- Operación de archivo ---\n{final_response_message.content}\n")
-                    continue # Salir del if para no procesar como AIMessage
+                # Suprimir la salida de file_operations_tool al usuario, pero permitir que el LLM la procese.
+                continue # Salir del if para no procesar como AIMessage
 
-            # --- Manejo de la respuesta final del AIMessage --- (MODIFICADO)
-            # La impresión del panel final se ha eliminado para priorizar el streaming en tiempo real.
-            if isinstance(final_response_message, AIMessage):
-                pass
+            # La respuesta final del AI es el último mensaje en el estado
+            final_response_message = agent_state.messages[-1] # Usar agent_state.messages directamente
             
             # No es necesario actualizar agent_state.messages aquí de nuevo, ya está actualizado
 

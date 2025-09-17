@@ -44,9 +44,9 @@ class FileOperationsTool(BaseTool):
                 return self._delete_file(kwargs["path"])
             elif operation == "list_directory":
                 # Obtener el valor de recursive, por defecto False
-                recursive = kwargs.get("recursive", False) 
+                recursive = kwargs.get("recursive", False)
                 items = self._list_directory(kwargs["path"], recursive=recursive) # Pasar recursive
-                
+
                 if recursive:
                     return "\n".join(items)
                 else:
@@ -62,6 +62,7 @@ class FileOperationsTool(BaseTool):
 
 
     def _read_file(self, path: str) -> str:
+        print(f"✨ KogniTerm: Leyendo archivo 📄: {path}") # <--- INDICADOR AÑADIDO
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:
             with open(path, 'r', encoding='utf-8') as f:
@@ -73,6 +74,7 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al leer el archivo '{path}': {e}")
 
     def _write_file(self, path: str, content: str) -> str:
+        print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}") # <--- INDICADOR AÑADIDO
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
@@ -81,6 +83,7 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al escribir/crear el archivo '{path}': {e}")
 
     def _delete_file(self, path: str) -> str:
+        print(f"🗑️ KogniTerm: Eliminando archivo 📄: {path}") # <--- INDICADOR AÑADIDO
         try:
             os.remove(path)
             return ""
@@ -90,6 +93,7 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al eliminar el archivo '{path}': {e}")
 
     def _list_directory(self, path: str, recursive: bool = False, include_hidden: bool = False) -> List[str]:
+        print(f"📂 KogniTerm: Listando directorio 📁: {path} (Recursivo: {recursive})") # <--- INDICADOR AÑADIDO
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:
             if recursive:
@@ -127,6 +131,7 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al listar el directorio '{path}': {e}")
 
     def _read_many_files(self, paths: List[str]) -> str:
+        print(f"📚 KogniTerm: Leyendo múltiples archivos 📄: {\', \'.join(paths)}") # <--- INDICADOR AÑADIDO
         combined_content = []
         for p in paths:
             try:
@@ -134,14 +139,13 @@ class FileOperationsTool(BaseTool):
                     content = f.read()
                 combined_content.append(content)
             except FileNotFoundError:
-                combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---
-""")
+                combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---\n""")
             except Exception as e:
-                combined_content.append(f"""--- Error al leer '{p}': {e} ---
-""")
+                combined_content.append(f"""--- Error al leer '{p}': {e} ---\n""")
         return "\n".join(combined_content)
 
     def _create_directory(self, path: str) -> str:
+        print(f"➕ KogniTerm: Creando directorio 📁: {path}") # <--- INDICADOR AÑADIDO
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:
             os.makedirs(path, exist_ok=True)

@@ -51,6 +51,7 @@ class AgentState:
     """Define la estructura del estado que fluye a través del grafo."""
     messages: List[BaseMessage] = field(default_factory=list)
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
+    tool_call_id_to_confirm: Optional[str] = None # Nuevo campo para el tool_call_id asociado al comando
 
     @property
     def history_for_api(self) -> list[BaseMessage]:
@@ -59,52 +60,61 @@ class AgentState:
 
 # --- Nodos del Grafo ---
 
+from rich.live import Live # Importar Live
+from rich.markdown import Markdown # Importar Markdown
+
 def call_model_node(state: AgentState, llm_service: LLMService):
-    """Llama al LLM con el historial actual de mensajes y obtiene el resultado final."""
+    """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
     history = state.history_for_api
     
     full_response_content = ""
     final_ai_message_from_llm = None
     text_streamed = False # Bandera para saber si hubo contenido de texto transmitido
 
-    # El generador de invoke produce chunks de texto para streaming y un AIMessage final.
-    # Iteramos sobre el generador para procesar el streaming y capturar el AIMessage final.
-    for part in llm_service.invoke(history=history, system_message=SYSTEM_MESSAGE.content):
-        if isinstance(part, AIMessage):
-            final_ai_message_from_llm = part
-            if part.content:
-                full_response_content += part.content
-        else:
-            # Este 'part' es un chunk de texto (str)
-            full_response_content += part
-            text_streamed = True # Hubo streaming de texto
+    # Usar Live para actualizar el contenido en tiempo real
+    with Live(console=console, screen=False, refresh_per_second=4) as live:
+        for part in llm_service.invoke(history=history, system_message=SYSTEM_MESSAGE.content):
+            if isinstance(part, AIMessage):
+                final_ai_message_from_llm = part
+                # Si el AIMessage final tiene contenido, lo añadimos al full_response_content
+                if part.content:
+                    full_response_content += part.content
+            else:
+                # Este 'part' es un chunk de texto (str)
+                full_response_content += part
+                text_streamed = True # Hubo streaming de texto
+                # Actualizar el contenido de Live con el Markdown acumulado
+                live.update(Markdown(full_response_content))
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
 
     # Si hubo tool_calls, el AIMessage ya los contendrá.
     if final_ai_message_from_llm and final_ai_message_from_llm.tool_calls:
-        # Añadimos el AIMessage con tool_calls al historial.
-        # El contenido de este AIMessage será el que el LLMService ya generó.
-        state.messages.append(final_ai_message_from_llm)
+        # El AIMessage final para el historial debe contener el contenido completo
+        # y los tool_calls.
+        ai_message_for_history = AIMessage(content=full_response_content, tool_calls=final_ai_message_from_llm.tool_calls)
+        
+        state.messages.append(ai_message_for_history)
         
         # Si la herramienta es 'execute_command', establecemos command_to_confirm
         command_to_execute = None
+        tool_call_id = None # Inicializar tool_call_id
         for tc in final_ai_message_from_llm.tool_calls:
             if tc['name'] == 'execute_command':
                 command_to_execute = tc['args'].get('command')
+                tool_call_id = tc['id'] # Capturar el tool_call_id
                 break # Asumimos una sola llamada a comando por ahora
 
         return {
             "messages": state.messages,
-            "command_to_confirm": command_to_execute # Devolver el comando para confirmación
+            "command_to_confirm": command_to_execute, # Devolver el comando para confirmación
+            "tool_call_id_to_confirm": tool_call_id # Devolver el tool_call_id asociado
         }
     
     elif final_ai_message_from_llm: # Si es solo un AIMessage de texto (sin tool_calls)
-        # Crear un nuevo AIMessage para el historial del agente.
-        # Siempre incluimos el full_response_content para que el panel final lo muestre.
-        ai_message_for_history = AIMessage(
-            content=full_response_content
-        )
+        # El AIMessage final para el historial debe contener el contenido completo.
+        ai_message_for_history = AIMessage(content=full_response_content)
+        
         state.messages.append(ai_message_for_history)
         return {"messages": state.messages}
     else:
@@ -147,7 +157,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
                     tool_output = f"Error al ejecutar la herramienta {tool_name}: {e}"
             
             # --- Añadir logs para la salida de la herramienta ---
-            console.print(f"[bold green]✅ Salida de la herramienta:[/bold green]\n[dim]{escape(str(tool_output))}[/dim]")
             # --- Fin de logs ---
 
             tool_messages.append(ToolMessage(content=str(tool_output), tool_call_id=tool_id))
