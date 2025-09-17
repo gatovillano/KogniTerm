@@ -3,6 +3,8 @@ from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import AgentState, SYSTEM_MESSAGE
 from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage
+from rich.panel import Panel
+from rich.markdown import Markdown
 
 """
 This module contains the MetaCommandProcessor class, responsible for handling
@@ -64,7 +66,7 @@ Comandos disponibles:
                 self.llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
                 self.agent_state.messages = self.llm_service.conversation_history
                 self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial comprimido
-                self.terminal_ui.print_message(f"Historial comprimido:\n{summary}", style="green")
+                self.terminal_ui.console.print(Panel(Markdown(f"Historial comprimido:\n{summary}"), border_style="green", title="[bold green]Historial Comprimido[/bold green]"))
             return True
 
         return False

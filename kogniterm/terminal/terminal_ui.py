@@ -50,7 +50,7 @@ class TerminalUI:
             # Interpolar colores para un degradado más suave
             self.console.print(f"[{colors[i % len(colors)]}]{line}[/]", justify="center")
         
-        self.console.print(Panel(f"""Escribe '%salir' para terminar o '%help' para ver los comandos.""", title="[bold green]Bienvenido[/bold green]", expand=False), justify="center")
+        self.console.print(Panel(f"""Escribe '[green]%salir[/green]' para terminar o '[green]%help[/green]' para ver los comandos.""", title="[bold green]Bienvenido[/bold green]", expand=False), justify="center")
 
 
 """
