@@ -6,6 +6,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
+import queue # Importar el módulo queue
 
 from rich.console import Console
 from rich.padding import Padding
@@ -44,9 +45,9 @@ class FileCompleter(Completer):
         try:
             EXCLUDE_DIRS = ['build/', 'venv/', '.git/', '__pycache__/', 'kogniterm.egg-info/', 'src/']
             all_relative_items = self.file_operations_tool._list_directory(
-                path=base_path, 
-                recursive=True, 
-                include_hidden=include_hidden, 
+                path=base_path,
+                recursive=True,
+                include_hidden=include_hidden,
                 silent_mode=not self.show_indicator
             )
             
@@ -79,12 +80,14 @@ class KogniTermApp:
     def __init__(self, auto_approve: bool = False):
         self.auto_approve = auto_approve
         self.console = Console()
-        self.llm_service = LLMService()
-        self.command_executor = CommandExecutor()
-        self.agent_state = AgentState(messages=self.llm_service.conversation_history)
-        
         # Inicializar TerminalUI
         self.terminal_ui = TerminalUI(console=self.console)
+
+        self.command_executor = CommandExecutor()
+        self.interrupt_queue = queue.Queue() # Inicializar la cola de interrupción
+
+        self.llm_service = LLMService(interrupt_queue=self.terminal_ui.get_interrupt_queue())
+        self.agent_state = AgentState(messages=self.llm_service.conversation_history)
 
         # Establecer la consola en el servicio LLM para permitir el streaming
         if hasattr(self.llm_service, 'set_console'):
@@ -99,19 +102,12 @@ class KogniTermApp:
         custom_style = Style.from_dict({
             'prompt': '#aaaaaa',
             'rprompt': '#aaaaaa',
-            'output': '#aaaaaa',
+            'output': 'grey',
+            'text': '#808080', # Color gris para el texto del usuario
         })
 
-        # Crear key bindings personalizados
-        kb = KeyBindings()
-
-        @kb.add('escape', eager=True)
-        def _(event):
-            self.llm_service.stop_generation_flag = True
-            event.app.current_buffer.cancel_completion() # Limpiar el prompt
-            event.app.exit() # Salir del prompt y volver al bucle principal
-
-        @kb.add('enter', eager=True)
+        kb_enter = KeyBindings()
+        @kb_enter.add('enter', eager=True)
         def _(event):
             buffer = event.app.current_buffer
             if buffer.complete_state:
@@ -125,12 +121,12 @@ class KogniTermApp:
             history=FileHistory('.gemini_interpreter_history'),
             completer=completer,
             style=custom_style,
-            key_bindings=kb
+            key_bindings=self.terminal_ui.kb # Usar los KeyBindings de TerminalUI
         )
 
         # Inicializar los otros componentes
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui)
-        self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state)
+        self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui.get_interrupt_queue())
         self.command_approval_handler = CommandApprovalHandler(self.llm_service, self.command_executor, self.prompt_session, self.terminal_ui, self.agent_state)
 
     def run(self):
@@ -147,8 +143,10 @@ class KogniTermApp:
                 user_input = self.prompt_session.prompt(prompt_text)
 
                 if user_input is None:
-                    if self.llm_service.stop_generation_flag:
-                        self.terminal_ui.print_message("\nGeneración de respuesta cancelada por el usuario.", style="yellow")
+                    if not self.terminal_ui.get_interrupt_queue().empty():
+                        while not self.terminal_ui.get_interrupt_queue().empty():
+                            self.terminal_ui.get_interrupt_queue().get_nowait() # Vaciar la cola
+                        self.terminal_ui.print_message("Generación de respuesta cancelada por el usuario. 🛑", style="yellow")
                         self.llm_service.stop_generation_flag = False # Resetear la bandera
                         continue # Continuar el bucle para un nuevo prompt
                     else:
@@ -330,3 +328,4 @@ class KogniTermApp:
                 self.terminal_ui.print_message(f"Ocurrió un error inesperado: {e}", style="red")
                 import traceback
                 traceback.print_exc()
+                break # Salir del bucle en caso de error inesperado

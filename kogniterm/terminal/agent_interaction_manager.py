@@ -1,6 +1,7 @@
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
 from langchain_core.messages import HumanMessage, SystemMessage
+import queue # Importar queue
 
 """
 This module contains the AgentInteractionManager class, responsible for
@@ -8,10 +9,11 @@ orchestrating AI agent interactions in the KogniTerm application.
 """
 
 class AgentInteractionManager:
-    def __init__(self, llm_service: LLMService, agent_state: AgentState):
+    def __init__(self, llm_service: LLMService, agent_state: AgentState, interrupt_queue: queue.Queue):
         self.llm_service = llm_service
         self.agent_state = agent_state
-        self.bash_agent_app = create_bash_agent(llm_service) # Inicializar el agente bash
+        self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
+        self.bash_agent_app = create_bash_agent(llm_service) # Se eliminó el argumento interrupt_queue
         
         # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial.
         if not self.agent_state.messages or not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == SYSTEM_MESSAGE.content):

@@ -6,12 +6,14 @@ import sys
 import termios
 import time
 import tty
+import queue
+from typing import Optional
 
 class CommandExecutor:
     def __init__(self):
         self.process = None
 
-    def execute(self, command, cwd=None):
+    def execute(self, command, cwd=None, interrupt_queue: Optional[queue.Queue] = None):
         """
         Ejecuta un comando en un pseudo-terminal (PTY), permitiendo la comunicación interactiva.
         Captura la salida del comando y la cede (yields) en tiempo real.
@@ -55,6 +57,13 @@ class CommandExecutor:
 
             # Bucle principal de E/S
             while self.process.poll() is None:
+                # Verificar si hay una señal de interrupción en la cola
+                if interrupt_queue and not interrupt_queue.empty():
+                    interrupt_queue.get() # Consumir la señal de interrupción
+                    self.terminate()
+                    yield "\nComando cancelado por el usuario (ESC)."
+                    break
+
                 try:
                     # Usar select para esperar E/S en el PTY o en stdin
                     readable_fds, _, _ = select.select([master_fd, sys.stdin.fileno()], [], [])
@@ -79,11 +88,6 @@ class CommandExecutor:
                     if sys.stdin.fileno() in readable_fds:
                         user_input = os.read(sys.stdin.fileno(), 1024)
                         if user_input:
-                            # Check for ESC key (ASCII 27)
-                            if b'\x1b' in user_input:
-                                self.terminate()
-                                yield "\nComando cancelado por el usuario (ESC)."
-                                break
                             os.write(master_fd, user_input)
 
                 except select.error as e:

@@ -40,14 +40,21 @@ ALL_TOOLS_CLASSES = [
     FileOperationsTool # Añadir FileOperationsTool
 ]
 
-def get_callable_tools(llm_service_instance=None):
+import queue
+from typing import Optional
+
+def get_callable_tools(llm_service_instance=None, interrupt_queue: Optional[queue.Queue] = None):
     # Instanciar las herramientas, pasando llm_service_instance si es necesario
     tools = []
     for ToolClass in ALL_TOOLS_CLASSES:
-        if hasattr(ToolClass, '__init__') and 'llm_service' in ToolClass.__init__.__code__.co_varnames:
-            tools.append(ToolClass(llm_service=llm_service_instance))
-        elif hasattr(ToolClass, '__init__') and 'llm_service_instance' in ToolClass.__init__.__code__.co_varnames:
-            tools.append(ToolClass(llm_service_instance=llm_service_instance))
-        else:
-            tools.append(ToolClass())
+        tool_kwargs = {}
+        if hasattr(ToolClass, '__init__'):
+            init_signature = ToolClass.__init__.__code__.co_varnames
+            if 'llm_service' in init_signature:
+                tool_kwargs['llm_service'] = llm_service_instance
+            if 'llm_service_instance' in init_signature:
+                tool_kwargs['llm_service_instance'] = llm_service_instance
+            if 'interrupt_queue' in init_signature: # Pasar interrupt_queue si la herramienta lo acepta
+                tool_kwargs['interrupt_queue'] = interrupt_queue
+        tools.append(ToolClass(**tool_kwargs))
     return tools

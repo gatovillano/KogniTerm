@@ -6,6 +6,8 @@ from ..command_executor import CommandExecutor # Adjusted import
 
 logger = logging.getLogger(__name__)
 
+import queue # Importar el módulo queue
+
 class ExecuteCommandTool(BaseTool):
     name: str = "execute_command"
     description: str = "Ejecuta un comando bash y devuelve su salida."
@@ -16,6 +18,7 @@ class ExecuteCommandTool(BaseTool):
     args_schema: Type[BaseModel] = ExecuteCommandInput
 
     command_executor: Optional[CommandExecutor] = None
+    interrupt_queue: Optional[queue.Queue] = None # Nuevo atributo para la cola de interrupción
 
     def model_post_init(self, __context: Any) -> None:
         if self.command_executor is None:
@@ -27,7 +30,8 @@ class ExecuteCommandTool(BaseTool):
         full_output = "" # Initialize full_output here
         assert self.command_executor is not None
         try:
-            for chunk in self.command_executor.execute(command):
+            # Pasar el interrupt_queue al método execute del CommandExecutor
+            for chunk in self.command_executor.execute(command, interrupt_queue=self.interrupt_queue):
                 full_output += chunk # Still collect for the return value
             logger.debug(f"ExecuteCommandTool - Salida del comando: \"{full_output}\"\n")
             return full_output
@@ -40,8 +44,10 @@ class ExecuteCommandTool(BaseTool):
         """Devuelve un generador para ejecutar el comando de forma incremental."""
         logger.debug(f"ExecuteCommandTool - Obteniendo generador para comando: '{command}'")
         assert self.command_executor is not None
-        return self.command_executor.execute(command)
+        # Pasar el interrupt_queue al método execute del CommandExecutor
+        return self.command_executor.execute(command, interrupt_queue=self.interrupt_queue)
 
     async def _arun(self, command: str) -> str:
         """Run the tool asynchronously."""
         raise NotImplementedError("execute_command_tool does not support async")
+

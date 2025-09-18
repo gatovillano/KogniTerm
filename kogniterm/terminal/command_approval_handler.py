@@ -23,6 +23,7 @@ class CommandApprovalHandler:
         self.prompt_session = prompt_session
         self.terminal_ui = terminal_ui
         self.agent_state = agent_state
+        self.interrupt_queue = terminal_ui.get_interrupt_queue() # Obtener la cola de interrupción de TerminalUI
 
     def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
                                 is_user_confirmation: bool = False, confirmation_prompt: Optional[str] = None) -> dict:
@@ -38,12 +39,13 @@ class CommandApprovalHandler:
                 break
         
         tool_call_id = None
-        if last_ai_message and last_ai_message.tool_calls and last_ai_message.tool_calls[0] and 'id' in last_ai_message.tool_calls[0]:
-            tool_call_id = last_ai_message.tool_calls[0]['id']
-        else:
-            # Generar un tool_call_id temporal si no se encuentra uno asociado
-            tool_call_id = f"manual_tool_call_{os.urandom(8).hex()}"
-            self.terminal_ui.print_message(f"Advertencia: No se encontró un tool_call_id asociado. Generando ID temporal: {tool_call_id}", style="yellow")
+        if not is_user_confirmation: # Solo buscar/generar tool_call_id si no es una confirmación de usuario
+            if last_ai_message and last_ai_message.tool_calls and last_ai_message.tool_calls[0] and 'id' in last_ai_message.tool_calls[0]:
+                tool_call_id = last_ai_message.tool_calls[0]['id']
+            else:
+                # Generar un tool_call_id temporal si no se encuentra uno asociado
+                tool_call_id = f"manual_tool_call_{os.urandom(8).hex()}"
+                self.terminal_ui.print_message(f"Advertencia: No se encontró un tool_call_id asociado. Generando ID temporal: {tool_call_id}", style="yellow")
 
         # 2. Generar la explicación del comando o usar el prompt de confirmación
         explanation_text = ""
@@ -113,7 +115,14 @@ class CommandApprovalHandler:
             self.terminal_ui.print_message("Comando auto-aprobado.", style="yellow")
         else:
             while True:
-                approval_input = self.prompt_session.prompt("¿Deseas ejecutar este comando? (s/n): ").lower().strip()
+                approval_input = self.prompt_session.prompt("¿Deseas ejecutar este comando? (s/n): ")
+
+                if approval_input is None:
+                    # Si el usuario interrumpe el prompt (ej. Ctrl+D), asumimos que deniega.
+                    approval_input = "n"
+                else:
+                    approval_input = approval_input.lower().strip()
+
                 if approval_input == 's':
                     run_command = True
                     break
@@ -134,7 +143,7 @@ class CommandApprovalHandler:
                 try:
                     self.terminal_ui.print_message("Ejecutando comando... (Presiona Ctrl+C para cancelar)", style="yellow")
 
-                    for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd()):
+                    for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
                         full_command_output += output_chunk
                         print(output_chunk, end='', flush=True)
                     print()
@@ -153,11 +162,14 @@ class CommandApprovalHandler:
                 self.terminal_ui.print_message("Comando no ejecutado.", style="yellow")
 
         # 6. Añadir ToolMessage al historial
-        # Ahora tool_call_id siempre tendrá un valor (original o generado temporalmente)
-        self.agent_state.messages.append(ToolMessage(
-            content=tool_message_content,
-            tool_call_id=tool_call_id
-        ))
+        if is_user_confirmation:
+            self.agent_state.messages.append(ToolMessage(content=tool_message_content))
+        else:
+            # Ahora tool_call_id siempre tendrá un valor (original o generado temporalmente)
+            self.agent_state.messages.append(ToolMessage(
+                content=tool_message_content,
+                tool_call_id=tool_call_id
+            ))
 
         # 7. Guardar el historial antes de la re-invocación
         self.llm_service._save_history(self.agent_state.messages)

@@ -7,6 +7,8 @@ from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
 
+import queue # Importar el módulo queue
+
 class GitHubTool(BaseTool):
     name: str = "github_tool"
     description: str = "Una herramienta unificada para interactuar con repositorios de GitHub. Permite obtener información del repositorio, listar contenidos de directorios, leer archivos y leer directorios recursivamente."
@@ -18,6 +20,7 @@ class GitHubTool(BaseTool):
         github_token: Optional[str] = Field(default=None, description="Token de GitHub para autenticación (opcional).")
 
     args_schema: Type[BaseModel] = GitHubToolInput
+    interrupt_queue: Optional[queue.Queue] = None # Nuevo atributo para la cola de interrupción
 
     def _get_github_instance(self, github_token: Optional[str]) -> Github:
         if github_token is None:
@@ -33,13 +36,31 @@ class GitHubTool(BaseTool):
             raise ValueError(f"Error al acceder al repositorio '{repo_name}': {e}")
 
     def _get_file_content(self, repo, path: str) -> str:
+        # Verificar interrupción antes de la operación
+        if self.interrupt_queue and not self.interrupt_queue.empty():
+            self.interrupt_queue.get() # Consumir la señal
+            print("DEBUG: GitHubTool - Interrupción detectada en _get_file_content.", file=sys.stderr)
+            raise InterruptedError("Operación de lectura de archivo de GitHub interrumpida por el usuario.")
+
         try:
-            file_content = repo.get_contents(path).decoded_content.decode('utf-8')
-            return f"### Contenido de '{path}'\n```\n{file_content}\n```"
+            content_obj = repo.get_contents(path)
+            # Intentar decodificar como UTF-8
+            try:
+                file_content = content_obj.decoded_content.decode('utf-8')
+                return f"### Contenido de '{path}'\n```\n{file_content}\n```"
+            except UnicodeDecodeError:
+                # Si falla la decodificación UTF-8, asumimos que es un archivo binario
+                return f"### Contenido de '{path}'\n[Archivo binario. No se puede mostrar el contenido.]"
         except GithubException as e:
             raise ValueError(f"Error al leer el archivo '{path}': {e}")
 
     def _list_contents(self, repo, path: str) -> str:
+        # Verificar interrupción antes de la operación
+        if self.interrupt_queue and not self.interrupt_queue.empty():
+            self.interrupt_queue.get() # Consumir la señal
+            print("DEBUG: GitHubTool - Interrupción detectada en _list_contents.", file=sys.stderr)
+            raise InterruptedError("Operación de listado de contenidos de GitHub interrumpida por el usuario.")
+
         try:
             contents = repo.get_contents(path)
             if not isinstance(contents, list): # Es un solo archivo
@@ -47,12 +68,22 @@ class GitHubTool(BaseTool):
             
             output = f"### Contenidos de '{path}' en '{repo.full_name}'\n"
             for content in contents:
+                # Verificar interrupción dentro del bucle
+                if self.interrupt_queue and not self.interrupt_queue.empty():
+                    self.interrupt_queue.get() # Consumir la señal
+                    raise InterruptedError("Operación de listado de contenidos de GitHub interrumpida por el usuario.")
                 output += f"- {content.type}: {content.name}\n"
             return output
         except GithubException as e:
             raise ValueError(f"Error al listar contenidos en '{path}': {e}")
 
     def _read_directory_recursive(self, repo, path: str) -> str:
+        # Verificar interrupción antes de la operación
+        if self.interrupt_queue and not self.interrupt_queue.empty():
+            self.interrupt_queue.get() # Consumir la señal
+            print("DEBUG: GitHubTool - Interrupción detectada en _read_directory_recursive (inicio).", file=sys.stderr)
+            raise InterruptedError("Operación de lectura recursiva de directorio de GitHub interrumpida por el usuario.")
+
         output = f"### Contenido recursivo de '{path}' en '{repo.full_name}'\n"
         try:
             contents = repo.get_contents(path)
@@ -60,9 +91,15 @@ class GitHubTool(BaseTool):
                 return self._get_file_content(repo, path)
 
             for content in contents:
+                # Verificar interrupción dentro del bucle
+                if self.interrupt_queue and not self.interrupt_queue.empty():
+                    self.interrupt_queue.get() # Consumir la señal
+                    print("DEBUG: GitHubTool - Interrupción detectada en _read_directory_recursive (bucle).", file=sys.stderr)
+                    raise InterruptedError("Operación de lectura recursiva de directorio de GitHub interrumpida por el usuario.")
+
                 if content.type == "dir":
                     output += f"\n#### Directorio: {content.path}\n"
-                    output += self._read_directory_recursive(repo, content.path)
+                    output += self._read_directory_recursive(repo, content.path) # Llamada recursiva
                 else:
                     output += f"- Archivo: {content.path}\n"
                     output += self._get_file_content(repo, content.path) + "\n"
@@ -88,6 +125,12 @@ class GitHubTool(BaseTool):
                 if not isinstance(contents, list): # Es un solo archivo
                     return f"""Leyendo directorio '{path}' del repositorio '{repo.full_name}'...\n\n""" + self._get_file_content(repo, path)
                 for content in contents:
+                    # Verificar interrupción dentro del bucle
+                    if self.interrupt_queue and not self.interrupt_queue.empty():
+                        self.interrupt_queue.get() # Consumir la señal
+                        print("DEBUG: GitHubTool - Interrupción detectada en _run (read_directory bucle).", file=sys.stderr)
+                        raise InterruptedError("Operación de lectura de directorio de GitHub interrumpida por el usuario.")
+
                     if content.type == "file":
                         output += f"- Archivo: {content.path}\n"
                         output += self._get_file_content(repo, content.path) + "\n"
@@ -101,6 +144,9 @@ class GitHubTool(BaseTool):
         except ValueError as e:
             logger.error(f"Error en GitHubTool: {e}", exc_info=True)
             return f"Error en GitHubTool: {e}"
+        except InterruptedError as e:
+            logger.error(f"GitHubTool interrumpida: {e}")
+            return f"Operación de GitHub interrumpida: {e}"
         except Exception as e:
             logger.error(f"Error inesperado en GitHubTool: {e}", exc_info=True)
             return f"Error inesperado en GitHubTool: {e}"
@@ -111,3 +157,4 @@ class GitHubTool(BaseTool):
 # Este archivo ahora es principalmente un marcador de posición, ya que las herramientas
 # han sido modularizadas en el subdirectorio 'tools/' y la función
 # 'get_callable_tools' se ha movido a 'tools/__init__.py'.
+

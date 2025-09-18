@@ -10,6 +10,7 @@ from langchain_core.runnables import RunnableConfig # Nueva importación
 from rich.markup import escape # Nueva importación
 import sys # Nueva importación
 import json # Importar json para verificar si la salida es un JSON
+import queue # Importar el módulo queue
 
 from ..llm_service import LLMService
 
@@ -79,7 +80,13 @@ class AgentState:
         self.messages = []
         self.command_to_confirm = None
         self.tool_call_id_to_confirm = None
-        self.reset_tool_confirmation() # Reutilizar la lógica de reinicio de confirmación
+        self.reset_tool_confirmation()
+
+    def reset_temporary_state(self):
+        """Reinicia los campos de estado temporal del agente, manteniendo el historial de mensajes."""
+        self.command_to_confirm = None
+        self.tool_call_id_to_confirm = None
+        self.reset_tool_confirmation()
 
     @property
     def history_for_api(self) -> list[BaseMessage]:
@@ -120,15 +127,15 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
             tool = llm_service.get_tool(tool_name)
             if tool:
                 try:
-                    if tool_name == "file_operations" and tool_args.get("operation") == "write_file":
-                        tool_output_str = tool._perform_write_file(path=tool_args["path"], content=tool_args["content"])
-                    elif tool_name == "file_operations" and tool_args.get("operation") == "delete_file":
-                        tool_output_str = tool._perform_delete_file(path=tool_args["path"])
-                    else:
-                        tool_output_str = str(tool.invoke(tool_args))
+                    raw_tool_output = llm_service._invoke_tool_with_interrupt(tool, tool_args)
+                    tool_output_str = str(raw_tool_output)
                     tool_messages = [ToolMessage(content=tool_output_str, tool_call_id=tool_id)]
                     state.messages.extend(tool_messages)
                     console.print(f"[green]✨ Herramienta '{tool_name}' re-ejecutada con éxito.[/green]")
+                except InterruptedError:
+                    console.print("[bold yellow]⚠️ Re-ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
+                    state.reset_temporary_state() # Limpiar el estado temporal del agente
+                    return state # Terminar la ejecución de herramientas y volver al input del usuario
                 except Exception as e:
                     error_output = f"Error al re-ejecutar la herramienta {tool_name} tras aprobación: {e}"
                     state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
@@ -150,7 +157,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
     return state
 
-def call_model_node(state: AgentState, llm_service: LLMService):
+def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
     history = state.history_for_api
     
@@ -160,13 +167,12 @@ def call_model_node(state: AgentState, llm_service: LLMService):
 
     # Usar Live para actualizar el contenido en tiempo real
     with Live(console=console, screen=False, refresh_per_second=4) as live:
-        for part in llm_service.invoke(history=history, system_message=SYSTEM_MESSAGE.content):
+        for part in llm_service.invoke(history=history, system_message=str(SYSTEM_MESSAGE.content), interrupt_queue=interrupt_queue):
             if isinstance(part, AIMessage):
                 final_ai_message_from_llm = part
-                # Si el AIMessage final tiene contenido, lo añadimos al full_response_content
-                if part.content:
-                    full_response_content += part.content
-            else:
+                # No acumulamos el contenido aquí si ya lo hemos hecho con los chunks de str
+                # El full_response_content ya debería estar completo por los chunks de str
+            elif isinstance(part, str): # Asegurarse de que 'part' es una cadena antes de concatenar
                 # Este 'part' es un chunk de texto (str)
                 full_response_content += part
                 text_streamed = True # Hubo streaming de texto
@@ -210,8 +216,7 @@ def call_model_node(state: AgentState, llm_service: LLMService):
         state.messages.append(AIMessage(content=error_message))
         return {"messages": state.messages}
 
-
-def execute_tool_node(state: AgentState, llm_service: LLMService):
+def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Ejecuta las herramientas solicitadas por el modelo."""
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -223,6 +228,13 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
         tool_args = tool_call['args']
         tool_id = tool_call['id']
 
+        # Verificar si hay una señal de interrupción
+        if interrupt_queue and not interrupt_queue.empty():
+            interrupt_queue.get() # Consumir la señal de interrupción
+            console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
+            state.reset_temporary_state() # Limpiar el estado temporal del agente
+            return state # Terminar la ejecución de herramientas y volver al input del usuario
+
         # --- Añadir logs para la ejecución de herramientas ---
         console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_name}[/yellow]")
         
@@ -231,7 +243,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
             tool_output_str = f"Error: Herramienta '{tool_name}' no encontrada."
         else:
             try:
-                raw_tool_output = tool.invoke(tool_args)
+                raw_tool_output = llm_service._invoke_tool_with_interrupt(tool, tool_args)
                 tool_output_str = str(raw_tool_output) # Convertir a cadena
             except UserConfirmationRequired as e:
                 # Si la herramienta requiere confirmación, guardamos el estado y terminamos la ejecución de herramientas.
@@ -242,28 +254,38 @@ def execute_tool_node(state: AgentState, llm_service: LLMService):
                 tool_output_str = f"UserConfirmationRequired: {e.message}"
                 console.print(f"[bold yellow]⚠️ Herramienta '{tool_name}' requiere confirmación:[/bold yellow] {e.message}")
                 return state # Salir de la ejecución de herramientas, KogniTermApp manejará la confirmación
+            except InterruptedError:
+                console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
+                print("DEBUG: execute_tool_node - InterruptedError capturada.", file=sys.stderr)
+                state.reset_temporary_state() # Limpiar el estado temporal del agente
+                print("DEBUG: execute_tool_node - Estado del agente reseteado.", file=sys.stderr)
+                return state # Terminar la ejecución de herramientas y volver al input del usuario
             except Exception as e:
                 tool_output_str = f"Error al ejecutar la herramienta {tool_name}: {e}"
         
         # --- Procesar y mostrar el mensaje descriptivo de la herramienta ---
-        first_line = tool_output_str.split('\n')[0].strip()
-        remaining_output = tool_output_str
+        # Si la salida es un JSON, no intentamos extraer un mensaje descriptivo de la primera línea.
+        # Simplemente la mostramos como parte de la salida.
+        try:
+            json_output = json.loads(tool_output_str)
+            remaining_output = tool_output_str # Si es JSON, la salida completa es relevante
+        except json.JSONDecodeError:
+            # Si no es JSON, aplicamos la heurística para el mensaje descriptivo
+            first_line = tool_output_str.split('\n')[0].strip()
+            remaining_output = tool_output_str
 
-        # Heurística simple para detectar un mensaje descriptivo
-        is_descriptive_message = False
-        if first_line and first_line.endswith('.') and len(first_line) > 10: # Si termina en punto y es lo suficientemente largo
-            try:
-                json.loads(first_line) # Intenta parsear como JSON, si falla, es probable que sea descriptivo
-            except json.JSONDecodeError:
+            is_descriptive_message = False
+            # Consideramos que es un mensaje descriptivo si termina en punto y es lo suficientemente largo
+            if first_line and first_line.endswith('.') and len(first_line) > 10:
                 is_descriptive_message = True
-        
-        if is_descriptive_message:
-            console.print(f"[green]✨ {first_line}[/green]")
-            remaining_output = '\n'.join(tool_output_str.split('\n')[1:]).strip() # Eliminar la primera línea
-            if not remaining_output: # Si no queda más contenido después del mensaje descriptivo
-                remaining_output = "La herramienta se ejecutó correctamente y no produjo más salida."
-        elif tool_output_str.strip() == "":
-            remaining_output = "La herramienta se ejecutó correctamente y no produjo ninguna salida."
+            
+            if is_descriptive_message:
+                console.print(f"[green]✨ {first_line}[/green]")
+                remaining_output = '\n'.join(tool_output_str.split('\n')[1:]).strip() # Eliminar la primera línea
+                if not remaining_output: # Si no queda más contenido después del mensaje descriptivo
+                    remaining_output = "La herramienta se ejecutó correctamente y no produjo más salida."
+            elif tool_output_str.strip() == "":
+                remaining_output = "La herramienta se ejecutó correctamente y no produjo ninguna salida."
 
         # --- Fin de procesamiento de mensaje descriptivo ---
 
@@ -301,11 +323,11 @@ def should_continue(state: AgentState) -> str:
 
 # --- Construcción del Grafo ---
 
-def create_bash_agent(llm_service: LLMService):
+def create_bash_agent(llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     bash_agent_graph = StateGraph(AgentState)
 
-    bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service))
-    bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service))
+    bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
+    bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
 
     bash_agent_graph.set_entry_point("call_model")
 

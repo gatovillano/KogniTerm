@@ -8,12 +8,16 @@ from langchain_core.tools import BaseTool
 logger = logging.getLogger(__name__)
 
 
+import queue # Importar el módulo queue
+
+
 class FileOperationsTool(BaseTool):
     name: str = "file_operations"
     description: str = "Permite realizar operaciones CRUD (Crear, Leer, Actualizar, Borrar) en archivos y directorios."
 
     ignored_directories: ClassVar[List[str]] = ['venv', '.git', '__pycache__', '.venv']
     llm_service: Any
+    interrupt_queue: Optional[queue.Queue] = None # Nuevo atributo para la cola de interrupción
 
     def __init__(self, llm_service: Any, **kwargs):
         super().__init__(llm_service=llm_service, **kwargs)
@@ -75,6 +79,11 @@ class FileOperationsTool(BaseTool):
 
 
     def _read_file(self, path: str) -> str:
+        # Verificar interrupción antes de la operación
+        if self.interrupt_queue and not self.interrupt_queue.empty():
+            self.interrupt_queue.get() # Consumir la señal
+            raise InterruptedError("Operación de lectura de archivo interrumpida por el usuario.")
+
         print(f"✨ KogniTerm: Leyendo archivo 📄: {path}") # <--- INDICADOR AÑADIDO
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:
@@ -87,6 +96,11 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al leer el archivo '{path}': {e}")
 
     def _write_file(self, path: str, content: str) -> str | Dict[str, Any]:
+        # Verificar interrupción antes de la operación
+        if self.interrupt_queue and not self.interrupt_queue.empty():
+            self.interrupt_queue.get() # Consumir la señal
+            raise InterruptedError("Operación de escritura de archivo interrumpida por el usuario.")
+
         print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}")
         return {"_requires_confirmation": True, "action_description": f"escribir en el archivo '{path}'", "operation": "write_file", "args": {"path": path, "content": content}}
 
@@ -99,6 +113,11 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al escribir/crear el archivo '{path}': {e}")
 
     def _delete_file(self, path: str) -> str | Dict[str, Any]:
+        # Verificar interrupción antes de la operación
+        if self.interrupt_queue and not self.interrupt_queue.empty():
+            self.interrupt_queue.get() # Consumir la señal
+            raise InterruptedError("Operación de eliminación de archivo interrumpida por el usuario.")
+
         print(f"🗑️ KogniTerm: Eliminando archivo 📄: {path}")
         return {"_requires_confirmation": True, "action_description": f"eliminar el archivo '{path}'", "operation": "delete_file", "args": {"path": path}}
 
@@ -119,6 +138,11 @@ class FileOperationsTool(BaseTool):
             if recursive:
                 all_items = []
                 for root, dirs, files in os.walk(path):
+                    # Verificar interrupción dentro del bucle recursivo
+                    if self.interrupt_queue and not self.interrupt_queue.empty():
+                        self.interrupt_queue.get() # Consumir la señal
+                        raise InterruptedError("Operación de listado de directorio interrumpida por el usuario.")
+
                     # Filtrar directorios ocultos si no se deben incluir
                     if not include_hidden:
                         dirs[:] = [d for d in dirs if not d.startswith('.')]
@@ -140,6 +164,11 @@ class FileOperationsTool(BaseTool):
                 items = []
                 with os.scandir(path) as entries:
                     for entry in entries:
+                        # Verificar interrupción en modo no recursivo
+                        if self.interrupt_queue and not self.interrupt_queue.empty():
+                            self.interrupt_queue.get() # Consumir la señal
+                            raise InterruptedError("Operación de listado de directorio interrumpida por el usuario.")
+
                         # En modo no recursivo, también podemos filtrar ocultos si se desea
                         if not include_hidden and entry.name.startswith('.'):
                             continue
@@ -154,17 +183,27 @@ class FileOperationsTool(BaseTool):
         print(f"📚 KogniTerm: Leyendo múltiples archivos 📄: {', '.join(paths)}") # <--- INDICADOR AÑADIDO
         combined_content = []
         for p in paths:
+            # Verificar interrupción en el bucle de lectura de múltiples archivos
+            if self.interrupt_queue and not self.interrupt_queue.empty():
+                self.interrupt_queue.get() # Consumir la señal
+                raise InterruptedError("Operación de lectura de múltiples archivos interrumpida por el usuario.")
+
             try:
                 with open(p, 'r', encoding='utf-8') as f:
                     content = f.read()
                 combined_content.append(content)
             except FileNotFoundError:
-                combined_content.append(f"--- Error: Archivo '{p}' no encontrado. ---\n")
+                combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---""")
             except Exception as e:
-                combined_content.append(f"--- Error al leer '{p}': {e} ---\n")
+                combined_content.append(f"""--- Error al leer '{p}': {e} ---""")
         return "\n".join(combined_content)
 
     def _create_directory(self, path: str) -> str:
+        # Verificar interrupción antes de la operación
+        if self.interrupt_queue and not self.interrupt_queue.empty():
+            self.interrupt_queue.get() # Consumir la señal
+            raise InterruptedError("Operación de creación de directorio interrumpida por el usuario.")
+
         print(f"➕ KogniTerm: Creando directorio 📁: {path}") # <--- INDICADOR AÑADIDO
         path = path.strip().replace('@', '') # Limpiar la ruta
         try:

@@ -1,5 +1,7 @@
 import os
+import queue
 from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState
@@ -17,10 +19,22 @@ related interactions in the KogniTerm application.
 class TerminalUI:
     def __init__(self, console: Console | None = None):
         self.console = console if console else Console()
+        self.interrupt_queue = queue.Queue()
+        self.kb = KeyBindings()
+
+        @self.kb.add('escape')
+        def _(event):
+            self.interrupt_queue.put("interrupt")
+            event.app.current_buffer.cancel_completion() # Limpiar el prompt
+            event.app.current_buffer.text = "" # Limpiar el texto del buffer
+            event.app.current_buffer.cursor_position = 0 # Mover el cursor al inicio
 
     def print_message(self, message: str, style: str = ""):
         """Prints a message to the console with optional styling."""
         self.console.print(message, style=style)
+
+    def get_interrupt_queue(self) -> queue.Queue:
+        return self.interrupt_queue
 
     def print_welcome_banner(self):
         """Prints the welcome banner for KogniTerm."""
@@ -60,12 +74,12 @@ managing command approval from the user in the KogniTerm application.
 
 class CommandApprovalHandler:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor,
-                 prompt_session: PromptSession, terminal_ui: TerminalUI, agent_state: AgentState):
+                 terminal_ui: TerminalUI, agent_state: AgentState):
         self.llm_service = llm_service
         self.command_executor = command_executor
-        self.prompt_session = prompt_session
         self.terminal_ui = terminal_ui
         self.agent_state = agent_state
+        self.prompt_session = PromptSession(key_bindings=self.terminal_ui.kb) # Usar los KeyBindings de TerminalUI
 
     def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False) -> dict:
         """

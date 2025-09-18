@@ -2,13 +2,16 @@ import os
 import sys
 import time
 import json
-from typing import Optional
+import queue
+from typing import Optional, Any
 from collections import deque
 from langchain_core.tools import BaseTool
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from litellm import completion, litellm
 import uuid
 from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor, TimeoutError # Nuevas importaciones
+import threading # Nueva importación
 
 load_dotenv()
 
@@ -56,12 +59,18 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
     args_schema = {"type": "object", "properties": {}}
     if hasattr(tool, 'args_schema') and tool.args_schema is not None:
         if hasattr(tool.args_schema, 'schema'):
-            try:
-                args_schema = tool.args_schema.schema()
-            except Exception as e:
+            schema_method = getattr(tool.args_schema, 'schema', None)
+            if callable(schema_method):
+                try:
+                    args_schema = schema_method()
+                except Exception as e:
+                    tool_name = getattr(tool, 'name', 'Desconocido')
+                    tool_type = type(tool)
+                    print(f"Advertencia: Error al obtener el esquema de la herramienta '{tool_name}' de tipo '{tool_type}': {e}. Se usará un esquema vacío.", file=sys.stderr)
+            else:
                 tool_name = getattr(tool, 'name', 'Desconocido')
                 tool_type = type(tool)
-                print(f"Advertencia: Error al obtener el esquema de la herramienta '{tool_name}' de tipo '{tool_type}': {e}. Se usará un esquema vacío.", file=sys.stderr)
+                print(f"Advertencia: 'args_schema' de la herramienta '{tool_name}' de tipo '{tool_type}' no tiene un método 'schema' invocable. Se usará un esquema vacío.", file=sys.stderr)
         elif isinstance(tool.args_schema, dict):
             args_schema = tool.args_schema
         else:
@@ -77,6 +86,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
                 # Por ahora, estableceremos 'string' como predeterminado si falta
                 args_schema['properties'][prop_name]['type'] = 'string'
     
+    print(f"DEBUG: Convirtiendo herramienta a LiteLLM: Nombre='{tool.name}', Descripción='{tool.description}'", file=sys.stderr)
     return {
         "type": "function",
         "function": {
@@ -88,13 +98,18 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
 
 class LLMService:
     """Un servicio para interactuar con el modelo LLM a través de LiteLLM."""
-    def __init__(self):
+    def __init__(self, interrupt_queue: Optional[queue.Queue] = None):
         self.console = None
         self.api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             print("Error: Ninguna de las variables de entorno OPENROUTER_API_KEY o GOOGLE_API_KEY está configurada.", file=sys.stderr)
             raise ValueError("Ninguna de las variables de entorno OPENROUTER_API_KEY o GOOGLE_API_KEY está configurada.")
         
+        self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
+        self.tool_executor = ThreadPoolExecutor(max_workers=1) # Ejecutor para herramientas
+        self.active_tool_future = None # Para rastrear la ejecución de la herramienta activa
+        self.tool_execution_lock = threading.Lock() # Para sincronizar el acceso a active_tool_future
+
         litellm_api_base = os.getenv("LITELLM_API_BASE")
         if litellm_api_base:
             litellm.api_base = litellm_api_base
@@ -112,7 +127,7 @@ class LLMService:
                 configured_model = f"openrouter/{configured_model}"
         self.model_name = configured_model
 
-        self.langchain_tools = get_callable_tools(llm_service_instance=self)
+        self.langchain_tools = get_callable_tools(llm_service_instance=self, interrupt_queue=self.interrupt_queue)
 
         self.litellm_tools = [_convert_langchain_tool_to_litellm(tool) for tool in self.langchain_tools]
 
@@ -218,12 +233,13 @@ class LLMService:
         except Exception as e:
             print(f"Error al guardar el historial: {e}", file=sys.stderr)
 
-    def invoke(self, history: list, system_message: Optional[str] = None):
+    def invoke(self, history: list, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None):
         """Invoca el modelo LLM con un historial de conversación y un mensaje de sistema opcional.
 
         Args:
             history: El historial completo de la conversación en el formato de LangChain.
             system_message: Un mensaje de sistema opcional para guiar al modelo.
+            interrupt_queue: Una cola para verificar si se ha solicitado una interrupción.
 
         Returns:
             La respuesta del modelo, que puede incluir texto o llamadas a herramientas.
@@ -304,6 +320,14 @@ class LLMService:
             full_response_content = ""
             tool_calls = []
             for chunk in response_generator:
+                # Verificar la cola de interrupción
+                if interrupt_queue and not interrupt_queue.empty():
+                    while not interrupt_queue.empty(): # Vaciar la cola
+                        interrupt_queue.get_nowait()
+                    self.stop_generation_flag = True
+                    print("DEBUG: Interrupción detectada desde la cola.", file=sys.stderr) # Para depuración
+                    break # Salir del bucle de chunks
+
                 if self.stop_generation_flag:
                     print("DEBUG: Generación detenida por bandera.", file=sys.stderr)
                     break
@@ -323,12 +347,8 @@ class LLMService:
                 
                 tool_calls_from_delta = getattr(delta, 'tool_calls', None)
                 if tool_calls_from_delta is not None:
-                    # Si hay tool_calls, primero enviamos el contenido de texto acumulado
-                    if full_response_content:
-                        yield AIMessage(content=full_response_content)
-                        full_response_content = "" # Resetear el contenido de texto
-
-                    # Luego procesamos los tool_calls
+                    print(f"DEBUG: Tool calls from delta: {tool_calls_from_delta}", file=sys.stderr)
+                    # Acumular tool_calls, no emitir AIMessage aquí
                     for tc in tool_calls_from_delta:
                         if tc.index >= len(tool_calls):
                             tool_calls.extend([{"id": "", "function": {"name": "", "arguments": ""}}] * (tc.index - len(tool_calls) + 1))
@@ -342,6 +362,7 @@ class LLMService:
                                 tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
             
             if self.stop_generation_flag:
+                # Si se interrumpe, el AIMessage final se construye con el mensaje de interrupción
                 yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
             elif tool_calls:
                 formatted_tool_calls = []
@@ -355,8 +376,10 @@ class LLMService:
                         "name": tc["function"]["name"],
                         "args": args
                     })
+                # El AIMessage final incluye el contenido acumulado y los tool_calls
                 yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
             else:
+                # El AIMessage final incluye solo el contenido acumulado
                 yield AIMessage(content=full_response_content)
 
         except Exception as e:
@@ -396,13 +419,15 @@ class LLMService:
                 **summary_completion_kwargs
             )
             
-            if getattr(response, 'choices', None) and response.choices and len(response.choices) > 0:
-                choices = getattr(response, 'choices', None)
-                if choices and isinstance(choices, list) and len(choices) > 0:
+            # Asegurarse de que la respuesta no sea un generador inesperado y tenga el atributo 'choices'
+            if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
+                # Acceder directamente al atributo 'choices' una vez que se ha verificado su existencia
+                choices = response.choices
+                if isinstance(choices, list) and len(choices) > 0:
                     first_choice = choices[0]
-                    message = getattr(first_choice, 'message', None)
-                    if message and getattr(message, 'content', None) is not None:
-                        summary_text = message.content
+                    # Verificar si 'message' es un atributo y si tiene 'content'
+                    if hasattr(first_choice, 'message') and hasattr(first_choice.message, 'content'):
+                        summary_text = first_choice.message.content
                         return summary_text
             return None
         except Exception as e:
@@ -417,3 +442,44 @@ class LLMService:
             if tool.name == tool_name:
                 return tool
         return None
+
+    def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Any:
+        """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
+        with self.tool_execution_lock:
+            if self.active_tool_future is not None and self.active_tool_future.running():
+                raise RuntimeError("Ya hay una herramienta en ejecución. No se puede iniciar otra.")
+            
+            # Usar functools.partial para pasar los argumentos a tool.invoke
+            # Esto asegura que la función que se ejecuta en el hilo sea simple y reciba los args correctos
+            future = self.tool_executor.submit(tool.invoke, tool_args)
+            self.active_tool_future = future
+
+        try:
+            while True:
+                try:
+                    # Esperar el resultado de la tarea con un timeout corto
+                    return future.result(timeout=0.01) 
+                except TimeoutError:
+                    # Si hay un timeout, verificar la cola de interrupción
+                    if self.interrupt_queue and not self.interrupt_queue.empty():
+                        print("DEBUG: _invoke_tool_with_interrupt - Interrupción detectada en la cola (via TimeoutError).", file=sys.stderr)
+                        self.interrupt_queue.get() # Consumir la señal
+                        if future.running():
+                            print("DEBUG: _invoke_tool_with_interrupt - Intentando cancelar la tarea (via TimeoutError).", file=sys.stderr)
+                            future.cancel() # Intentar cancelar la tarea
+                            print("DEBUG: _invoke_tool_with_interrupt - Lanzando InterruptedError (via TimeoutError).", file=sys.stderr)
+                            raise InterruptedError("Ejecución de herramienta interrumpida por el usuario.")
+                except InterruptedError:
+                    raise # Re-lanzar la excepción de interrupción
+                except Exception as e:
+                    # Capturar cualquier otra excepción de la herramienta
+                    raise e
+        except InterruptedError:
+            raise # Re-lanzar la excepción de interrupción
+        except Exception as e:
+            # Capturar cualquier otra excepción de la herramienta
+            raise e
+        finally:
+            with self.tool_execution_lock:
+                if self.active_tool_future is future:
+                    self.active_tool_future = None # Limpiar la referencia a la tarea activa
