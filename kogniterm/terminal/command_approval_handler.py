@@ -161,15 +161,20 @@ class CommandApprovalHandler:
                 tool_message_content = "Comando no ejecutado por el usuario."
                 self.terminal_ui.print_message("Comando no ejecutado.", style="yellow")
 
-        # 6. Añadir ToolMessage al historial
-        if is_user_confirmation:
-            self.agent_state.messages.append(ToolMessage(content=tool_message_content))
-        else:
-            # Ahora tool_call_id siempre tendrá un valor (original o generado temporalmente)
-            self.agent_state.messages.append(ToolMessage(
-                content=tool_message_content,
-                tool_call_id=tool_call_id
-            ))
+        # 6. Añadir el mensaje al historial (AIMessage si es denegado, ToolMessage si es ejecutado)
+        if run_command:
+            if is_user_confirmation:
+                self.agent_state.messages.append(ToolMessage(content=tool_message_content))
+            else:
+                self.agent_state.messages.append(ToolMessage(
+                    content=tool_message_content,
+                    tool_call_id=tool_call_id
+                ))
+        else: # Comando denegado
+            # Si el comando es denegado, añadimos un AIMessage para que el modelo lo procese
+            # sin esperar un tool_call correspondiente.
+            self.agent_state.messages.append(AIMessage(content=tool_message_content))
+            self.terminal_ui.print_message("Acción denegada por el usuario.", style="yellow")
 
         # 7. Guardar el historial antes de la re-invocación
         self.llm_service._save_history(self.agent_state.messages)

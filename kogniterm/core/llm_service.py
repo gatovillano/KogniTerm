@@ -17,9 +17,6 @@ load_dotenv()
 
 from .tools.tool_manager import get_callable_tools
 
-KOGNITERM_DIR = os.path.join(os.getcwd(), ".kogniterm")
-HISTORY_FILE = os.path.join(KOGNITERM_DIR, "kogniterm_history.json")
-
 def _to_litellm_message(message):
     """Convierte un mensaje de LangChain a un formato compatible con LiteLLM."""
     if isinstance(message, HumanMessage):
@@ -43,10 +40,10 @@ def _to_litellm_message(message):
         else:
             return {"role": "assistant", "content": message.content}
     elif isinstance(message, ToolMessage):
-        tool_call_id = message.tool_call_id if message.tool_call_id is not None else ""
+        tool_call_id = message.tool_call_id if message.tool_call_id is not None else str(uuid.uuid4())
         return {
             "role": "tool",
-            "tool_call_id": str(tool_call_id),
+            "tool_call_id": tool_call_id,
             "content": message.content
         }
     elif isinstance(message, SystemMessage):
@@ -86,7 +83,6 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
                 # Por ahora, estableceremos 'string' como predeterminado si falta
                 args_schema['properties'][prop_name]['type'] = 'string'
     
-    print(f"DEBUG: Convirtiendo herramienta a LiteLLM: Nombre='{tool.name}', Descripción='{tool.description}'", file=sys.stderr)
     return {
         "type": "function",
         "function": {
@@ -141,34 +137,51 @@ class LLMService:
         self.rate_limit_calls = 10
         self.rate_limit_period = 60
 
-        self.max_history_chars = 60000
-        self.max_history_messages = 100
+        self.max_history_chars = 120000 # Aumentado para permitir más historial antes de resumir
+        self.max_history_messages = 200 # Aumentado para permitir más mensajes antes de resumir
         self.stop_generation_flag = False # Bandera para detener la generación
+        self.history_file_path: Optional[str] = None # Se inicializará con set_cwd_for_history
+        self.conversation_history = [] # Inicializar vacío, se cargará con set_cwd_for_history
 
-        os.makedirs(KOGNITERM_DIR, exist_ok=True)
-
-        self._initialize_memory()
-        self.conversation_history = self._load_history()
+        # No llamar a _initialize_memory o _load_history aquí, se hará en set_cwd_for_history
 
     def set_console(self, console):
         """Establece la consola para el streaming de salida."""
         self.console = console
+
+    def set_cwd_for_history(self, cwd: str):
+        """
+        Establece el directorio de trabajo actual y actualiza la ruta del archivo de historial.
+        Carga el historial específico para este directorio.
+        """
+        kogniterm_dir = os.path.join(cwd, ".kogniterm")
+        os.makedirs(kogniterm_dir, exist_ok=True)
+        self.history_file_path = os.path.join(kogniterm_dir, "kogniterm_history.json")
+        self._initialize_memory() # Inicializar memoria para el nuevo directorio
+        self.conversation_history = self._load_history() # Cargar historial para el nuevo directorio
+        if self.console:
+            self.console.print(f"[dim]Historial cargado desde: {self.history_file_path}[/dim]")
 
     def _initialize_memory(self):
         """Inicializa la memoria si no existe."""
         memory_init_tool = self.get_tool("memory_init")
         if memory_init_tool:
             try:
-                memory_init_tool.invoke({})
+                # La herramienta memory_init puede necesitar acceso al history_file_path
+                # Si es así, se deberá pasar como argumento o hacer que la herramienta lo obtenga de llm_service.
+                memory_init_tool.invoke({"history_file_path": self.history_file_path})
             except Exception as e:
-                pass
+                # print(f"Advertencia: Error al inicializar la memoria: {e}", file=sys.stderr)
+                pass # No es crítico si falla la inicialización de memoria
 
     def _load_history(self) -> list:
         """Carga el historial de conversación desde un archivo JSON."""
-        
-        if os.path.exists(HISTORY_FILE):
+        if not self.history_file_path:
+            return [] # No hay ruta de historial configurada
+
+        if os.path.exists(self.history_file_path):
             try:
-                with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                with open(self.history_file_path, 'r', encoding='utf-8') as f:
                     file_content = f.read()
                     if not file_content.strip():
                         return []
@@ -203,14 +216,20 @@ class LLMService:
                     
                     return loaded_history
             except json.JSONDecodeError as e:
-                print(f"Error al decodificar el historial JSON: {e}", file=sys.stderr)
+                print(f"Error al decodificar el historial JSON desde {self.history_file_path}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
             except Exception as e:
-                print(f"Error inesperado al cargar el historial: {e}", file=sys.stderr)
+                print(f"Error inesperado al cargar el historial desde {self.history_file_path}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
         return []
 
     def _save_history(self, history: list):
         """Guarda el historial de conversación en un archivo JSON."""
-        
+        if not self.history_file_path:
+            return # No hay ruta de historial configurada
+
         try:
             serializable_history = []
             for msg in history:
@@ -228,10 +247,12 @@ class LLMService:
                 else:
                     continue # Saltar mensajes desconocidos
 
-            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            with open(self.history_file_path, 'w', encoding='utf-8') as f:
                 json.dump(serializable_history, f, indent=4, ensure_ascii=False)
         except Exception as e:
-            print(f"Error al guardar el historial: {e}", file=sys.stderr)
+            print(f"Error al guardar el historial en {self.history_file_path}: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
 
     def invoke(self, history: list, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None):
         """Invoca el modelo LLM con un historial de conversación y un mensaje de sistema opcional.
@@ -282,6 +303,67 @@ class LLMService:
             else:
                 min_messages_to_keep += 1
 
+        # Lógica de truncamiento de historial
+        # Nuevo: Intentar resumir el historial si es demasiado largo antes de truncar
+        if (len(litellm_messages) > self.max_history_messages or
+            sum(len(json.dumps(msg)) for msg in litellm_messages) > self.max_history_chars) and \
+           len(litellm_messages) > min_messages_to_keep: # Asegurarse de que haya suficientes mensajes para resumir
+            
+            if self.console:
+                self.console.print("[yellow]El historial es demasiado largo. Intentando resumir...[/yellow]")
+            
+            summary = self.summarize_conversation_history()
+            if summary:
+                # Mantener el system message inicial (si existe) y los últimos N mensajes (ej. 5)
+                # para no perder el contexto inmediato.
+                
+                # Identificar el system message inicial
+                initial_system_message = None
+                if litellm_messages and litellm_messages[0].get('role') == 'system':
+                    initial_system_message = litellm_messages[0]
+                    # Eliminar el system message del resto de mensajes para la selección de los últimos
+                    temp_litellm_messages = litellm_messages[1:]
+                else:
+                    temp_litellm_messages = litellm_messages
+                
+                # Seleccionar los últimos 5 mensajes (o menos si no hay tantos)
+                messages_to_keep = temp_litellm_messages[-5:] if len(temp_litellm_messages) > 5 else temp_litellm_messages
+                
+                # Construir el nuevo historial con el system message original, el resumen y los últimos mensajes
+                new_litellm_messages = []
+                if initial_system_message:
+                    new_litellm_messages.append(initial_system_message)
+                
+                new_litellm_messages.append({"role": "system", "content": f"Resumen de la conversación anterior: {summary}"})
+                new_litellm_messages.extend(messages_to_keep)
+                litellm_messages = new_litellm_messages
+                
+                if self.console:
+                    self.console.print("[green]Historial resumido y actualizado.[/green]")
+            else:
+                if self.console:
+                    self.console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento.[/red]")
+ 
+        # Post-procesamiento del historial para eliminar ToolMessages huérfanos
+        # Esto es crucial para evitar el error "Missing corresponding tool call" de LiteLLM
+        # cuando el resumen elimina el AIMessage que invoca la herramienta.
+        processed_litellm_messages = []
+        tool_call_ids_in_aimessages = set()
+        for i, msg in enumerate(litellm_messages):
+            if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                for tc in msg['tool_calls']:
+                    if 'id' in tc:
+                        tool_call_ids_in_aimessages.add(tc['id'])
+            
+            if msg.get('role') == 'tool':
+                tool_call_id = msg.get('tool_call_id')
+                if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
+                    continue # Eliminar ToolMessage huérfano
+            
+            processed_litellm_messages.append(msg)
+        litellm_messages = processed_litellm_messages
+
+        # Truncamiento estándar si aún es necesario después del resumen
         while len(litellm_messages) > self.max_history_messages and len(litellm_messages) > min_messages_to_keep:
             if litellm_messages[0].get('role') == 'system' and len(litellm_messages) > 1:
                 litellm_messages.pop(1)
@@ -353,7 +435,8 @@ class LLMService:
                         if tc.index >= len(tool_calls):
                             tool_calls.extend([{"id": "", "function": {"name": "", "arguments": ""}}] * (tc.index - len(tool_calls) + 1))
                         
-                        if getattr(tc, 'id', None) is not None:
+                        # Solo actualizar el ID si no está vacío y es diferente, o si es la primera vez que se asigna
+                        if getattr(tc, 'id', None) is not None and (not tool_calls[tc.index]["id"] or tool_calls[tc.index]["id"] != tc.id):
                             tool_calls[tc.index]["id"] = tc.id
                         if getattr(tc, 'function', None) is not None:
                             if getattr(tc.function, 'name', None) is not None:
@@ -393,8 +476,8 @@ class LLMService:
         """Resume el historial de conversación actual utilizando el modelo LLM a través de LiteLLM."""
         if not self.conversation_history:
             return None
-
-        summarize_prompt = HumanMessage(content="Por favor, resume la siguiente conversación de manera concisa y detallada, capturando los puntos clave, decisiones tomadas y tareas pendientes. El resumen debe ser útil para retomar la conversación más tarde.")
+ 
+        summarize_prompt = HumanMessage(content="Por favor, resume la siguiente conversación de manera EXHAUSTIVA, DETALLADA y EXTENSA. Captura todos los puntos clave, decisiones tomadas, tareas pendientes y cualquier información relevante que pueda ser útil para retomar la conversación con el contexto completo. El resumen debe ser lo más completo posible y actuar como un reemplazo fiel del historial para la comprensión del LLM en el futuro.")
         
         temp_history_for_summary = self.conversation_history + [summarize_prompt]
 

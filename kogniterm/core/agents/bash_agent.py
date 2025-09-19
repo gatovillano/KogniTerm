@@ -23,7 +23,7 @@ SYSTEM_MESSAGE = SystemMessage(content="""Eres KogniTerm. NO eres un modelo de l
 Si te preguntan quién eres, SIEMPRE responde que eres KogniTerm.
 
 Como KogniTerm, eres un asistente de IA experto en terminal. Además de ser un asistente de comandos y acciones en el sistema, eres un experto en informática, generación de código, depuración y análisis de código, sobre todo Python.
-Tu propósito es ayudar al usuario a realizar tareas directamente en su sistema.
+Tu propósito es ayudar al usuario a realizar tareas directamente en tu sistema.
 
 **Contexto de Directorio:**
 Cada directorio en el que se abre KogniTerm es un espacio de trabajo independiente. Esto significa que cada directorio tiene su propia memoria, historial y bitácoras. Estos directorios de trabajo pueden coincidir con el proyecto en el que el usuario está trabajando con apoyo de KogniTerm. Si el usuario te habla de errores o problemas sin un contexto explícito, debes asumir que se refiere al proyecto actual en el que te encuentras.
@@ -53,8 +53,10 @@ El usuario te está dando permiso para que operes en su sistema. Actúa de forma
 
 class UserConfirmationRequired(Exception):
     """Excepción personalizada para indicar que se requiere confirmación del usuario."""
-    def __init__(self, message: str):
+    def __init__(self, message: str, tool_name: Optional[str] = None, tool_args: Optional[Dict[str, Any]] = None):
         self.message = message
+        self.tool_name = tool_name
+        self.tool_args = tool_args
         super().__init__(self.message)
 
 @dataclass
@@ -99,7 +101,6 @@ from rich.live import Live # Importar Live
 from rich.markdown import Markdown # Importar Markdown
 from rich.padding import Padding # Nueva importación
 from rich.status import Status # ¡Nueva importación!
-
 def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     """
     Maneja la respuesta de confirmación del usuario para una operación de herramienta.
@@ -116,7 +117,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     tool_id = state.tool_call_id_to_confirm # Usar el tool_id guardado
 
     # Asumimos que el ToolMessage de confirmación tiene un formato específico
-    # ej. "Confirmación de usuario: Aprobado para 'escribir en el archivo ...'."
+    # ej. "Confirmación de usuario: Aprobado para 'escribir en el archivo ...'".
     if "Aprobado" in tool_message_content:
         console.print("[bold green]✅ Confirmación de usuario recibida: Aprobado.[/bold green]")
         tool_name = state.tool_pending_confirmation
@@ -182,6 +183,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
 
     # Si hubo tool_calls, el AIMessage ya los contendrá.
+
     if final_ai_message_from_llm and final_ai_message_from_llm.tool_calls:
         # El AIMessage final para el historial debe contener el contenido completo
         # y los tool_calls.
@@ -235,7 +237,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
             state.reset_temporary_state() # Limpiar el estado temporal del agente
             return state # Terminar la ejecución de herramientas y volver al input del usuario
 
-        # --- Añadir logs para la ejecución de herramientas ---
         console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_name}[/yellow]")
         
         tool = llm_service.get_tool(tool_name)
@@ -256,9 +257,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
                 return state # Salir de la ejecución de herramientas, KogniTermApp manejará la confirmación
             except InterruptedError:
                 console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
-                print("DEBUG: execute_tool_node - InterruptedError capturada.", file=sys.stderr)
                 state.reset_temporary_state() # Limpiar el estado temporal del agente
-                print("DEBUG: execute_tool_node - Estado del agente reseteado.", file=sys.stderr)
                 return state # Terminar la ejecución de herramientas y volver al input del usuario
             except Exception as e:
                 tool_output_str = f"Error al ejecutar la herramienta {tool_name}: {e}"
@@ -268,6 +267,42 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
         # Simplemente la mostramos como parte de la salida.
         try:
             json_output = json.loads(tool_output_str)
+            
+            # Imprimir el valor de tool_output_str antes de la línea donde ocurre el error
+            print(f"tool_output_str: {tool_output_str}")
+
+            # Verificar si json_output es una lista o un diccionario
+            is_list_of_dicts = isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output)
+            
+            # Inicializar variables para la lógica de confirmación
+            should_confirm = False
+            confirmation_data = None
+
+            if is_list_of_dicts:
+                for item in json_output:
+                    if item.get("status") == "pending_confirmation" and tool_name == "file_update_tool":
+                        should_confirm = True
+                        confirmation_data = item
+                        break
+            elif isinstance(json_output, dict):
+                if json_output.get("status") == "pending_confirmation" and tool_name == "file_update_tool":
+                    should_confirm = True
+                    confirmation_data = json_output
+
+            if should_confirm and confirmation_data:
+                # Guardar el estado para la confirmación del usuario
+                state.tool_pending_confirmation = tool_name
+                state.tool_args_pending_confirmation = tool_args # Guardar los args originales
+                state.tool_call_id_to_confirm = tool_id
+
+                # Construir el mensaje de confirmación
+                path_info = tool_args.get('path', 'archivo desconocido')
+                diff_info = confirmation_data.get('diff', 'No diff disponible.')
+                confirmation_message = f"Se detectaron cambios para '{path_info}'.\n\nDiff:\n{diff_info}\n\nPor favor, confirma para aplicar (s/n):"
+                
+                # Lanzar una excepción personalizada para que KogniTermApp maneje la confirmación
+                raise UserConfirmationRequired(confirmation_message, tool_name=tool_name, tool_args=tool_args)
+
             remaining_output = tool_output_str # Si es JSON, la salida completa es relevante
         except json.JSONDecodeError:
             # Si no es JSON, aplicamos la heurística para el mensaje descriptivo

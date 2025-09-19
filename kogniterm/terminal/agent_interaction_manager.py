@@ -46,7 +46,7 @@ class AgentInteractionManager:
         final_state_dict = self.bash_agent_app.invoke(self.agent_state)
         
         self.agent_state.messages = final_state_dict['messages']
-        self.llm_service._save_history(self.agent_state.messages)
+        # self.llm_service._save_history(self.agent_state.messages) # Se guarda en KogniTermApp.run()
         self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
         
         return final_state_dict

@@ -59,11 +59,7 @@ class FileUpdateTool(BaseTool):
                 
                 colorized_diff_output = "".join(colorized_diff_lines)
 
-                return json.dumps({
-                    "status": "pending_confirmation",
-                    "message": f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar:",
-                    "diff": colorized_diff_output
-                })
+                return f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar:\n{colorized_diff_output}"
             else:
                 if not os.access(path, os.W_OK):
                     raise PermissionError(f"No se tienen permisos de escritura en el archivo '{path}'.")
