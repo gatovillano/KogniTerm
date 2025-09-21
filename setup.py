@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 # Leer las dependencias de requirements.txt
 with open("kogniterm/requirements.txt", "r", encoding="utf-8") as f:
-    install_requires = f.read().splitlines()
+    install_requires = f.read().splitlines() + ['watchdog']
 
 setuptools.setup(
     name="kogniterm",
@@ -26,7 +26,7 @@ setuptools.setup(
     install_requires=install_requires,
     entry_points={
         'console_scripts': [
-            'kogniterm=kogniterm.main:run_kogniterm',
+            'kogniterm=kogniterm.terminal.terminal:main',
         ],
     },
     include_package_data=True, # Para incluir archivos no Python (como requirements.txt)

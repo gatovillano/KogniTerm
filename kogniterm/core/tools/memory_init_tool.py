@@ -3,12 +3,14 @@ import logging
 from typing import Type, Optional, Any
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
+from kogniterm.core.context.workspace_context import WorkspaceContext
 
 logger = logging.getLogger(__name__)
 
 class MemoryInitTool(BaseTool):
     name: str = "memory_init"
     description: str = "Inicializa la memoria contextual del proyecto creando un archivo 'llm_context.md' si no existe."
+    workspace_context: Optional[WorkspaceContext] = None
 
     class MemoryInitInput(BaseModel):
         file_path: Optional[str] = Field(
@@ -18,8 +20,13 @@ class MemoryInitTool(BaseTool):
 
     args_schema: Type[BaseModel] = MemoryInitInput
 
+    def __init__(self, workspace_context: Optional[WorkspaceContext] = None, **kwargs: Any):
+        super().__init__(**kwargs)
+        self.workspace_context = workspace_context
+
     def _run(self, file_path: str = "llm_context.md") -> str:
-        kogniterm_dir = os.path.join(os.getcwd(), ".kogniterm")
+        base_dir = self.workspace_context.get_working_directory() if self.workspace_context else os.getcwd()
+        kogniterm_dir = os.path.join(base_dir, ".kogniterm")
         os.makedirs(kogniterm_dir, exist_ok=True)
         full_path = os.path.join(kogniterm_dir, file_path)
 

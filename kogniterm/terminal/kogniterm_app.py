@@ -10,13 +10,14 @@ import queue # Importar el módulo queue
 
 from rich.console import Console
 from rich.padding import Padding
+from rich.panel import Panel
 
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState, UserConfirmationRequired
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool
 from kogniterm.core.tools.python_executor import PythonTool # Para manejar la salida de PythonTool
-from langchain_core.messages import ToolMessage, HumanMessage # Para manejar la salida de PythonTool y el mensaje de confirmación
+from langchain_core.messages import ToolMessage, HumanMessage, AIMessage # Para manejar la salida de PythonTool y el mensaje de confirmación
 
 from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
@@ -77,7 +78,8 @@ class FileCompleter(Completer):
 
 
 class KogniTermApp:
-    def __init__(self, auto_approve: bool = False):
+    def __init__(self, llm_service: LLMService, auto_approve: bool = False, project_context: dict = None, workspace_directory: str = None):
+        self.project_context = project_context # Almacenar el contexto del proyecto
         self.auto_approve = auto_approve
         self.console = Console()
         # Inicializar TerminalUI
@@ -86,11 +88,10 @@ class KogniTermApp:
         self.command_executor = CommandExecutor()
         self.interrupt_queue = queue.Queue() # Inicializar la cola de interrupción
 
-        self.llm_service = LLMService(interrupt_queue=self.terminal_ui.get_interrupt_queue())
-        # self.agent_state = AgentState(messages=self.llm_service.conversation_history) # El historial se cargará dinámicamente
+        self.llm_service = llm_service
         # Obtener el directorio de trabajo actual al inicio
-        initial_cwd = os.getcwd()
-        self.llm_service.set_cwd_for_history(initial_cwd)
+        self.workspace_directory = workspace_directory if workspace_directory else os.getcwd()
+        self.llm_service.set_cwd_for_history(self.workspace_directory)
         self.agent_state = AgentState(messages=self.llm_service.conversation_history) # Inicializar con el historial cargado
 
         # Establecer la consola en el servicio LLM para permitir el streaming
@@ -98,7 +99,8 @@ class KogniTermApp:
             self.llm_service.set_console(self.console)
 
         # Inicializar FileCompleter
-        file_operations_tool = FileOperationsTool(llm_service=self.llm_service) # Instanciar FileOperationsTool con llm_service
+        # Asegurarse de que FileOperationsTool tenga acceso al contexto del proyecto si lo necesita
+        file_operations_tool = FileOperationsTool(llm_service=self.llm_service, workspace_context=self.project_context) # Instanciar FileOperationsTool con llm_service
         completer = FileCompleter(file_operations_tool=file_operations_tool, show_indicator=False)
 
 
@@ -129,11 +131,11 @@ class KogniTermApp:
         )
 
         # Inicializar los otros componentes
-        self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui)
+        self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self) # Pasar la instancia de KogniTermApp
         self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui.get_interrupt_queue())
         self.command_approval_handler = CommandApprovalHandler(self.llm_service, self.command_executor, self.prompt_session, self.terminal_ui, self.agent_state)
 
-    def run(self):
+    async def run(self): # Make run() async
         """Runs the main loop of the KogniTerm application."""
         self.terminal_ui.print_welcome_banner()
 
@@ -149,7 +151,7 @@ class KogniTermApp:
                 try:
                     cwd = os.getcwd() # Obtener el CWD actual para el prompt
                     prompt_text = f"({os.path.basename(cwd)}) > " # Eliminado el indicador de modo de agente
-                    user_input = self.prompt_session.prompt(prompt_text)
+                    user_input = await self.prompt_session.prompt_async(prompt_text) # Use prompt_async
 
                     if user_input is None:
                         if not self.terminal_ui.get_interrupt_queue().empty():
@@ -167,7 +169,7 @@ class KogniTermApp:
                     if not user_input.strip():
                         continue
 
-                    if self.meta_command_processor.process_meta_command(user_input):
+                    if self.meta_command_processor.process_meta_command(user_input): # Eliminar await
                         continue
 
                     try:
@@ -209,7 +211,7 @@ class KogniTermApp:
 
                         # Simular la ejecución de un comando para el CommandApprovalHandler
                         dummy_command_to_execute = f"confirm_action('{confirmation_message}')"
-                        approval_result = self.command_approval_handler.handle_command_approval(
+                        approval_result = await self.command_approval_handler.handle_command_approval(
                             dummy_command_to_execute, self.auto_approve, is_user_confirmation=True, confirmation_prompt=confirmation_message
                         )
 
@@ -233,7 +235,7 @@ class KogniTermApp:
                         command_to_execute = self.agent_state.command_to_confirm
                         self.agent_state.command_to_confirm = None # Limpiar después de usar
 
-                        approval_result = self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
+                        approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
                         
                         # Actualizar el estado del agente con los mensajes devueltos por el handler
                         self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService

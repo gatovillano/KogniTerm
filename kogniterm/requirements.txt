@@ -11,3 +11,8 @@ google-generativeai
 jupyter_client
 loguru
 colorama
+gitignore-parser
+watchdog
+litellm
+
+GitPython

@@ -51,38 +51,130 @@ def _to_litellm_message(message):
     else:
         raise ValueError(f"Tipo de mensaje desconocido para LiteLLM: {type(message)}")
 
+def _from_litellm_message(message):
+    """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
+    role = message.get("role")
+    content = message.get("content", "")
+    if role == "user":
+        return HumanMessage(content=content)
+    elif role == "assistant":
+        tool_calls_data = message.get("tool_calls")
+        if tool_calls_data:
+            tool_calls = []
+            for tc in tool_calls_data:
+                args = tc["function"]["arguments"]
+                # Asegurarse de que los argumentos se manejen como un diccionario
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {} # Fallback si no es un JSON válido
+                tool_calls.append({
+                    "id": tc.get("id", str(uuid.uuid4())),
+                    "name": tc["function"]["name"],
+                    "args": args
+                })
+            return AIMessage(content=content, tool_calls=tool_calls)
+        else:
+            return AIMessage(content=content)
+    elif role == "tool":
+        return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
+    elif role == "system":
+        return SystemMessage(content=content)
+    else:
+        raise ValueError(f"Tipo de mensaje desconocido de LiteLLM para LangChain: {role}")
+
 def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
     args_schema = {"type": "object", "properties": {}}
+
+    # Obtener el esquema de argumentos de manera más robusta
     if hasattr(tool, 'args_schema') and tool.args_schema is not None:
-        if hasattr(tool.args_schema, 'schema'):
-            schema_method = getattr(tool.args_schema, 'schema', None)
-            if callable(schema_method):
+        try:
+            # Intentar obtener el esquema usando el método schema() si está disponible
+            if hasattr(tool.args_schema, 'schema') and callable(getattr(tool.args_schema, 'schema', None)):
                 try:
-                    args_schema = schema_method()
-                except Exception as e:
-                    tool_name = getattr(tool, 'name', 'Desconocido')
-                    tool_type = type(tool)
-                    print(f"Advertencia: Error al obtener el esquema de la herramienta '{tool_name}' de tipo '{tool_type}': {e}. Se usará un esquema vacío.", file=sys.stderr)
+                    args_schema = tool.args_schema.schema()
+                except Exception:
+                    # Si falla el método schema(), intentar model_json_schema() para Pydantic v2
+                    if hasattr(tool.args_schema, 'model_json_schema') and callable(getattr(tool.args_schema, 'model_json_schema', None)):
+                        args_schema = tool.args_schema.model_json_schema()
+            # Si args_schema es directamente un dict, usarlo
+            elif isinstance(tool.args_schema, dict):
+                args_schema = tool.args_schema
+            # Si args_schema es una clase Pydantic, intentar obtener su esquema
+            elif hasattr(tool.args_schema, 'model_json_schema'):
+                args_schema = tool.args_schema.model_json_schema()
             else:
-                tool_name = getattr(tool, 'name', 'Desconocido')
-                tool_type = type(tool)
-                print(f"Advertencia: 'args_schema' de la herramienta '{tool_name}' de tipo '{tool_type}' no tiene un método 'schema' invocable. Se usará un esquema vacío.", file=sys.stderr)
-        elif isinstance(tool.args_schema, dict):
-            args_schema = tool.args_schema
-        else:
+                # Fallback: intentar usar model_fields para Pydantic v2
+                if hasattr(tool.args_schema, 'model_fields'):
+                    properties = {}
+                    for field_name, field_info in tool.args_schema.model_fields.items():
+                        # Excluir campos marcados con exclude=True o que no deberían estar en el esquema de argumentos
+                        if not field_info.exclude:
+                            field_type = 'string'  # Tipo por defecto
+                            if hasattr(field_info, 'annotation'):
+                                # Intentar inferir el tipo de la anotación
+                                if field_info.annotation == str:
+                                    field_type = 'string'
+                                elif field_info.annotation == int:
+                                    field_type = 'integer'
+                                elif field_info.annotation == bool:
+                                    field_type = 'boolean'
+                                elif field_info.annotation == list:
+                                    field_type = 'array'
+                                elif field_info.annotation == dict:
+                                    field_type = 'object'
+
+                            properties[field_name] = {
+                                'type': field_type,
+                                'description': field_info.description or f'Parámetro {field_name}'
+                            }
+                    args_schema = {"type": "object", "properties": properties}
+        except Exception as e:
             tool_name = getattr(tool, 'name', 'Desconocido')
             tool_type = type(tool)
-            print(f"Advertencia: La herramienta '{tool_name}' de tipo '{tool_type}' tiene un 'args_schema' de tipo inesperado ({type(tool.args_schema)}). Se usará un esquema vacío.", file=sys.stderr)
+            print(f"Advertencia: Error al obtener el esquema de la herramienta '{tool_name}' de tipo '{tool_type}': {e}. Se usará un esquema vacío.", file=sys.stderr)
+
+    # Si el esquema está vacío pero sabemos que la herramienta necesita argumentos,
+    # intentar inferirlos del método _run o de la documentación
+    if not args_schema.get('properties') and hasattr(tool, 'name'):
+        tool_name = tool.name
+        # Para herramientas conocidas, proporcionar esquemas por defecto
+        if tool_name == 'file_read_tool':
+            args_schema = {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "La ruta del archivo a leer."
+                    }
+                },
+                "required": ["path"]
+            }
+        elif tool_name == 'file_update_tool':
+            args_schema = {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "La ruta del archivo a actualizar."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "El nuevo contenido del archivo."
+                    }
+                },
+                "required": ["path", "content"]
+            }
 
     # Asegurarse de que cada propiedad en args_schema['properties'] tenga un 'type'
     if 'properties' in args_schema:
         for prop_name, prop_details in args_schema['properties'].items():
             if 'type' not in prop_details:
                 # Intentar inferir el tipo o establecer un valor predeterminado
-                # Por ahora, estableceremos 'string' como predeterminado si falta
                 args_schema['properties'][prop_name]['type'] = 'string'
-    
+
     return {
         "type": "function",
         "function": {
@@ -94,7 +186,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
 
 class LLMService:
     """Un servicio para interactuar con el modelo LLM a través de LiteLLM."""
-    def __init__(self, interrupt_queue: Optional[queue.Queue] = None):
+    def __init__(self, interrupt_queue: Optional[queue.Queue] = None, workspace_context=None):
         self.console = None
         self.api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
@@ -123,7 +215,7 @@ class LLMService:
                 configured_model = f"openrouter/{configured_model}"
         self.model_name = configured_model
 
-        self.langchain_tools = get_callable_tools(llm_service_instance=self, interrupt_queue=self.interrupt_queue)
+        self.langchain_tools = get_callable_tools(llm_service_instance=self, interrupt_queue=self.interrupt_queue, workspace_context=workspace_context)
 
         self.litellm_tools = [_convert_langchain_tool_to_litellm(tool) for tool in self.langchain_tools]
 
@@ -314,9 +406,14 @@ class LLMService:
             
             summary = self.summarize_conversation_history()
             if summary:
+                # Limitar la longitud del resumen para evitar que cause más resúmenes
+                max_summary_length = min(2000, self.max_history_chars // 4)  # Máximo 2000 caracteres o 1/4 del límite
+                if len(summary) > max_summary_length:
+                    summary = summary[:max_summary_length] + "... [Resumen truncado para evitar bucles]"
+
                 # Mantener el system message inicial (si existe) y los últimos N mensajes (ej. 5)
                 # para no perder el contexto inmediato.
-                
+
                 # Identificar el system message inicial
                 initial_system_message = None
                 if litellm_messages and litellm_messages[0].get('role') == 'system':
@@ -325,19 +422,23 @@ class LLMService:
                     temp_litellm_messages = litellm_messages[1:]
                 else:
                     temp_litellm_messages = litellm_messages
-                
+
                 # Seleccionar los últimos 5 mensajes (o menos si no hay tantos)
                 messages_to_keep = temp_litellm_messages[-5:] if len(temp_litellm_messages) > 5 else temp_litellm_messages
-                
+
                 # Construir el nuevo historial con el system message original, el resumen y los últimos mensajes
                 new_litellm_messages = []
                 if initial_system_message:
                     new_litellm_messages.append(initial_system_message)
-                
+
                 new_litellm_messages.append({"role": "system", "content": f"Resumen de la conversación anterior: {summary}"})
                 new_litellm_messages.extend(messages_to_keep)
                 litellm_messages = new_litellm_messages
                 
+                # Convertir los mensajes resumidos a formato LangChain y actualizar self.conversation_history
+                self.conversation_history = [_from_litellm_message(msg) for msg in new_litellm_messages]
+                # Guardar el historial actualizado en el archivo
+                self._save_history(self.conversation_history)
                 if self.console:
                     self.console.print("[green]Historial resumido y actualizado.[/green]")
             else:
@@ -347,20 +448,27 @@ class LLMService:
         # Post-procesamiento del historial para eliminar ToolMessages huérfanos
         # Esto es crucial para evitar el error "Missing corresponding tool call" de LiteLLM
         # cuando el resumen elimina el AIMessage que invoca la herramienta.
+        # Solo aplicar esto si el historial no fue resumido, o si fue resumido, pero aún quedan mensajes huérfanos.
+        # Si el historial fue resumido, new_litellm_messages ya debería estar "limpio" en este aspecto.
+        # Este bloque se mantiene para el caso de truncamiento sin resumen.
         processed_litellm_messages = []
         tool_call_ids_in_aimessages = set()
-        for i, msg in enumerate(litellm_messages):
+        
+        # Primero, identificar todos los tool_call_ids válidos de AIMessages
+        for msg in litellm_messages:
             if msg.get('role') == 'assistant' and msg.get('tool_calls'):
                 for tc in msg['tool_calls']:
                     if 'id' in tc:
                         tool_call_ids_in_aimessages.add(tc['id'])
-            
+        
+        # Luego, reconstruir la lista filtrando ToolMessages huérfanos
+        for msg in litellm_messages:
             if msg.get('role') == 'tool':
                 tool_call_id = msg.get('tool_call_id')
                 if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
                     continue # Eliminar ToolMessage huérfano
-            
             processed_litellm_messages.append(msg)
+        
         litellm_messages = processed_litellm_messages
 
         # Truncamiento estándar si aún es necesario después del resumen
@@ -429,7 +537,6 @@ class LLMService:
                 
                 tool_calls_from_delta = getattr(delta, 'tool_calls', None)
                 if tool_calls_from_delta is not None:
-                    print(f"DEBUG: Tool calls from delta: {tool_calls_from_delta}", file=sys.stderr)
                     # Acumular tool_calls, no emitir AIMessage aquí
                     for tc in tool_calls_from_delta:
                         if tc.index >= len(tool_calls):
@@ -476,10 +583,33 @@ class LLMService:
         """Resume el historial de conversación actual utilizando el modelo LLM a través de LiteLLM."""
         if not self.conversation_history:
             return None
- 
-        summarize_prompt = HumanMessage(content="Por favor, resume la siguiente conversación de manera EXHAUSTIVA, DETALLADA y EXTENSA. Captura todos los puntos clave, decisiones tomadas, tareas pendientes y cualquier información relevante que pueda ser útil para retomar la conversación con el contexto completo. El resumen debe ser lo más completo posible y actuar como un reemplazo fiel del historial para la comprensión del LLM en el futuro.")
         
-        temp_history_for_summary = self.conversation_history + [summarize_prompt]
+        # Convertir el historial a mensajes de LiteLLM para aplicar la lógica de filtrado
+        litellm_history_for_summary = [_to_litellm_message(msg) for msg in self.conversation_history]
+
+        # Aplicar la lógica de post-procesamiento para eliminar ToolMessages huérfanos
+        processed_litellm_history = []
+        tool_call_ids_in_aimessages = set()
+        
+        for msg in litellm_history_for_summary:
+            if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                for tc in msg['tool_calls']:
+                    if 'id' in tc:
+                        tool_call_ids_in_aimessages.add(tc['id'])
+        
+        for msg in litellm_history_for_summary:
+            if msg.get('role') == 'tool':
+                tool_call_id = msg.get('tool_call_id')
+                if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
+                    continue
+            processed_litellm_history.append(msg)
+        
+        # Convertir de nuevo a mensajes de LangChain para añadir el summarize_prompt
+        langchain_processed_history = [_from_litellm_message(msg) for msg in processed_litellm_history]
+
+        summarize_prompt = HumanMessage(content="Por favor, resume la siguiente conversación de manera CONCISA pero COMPLETA. Captura los puntos clave, decisiones tomadas, tareas pendientes y contexto esencial. Limita el resumen a máximo 1500 caracteres para evitar problemas de longitud. Sé específico pero económico con las palabras.")
+        
+        temp_history_for_summary = langchain_processed_history + [summarize_prompt]
 
         try:
             litellm_messages_for_summary = [_to_litellm_message(msg) for msg in temp_history_for_summary]
@@ -503,15 +633,33 @@ class LLMService:
             )
             
             # Asegurarse de que la respuesta no sea un generador inesperado y tenga el atributo 'choices'
-            if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
-                # Acceder directamente al atributo 'choices' una vez que se ha verificado su existencia
-                choices = response.choices
-                if isinstance(choices, list) and len(choices) > 0:
-                    first_choice = choices[0]
-                    # Verificar si 'message' es un atributo y si tiene 'content'
-                    if hasattr(first_choice, 'message') and hasattr(first_choice.message, 'content'):
-                        summary_text = first_choice.message.content
-                        return summary_text
+            try:
+                choices = getattr(response, 'choices', None)
+                if choices is not None:
+                    # Convertir a lista si es iterable
+                    if hasattr(choices, '__iter__'):
+                        try:
+                            choices_list = list(choices)
+                            if choices_list and len(choices_list) > 0:
+                                first_choice = choices_list[0]
+                                message = getattr(first_choice, 'message', None)
+                                if message is not None:
+                                    content = getattr(message, 'content', None)
+                                    if content is not None:
+                                        return str(content)
+                        except (TypeError, AttributeError, IndexError):
+                            pass
+                    else:
+                        # Si no es iterable, intentar acceso directo
+                        if hasattr(choices, '__getitem__') and len(choices) > 0:
+                            first_choice = choices[0]
+                            message = getattr(first_choice, 'message', None)
+                            if message is not None:
+                                content = getattr(message, 'content', None)
+                                if content is not None:
+                                    return str(content)
+            except Exception:
+                pass
             return None
         except Exception as e:
             import traceback

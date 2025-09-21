@@ -34,7 +34,6 @@ ALL_TOOLS_CLASSES = [
     FileCreateTool,
     FileDeleteTool,
     FileReadDirectoryTool,
-    FileReadRecursiveDirectoryTool,
     FileReadTool,
     FileUpdateTool,
     FileOperationsTool # Añadir FileOperationsTool
@@ -43,7 +42,9 @@ ALL_TOOLS_CLASSES = [
 import queue
 from typing import Optional
 
-def get_callable_tools(llm_service_instance=None, interrupt_queue: Optional[queue.Queue] = None):
+from pydantic import BaseModel # Importar BaseModel
+
+def get_callable_tools(llm_service_instance=None, interrupt_queue: Optional[queue.Queue] = None, workspace_context=None):
     # Instanciar las herramientas, pasando llm_service_instance si es necesario
     tools = []
     for ToolClass in ALL_TOOLS_CLASSES:
@@ -56,5 +57,16 @@ def get_callable_tools(llm_service_instance=None, interrupt_queue: Optional[queu
                 tool_kwargs['llm_service_instance'] = llm_service_instance
             if 'interrupt_queue' in init_signature: # Pasar interrupt_queue si la herramienta lo acepta
                 tool_kwargs['interrupt_queue'] = interrupt_queue
+        
+        # Nueva lógica para manejar campos Pydantic como workspace_context
+        # Verificar si la clase de la herramienta es una subclase de BaseModel
+        # y si 'workspace_context' es un campo definido en ella.
+        if issubclass(ToolClass, BaseModel) and 'workspace_context' in ToolClass.model_fields: # Usar model_fields para Pydantic v2
+            # Solo pasar workspace_context si no es None
+            if workspace_context is not None:
+                tool_kwargs['workspace_context'] = workspace_context
+            # else:
+                # Si workspace_context es None, no lo pasamos para evitar el error de validación
+                # La herramienta deberá manejar la ausencia de workspace_context si es opcional
         tools.append(ToolClass(**tool_kwargs))
     return tools

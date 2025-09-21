@@ -5,6 +5,8 @@ import sys
 from jupyter_client import KernelManager
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
+from typing import Optional, Any
+from kogniterm.core.context.workspace_context import WorkspaceContext
 
 class KogniTermKernel:
     def __init__(self):
@@ -96,11 +98,13 @@ class PythonTool(BaseTool):
     description: str = "Ejecuta código Python utilizando un kernel de Jupyter. Mantiene el estado entre ejecuciones."
     args_schema: type[BaseModel] = PythonToolArgs
     last_structured_output: dict = None
+    workspace_context: Optional[WorkspaceContext] = None
     # El atributo auto_approve se eliminará de la herramienta, ya que la lógica de confirmación
     # se manejará en el grafo del agente.
 
-    def __init__(self, **kwargs):
+    def __init__(self, workspace_context: Optional[WorkspaceContext] = None, **kwargs: Any):
         super().__init__(**kwargs)
+        self.workspace_context = workspace_context
         self._kernel = KogniTermKernel()
         self._kernel.start_kernel()
 

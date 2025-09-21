@@ -44,6 +44,8 @@ La herramienta `execute_command` se encarga de la interactividad y la seguridad 
 La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
 La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código. PRIORIZA utilizar codigo python para tus tareas. 
 
+**Al editar archivos, SIEMPRE debes usar la herramienta `file_update_tool`. Asegúrate de establecer `confirm=True` y de incluir el `diff` de los cambios propuestos en el argumento `content` para que el usuario pueda revisarlos antes de la aplicación.**
+
 Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
 
 El usuario te está dando permiso para que operes en su sistema. Actúa de forma proactiva para completar sus peticiones.
@@ -378,3 +380,4 @@ def create_bash_agent(llm_service: LLMService, interrupt_queue: Optional[queue.Q
     bash_agent_graph.add_edge("execute_tool", "call_model")
 
     return bash_agent_graph.compile()
+
