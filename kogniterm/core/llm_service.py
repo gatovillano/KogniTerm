@@ -309,11 +309,16 @@ class LLMService:
         if hasattr(self.workspace_context, 'git_interaction_module') and self.workspace_context.git_interaction_module:
             try:
                 git_status_raw = self.workspace_context.git_interaction_module.update_git_status()
-                git_status: str = ""
+                git_status: str = "" # Initialize as empty string
+
                 if isinstance(git_status_raw, str):
                     git_status = git_status_raw
+                elif isinstance(git_status_raw, list): # Handle case where it's a list of strings
+                    # Join list items into a single string, assuming items are strings
+                    git_status = "\n".join([str(item) for item in git_status_raw])
+                # If it's neither str nor list, git_status remains ""
 
-                if git_status:
+                if git_status: # This check now safely operates on a string
                     # git_status puede ser muy verboso, vamos a resumirlo a las primeras X líneas
                     lines = git_status.strip().split('\n')
                     if len(lines) > 10:
