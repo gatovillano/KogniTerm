@@ -308,7 +308,11 @@ class LLMService:
         # 4. Estado de Git
         if hasattr(self.workspace_context, 'git_interaction_module') and self.workspace_context.git_interaction_module:
             try:
-                git_status = self.workspace_context.git_interaction_module.update_git_status()
+                git_status_raw = self.workspace_context.git_interaction_module.update_git_status()
+                git_status: str = ""
+                if isinstance(git_status_raw, str):
+                    git_status = git_status_raw
+
                 if git_status:
                     # git_status puede ser muy verboso, vamos a resumirlo a las primeras X líneas
                     lines = git_status.strip().split('\n')
