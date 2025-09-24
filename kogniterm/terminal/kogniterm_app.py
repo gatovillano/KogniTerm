@@ -6,7 +6,12 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
-import queue # Importar el módulo queue
+import queue
+import threading # Nueva importación para el FileCompleter
+import concurrent.futures # Nueva importación para el FileCompleter
+import asyncio # Nueva importación para el FileCompleter
+from typing import Optional, List # Nuevas importaciones para el FileCompleter
+import fnmatch # Nueva importación para el FileCompleter
 
 from rich.console import Console
 from rich.padding import Padding
@@ -16,20 +21,103 @@ from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState, UserConfirmationRequired
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool
-from kogniterm.core.tools.python_executor import PythonTool # Para manejar la salida de PythonTool
-from langchain_core.messages import ToolMessage, HumanMessage, AIMessage # Para manejar la salida de PythonTool y el mensaje de confirmación
+from kogniterm.core.tools.python_executor import PythonTool
+from langchain_core.messages import ToolMessage, HumanMessage, AIMessage
 
 from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
 from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
 from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+from kogniterm.core.context.file_system_watcher import FileSystemWatcher # Nueva importación para el FileCompleter
 
 load_dotenv()
 
 class FileCompleter(Completer):
-    def __init__(self, file_operations_tool, show_indicator: bool = True):
+    EXCLUDE_PATTERNS = [
+        "build/", "venv/", ".git/", "__pycache__/", "kogniterm.egg-info/", "src/",
+        "*.pyc", "*.tmp", "*.log", ".env", ".DS_Store", "*.swp", "*.bak", "*.old", "*.fuse_hidden*",
+        "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", ".pytest_cache/",
+        "docs/", "examples/", "tests/", # Comentar si se quieren incluir estos directorios
+    ]
+
+    def __init__(self, file_operations_tool: FileOperationsTool, workspace_directory: str, show_indicator: bool = True):
         self.file_operations_tool = file_operations_tool
+        self.workspace_directory = workspace_directory
         self.show_indicator = show_indicator
+        self._cached_files: Optional[List[str]] = None
+        self.cache_lock = threading.Lock()
+        self._loading_future: Optional[concurrent.futures.Future] = None
+        self._loop = asyncio.get_event_loop() # Asumimos que hay un loop de asyncio corriendo
+        self._watcher: Optional[FileSystemWatcher] = None
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) # Ejecutor para tareas de IO
+
+        self._start_watcher()
+        self._start_background_load_files() # Iniciar la carga inicial en segundo plano
+
+    def _start_watcher(self):
+        """Inicia el observador del sistema de archivos para invalidar la caché."""
+        if self._watcher:
+            self._watcher.stop()
+        self._watcher = FileSystemWatcher(self.workspace_directory, self._on_file_system_event, ignore_patterns=self.EXCLUDE_PATTERNS)
+        self._watcher.start()
+        # console.print(f"[dim]Observando {self.workspace_directory} para autocompletado.[/dim]")
+
+    def _on_file_system_event(self, event_type: str, path: str):
+        """Callback llamado por el FileSystemWatcher cuando ocurre un evento."""
+        # console.print(f"[dim]Evento FS: {event_type} en {path}. Invalidando caché.[/dim]")
+        self.invalidate_cache()
+
+    def invalidate_cache(self):
+        """Invalida la caché de archivos, forzando una recarga la próxima vez que se necesite."""
+        with self.cache_lock:
+            self._cached_files = None
+            # print("Caché de autocompletado invalidada.") # Solo para depuración
+        # Si no hay una carga en progreso, iniciar una nueva carga.
+        if self._loading_future is None or self._loading_future.done():
+            self._start_background_load_files()
+
+
+    def _start_background_load_files(self):
+        """Inicia la carga de archivos en un hilo secundario."""
+        with self.cache_lock:
+            if self._loading_future is not None and not self._loading_future.done():
+                return # Ya hay una carga en progreso
+
+            # console.print("[dim]Iniciando carga de archivos para autocompletado en segundo plano...[/dim]")
+            self._loading_future = self._loop.run_in_executor(
+                self._executor, # Usar el ThreadPoolExecutor
+                self._do_load_files
+            )
+
+    def _do_load_files(self) -> List[str]:
+        """Realiza la carga real de archivos de forma síncrona en un hilo secundario."""
+        try:
+            # print(f"DEBUG: Ejecutando _do_load_files en hilo: {threading.current_thread().name}")
+            raw_items = self.file_operations_tool._list_directory(
+                path=self.workspace_directory,
+                recursive=True,
+                include_hidden=True, # Permitir incluir archivos ocultos
+                silent_mode=True
+            )
+            
+            all_relative_items = []
+            for item in raw_items.split('\n'):
+                item = item.strip()
+                if item: # Asegurarse de que la línea no esté vacía
+                    # Filtrar por patrones de exclusión
+                    if any(fnmatch.fnmatch(item, pattern) for pattern in self.EXCLUDE_PATTERNS):
+                        continue
+                    all_relative_items.append(item)
+            
+            # console.print(f"[dim]Cargados {len(all_relative_items)} elementos en la caché.[/dim]")
+            with self.cache_lock:
+                self._cached_files = all_relative_items
+            return all_relative_items
+        except Exception as e:
+            print(f"Error al cargar archivos en segundo plano: {e}", file=sys.stderr)
+            with self.cache_lock:
+                self._cached_files = [] # Si hay un error, la caché se vacía
+            return []
 
     def get_completions(self, document, complete_event):
         text_before_cursor = document.text_before_cursor
@@ -39,47 +127,50 @@ class FileCompleter(Completer):
 
         current_input_part = text_before_cursor.split('@')[-1]
         
-        base_path = os.getcwd()
-
-        include_hidden = current_input_part.startswith('.')
-
-        try:
-            EXCLUDE_DIRS = ['build/', 'venv/', '.git/', '__pycache__/', 'kogniterm.egg-info/', 'src/']
-            all_relative_items = self.file_operations_tool._list_directory(
-                path=base_path,
-                recursive=True,
-                include_hidden=include_hidden,
-                silent_mode=not self.show_indicator
-            )
+        # Intentar obtener los archivos de la caché
+        with self.cache_lock:
+            cached_files = self._cached_files
+        
+        if cached_files is None:
+            # Si la caché está vacía, iniciar la carga en segundo plano si no está ya en progreso
+            if self._loading_future is None or self._loading_future.done():
+                self._start_background_load_files()
             
-            suggestions = []
-            for relative_item_path in all_relative_items:
-                # Excluir directorios específicos
-                if any(relative_item_path.startswith(ed) for ed in EXCLUDE_DIRS):
-                    continue
+            # Mientras se carga, podemos ofrecer una sugerencia básica o ninguna
+            if self.show_indicator:
+                yield Completion("(Cargando archivos...)", start_position=-len(current_input_part))
+            return
 
-                absolute_item_path = os.path.join(base_path, relative_item_path)
-                
-                display_item = relative_item_path
-                if os.path.isdir(absolute_item_path):
-                    display_item += '/'
-
-                if current_input_part.lower() in display_item.lower():
-                    suggestions.append(display_item)
+        suggestions = []
+        for relative_item_path in cached_files:
+            # Construir la ruta absoluta para verificar si es un directorio
+            absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
             
-            suggestions.sort()
+            display_item = relative_item_path
+            # Solo añadir '/' si es un directorio real y no un patrón excluido que podría parecer un directorio
+            if os.path.isdir(absolute_item_path) and not display_item.endswith('/'):
+                 display_item += '/'
 
-            for suggestion in suggestions:
-                start_position = -len(current_input_part)
-                yield Completion(suggestion, start_position=start_position)
+            if current_input_part.lower() in display_item.lower():
+                suggestions.append(display_item)
+        
+        suggestions.sort()
 
-        except Exception as e:
-            print(f"Error en FileCompleter: {e}", file=sys.stderr)
+        for suggestion in suggestions:
+            start_position = -len(current_input_part)
+            yield Completion(suggestion, start_position=start_position)
 
+    def dispose(self):
+        """Detiene el FileSystemWatcher y el ThreadPoolExecutor cuando la aplicación se cierra."""
+        if self._watcher:
+            self._watcher.stop()
+            self._watcher.join()
+            # print("FileSystemWatcher detenido.")
+        if self._executor:
+            self._executor.shutdown(wait=True)
+            # print("ThreadPoolExecutor de autocompletado detenido.")
 
 from kogniterm.core.tools.file_update_tool import FileUpdateTool
-
-# ... (otras importaciones)
 
 class KogniTermApp:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor, agent_state: AgentState, auto_approve: bool = False, project_context: dict = None, workspace_directory: str = None):
@@ -87,17 +178,16 @@ class KogniTermApp:
         self.command_executor = command_executor
         self.agent_state = agent_state
         self.terminal_ui = TerminalUI()
-        self.file_update_tool = FileUpdateTool() # Instanciar FileUpdateTool
+        self.file_update_tool = FileUpdateTool()
         self.auto_approve = auto_approve
         self.project_context = project_context
         self.workspace_directory = workspace_directory
-        self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self) # Inicializar meta_command_processor
-        self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui.get_interrupt_queue()) # Inicializar agent_interaction_manager
+        self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
+        self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui.get_interrupt_queue())
 
-        # Inicializar FileCompleter
-        # Asegurarse de que FileOperationsTool tenga acceso al contexto del proyecto si lo necesita
-        file_operations_tool = FileOperationsTool(llm_service=self.llm_service, workspace_context=self.project_context) # Instanciar FileOperationsTool con llm_service
-        completer = FileCompleter(file_operations_tool=file_operations_tool, show_indicator=False)
+        # Inicializar FileCompleter con el workspace_directory
+        file_operations_tool = FileOperationsTool(llm_service=self.llm_service, workspace_context=self.project_context)
+        self.completer = FileCompleter(file_operations_tool=file_operations_tool, workspace_directory=self.workspace_directory, show_indicator=False)
 
 
         # Definir un estilo para el prompt
@@ -105,7 +195,7 @@ class KogniTermApp:
             'prompt': '#aaaaaa',
             'rprompt': '#aaaaaa',
             'output': 'grey',
-            'text': '#808080', # Color gris para el texto del usuario
+            'text': '#808080',
         })
 
         kb_enter = KeyBindings()
@@ -121,9 +211,9 @@ class KogniTermApp:
 
         self.prompt_session = PromptSession(
             history=FileHistory('.gemini_interpreter_history'),
-            completer=completer,
+            completer=self.completer, # Usar la instancia guardada
             style=custom_style,
-            key_bindings=self.terminal_ui.kb # Usar los KeyBindings de TerminalUI
+            key_bindings=self.terminal_ui.kb
         )
 
         self.command_approval_handler = CommandApprovalHandler(self.llm_service, self.command_executor, self.prompt_session, self.terminal_ui, self.agent_state, self.file_update_tool)
@@ -301,8 +391,11 @@ class KogniTermApp:
                     self.terminal_ui.print_message(f"Ocurrió un error inesperado: {e}", style="red")
                     import traceback
                     traceback.print_exc()
-                    break # Salir del bucle en caso de error inesperado
-        finally: # Mover finally para que englobe todo el método run()
+                    break
+        finally:
             # Asegurarse de que el historial se guarde siempre al salir de la aplicación
-            self.llm_service._save_history(self.llm_service.conversation_history) # Guardar el historial del LLMService
+            self.llm_service._save_history(self.llm_service.conversation_history)
             self.terminal_ui.print_message("Historial guardado al salir.", style="dim")
+            # Asegurarse de que el FileCompleter se limpie al salir
+            if self.completer:
+                self.completer.dispose()
