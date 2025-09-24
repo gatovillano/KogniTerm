@@ -323,9 +323,9 @@ class LLMService:
             return SystemMessage(content=full_context_message_content)
         return None
 
-    def _format_folder_structure_summary(self, node: Union[FolderStructure, FileNode, DirectoryNode], max_depth: int = 2, current_depth: int = 0, indent: int = 2) -> str:
+    def _format_folder_structure_summary(self, node: Union[FileNode, DirectoryNode], max_depth: int = 2, current_depth: int = 0, indent: int = 2) -> str:
         """
-        Formatea una estructura de carpetas (objeto FolderStructure) de manera concisa para el LLM.
+        Formatea una estructura de carpetas (objeto DirectoryNode o FileNode) de manera concisa para el LLM.
         Se detiene en max_depth para evitar mensajes excesivamente largos.
         """
         if current_depth > max_depth:
@@ -334,22 +334,15 @@ class LLMService:
         lines = []
         prefix = " " * (current_depth * indent)
 
-        if isinstance(node, DirectoryNode):
-            lines.append(f"{prefix}📁 {node.name}/")
+        if node['type'] == 'directory':
+            lines.append(f"{prefix}📁 {node['name']}/")
             if current_depth < max_depth:
-                for child in node.children:
+                for child in node['children']:
                     child_str = self._format_folder_structure_summary(child, max_depth, current_depth + 1, indent)
                     if child_str:
                         lines.append(child_str)
-        elif isinstance(node, FileNode):
-            lines.append(f"{prefix}📄 {node.name}")
-        elif isinstance(node, FolderStructure): # Asumimos que la raíz es FolderStructure
-            lines.append(f"{prefix}📁 {node.name}/") # FolderStructure también tiene un nombre de raíz
-            if current_depth < max_depth:
-                for child in node.children:
-                    child_str = self._format_folder_structure_summary(child, max_depth, current_depth + 1, indent)
-                    if child_str:
-                        lines.append(child_str)
+        elif node['type'] == 'file':
+            lines.append(f"{prefix}📄 {node['name']}")
 
         return "\n".join(filter(None, lines))
 

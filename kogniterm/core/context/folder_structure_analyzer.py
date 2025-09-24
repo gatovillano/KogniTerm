@@ -3,11 +3,20 @@ import pathlib
 import fnmatch
 from typing import List, Literal, TypedDict, Union
 
-class FolderStructure(TypedDict):
+class FileNode(TypedDict):
     name: str
-    type: Literal['file', 'directory']
+    type: Literal['file']
     path: str
-    children: List['FolderStructure']
+    children: List[Any] # Files have no children, but included for structural consistency
+
+class DirectoryNode(TypedDict):
+    name: str
+    type: Literal['directory']
+    path: str
+    children: List[Union['FileNode', 'DirectoryNode']]
+
+# The root FolderStructure is always a directory
+FolderStructure = DirectoryNode
 
 class FolderStructureAnalyzer:
     def __init__(self, directory: str, ignore_patterns: List[str] = None):
@@ -29,7 +38,7 @@ class FolderStructureAnalyzer:
                     return True
             return False
 
-        def _traverse_directory(current_path: pathlib.Path) -> FolderStructure:
+        def _traverse_directory(current_path: pathlib.Path) -> Union[FileNode, DirectoryNode, None]:
             name = current_path.name
             full_path = str(current_path)
 
@@ -37,59 +46,63 @@ class FolderStructureAnalyzer:
                 return None
 
             if current_path.is_file():
-                return {
-                    'name': name,
-                    'type': 'file',
-                    'path': full_path,
-                    'children': []
-                }
+                return FileNode(
+                    name=name,
+                    type='file',
+                    path=full_path,
+                    children=[] # Files have no children
+                )
             elif current_path.is_dir():
                 children = []
                 for item in current_path.iterdir():
                     child_structure = _traverse_directory(item)
                     if child_structure:
                         children.append(child_structure)
-                return {
-                    'name': name,
-                    'type': 'directory',
-                    'path': full_path,
-                    'children': children
-                }
+                return DirectoryNode(
+                    name=name,
+                    type='directory',
+                    path=full_path,
+                    children=children
+                )
             return None
 
         root_structure = _traverse_directory(base_path)
-        if root_structure is None:
-            return {
-                'name': base_path.name,
-                'type': 'directory',
-                'path': str(base_path),
-                'children': []
-            }
+        if root_structure is None or root_structure['type'] == 'file': # A folder structure must have a directory root
+            # If the root_structure is None (e.g., only ignored files in root) or a file,
+            # return an empty directory structure for the base_path
+            return DirectoryNode(
+                name=base_path.name,
+                type='directory',
+                path=str(base_path),
+                children=[]
+            )
         return root_structure
     
-    def _find_node(self, path: str, node: FolderStructure = None) -> Union[FolderStructure, None]:
+    def _find_node(self, path: str, node: Union[FileNode, DirectoryNode] = None) -> Union[FileNode, DirectoryNode, None]:
         if node is None:
-            node = self.structure
+            node = self.structure # self.structure is FolderStructure which is DirectoryNode
         
         if node['path'] == path:
             return node
         
-        for child in node['children']:
-            found = self._find_node(path, child)
-            if found:
-                return found
+        if node['type'] == 'directory': # Only directories have children to traverse
+            for child in node['children']:
+                found = self._find_node(path, child)
+                if found:
+                    return found
         return None
 
-    def _find_parent_node(self, path: str, node: FolderStructure = None) -> Union[FolderStructure, None]:
+    def _find_parent_node(self, path: str, node: DirectoryNode = None) -> Union[DirectoryNode, None]:
         if node is None:
-            node = self.structure
+            node = self.structure # self.structure is FolderStructure which is DirectoryNode
 
         for child in node['children']:
             if child['path'] == path:
                 return node
-            found = self._find_parent_node(path, child)
-            if found:
-                return found
+            if child['type'] == 'directory': # Only recurse into directory children
+                found = self._find_parent_node(path, child)
+                if found:
+                    return found
         return None
 
     def on_created(self, path: str):
@@ -98,12 +111,20 @@ class FolderStructureAnalyzer:
         parent_node = self._find_node(parent_path)
 
         if parent_node and parent_node['type'] == 'directory':
-            new_node: FolderStructure = {
-                'name': p.name,
-                'type': 'directory' if p.is_dir() else 'file',
-                'path': path,
-                'children': []
-            }
+            if p.is_dir():
+                new_node = DirectoryNode(
+                    name=p.name,
+                    type='directory',
+                    path=path,
+                    children=[]
+                )
+            else:
+                new_node = FileNode(
+                    name=p.name,
+                    type='file',
+                    path=path,
+                    children=[]
+                )
             parent_node['children'].append(new_node)
             # Sort children for consistent order
             parent_node['children'].sort(key=lambda x: x['name'])
