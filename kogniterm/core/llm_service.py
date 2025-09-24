@@ -309,14 +309,23 @@ class LLMService:
         if hasattr(self.workspace_context, 'git_interaction_module') and self.workspace_context.git_interaction_module:
             try:
                 git_status_raw = self.workspace_context.git_interaction_module.update_git_status()
-                git_status: str = "" # Initialize as empty string
+                git_status: str = ""
 
-                if isinstance(git_status_raw, str):
-                    git_status = git_status_raw
-                elif isinstance(git_status_raw, list): # Handle case where it's a list of strings
-                    # Join list items into a single string, assuming items are strings
-                    git_status = "\n".join([str(item) for item in git_status_raw])
-                # If it's neither str nor list, git_status remains ""
+                try:
+                    if git_status_raw is None:
+                        git_status = ""
+                    elif isinstance(git_status_raw, str):
+                        git_status = git_status_raw
+                    elif isinstance(git_status_raw, (list, tuple, set)): # Handle common iterables
+                        # Join items into a single string, assuming items are strings or convertible
+                        git_status = "\n".join([str(item) for item in git_status_raw])
+                    else:
+                        # For any other unexpected type, attempt to convert to string
+                        git_status = str(git_status_raw)
+                except Exception as e_convert:
+                    # If conversion itself fails, log and fallback to empty string
+                    print(f"Advertencia: No se pudo convertir el estado de Git a string: {type(git_status_raw).__name__} -> {e_convert}", file=sys.stderr)
+                    git_status = ""
 
                 if git_status: # This check now safely operates on a string
                     # git_status puede ser muy verboso, vamos a resumirlo a las primeras X líneas
