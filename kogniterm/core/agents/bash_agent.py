@@ -55,10 +55,11 @@ El usuario te está dando permiso para que operes en su sistema. Actúa de forma
 
 class UserConfirmationRequired(Exception):
     """Excepción personalizada para indicar que se requiere confirmación del usuario."""
-    def __init__(self, message: str, tool_name: Optional[str] = None, tool_args: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, tool_name: Optional[str] = None, tool_args: Optional[Dict[str, Any]] = None, raw_tool_output: Optional[str] = None):
         self.message = message
         self.tool_name = tool_name
         self.tool_args = tool_args
+        self.raw_tool_output = raw_tool_output # Nuevo campo para la salida cruda de la herramienta
         super().__init__(self.message)
 
 @dataclass
@@ -72,12 +73,14 @@ class AgentState:
     # Nuevos campos para manejar la confirmación de herramientas
     tool_pending_confirmation: Optional[str] = None
     tool_args_pending_confirmation: Optional[Dict[str, Any]] = None
+    file_update_diff_pending_confirmation: Optional[str] = None # Nuevo campo para el diff de file_update_tool
 
     def reset_tool_confirmation(self):
         """Reinicia el estado de la confirmación de herramientas."""
         self.tool_pending_confirmation = None
         self.tool_args_pending_confirmation = None
-        self.tool_call_id_to_confirm = None # Asegurarse de limpiar también este campo
+        # self.tool_call_id_to_confirm = None # Asegurarse de limpiar también este campo - ELIMINADO
+        self.file_update_diff_pending_confirmation = None # Limpiar el diff también
 
     def reset(self):
         """Reinicia completamente el estado del agente."""
@@ -85,11 +88,12 @@ class AgentState:
         self.command_to_confirm = None
         self.tool_call_id_to_confirm = None
         self.reset_tool_confirmation()
+        self.file_update_diff_pending_confirmation = None # Limpiar el diff también
 
     def reset_temporary_state(self):
         """Reinicia los campos de estado temporal del agente, manteniendo el historial de mensajes."""
         self.command_to_confirm = None
-        self.tool_call_id_to_confirm = None
+        # self.tool_call_id_to_confirm = None # ELIMINADO
         self.reset_tool_confirmation()
 
     @property
@@ -196,11 +200,14 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
         # Si la herramienta es 'execute_command', establecemos command_to_confirm
         command_to_execute = None
         tool_call_id = None # Inicializar tool_call_id
-        for tc in final_ai_message_from_llm.tool_calls:
-            if tc['name'] == 'execute_command':
-                command_to_execute = tc['args'].get('command')
-                tool_call_id = tc['id'] # Capturar el tool_call_id
-                break # Asumimos una sola llamada a comando por ahora
+        if final_ai_message_from_llm.tool_calls:
+            # Siempre capturar el tool_call_id del primer tool_call si existe
+            tool_call_id = final_ai_message_from_llm.tool_calls[0]['id']
+
+            for tc in final_ai_message_from_llm.tool_calls:
+                if tc['name'] == 'execute_command':
+                    command_to_execute = tc['args'].get('command')
+                    break # Asumimos una sola llamada a comando por ahora
 
         return {
             "messages": state.messages,
@@ -269,18 +276,11 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
         # Simplemente la mostramos como parte de la salida.
         try:
             json_output = json.loads(tool_output_str)
-            
-            # Imprimir el valor de tool_output_str antes de la línea donde ocurre el error
-            print(f"tool_output_str: {tool_output_str}")
-
-            # Verificar si json_output es una lista o un diccionario
-            is_list_of_dicts = isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output)
-            
             # Inicializar variables para la lógica de confirmación
             should_confirm = False
             confirmation_data = None
 
-            if is_list_of_dicts:
+            if isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output):
                 for item in json_output:
                     if item.get("status") == "pending_confirmation" and tool_name == "file_update_tool":
                         should_confirm = True
@@ -292,19 +292,14 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
                     confirmation_data = json_output
 
             if should_confirm and confirmation_data:
-                # Guardar el estado para la confirmación del usuario
-                state.tool_pending_confirmation = tool_name
-                state.tool_args_pending_confirmation = tool_args # Guardar los args originales
-                state.tool_call_id_to_confirm = tool_id
-
-                # Construir el mensaje de confirmación
-                path_info = tool_args.get('path', 'archivo desconocido')
-                diff_info = confirmation_data.get('diff', 'No diff disponible.')
-                confirmation_message = f"Se detectaron cambios para '{path_info}'.\n\nDiff:\n{diff_info}\n\nPor favor, confirma para aplicar (s/n):"
-                
-                # Lanzar una excepción personalizada para que KogniTermApp maneje la confirmación
-                raise UserConfirmationRequired(confirmation_message, tool_name=tool_name, tool_args=tool_args)
-
+                # Lanzar una excepción personalizada para que KogniTermApp maneje la confirmación de file_update_tool
+                # Pasamos la salida JSON completa en raw_tool_output
+                raise UserConfirmationRequired(
+                    message=f"Confirmación de actualización de archivo requerida para '{tool_args.get('path', 'archivo desconocido')}'.",
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    raw_tool_output=tool_output_str # Pasar el JSON completo aquí
+                )
             remaining_output = tool_output_str # Si es JSON, la salida completa es relevante
         except json.JSONDecodeError:
             # Si no es JSON, aplicamos la heurística para el mensaje descriptivo
@@ -327,11 +322,16 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
         # --- Fin de procesamiento de mensaje descriptivo ---
 
         if tool_name == "execute_command":
-            # Si es execute_command, establecer command_to_confirm y terminar el grafo aquí.
-            # La terminal se encargará de la confirmación y ejecución.
-            state.command_to_confirm = tool_args['command']
-            return state # Esto hará que el grafo termine en este nodo si no hay más tool_calls
+            # Para execute_command, siempre añadimos un ToolMessage.
+            # La confirmación se manejará en KogniTermApp.
+            # El contenido inicial del ToolMessage puede ser una indicación de que el comando está pendiente de confirmación.
+            tool_output_str = f"Comando '{tool_args['command']}' pendiente de confirmación."
+            tool_messages.append(ToolMessage(content=tool_output_str, tool_call_id=tool_id))
+            state.command_to_confirm = tool_args['command'] # Todavía necesitamos esto para KogniTermApp
+            state.tool_call_id_to_confirm = tool_id # Guardar el tool_id para KogniTermApp
+            # No retornamos aquí, permitimos que el bucle continúe y que state.messages.extend(tool_messages) se ejecute.
         else:
+            # ... (lógica existente para otras herramientas) ...
             tool_messages.append(ToolMessage(content=remaining_output, tool_call_id=tool_id))
 
     state.messages.extend(tool_messages)
@@ -380,4 +380,5 @@ def create_bash_agent(llm_service: LLMService, interrupt_queue: Optional[queue.Q
     bash_agent_graph.add_edge("execute_tool", "call_model")
 
     return bash_agent_graph.compile()
+
 
