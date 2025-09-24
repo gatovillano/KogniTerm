@@ -10,12 +10,15 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, System
 from litellm import completion, litellm
 import uuid
 from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor, TimeoutError # Nuevas importaciones
-import threading # Nueva importación
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import threading
+from typing import Union # ¡Nueva importación para Union!
 
 load_dotenv()
 
 from .tools.tool_manager import get_callable_tools
+from .context.workspace_context import WorkspaceContext # Nueva importación
+from .context.folder_structure_analyzer import FolderStructure, FileNode, DirectoryNode # ¡Nuevas importaciones!
 
 def _to_litellm_message(message):
     """Convierte un mensaje de LangChain a un formato compatible con LiteLLM."""
@@ -186,17 +189,17 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
 
 class LLMService:
     """Un servicio para interactuar con el modelo LLM a través de LiteLLM."""
-    def __init__(self, interrupt_queue: Optional[queue.Queue] = None, workspace_context=None):
+    def __init__(self, interrupt_queue: Optional[queue.Queue] = None, workspace_context: Optional[WorkspaceContext] = None): # ¡Modificado! Añadido tipo para workspace_context
         self.console = None
         self.api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             print("Error: Ninguna de las variables de entorno OPENROUTER_API_KEY o GOOGLE_API_KEY está configurada.", file=sys.stderr)
             raise ValueError("Ninguna de las variables de entorno OPENROUTER_API_KEY o GOOGLE_API_KEY está configurada.")
         
-        self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
-        self.tool_executor = ThreadPoolExecutor(max_workers=1) # Ejecutor para herramientas
-        self.active_tool_future = None # Para rastrear la ejecución de la herramienta activa
-        self.tool_execution_lock = threading.Lock() # Para sincronizar el acceso a active_tool_future
+        self.interrupt_queue = interrupt_queue
+        self.tool_executor = ThreadPoolExecutor(max_workers=1)
+        self.active_tool_future = None
+        self.tool_execution_lock = threading.Lock()
 
         litellm_api_base = os.getenv("LITELLM_API_BASE")
         if litellm_api_base:
@@ -208,34 +211,30 @@ class LLMService:
             if not configured_model.startswith("gemini/"):
                 configured_model = f"gemini/{configured_model}"
         else:
-            # Si LITELLM_MODEL está configurado, verificar si ya tiene un prefijo de proveedor
             known_prefixes = ("gemini/", "openai/", "openrouter/", "ollama/", "azure/", "anthropic/", "cohere/", "huggingface/")
             if not configured_model.startswith(known_prefixes):
-                # Si no tiene un prefijo conocido, y el error sugiere OpenRouter, añadirlo.
                 configured_model = f"openrouter/{configured_model}"
         self.model_name = configured_model
 
-        self.langchain_tools = get_callable_tools(llm_service_instance=self, interrupt_queue=self.interrupt_queue, workspace_context=workspace_context)
+        self.workspace_context = workspace_context # ¡Nuevo! Almacenar el contexto del espacio de trabajo
+
+        self.langchain_tools = get_callable_tools(llm_service_instance=self, interrupt_queue=self.interrupt_queue, workspace_context=self.workspace_context) # ¡Modificado! Pasar self.workspace_context
 
         self.litellm_tools = [_convert_langchain_tool_to_litellm(tool) for tool in self.langchain_tools]
 
         self.generation_params = {
             "temperature": 0.4,
-            # "top_p": 0.95, # Descomentar si se desea usar nucleous sampling
-            # "top_k": 40,   # Descomentar si se desea usar top-k sampling
         }
 
         self.call_timestamps = deque()
         self.rate_limit_calls = 10
         self.rate_limit_period = 60
 
-        self.max_history_chars = 120000 # Aumentado para permitir más historial antes de resumir
-        self.max_history_messages = 200 # Aumentado para permitir más mensajes antes de resumir
-        self.stop_generation_flag = False # Bandera para detener la generación
-        self.history_file_path: Optional[str] = None # Se inicializará con set_cwd_for_history
-        self.conversation_history = [] # Inicializar vacío, se cargará con set_cwd_for_history
-
-        # No llamar a _initialize_memory o _load_history aquí, se hará en set_cwd_for_history
+        self.max_history_chars = 120000
+        self.max_history_messages = 200
+        self.stop_generation_flag = False
+        self.history_file_path: Optional[str] = None
+        self.conversation_history = []
 
     def set_console(self, console):
         """Establece la consola para el streaming de salida."""
@@ -253,6 +252,106 @@ class LLMService:
         self.conversation_history = self._load_history() # Cargar historial para el nuevo directorio
         if self.console:
             self.console.print(f"[dim]Historial cargado desde: {self.history_file_path}[/dim]")
+
+    def _build_llm_context_message(self) -> Optional[SystemMessage]:
+        """
+        Construye un SystemMessage con un resumen dinámico del contexto actual del espacio de trabajo.
+        Este mensaje es generado en cada invocación y prepended al historial para el LLM.
+        """
+        if not self.workspace_context:
+            return None
+
+        context_parts = []
+
+        # 1. Información del directorio de trabajo
+        cwd = self.workspace_context.get_working_directory()
+        context_parts.append(f"Tu directorio de trabajo actual es: `{cwd}`\n")
+
+        # 2. Resumen de la estructura de carpetas
+        if hasattr(self.workspace_context, 'folder_structure_analyzer') and self.workspace_context.folder_structure_analyzer:
+            try:
+                # Obtener la estructura del directorio actual (o un resumen)
+                # Max depth de 2 para mantenerlo conciso.
+                folder_structure_root = self.workspace_context.folder_structure_analyzer.get_folder_structure(cwd)
+                if folder_structure_root:
+                    structure_str = self._format_folder_structure_summary(folder_structure_root)
+                    if structure_str:
+                        context_parts.append(f"Resumen de la estructura de carpetas (raíz y hasta 2 niveles de profundidad):\n```\n{structure_str}\n```\n")
+            except Exception as e:
+                print(f"Advertencia: No se pudo obtener la estructura de carpetas para el contexto del LLM: {e}", file=sys.stderr)
+
+        # 3. Resumen de archivos de configuración
+        if hasattr(self.workspace_context, 'config_file_analyzer') and self.workspace_context.config_file_analyzer:
+            try:
+                # Forzar un re-análisis para tener los datos más recientes
+                self.workspace_context.config_file_analyzer.find_and_parse_config_files(cwd)
+                config_files_data = self.workspace_context.config_file_analyzer.config_files
+                
+                relevant_configs = {}
+                for file_name, data in config_files_data.items():
+                    if data: # Solo incluir si hay datos parseados
+                        # Para evitar enviar JSONs gigantes, podemos resumir
+                        if file_name == "package.json" and data.get("dependencies"):
+                            data = {k:v for k,v in data.items() if k not in ["devDependencies", "optionalDependencies"]}
+                            data["dependencies_count"] = len(data.get("dependencies", {}))
+                            if "dependencies" in data: del data["dependencies"]
+                        
+                        relevant_configs[file_name] = data
+
+                if relevant_configs:
+                    config_summary = "\n".join([f"- {name}: {json.dumps(data, indent=2, ensure_ascii=False)}" for name, data in relevant_configs.items()])
+                    if config_summary:
+                        context_parts.append(f"Archivos de configuración detectados (contenido resumido):\n```json\n{config_summary}\n```\n")
+            except Exception as e:
+                print(f"Advertencia: No se pudo obtener el resumen de archivos de configuración para el contexto del LLM: {e}", file=sys.stderr)
+
+        # 4. Estado de Git
+        if hasattr(self.workspace_context, 'git_interaction_module') and self.workspace_context.git_interaction_module:
+            try:
+                git_status = self.workspace_context.git_interaction_module.update_git_status()
+                if git_status:
+                    # git_status puede ser muy verboso, vamos a resumirlo a las primeras X líneas
+                    lines = git_status.strip().split('\n')
+                    if len(lines) > 10:
+                        git_status = "\n".join(lines[:10]) + "\n... (salida de git truncada para brevedad)"
+                    context_parts.append(f"Estado del repositorio Git (cambios locales):\n```\n{git_status}\n```\n")
+            except Exception as e:
+                print(f"Advertencia: No se pudo obtener el estado de Git para el contexto del LLM: {e}", file=sys.stderr)
+        
+        if context_parts:
+            full_context_message_content = "### Contexto Actual del Proyecto:\n\n" + "\n".join(context_parts)
+            return SystemMessage(content=full_context_message_content)
+        return None
+
+    def _format_folder_structure_summary(self, node: Union[FolderStructure, FileNode, DirectoryNode], max_depth: int = 2, current_depth: int = 0, indent: int = 2) -> str:
+        """
+        Formatea una estructura de carpetas (objeto FolderStructure) de manera concisa para el LLM.
+        Se detiene en max_depth para evitar mensajes excesivamente largos.
+        """
+        if current_depth > max_depth:
+            return ""
+
+        lines = []
+        prefix = " " * (current_depth * indent)
+
+        if isinstance(node, DirectoryNode):
+            lines.append(f"{prefix}📁 {node.name}/")
+            if current_depth < max_depth:
+                for child in node.children:
+                    child_str = self._format_folder_structure_summary(child, max_depth, current_depth + 1, indent)
+                    if child_str:
+                        lines.append(child_str)
+        elif isinstance(node, FileNode):
+            lines.append(f"{prefix}📄 {node.name}")
+        elif isinstance(node, FolderStructure): # Asumimos que la raíz es FolderStructure
+            lines.append(f"{prefix}📁 {node.name}/") # FolderStructure también tiene un nombre de raíz
+            if current_depth < max_depth:
+                for child in node.children:
+                    child_str = self._format_folder_structure_summary(child, max_depth, current_depth + 1, indent)
+                    if child_str:
+                        lines.append(child_str)
+
+        return "\n".join(filter(None, lines))
 
     def _initialize_memory(self):
         """Inicializa la memoria si no existe."""
@@ -373,72 +472,77 @@ class LLMService:
 
         self.stop_generation_flag = False
 
-        litellm_messages = [_to_litellm_message(msg) for msg in history]
+        # 1. Construir todos los mensajes de sistema iniciales
+        all_initial_system_messages_for_llm = []
+        if system_message:
+            all_initial_system_messages_for_llm.append({"role": "system", "content": system_message})
+        
+        # Añadir el contexto dinámico del espacio de trabajo si está disponible
+        workspace_context_message = self._build_llm_context_message()
+        if workspace_context_message:
+            all_initial_system_messages_for_llm.append(_to_litellm_message(workspace_context_message))
 
-        filtered_messages = []
-        for msg in litellm_messages:
+        # 2. Convertir el historial de conversación (sin los mensajes de sistema estáticos/dinámicos)
+        litellm_conversation_history = [_to_litellm_message(msg) for msg in history]
+
+        # 3. Filtrar mensajes de asistente vacíos del historial de conversación
+        filtered_conversation_messages = []
+        for msg in litellm_conversation_history:
             is_assistant = msg.get("role") == "assistant"
             has_content = msg.get("content") and str(msg.get("content")).strip()
             has_tool_calls = msg.get("tool_calls")
             if is_assistant and not has_content and not has_tool_calls:
                 continue
-            filtered_messages.append(msg)
-        litellm_messages = filtered_messages
+            filtered_conversation_messages.append(msg)
+        
+        # 4. Combinar todos los mensajes para el LLM
+        litellm_messages = all_initial_system_messages_for_llm + filtered_conversation_messages
 
-        if system_message:
-            litellm_messages.insert(0, {"role": "system", "content": system_message})
+        # 5. Lógica de truncamiento y resumen del historial
+        # Definir un mínimo de mensajes a mantener, que incluya todos los system messages + al menos 1 conversacional
+        min_messages_to_keep_in_conversation = 1 # Mínimo de mensajes conversacionales a intentar mantener
+        
+        # Contar los mensajes actuales en el historial de conversación (excluyendo system messages)
+        current_conversation_messages_count = len(filtered_conversation_messages)
 
-        min_messages_to_keep = 1
-        if len(litellm_messages) > min_messages_to_keep:
-            if litellm_messages[-1].get('role') == 'tool' and len(litellm_messages) > 1:
-                min_messages_to_keep += 2
-            else:
-                min_messages_to_keep += 1
-
-        # Lógica de truncamiento de historial
-        # Nuevo: Intentar resumir el historial si es demasiado largo antes de truncar
-        if (len(litellm_messages) > self.max_history_messages or
-            sum(len(json.dumps(msg)) for msg in litellm_messages) > self.max_history_chars) and \
-           len(litellm_messages) > min_messages_to_keep: # Asegurarse de que haya suficientes mensajes para resumir
+        # Truncamiento/Resumen basado en `filtered_conversation_messages`
+        # La lógica de resumen debe operar sobre `self.conversation_history` (LangChain messages)
+        # y no debe afectar `all_initial_system_messages_for_llm`.
+        
+        # Calculamos la longitud total de `litellm_messages` (incluyendo system messages) para la decisión de resumen/truncamiento
+        total_litellm_messages_length = sum(len(json.dumps(msg, ensure_ascii=False)) for msg in litellm_messages)
+        
+        if (len(filtered_conversation_messages) > self.max_history_messages or
+            total_litellm_messages_length > self.max_history_chars) and \
+           len(filtered_conversation_messages) > min_messages_to_keep_in_conversation:
             
             if self.console:
-                self.console.print("[yellow]El historial es demasiado largo. Intentando resumir...[/yellow]")
+                self.console.print("[yellow]El historial de conversación es demasiado largo. Intentando resumir...[/yellow]")
             
-            summary = self.summarize_conversation_history()
+            summary = self.summarize_conversation_history() # Opera en self.conversation_history
             if summary:
-                # Limitar la longitud del resumen para evitar que cause más resúmenes
-                max_summary_length = min(2000, self.max_history_chars // 4)  # Máximo 2000 caracteres o 1/4 del límite
+                max_summary_length = min(2000, self.max_history_chars // 4)
                 if len(summary) > max_summary_length:
                     summary = summary[:max_summary_length] + "... [Resumen truncado para evitar bucles]"
 
-                # Mantener el system message inicial (si existe) y los últimos N mensajes (ej. 5)
-                # para no perder el contexto inmediato.
-
-                # Identificar el system message inicial
-                initial_system_message = None
-                if litellm_messages and litellm_messages[0].get('role') == 'system':
-                    initial_system_message = litellm_messages[0]
-                    # Eliminar el system message del resto de mensajes para la selección de los últimos
-                    temp_litellm_messages = litellm_messages[1:]
-                else:
-                    temp_litellm_messages = litellm_messages
-
-                # Seleccionar los últimos 5 mensajes (o menos si no hay tantos)
-                messages_to_keep = temp_litellm_messages[-5:] if len(temp_litellm_messages) > 5 else temp_litellm_messages
-
-                # Construir el nuevo historial con el system message original, el resumen y los últimos mensajes
-                new_litellm_messages = []
-                if initial_system_message:
-                    new_litellm_messages.append(initial_system_message)
-
-                new_litellm_messages.append({"role": "system", "content": f"Resumen de la conversación anterior: {summary}"})
-                new_litellm_messages.extend(messages_to_keep)
-                litellm_messages = new_litellm_messages
+                # El nuevo historial de conversación incluirá el resumen y los últimos mensajes relevantes.
+                new_conversation_history_litellm = []
+                new_conversation_history_litellm.append({"role": "system", "content": f"Resumen de la conversación anterior: {summary}"})
                 
-                # Convertir los mensajes resumidos a formato LangChain y actualizar self.conversation_history
-                self.conversation_history = [_from_litellm_message(msg) for msg in new_litellm_messages]
-                # Guardar el historial actualizado en el archivo
-                self._save_history(self.conversation_history)
+                # Seleccionar los últimos 5 mensajes (o menos si no hay tantos) de filtered_conversation_messages
+                messages_to_keep_from_conversation = filtered_conversation_messages[-5:] 
+                new_conversation_history_litellm.extend(messages_to_keep_from_conversation)
+                
+                # Actualizar `litellm_messages` con los system messages iniciales y el nuevo historial resumido
+                litellm_messages = all_initial_system_messages_for_llm + new_conversation_history_litellm
+
+                # Actualizar self.conversation_history para reflejar el resumen (en formato LangChain)
+                # Esto es crucial para futuras llamadas a summarize_conversation_history
+                # Solo guardamos el historial de conversación real, no los mensajes de contexto dinámicos.
+                self.conversation_history = [
+                    _from_litellm_message(msg) for msg in new_conversation_history_litellm
+                ]
+                self._save_history(self.conversation_history) # Guardar el historial de conversación resumido
                 if self.console:
                     self.console.print("[green]Historial resumido y actualizado.[/green]")
             else:
@@ -446,11 +550,7 @@ class LLMService:
                     self.console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento.[/red]")
  
         # Post-procesamiento del historial para eliminar ToolMessages huérfanos
-        # Esto es crucial para evitar el error "Missing corresponding tool call" de LiteLLM
-        # cuando el resumen elimina el AIMessage que invoca la herramienta.
-        # Solo aplicar esto si el historial no fue resumido, o si fue resumido, pero aún quedan mensajes huérfanos.
-        # Si el historial fue resumido, new_litellm_messages ya debería estar "limpio" en este aspecto.
-        # Este bloque se mantiene para el caso de truncamiento sin resumen.
+        # Esto se aplica a `litellm_messages` después del resumen/truncamiento.
         processed_litellm_messages = []
         tool_call_ids_in_aimessages = set()
         
@@ -472,24 +572,29 @@ class LLMService:
         litellm_messages = processed_litellm_messages
 
         # Truncamiento estándar si aún es necesario después del resumen
-        while len(litellm_messages) > self.max_history_messages and len(litellm_messages) > min_messages_to_keep:
-            if litellm_messages[0].get('role') == 'system' and len(litellm_messages) > 1:
-                litellm_messages.pop(1)
-            else:
-                litellm_messages.pop(0)
+        # Ahora, solo truncamos la parte conversacional, manteniendo los system messages iniciales.
+        current_conversational_messages = [msg for msg in litellm_messages if msg.get('role') != 'system']
+        num_system_messages = len(all_initial_system_messages_for_llm)
 
-        current_chars = sum(len(json.dumps(msg)) for msg in litellm_messages)
-        while current_chars > self.max_history_chars and len(litellm_messages) > min_messages_to_keep:
-            if litellm_messages[0].get('role') == 'system' and len(litellm_messages) > 1:
-                removed_msg = litellm_messages.pop(1)
+        while (len(current_conversational_messages) > self.max_history_messages or
+               sum(len(json.dumps(msg, ensure_ascii=False)) for msg in litellm_messages) > self.max_history_chars) and \
+              len(current_conversational_messages) > min_messages_to_keep_in_conversation:
+            
+            # Remove from the oldest conversational messages
+            if current_conversational_messages:
+                removed_msg = current_conversational_messages.pop(0)
+                # Recalculate total length for the next iteration
+                litellm_messages = all_initial_system_messages_for_llm + current_conversational_messages
             else:
-                removed_msg = litellm_messages.pop(0)
-            current_chars -= len(json.dumps(removed_msg))
+                break # No conversational messages left to truncate
 
+        # Reconstruct litellm_messages with the truncated conversational part
+        litellm_messages = all_initial_system_messages_for_llm + current_conversational_messages
+        
         try:
             completion_kwargs = {
                 "model": self.model_name,
-                "messages": litellm_messages,
+                "messages": litellm_messages, # Usar el historial final procesado
                 "tools": self.litellm_tools,
                 "stream": True,
                 "api_key": self.api_key,
