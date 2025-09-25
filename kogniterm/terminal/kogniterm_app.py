@@ -5,7 +5,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.styles import Style
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings # Importar merge_key_bindings
 import queue
 import threading # Nueva importación para el FileCompleter
 import concurrent.futures # Nueva importación para el FileCompleter
@@ -29,6 +29,7 @@ from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
 from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
 from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
 from kogniterm.core.context.file_system_watcher import FileSystemWatcher # Nueva importación para el FileCompleter
+from kogniterm.core.context.workspace_context import WorkspaceContext # Importar WorkspaceContext
 
 load_dotenv()
 
@@ -101,7 +102,7 @@ class FileCompleter(Completer):
             )
             
             all_relative_items = []
-            for item in raw_items.split('\n'):
+            for item in raw_items: # raw_items ya es una lista de cadenas
                 item = item.strip()
                 if item: # Asegurarse de que la línea no esté vacía
                     # Filtrar por patrones de exclusión
@@ -164,7 +165,7 @@ class FileCompleter(Completer):
         """Detiene el FileSystemWatcher y el ThreadPoolExecutor cuando la aplicación se cierra."""
         if self._watcher:
             self._watcher.stop()
-            self._watcher.join()
+            self._watcher.stop()
             # print("FileSystemWatcher detenido.")
         if self._executor:
             self._executor.shutdown(wait=True)
@@ -173,7 +174,7 @@ class FileCompleter(Completer):
 from kogniterm.core.tools.file_update_tool import FileUpdateTool
 
 class KogniTermApp:
-    def __init__(self, llm_service: LLMService, command_executor: CommandExecutor, agent_state: AgentState, auto_approve: bool = False, project_context: dict = None, workspace_directory: str = None):
+    def __init__(self, llm_service: LLMService, command_executor: CommandExecutor, agent_state: AgentState, auto_approve: bool = False, project_context: WorkspaceContext = None, workspace_directory: str = None):
         self.llm_service = llm_service
         self.command_executor = command_executor
         self.agent_state = agent_state
@@ -184,6 +185,9 @@ class KogniTermApp:
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
         self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui.get_interrupt_queue())
+
+        # Asegurarse de que el interrupt_queue se pase al LLMService
+        self.llm_service.interrupt_queue = self.terminal_ui.get_interrupt_queue() # Añadir esta línea
 
         # Inicializar FileCompleter con el workspace_directory
         file_operations_tool = FileOperationsTool(llm_service=self.llm_service, workspace_context=self.project_context)
@@ -209,14 +213,35 @@ class KogniTermApp:
                     buffer.apply_completion(buffer.complete_state.completions[0])
             buffer.validate_and_handle()
 
+        # Nuevo KeyBindings para la tecla Esc
+        kb_esc = KeyBindings()
+        @kb_esc.add('escape', eager=True)
+        def _(event):
+            # Enviar una señal de interrupción a la cola
+            self.terminal_ui.get_interrupt_queue().put_nowait(True)
+            event.app.exit() # Salir del prompt actual, pero no de la aplicación
+
+        # Combinar los KeyBindings
+        combined_key_bindings = merge_key_bindings([kb_enter, kb_esc, self.terminal_ui.kb]) # Usar merge_key_bindings
+
         self.prompt_session = PromptSession(
             history=FileHistory('.gemini_interpreter_history'),
             completer=self.completer, # Usar la instancia guardada
             style=custom_style,
-            key_bindings=self.terminal_ui.kb
+            key_bindings=combined_key_bindings # Usar los key_bindings combinados
         )
 
         self.command_approval_handler = CommandApprovalHandler(self.llm_service, self.command_executor, self.prompt_session, self.terminal_ui, self.agent_state, self.file_update_tool)
+
+    def update_project_context(self, new_project_context: WorkspaceContext):
+        """Actualiza la instancia de WorkspaceContext de la aplicación y sus dependencias."""
+        self.project_context = new_project_context
+        self.llm_service.workspace_context = new_project_context
+        self.completer.file_operations_tool.workspace_context = new_project_context
+        
+        # Forzar una invalidación de caché en el completer para que recargue los archivos con el nuevo contexto
+        self.completer.invalidate_cache()
+        self.terminal_ui.print_message("Contexto del proyecto actualizado.", style="green")
 
     async def run(self): # Make run() async
         """Runs the main loop of the KogniTerm application."""

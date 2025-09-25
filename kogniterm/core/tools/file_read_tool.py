@@ -28,6 +28,7 @@ class FileReadTool(BaseTool):
             logger.warning("FileReadTool - workspace_context no está inicializado. Leyendo directamente la ruta proporcionada.")
         
         logger.debug(f"FileReadTool - Leyendo archivo resuelto en ruta '{resolved_path}'.")
+        print(f"Leyendo archivo: {resolved_path}") # Mostrar en terminal
         try:
             with open(resolved_path, 'r') as f:
                 file_content = f.read()

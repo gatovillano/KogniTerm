@@ -6,9 +6,10 @@ from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState
 from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from rich.markdown import Markdown
+from kogniterm.core.tools.file_update_tool import FileUpdateTool
 from rich.padding import Padding
 from rich.panel import Panel
+from rich.markdown import Markdown # Importar Markdown
 
 """
 This module contains the CommandApprovalHandler class, responsible for
@@ -17,13 +18,86 @@ managing command approval from the user in the KogniTerm application.
 
 class CommandApprovalHandler:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor,
-                 prompt_session: PromptSession, terminal_ui: TerminalUI, agent_state: AgentState):
+                 prompt_session: PromptSession, terminal_ui: TerminalUI, agent_state: AgentState, file_update_tool: FileUpdateTool):
         self.llm_service = llm_service
         self.command_executor = command_executor
         self.prompt_session = prompt_session
         self.terminal_ui = terminal_ui
         self.agent_state = agent_state
         self.interrupt_queue = terminal_ui.get_interrupt_queue() # Obtener la cola de interrupción de TerminalUI
+        self.file_update_tool = file_update_tool
+
+    async def handle_file_update_confirmation(self, diff_json_str: str, original_tool_call: dict) -> dict:
+        """
+        Handles the approval process for a file update operation, displaying the diff and requesting confirmation.
+        Returns a dictionary with the tool message content and an 'approved' flag.
+        """
+        try:
+            diff_data = json.loads(diff_json_str)
+            diff_content = diff_data.get("diff", "")
+            file_path = diff_data.get("path", "archivo desconocido")
+            message = diff_data.get("message", f"Se detectaron cambios para '{file_path}'. Por favor, confirma para aplicar.")
+            new_content = original_tool_call.get("args", {}).get("content", "")
+
+            # Preparar el diff para mostrarlo con colores
+            colored_diff_lines = []
+            for line in diff_content.splitlines():
+                if line.startswith('+'):
+                    colored_diff_lines.append(f"[green]{line}[/green]")
+                elif line.startswith('-'):
+                    colored_diff_lines.append(f"[red]{line}[/red]")
+                else:
+                    colored_diff_lines.append(line)
+            
+            formatted_diff = "\n".join(colored_diff_lines)
+
+            panel_content_markdown = Markdown(
+                f"""**Actualización de Archivo Requerida:**\n{message}\n\n```diff\n{formatted_diff}\n```\n"""
+            )
+
+            self.terminal_ui.console.print(Padding(Panel(
+                panel_content_markdown,
+                border_style='yellow',
+                title=f'Confirmación de Actualización: {file_path}'
+            ), (1, 2)))
+
+            run_update = False
+            while True:
+                approval_input = await self.prompt_session.prompt_async("¿Deseas aplicar estos cambios? (s/n): ")
+
+                if approval_input is None:
+                    approval_input = "n"
+                else:
+                    approval_input = approval_input.lower().strip()
+
+                if approval_input == 's':
+                    run_update = True
+                    break
+                elif approval_input == 'n':
+                    run_update = False
+                    break
+                else:
+                    self.terminal_ui.print_message("Respuesta no válida. Por favor, responde 's' o 'n'.", style="red")
+
+            tool_message_content = ""
+            if run_update:
+                # Llamar directamente a _apply_update de FileUpdateTool
+                result = self.file_update_tool._apply_update(file_path, new_content)
+                tool_message_content = json.loads(result).get("message", "")
+                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
+            else:
+                tool_message_content = f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
+                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
+            
+            return {"tool_message_content": tool_message_content, "approved": run_update}
+
+        except json.JSONDecodeError:
+            self.terminal_ui.print_message("Error: La salida de la herramienta no es un JSON válido para la confirmación de actualización.", style="red")
+            return {"tool_message_content": "Error al procesar la confirmación de actualización de archivo.", "approved": False}
+        except Exception as e:
+            self.terminal_ui.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
+            return {"tool_message_content": f"Error inesperado: {e}", "approved": False}
+        self.file_update_tool = file_update_tool
 
     async def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
                                 is_user_confirmation: bool = False, confirmation_prompt: Optional[str] = None) -> dict:

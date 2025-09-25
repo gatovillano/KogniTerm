@@ -56,6 +56,8 @@ def _format_text_with_basic_markdown(text: str) -> Text:
 # --- Importar KogniTermApp ---
 from kogniterm.terminal.kogniterm_app import KogniTermApp
 from kogniterm.core.llm_service import LLMService
+from kogniterm.core.command_executor import CommandExecutor # Importar CommandExecutor
+from kogniterm.core.agents.bash_agent import AgentState # Importar AgentState
 from kogniterm.core.tools.file_read_directory_tool import FileReadDirectoryTool
 from kogniterm.core.tools.file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
 from kogniterm.core.context.file_system_watcher import FileSystemWatcher # Importar FileSystemWatcher
@@ -93,7 +95,7 @@ class FileCompleter(Completer):
         self._cached_files = None  # Caché para almacenar la lista de archivos
         self._cache_lock = threading.Lock() # Bloqueo para proteger el acceso a la caché
         self._watcher = None # Se inicializará al iniciar
-        self._start_watcher() # Iniciar el observador al construir la instancia
+        # self._start_watcher() # Eliminar esta línea
 
     def _start_watcher(self):
         # Asegurarse de que el watcher se detenga si ya está corriendo
@@ -102,18 +104,18 @@ class FileCompleter(Completer):
         
         self._watcher = FileSystemWatcher(self.workspace_directory, self._on_file_system_event)
         self._watcher.start()
-        console.print(f"[dim]Observando el directorio para autocompletado: {self.workspace_directory}[/dim]")
+        # console.print(f"[dim]Observando el directorio para autocompletado: {self.workspace_directory}[/dim]") # Eliminar este log
 
     def _on_file_system_event(self, event_type: str, path: str):
         """Callback llamado por el FileSystemWatcher cuando ocurre un evento."""
-        # console.print(f"[dim]Evento del sistema de archivos: {event_type} en {path}. Invalidando caché.[/dim]")
+        # console.print(f"[dim]Evento del sistema de archivos: {event_type} en {path}. Invalidando caché.[/dim]") # Eliminar este log
         self.invalidate_cache()
 
     def invalidate_cache(self):
         """Invalida la caché de archivos, forzando una recarga la próxima vez que se necesite."""
         with self._cache_lock:
             self._cached_files = None
-            # console.print("[dim]Caché de autocompletado invalidada.[/dim]")
+            # console.print("[dim]Caché de autocompletado invalidada.[/dim]") # Eliminar este log
 
     def _load_files_into_cache(self):
         """Carga todos los archivos y directorios relativos al workspace_directory en la caché."""
@@ -121,11 +123,23 @@ class FileCompleter(Completer):
             if self._cached_files is not None:
                 return self._cached_files
 
-            console.print("[dim]Cargando archivos para autocompletado...[/dim]")
-            all_relative_items_str = self.file_read_recursive_directory_tool._run(path=self.workspace_directory)
+            # console.print("[dim]Cargando archivos para autocompletado...[/dim]") # Eliminar este log
+            raw_output = self.file_read_recursive_directory_tool._run(path=self.workspace_directory)
+            
+            # Asegurarse de que raw_output sea una cadena antes de intentar split
+            # Esta lógica ya estaba, pero la haremos más robusta forzando la conversión a str
+            # Asegurarse de que raw_output sea una cadena antes de intentar split
+            # Esta lógica ya estaba, pero la haremos más robusta forzando la conversión a str
+            all_relative_items_str = ""
+            if isinstance(raw_output, list):
+                all_relative_items_str = '\n'.join(raw_output)
+            elif raw_output is not None:
+                all_relative_items_str = str(raw_output)
+            else: # Asegurarse de que siempre sea una cadena, incluso si raw_output es None
+                all_relative_items_str = ""
             
             all_relative_items = []
-            for line in all_relative_items_str.split('\n'):
+            for line in all_relative_items_str.split('\n'): # Aquí ya es seguro llamar a split
                 line = line.strip()
                 if line.startswith('- Archivo: '):
                     all_relative_items.append(line[len('- Archivo: '):])
@@ -133,7 +147,7 @@ class FileCompleter(Completer):
                     all_relative_items.append(line[len('- Directorio: '):].rstrip('/'))
             
             self._cached_files = all_relative_items
-            console.print(f"[dim]Cargados {len(self._cached_files)} elementos en la caché.[/dim]")
+            # console.print(f"[dim]Cargados {len(self._cached_files)} elementos en la caché.[/dim]") # Eliminar este log
             return self._cached_files
 
     def get_completions(self, document, complete_event):
@@ -144,8 +158,12 @@ class FileCompleter(Completer):
 
         current_input_part = text_before_cursor.split('@')[-1]
         
-        # Usar la caché en lugar de llamar a _run cada vez
-        all_relative_items = self._load_files_into_cache()
+        # Asegurarse de que la caché se cargue solo cuando se necesite
+        if self._cached_files is None:
+            self._load_files_into_cache()
+            self._start_watcher() # Iniciar el watcher solo después de la primera carga
+
+        all_relative_items = self._cached_files # Usar la caché
             
         suggestions = []
         for relative_item_path in all_relative_items:
@@ -169,8 +187,7 @@ class FileCompleter(Completer):
         """Detiene el FileSystemWatcher cuando la aplicación se cierra."""
         if self._watcher:
             self._watcher.stop()
-            self._watcher.join()
-            console.print("[dim]FileSystemWatcher detenido.[/dim]")
+            # console.print("[dim]FileSystemWatcher detenido.[/dim]") # Eliminar este log
 
 
 
@@ -183,22 +200,19 @@ async def _main_async():
     # Obtener el directorio de trabajo actual
     workspace_directory = os.getcwd()
 
-    # Inicializar el contexto del proyecto a None. Será inicializado por el meta-comando %init_context
-    project_context = None # Modificado para evitar inicialización automática
+    # Inicializar el contexto del proyecto aquí, antes de crear LLMService
+    project_context = await initializeProjectContext(workspace_directory)
     
-    # Extraer la instancia de WorkspaceContext del diccionario (si project_context no es None)
-    # o usar una instancia vacía de WorkspaceContext como fallback
-    workspace_context_instance = project_context if project_context else WorkspaceContext()
-    # if not workspace_context_instance:
-    #     console.print("[red]Error: No se pudo obtener la instancia de WorkspaceContext.[/red]")
-    #     workspace_context_instance = WorkspaceContext() # Fallback
-
-    llm_service_instance = LLMService(workspace_context=workspace_context_instance)
+    llm_service_instance = LLMService(workspace_context=project_context) # Usar el project_context inicializado
+    command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
+    agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
 
     app = KogniTermApp(
         llm_service=llm_service_instance,
+        command_executor=command_executor_instance, # Pasar la instancia
+        agent_state=agent_state_instance, # Pasar la instancia
         auto_approve=auto_approve,
-        project_context=workspace_context_instance, # Pasar la instancia correcta
+        project_context=project_context, # Pasar la instancia correcta
         workspace_directory=workspace_directory # Pasar el directorio de trabajo
     )
     try:
@@ -210,6 +224,21 @@ async def _main_async():
 
 def main():
     """Función principal síncrona para el punto de entrada de KogniTerm."""
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+    logging.getLogger('kogniterm.core.llm_service').setLevel(logging.INFO)
+    logging.getLogger('kogniterm.core.context.file_system_watcher').setLevel(logging.INFO)
+    logging.getLogger('kogniterm.core.context.workspace_context').setLevel(logging.INFO)
+    logging.getLogger('kogniterm.core.context.ignore_pattern_manager').setLevel(logging.INFO)
+    
+    # Desactivar el logger de litellm por completo
+    litellm_logger = logging.getLogger('litellm')
+    litellm_logger.propagate = False
+    litellm_logger.disabled = True
+    # Eliminar cualquier manejador existente que litellm pueda haber añadido
+    for handler in list(litellm_logger.handlers):
+        litellm_logger.removeHandler(handler)
+    
     asyncio.run(_main_async())
 
 if __name__ == "__main__":

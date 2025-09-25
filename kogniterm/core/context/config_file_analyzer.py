@@ -2,6 +2,10 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, List, Any, TypedDict
+from kogniterm.core.context.file_search_module import findFiles
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Definiciones de tipos para los archivos de configuración
 class PackageJson(TypedDict, total=False):
@@ -90,6 +94,26 @@ class ConfigFileAnalyzer:
             ".eslintrc.json": parseEslintrcJson,
         }
 
+    def find_and_parse_config_files(self, directory: str, ignore_patterns: List[str] = None):
+        """
+        Busca archivos de configuración conocidos en el directorio dado y los parsea.
+        """
+        if ignore_patterns is None:
+            ignore_patterns = []
+
+        for config_file_name in self.config_files.keys():
+            found_files = findFiles(directory, config_file_name, ignore_patterns)
+            if found_files:
+                # Tomar el primer archivo encontrado si hay múltiples (ej. en subdirectorios)
+                file_path = found_files[0]
+                parser = self.parsers.get(config_file_name)
+                if parser:
+                    try:
+                        self.config_files[config_file_name] = parser(file_path)
+                        logger.info(f"Configuración cargada para {config_file_name} desde {file_path}")
+                    except Exception as e:
+                        logger.error(f"Error al parsear {config_file_name} desde {file_path}: {e}")
+
     def is_config_file(self, file_name: str) -> bool:
         return file_name in self.config_files
 
@@ -100,9 +124,9 @@ class ConfigFileAnalyzer:
             if parser:
                 try:
                     self.config_files[file_name] = parser(file_path)
-                    print(f"Configuración recargada para {file_name}")
+                    logger.info(f"Configuración recargada para {file_name}")
                 except Exception as e:
-                    print(f"Error al recargar {file_name}: {e}")
+                    logger.error(f"Error al recargar {file_name}: {e}")
 
 def _read_json_file(file_path: str) -> Dict[str, Any]:
     """Lee y parsea un archivo JSON."""
@@ -142,8 +166,8 @@ def parseEslintrcJson(file_path: str) -> EslintrcJson:
         content = f.read()
 
     # Intento simplificado de extraer una configuración de ESLint de un archivo JS.
-    # Busca un patrón como 'module.exports = { ... }' y extrae el JSON.
-    match = re.search(r'module\.exports\s*=\s*(\{[\s\S]*?\});', content)
+    # Busca un patrón como 'module.exports = { ... }' o 'export default { ... }' y extrae el JSON.
+    match = re.search(r'(?:module\.exports|export default)\s*=\s*(\{[\s\S]*?\});', content)
     if match:
         try:
             # Intentar parsear el string extraído como JSON
@@ -152,12 +176,10 @@ def parseEslintrcJson(file_path: str) -> EslintrcJson:
             # Eliminar posibles comentarios de JS para que sea un JSON válido
             config_str = re.sub(r'//.*?\n|/\*.*?\*/', '', config_str, flags=re.S)
             data = json.loads(config_str)
-            return EslintrcJson(data)
+            return EslintrcJson()
         except json.JSONDecodeError:
-            # Si falla el parseo, se devuelve un objeto vacío o se levanta una excepción.
-            # Para este caso, devolvemos un objeto vacío para una implementación simplificada.
-            print(f"Advertencia: No se pudo parsear el contenido de .eslintrc.js como JSON: {file_path}")
+            logger.warning(f"No se pudo parsear el contenido de .eslintrc.js como JSON: {file_path}")
             return EslintrcJson()
     else:
-        print(f"Advertencia: No se encontró 'module.exports = {{...}}' en {file_path}. Devolviendo objeto vacío.")
+        logger.warning(f"No se encontró 'module.exports = {{...}}' o 'export default {{...}}' en {file_path}. Devolviendo objeto vacío.")
         return EslintrcJson()

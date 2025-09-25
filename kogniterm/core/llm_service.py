@@ -14,6 +14,10 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 from typing import Union # ¡Nueva importación para Union!
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 from .tools.tool_manager import get_callable_tools
@@ -94,18 +98,18 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
     # Obtener el esquema de argumentos de manera más robusta
     if hasattr(tool, 'args_schema') and tool.args_schema is not None:
         try:
-            # Intentar obtener el esquema usando el método schema() si está disponible
-            if hasattr(tool.args_schema, 'schema') and callable(getattr(tool.args_schema, 'schema', None)):
+            # Si args_schema es directamente un dict, usarlo
+            if isinstance(tool.args_schema, dict):
+                args_schema = tool.args_schema
+            # Intentar obtener el esquema usando el método schema() si está disponible (Pydantic v1)
+            elif hasattr(tool.args_schema, 'schema') and callable(getattr(tool.args_schema, 'schema', None)):
                 try:
                     args_schema = tool.args_schema.schema()
                 except Exception:
                     # Si falla el método schema(), intentar model_json_schema() para Pydantic v2
                     if hasattr(tool.args_schema, 'model_json_schema') and callable(getattr(tool.args_schema, 'model_json_schema', None)):
                         args_schema = tool.args_schema.model_json_schema()
-            # Si args_schema es directamente un dict, usarlo
-            elif isinstance(tool.args_schema, dict):
-                args_schema = tool.args_schema
-            # Si args_schema es una clase Pydantic, intentar obtener su esquema
+            # Si args_schema es una clase Pydantic, intentar obtener su esquema (Pydantic v2)
             elif hasattr(tool.args_schema, 'model_json_schema'):
                 args_schema = tool.args_schema.model_json_schema()
             else:
@@ -114,7 +118,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
                     properties = {}
                     for field_name, field_info in tool.args_schema.model_fields.items():
                         # Excluir campos marcados con exclude=True o que no deberían estar en el esquema de argumentos
-                        if not field_info.exclude:
+                        if not getattr(field_info, 'exclude', False): # Usar getattr para manejar 'exclude' opcional
                             field_type = 'string'  # Tipo por defecto
                             if hasattr(field_info, 'annotation'):
                                 # Intentar inferir el tipo de la anotación
@@ -266,79 +270,106 @@ class LLMService:
         # 1. Información del directorio de trabajo
         cwd = self.workspace_context.get_working_directory()
         context_parts.append(f"Tu directorio de trabajo actual es: `{cwd}`\n")
+        logger.debug(f"DEBUG: Directorio de trabajo añadido: {cwd}")
 
         # 2. Resumen de la estructura de carpetas
         if hasattr(self.workspace_context, 'folder_structure_analyzer') and self.workspace_context.folder_structure_analyzer:
             try:
-                # Obtener la estructura del directorio actual (o un resumen)
-                # Max depth de 2 para mantenerlo conciso.
                 folder_structure_root = self.workspace_context.folder_structure_analyzer.get_folder_structure(cwd)
                 if folder_structure_root:
-                    structure_str = self._format_folder_structure_summary(folder_structure_root)
+                    structure_str = self._format_folder_structure_summary(folder_structure_root, max_depth=4) # Aumentar la profundidad
                     if structure_str:
-                        context_parts.append(f"Resumen de la estructura de carpetas (raíz y hasta 2 niveles de profundidad):\n```\n{structure_str}\n```\n")
+                        context_parts.append(f"Resumen de la estructura de carpetas (raíz y hasta 4 niveles de profundidad):\n```\n{structure_str}\n```\n")
+                        logger.debug("DEBUG: Estructura de carpetas añadida.")
+                    else:
+                        logger.debug("DEBUG: Estructura de carpetas vacía después de formatear.")
+                else:
+                    logger.debug("DEBUG: folder_structure_root es None.")
             except Exception as e:
                 print(f"Advertencia: No se pudo obtener la estructura de carpetas para el contexto del LLM: {e}", file=sys.stderr)
+                logger.debug(f"DEBUG: Error al obtener la estructura de carpetas: {e}")
+        else:
+            logger.debug("DEBUG: folder_structure_analyzer no está disponible en workspace_context.")
 
         # 3. Resumen de archivos de configuración
         if hasattr(self.workspace_context, 'config_file_analyzer') and self.workspace_context.config_file_analyzer:
+            logger.debug("DEBUG: config_file_analyzer está disponible.")
             try:
                 # Forzar un re-análisis para tener los datos más recientes
                 self.workspace_context.config_file_analyzer.find_and_parse_config_files(cwd)
                 config_files_data = self.workspace_context.config_file_analyzer.config_files
                 
+                logger.debug(f"DEBUG: Archivos de configuración detectados por analyzer: {config_files_data.keys()}")
+
                 relevant_configs = {}
                 for file_name, data in config_files_data.items():
+                    logger.debug(f"DEBUG: Procesando archivo de configuración: {file_name}, data: {data}")
                     if data: # Solo incluir si hay datos parseados
                         # Para evitar enviar JSONs gigantes, podemos resumir
-                        if file_name == "package.json" and data.get("dependencies"):
+                        if file_name == "package.json" and isinstance(data, dict) and data.get("dependencies"):
                             data = {k:v for k,v in data.items() if k not in ["devDependencies", "optionalDependencies"]}
                             data["dependencies_count"] = len(data.get("dependencies", {}))
                             if "dependencies" in data: del data["dependencies"]
                         
                         relevant_configs[file_name] = data
+                        logger.debug(f"DEBUG: Archivo de configuración '{file_name}' añadido a relevant_configs.")
+                    else:
+                        logger.debug(f"DEBUG: Archivo de configuración '{file_name}' no tiene datos parseados o es vacío.")
 
                 if relevant_configs:
                     config_summary = "\n".join([f"- {name}: {json.dumps(data, indent=2, ensure_ascii=False)}" for name, data in relevant_configs.items()])
                     if config_summary:
                         context_parts.append(f"Archivos de configuración detectados (contenido resumido):\n```json\n{config_summary}\n```\n")
+                        logger.debug("DEBUG: Archivos de configuración añadidos al contexto.")
+                    else:
+                        logger.debug("DEBUG: Resumen de archivos de configuración vacío después de formatear.")
+                else:
+                    logger.debug("DEBUG: No se encontraron archivos de configuración relevantes.")
             except Exception as e:
                 print(f"Advertencia: No se pudo obtener el resumen de archivos de configuración para el contexto del LLM: {e}", file=sys.stderr)
+                logger.debug(f"DEBUG: Error al obtener el resumen de archivos de configuración: {e}")
+        else:
+            logger.debug("DEBUG: config_file_analyzer no está disponible en workspace_context.")
 
         # 4. Estado de Git
         if hasattr(self.workspace_context, 'git_interaction_module') and self.workspace_context.git_interaction_module:
             try:
-                git_status_raw = self.workspace_context.git_interaction_module.update_git_status()
+                git_status_raw = self.workspace_context.git_interaction_module.get_git_status()
                 git_status: str = ""
 
-                try:
-                    if git_status_raw is None:
-                        git_status = ""
-                    elif isinstance(git_status_raw, str):
-                        git_status = git_status_raw
-                    elif isinstance(git_status_raw, (list, tuple, set)): # Handle common iterables
-                        # Join items into a single string, assuming items are strings or convertible
-                        git_status = "\n".join([str(item) for item in git_status_raw])
-                    else:
-                        # For any other unexpected type, attempt to convert to string
-                        git_status = str(git_status_raw)
-                except Exception as e_convert:
-                    # If conversion itself fails, log and fallback to empty string
-                    print(f"Advertencia: No se pudo convertir el estado de Git a string: {type(git_status_raw).__name__} -> {e_convert}", file=sys.stderr)
-                    git_status = ""
+                git_status_lines: list[str] = []
+                if git_status_raw is None:
+                    git_status_lines = []
+                elif isinstance(git_status_raw, str):
+                    git_status_lines = git_status_raw.splitlines()
+                elif isinstance(git_status_raw, (list, tuple, set)):
+                    git_status_lines = [str(item) for item in list(git_status_raw)]
+                else:
+                    git_status_lines = [str(git_status_raw)]
+                
+                git_status = "\n".join(git_status_lines)
 
-                if git_status: # This check now safely operates on a string
-                    # git_status puede ser muy verboso, vamos a resumirlo a las primeras X líneas
+                if git_status:
                     lines = git_status.strip().split('\n')
                     if len(lines) > 10:
                         git_status = "\n".join(lines[:10]) + "\n... (salida de git truncada para brevedad)"
                     context_parts.append(f"Estado del repositorio Git (cambios locales):\n```\n{git_status}\n```\n")
+                    logger.debug("DEBUG: Estado de Git añadido.")
+                else:
+                    logger.debug("DEBUG: Estado de Git vacío.")
             except Exception as e:
                 print(f"Advertencia: No se pudo obtener el estado de Git para el contexto del LLM: {e}", file=sys.stderr)
+                logger.debug(f"DEBUG: Error al obtener el estado de Git: {e}")
+        else:
+            logger.debug("DEBUG: git_interaction_module no está disponible en workspace_context.")
         
         if context_parts:
-            full_context_message_content = "### Contexto Actual del Proyecto:\n\n" + "\n".join(context_parts)
+            full_context_message_content = "### Contexto Actual del Proyecto:\n\n" + \
+                                           "**¡ATENCIÓN!** Ya tienes un resumen COMPLETO de la estructura de carpetas del proyecto. **NO NECESITAS** usar herramientas de exploración de archivos (como `list_directory` o `read_file`) para obtener esta información nuevamente. Consulta el contexto proporcionado aquí. Solo usa esas herramientas si necesitas detalles MUY específicos de un archivo o directorio que no estén cubiertos en este resumen.\n\n" + \
+                                           "Tu directorio de trabajo actual es: `" + cwd + "`\\n" + \
+                                           "\\n".join(context_parts[1:]) # Excluir la primera parte que ya se añadió
             return SystemMessage(content=full_context_message_content)
+        logger.debug("DEBUG: No se construyó ningún contexto para el LLM.")
         return None
 
     def _format_folder_structure_summary(self, node: Union[FileNode, DirectoryNode], max_depth: int = 2, current_depth: int = 0, indent: int = 2) -> str:
@@ -485,14 +516,19 @@ class LLMService:
 
         # 1. Construir todos los mensajes de sistema iniciales
         all_initial_system_messages_for_llm = []
-        if system_message:
-            all_initial_system_messages_for_llm.append({"role": "system", "content": system_message})
         
         # Añadir el contexto dinámico del espacio de trabajo si está disponible
         workspace_context_message = self._build_llm_context_message()
         if workspace_context_message:
             all_initial_system_messages_for_llm.append(_to_litellm_message(workspace_context_message))
 
+        if system_message:
+            # Si ya hay un system_message del workspace_context, concatenar el system_message proporcionado
+            if all_initial_system_messages_for_llm and all_initial_system_messages_for_llm[0]["role"] == "system":
+                all_initial_system_messages_for_llm[0]["content"] += f"\n\n{system_message}"
+            else:
+                all_initial_system_messages_for_llm.append({"role": "system", "content": system_message})
+        
         # 2. Convertir el historial de conversación (sin los mensajes de sistema estáticos/dinámicos)
         litellm_conversation_history = [_to_litellm_message(msg) for msg in history]
 
@@ -508,6 +544,14 @@ class LLMService:
         
         # 4. Combinar todos los mensajes para el LLM
         litellm_messages = all_initial_system_messages_for_llm + filtered_conversation_messages
+
+        # Añadir log de depuración para el system_message final
+        final_system_message_content = ""
+        for msg in all_initial_system_messages_for_llm:
+            if msg["role"] == "system":
+                final_system_message_content += msg["content"]
+        if final_system_message_content:
+            logger.debug(f"System Message final enviado al LLM:\n{final_system_message_content[:1000]}... (truncado para log)")
 
         # 5. Lógica de truncamiento y resumen del historial
         # Definir un mínimo de mensajes a mantener, que incluya todos los system messages + al menos 1 conversacional

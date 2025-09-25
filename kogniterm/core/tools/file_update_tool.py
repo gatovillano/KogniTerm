@@ -21,11 +21,21 @@ class FileUpdateTool(BaseTool):
     class FileUpdateInput(BaseModel):
         path: str = Field(description="La ruta del archivo a actualizar.")
         content: Optional[str] = Field(default=None, description="El nuevo contenido del archivo.")
-        confirm: Optional[bool] = Field(default=False, description="Confirmación para aplicar la actualización.")
 
     args_schema: Type[BaseModel] = FileUpdateInput
 
-    def _run(self, path: str, content: Optional[str] = None, confirm: Optional[bool] = False) -> str:
+    def _apply_update(self, path: str, content: str) -> str:
+        try:
+            if not os.access(path, os.W_OK):
+                raise PermissionError(f"No se tienen permisos de escritura en el archivo '{path}'.")
+            with open(path, 'w') as f:
+                f.write(content)
+            return json.dumps({"status": "success", "path": path, "message": f"Archivo '{path}' actualizado exitosamente."})
+        except Exception as e:
+            logger.error(f"Error al aplicar la actualización en '{path}': {e}", exc_info=True)
+            return json.dumps({"status": "error", "path": path, "message": f"Error al aplicar la actualización: {e}"})
+
+    def _run(self, path: str, content: Optional[str] = None) -> str:
         logger.debug(f"FileUpdateTool - Intentando actualizar archivo en ruta '{path}'")
         try:
             if not os.path.exists(path):
@@ -33,46 +43,28 @@ class FileUpdateTool(BaseTool):
             
             with open(path, 'r') as f:
                 old_content = f.read()
-
+            
             if content is None:
-                return "Error: El contenido no puede ser None para la acción 'update'."
-
-            if not confirm:
-                diff = list(difflib.unified_diff(
-                    old_content.splitlines(keepends=True),
-                    content.splitlines(keepends=True),
-                    fromfile=f'a/{path}',
-                    tofile=f'b/{path}',
-                ))
-                if not diff:
-                    # Este bloque debe estar indentado correctamente
-                    return f"No hay cambios detectados para '{path}'. No se requiere actualización."
-                
-                colorized_diff_lines = []
-                for line in diff:
-                    if line.startswith('-'):
-                        colorized_diff_lines.append(f"{COLOR_RED}{line}{COLOR_RESET}")
-                    elif line.startswith('+'):
-                        colorized_diff_lines.append(f"{COLOR_GREEN}{line}{COLOR_RESET}")
-                    else:
-                        colorized_diff_lines.append(line)
-                
-                colorized_diff_output = "".join(colorized_diff_lines)
-
-                return f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar:\n{colorized_diff_output}"
-            else:
-                if not os.access(path, os.W_OK):
-                    raise PermissionError(f"No se tienen permisos de escritura en el archivo '{path}'.")
-                with open(path, 'w') as f:
-                    f.write(content)
-                return f"Archivo '{path}' actualizado exitosamente."
+                return json.dumps({"status": "error", "path": path, "message": "Error: El contenido no puede ser None para la acción 'update'."})
+            
+            diff = list(difflib.unified_diff(
+                old_content.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f'a/{path}',
+                tofile=f'b/{path}',
+            ))
+            
+            if not diff:
+                return json.dumps({"status": "no_changes", "path": path, "message": f"No hay cambios detectados para '{path}'. No se requiere actualización."})
+            
+            diff_output = "".join(diff)
+            return json.dumps({"status": "requires_confirmation", "path": path, "diff": diff_output, "message": f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar."})
         except FileNotFoundError:
-            return f"Error: El archivo '{path}' no fue encontrado para actualizar."
+            return json.dumps({"status": "error", "path": path, "message": f"Error: El archivo '{path}' no fue encontrado para actualizar."})
         except PermissionError:
-            return f"Error de Permisos: No se tienen los permisos necesarios para actualizar el archivo '{path}'."
+            return json.dumps({"status": "error", "path": path, "message": f"Error de Permisos: No se tienen los permisos necesarios para leer el archivo '{path}'."})
         except Exception as e:
             logger.error(f"Error inesperado en FileUpdateTool al actualizar '{path}': {e}", exc_info=True)
-            return f"Error inesperado en FileUpdateTool: {e}. Por favor, revisa los logs para más detalles."
-
-    async def _arun(self, path: str, content: Optional[str] = None, confirm: Optional[bool] = False) -> str:
-        return await asyncio.to_thread(self._run, path, content, confirm)
+            return json.dumps({"status": "error", "path": path, "message": f"Error inesperado en FileUpdateTool: {e}. Por favor, revisa los logs para más detalles."})
+            
+    async def _arun(self, path: str, content: Optional[str] = None) -> str:        return await asyncio.to_thread(self._run, path, content)

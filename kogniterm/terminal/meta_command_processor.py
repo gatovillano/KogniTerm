@@ -34,7 +34,7 @@ class MetaCommandProcessor:
             project_context = loop.run_until_complete(initializeProjectContext(current_directory))
             loop.close()
             
-            self.kogniterm_app.project_context = project_context # Actualizar el contexto en la app
+            self.kogniterm_app.update_project_context(project_context) # Actualizar el contexto en la app y sus dependencias
             self.terminal_ui.print_message("Contexto del proyecto inicializado correctamente.", style="green")
         except Exception as e:
             self.terminal_ui.print_message(f"Error al inicializar el contexto del proyecto: {e}", style="red")
@@ -60,6 +60,10 @@ class MetaCommandProcessor:
             self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial vacío
             # ¡IMPORTANTE! Re-añadir el SYSTEM_MESSAGE después de resetear
             self.llm_service.conversation_history.append(SYSTEM_MESSAGE)
+            
+            # Limpiar la pantalla de la terminal
+            os.system('cls' if os.name == 'nt' else 'clear')
+            self.kogniterm_app.terminal_ui.print_welcome_banner() # Volver a imprimir el banner de bienvenida
             self.terminal_ui.print_message(f"Conversación reiniciada.", style="green")
             return True
 

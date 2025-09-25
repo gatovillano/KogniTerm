@@ -1,7 +1,10 @@
 import os
 import pathlib
-import fnmatch
-from typing import List, Literal, TypedDict, Union
+from typing import Any, List, Literal, TypedDict, Union
+import logging
+from kogniterm.core.context.ignore_pattern_manager import IgnorePatternManager # Importar
+
+logger = logging.getLogger(__name__)
 
 class FileNode(TypedDict):
     name: str
@@ -19,30 +22,24 @@ class DirectoryNode(TypedDict):
 FolderStructure = DirectoryNode
 
 class FolderStructureAnalyzer:
-    def __init__(self, directory: str, ignore_patterns: List[str] = None):
+    def __init__(self, directory: str, ignore_pattern_manager: IgnorePatternManager): # Cambiado para recibir IgnorePatternManager
         self.root_path = pathlib.Path(directory).resolve()
-        self.ignore_patterns = ignore_patterns if ignore_patterns is not None else []
-        self.structure = self.get_folder_structure(directory, self.ignore_patterns)
+        self.ignore_pattern_manager = ignore_pattern_manager # Guardar la instancia
+        logger.debug(f"FolderStructureAnalyzer inicializado con IgnorePatternManager.")
+        self.structure = self.get_folder_structure(directory) # Ya no se pasan ignore_patterns aquí
 
-    def get_folder_structure(self, directory: str, ignore_patterns: List[str] = None) -> FolderStructure:
-        if ignore_patterns is None:
-            ignore_patterns = []
-
+    def get_folder_structure(self, directory: str) -> FolderStructure:
         base_path = pathlib.Path(directory)
         if not base_path.is_dir():
             raise ValueError(f"El directorio '{directory}' no existe o no es un directorio válido.")
-
-        def _should_ignore(path_name: str, path_full: str) -> bool:
-            for pattern in ignore_patterns:
-                if fnmatch.fnmatch(path_name, pattern) or fnmatch.fnmatch(path_full, pattern):
-                    return True
-            return False
 
         def _traverse_directory(current_path: pathlib.Path) -> Union[FileNode, DirectoryNode, None]:
             name = current_path.name
             full_path = str(current_path)
 
-            if _should_ignore(name, full_path):
+            # Usar IgnorePatternManager para verificar si debe ser ignorado
+            if self.ignore_pattern_manager.check_ignored(full_path, str(self.root_path)):
+                logger.debug(f"IGNORADO por IgnorePatternManager: '{full_path}'")
                 return None
 
             if current_path.is_file():
@@ -50,7 +47,7 @@ class FolderStructureAnalyzer:
                     name=name,
                     type='file',
                     path=full_path,
-                    children=[] # Files have no children
+                    children=[]
                 )
             elif current_path.is_dir():
                 children = []
@@ -67,9 +64,7 @@ class FolderStructureAnalyzer:
             return None
 
         root_structure = _traverse_directory(base_path)
-        if root_structure is None or root_structure['type'] == 'file': # A folder structure must have a directory root
-            # If the root_structure is None (e.g., only ignored files in root) or a file,
-            # return an empty directory structure for the base_path
+        if root_structure is None or root_structure['type'] == 'file':
             return DirectoryNode(
                 name=base_path.name,
                 type='directory',

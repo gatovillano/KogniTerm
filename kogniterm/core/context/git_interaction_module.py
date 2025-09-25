@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional, Set
 from git import Repo, InvalidGitRepositoryError, GitCommandError
 import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -24,25 +25,41 @@ class GitInteractionModule:
             logger.error(f"Error al inicializar el repositorio Git en '{self.repo_path}': {e}")
             return None
 
-    def update_git_status(self) -> Optional[str]:
+    def get_git_status(self) -> Optional[str]:
         if not self.repo:
             return "No es un repositorio Git válido o no se pudo inicializar."
         try:
             # Forzar la actualización del índice de Git para reflejar los cambios del sistema de archivos
             self.repo.index.reset()
             
-            modified_files = [item.a_path for item in self.repo.index.diff(None)]
-            staged_files = [item.a_path for item in self.repo.index.diff('HEAD')]
-            untracked_files = self.repo.untracked_files
+            # Usar git status --porcelain para una salida más eficiente
+            porcelain_status = self.repo.git.status('--porcelain')
+            
+            modified_files = []
+            staged_files = []
+            untracked_files = []
+
+            for line in porcelain_status.splitlines():
+                status_code = line[0:2]
+                file_path = line[3:].strip()
+
+                if status_code[0] == 'M' or status_code[1] == 'M': # Modified (staged or unstaged)
+                    modified_files.append(file_path)
+                if status_code[0] != ' ' and status_code[0] != '?': # Staged (excluding untracked)
+                    staged_files.append(file_path)
+                if status_code[0] == '?' and status_code[1] == '?': # Untracked
+                    untracked_files.append(file_path)
 
             status_parts = []
-            if modified_files:
-                status_parts.append("Cambios no guardados (modified):")
-                status_parts.extend(f"  - {f}" for f in modified_files)
-            
             if staged_files:
-                status_parts.append("\nCambios para el próximo commit (staged):")
+                status_parts.append("Cambios para el próximo commit (staged):")
                 status_parts.extend(f"  - {f}" for f in staged_files)
+            
+            # Filtrar modified_files para mostrar solo los que no están staged
+            unstaged_modified_files = [f for f in modified_files if f not in staged_files]
+            if unstaged_modified_files:
+                status_parts.append("\nCambios no guardados (modified):")
+                status_parts.extend(f"  - {f}" for f in unstaged_modified_files)
 
             if untracked_files:
                 status_parts.append("\nArchivos no rastreados (untracked):")
@@ -66,8 +83,8 @@ class GitInteractionModule:
             # repo.git.ls_files() devuelve rutas relativas al directorio raíz del repo
             tracked_files_list = self.repo.git.ls_files().splitlines()
             # Es crucial tener la ruta absoluta para comparaciones consistentes
-            repo_root = self.repo.working_dir
-            self.tracked_files = {os.path.join(repo_root, f) for f in tracked_files_list}
+            repo_root = Path(self.repo.working_dir)
+            self.tracked_files = {str(repo_root / f) for f in tracked_files_list}
         except GitCommandError as e:
             logger.error(f"Error de Git al obtener los archivos rastreados: {e}")
         except Exception as e:
