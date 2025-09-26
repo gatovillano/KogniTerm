@@ -1,3 +1,4 @@
+import logging # Importar logging al principio
 import sys
 import os
 from dotenv import load_dotenv # Importar load_dotenv
@@ -225,19 +226,21 @@ async def _main_async():
 def main():
     """Función principal síncrona para el punto de entrada de KogniTerm."""
     import logging
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    logging.getLogger('kogniterm.core.llm_service').setLevel(logging.INFO)
-    logging.getLogger('kogniterm.core.context.file_system_watcher').setLevel(logging.INFO)
-    logging.getLogger('kogniterm.core.context.workspace_context').setLevel(logging.INFO)
-    logging.getLogger('kogniterm.core.context.ignore_pattern_manager').setLevel(logging.INFO)
+    logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
     
-    # Desactivar el logger de litellm por completo
+    # Desactivar el logger de litellm por completo y establecer nivel CRITICAL
     litellm_logger = logging.getLogger('litellm')
     litellm_logger.propagate = False
     litellm_logger.disabled = True
+    litellm_logger.setLevel(logging.CRITICAL) # Establecer nivel CRITICAL
     # Eliminar cualquier manejador existente que litellm pueda haber añadido
     for handler in list(litellm_logger.handlers):
         litellm_logger.removeHandler(handler)
+
+    logging.getLogger('kogniterm.core.llm_service').setLevel(logging.WARNING)
+    logging.getLogger('kogniterm.core.context.file_system_watcher').setLevel(logging.WARNING)
+    logging.getLogger('kogniterm.core.context.workspace_context').setLevel(logging.INFO)
+    logging.getLogger('kogniterm.core.context.ignore_pattern_manager').setLevel(logging.INFO)
     
     asyncio.run(_main_async())
 
