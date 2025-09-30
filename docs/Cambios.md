@@ -1,41 +1,68 @@
 ---
-## 24-09-2025 Solución al problema de ignorar carpetas en el contexto del proyecto
+## 29-09-25 Corrección de AttributeError en LLMService
+Descripción general: Se corrigió un `AttributeError` en la clase `LLMService` donde se intentaba llamar a un método `_convert_messages_to_litellm_format` que no existía.
 
-**Descripción general:** El usuario informó que la carpeta `.git/` y otras carpetas ignoradas no se estaban excluyendo correctamente del contexto del proyecto, lo que resultaba en que aparecieran en el `System Message` enviado al LLM.
-
-**Solución propuesta:**
-Se identificó que el `FolderStructureAnalyzer` no estaba utilizando correctamente el `IgnorePatternManager` y que la lógica de ignorado no era compatible con los patrones recursivos de `.gitignore`. Además, se detectó un `NameError` debido a la falta de importación de `TypedDict` y `Literal`. Finalmente, se optimizó la inicialización del contexto para evitar repeticiones innecesarias.
-
--   **Punto 1**: Se corrigió el uso de `parse_gitignore` en `kogniterm/core/context/ignore_pattern_manager.py` para que la función de coincidencia se llamara directamente, eliminando el error `'function' object has no attribute 'match'`.
--   **Punto 2**: Se modificaron los `DEFAULT_IGNORE_PATTERNS` en `kogniterm/core/context/ignore_pattern_manager.py` para usar patrones de directorios más explícitos (`venv/**`, `.git/**`) y se añadió `*.kogniterm_temp_gitignore` para asegurar que los archivos temporales también fueran ignorados.
--   **Punto 3**: Se refactorizó `kogniterm/core/context/folder_structure_analyzer.py` para que su constructor recibiera una instancia de `IgnorePatternManager` y utilizara `self.ignore_pattern_manager.check_ignored()` para verificar si un archivo o directorio debe ser ignorado, reemplazando la lógica de `fnmatch.fnmatch`.
--   **Punto 4**: Se añadió la importación de `TypedDict` y `Literal` desde `typing` en `kogniterm/core/context/folder_structure_analyzer.py` para resolver un `NameError`.
-
--   **Punto 5**: Se actualizó la inicialización de `FolderStructureAnalyzer` en `kogniterm/core/context/workspace_context.py` para pasar la instancia de `IgnorePatternManager`.
--   **Punto 6**: Se optimizó la inicialización del contexto en `kogniterm/core/context/workspace_context.py` refactorizando `_initialize_modules` y `_update_folder_structure` para reducir la repetición de la inicialización de componentes.
-
-**Resultado:** El sistema ahora ignora correctamente las carpetas y archivos especificados en los patrones de ignorado, y el `System Message` enviado al LLM refleja esta exclusión.
-
+- **Punto 1**: Se reemplazó la llamada a `self._convert_messages_to_litellm_format(messages)` por `[_to_litellm_message(msg) for msg in messages]` en la línea 647 de `kogniterm/core/llm_service.py`.
+- **Punto 2**: Se corrigió la asignación de `litellm_messages` después del truncamiento de mensajes conversacionales, reemplazando `self._convert_messages_to_litellm_format(messages)` por `all_initial_system_messages_for_llm + current_conversational_messages` en la línea 599 de `kogniterm/core/llm_service.py`.
 ---
-## 24-09-2025 Ajuste de la instrucción del LLM para evitar exploración redundante del repositorio
+## 29-09-25 Limpieza de la lógica de contexto para refactorización
+Descripción general: Se ha eliminado toda la lógica de gestión de contexto de los módulos en `kogniterm/core/context/` para preparar una nueva implementación mejorada y óptima.
 
-**Descripción general:** A pesar de que el contexto del proyecto ya incluía la estructura de carpetas filtrada, el LLM seguía intentando listar y explorar el repositorio, lo que resultaba en un comportamiento redundante e ineficiente.
-
-**Solución propuesta:**
-Se añadió una instrucción explícita al `System Message` para guiar al LLM a consultar la estructura de carpetas proporcionada en el contexto antes de intentar usar herramientas de exploración de archivos.
-
--   **Punto 1**: Se modificó el método `_build_llm_context_message()` en `kogniterm/core/llm_service.py` para incluir una instrucción clara al inicio del `System Message`, indicando al LLM que ya tiene un resumen de la estructura de carpetas y que debe consultarlo antes de usar herramientas de exploración de archivos.
-
-**Resultado:** El LLM ahora tiene una guía explícita para utilizar la información de la estructura de carpetas proporcionada en el `System Message`, reduciendo la necesidad de exploración redundante del repositorio.
-
+- **Punto 1**: Contenido de `kogniterm/core/context/config_file_analyzer.py` vaciado.
+- **Punto 2**: Contenido de `kogniterm/core/context/context_indexer.py` vaciado.
+- **Punto 3**: Contenido de `kogniterm/core/context/context_orchestrator.py` vaciado.
+- **Punto 4**: Contenido de `kogniterm/core/context/file_search_module.py` vaciado.
+- **Punto 5**: Contenido de `kogniterm/core/context/file_system_watcher.py` vaciado.
+- **Punto 6**: Contenido de `kogniterm/core/context/folder_structure_analyzer.py` vaciado.
+- **Punto 7**: Contenido de `kogniterm/core/context/git_interaction_module.py` vaciado.
+- **Punto 8**: Contenido de `kogniterm/core/context/ignore_pattern_manager.py` vaciado.
+- **Punto 9**: Contenido de `kogniterm/core/context/llm_context_builder.py` vaciado.
+- **Punto 10**: Contenido de `kogniterm/core/context/path_manager.py` vaciado.
+- **Punto 11**: Contenido de `kogniterm/core/context/project_context_initializer.py` vaciado.
+- **Punto 12**: Contenido de `kogniterm/core/context/workspace_context.py` vaciado.
 ---
-## 24-09-2025 Refuerzo de la instrucción del LLM para evitar exploración redundante del repositorio
+## 29-09-25 Eliminación de archivos de la lógica de contexto
+Descripción general: Se han eliminado físicamente todos los archivos de la carpeta `kogniterm/core/context/` después de limpiar todas sus referencias en el resto del proyecto, preparando el terreno para una nueva implementación de la lógica de contexto.
 
-**Descripción general:** A pesar de las modificaciones previas, el LLM seguía intentando listar y explorar el repositorio de forma redundante, ignorando el contexto ya proporcionado en el `System Message`.
+- **Punto 1**: Se eliminaron las importaciones y el código dependiente de los módulos de contexto en:
+    *   `kogniterm/core/tools/github_tool.py`
+    *   `kogniterm/core/tools/memory_read_tool.py`
+    *   `kogniterm/core/tools/file_read_tool.py`
+    *   `kogniterm/core/tools/memory_init_tool.py`
+    *   `kogniterm/core/tools/python_executor.py`
+    *   `kogniterm/core/tools/memory_summarize_tool.py`
+    *   `kogniterm/core/tools/memory_append_tool.py`
+    *   `kogniterm/terminal/terminal.py`
+    *   `kogniterm/terminal/meta_command_processor.py`
+    *   `kogniterm/terminal/kogniterm_app.py`
+- **Punto 2**: Se eliminaron los siguientes archivos de la carpeta `kogniterm/core/context/`:
+    *   `config_file_analyzer.py`
+    *   `context_indexer.py`
+    *   `context_orchestrator.py`
+    *   `file_search_module.py`
+    *   `file_system_watcher.py`
+    *   `folder_structure_analyzer.py`
+    *   `git_interaction_module.py`
+    *   `ignore_pattern_manager.py`
+    *   `llm_context_builder.py`
+    *   `path_manager.py`
+    *   `project_context_initializer.py`
+    *   `workspace_context.py`
+---
+## 29-09-25 Implementación de WorkspaceContext y comando %init
+Descripción general: Se implementó una nueva lógica para gestionar el contexto del espacio de trabajo (`WorkspaceContext`) que se inicializa bajo demanda mediante el comando `%init`. Esto permite al LLM acceder a la estructura de carpetas y al contenido de archivos específicos del proyecto de forma controlada.
 
-**Solución propuesta:**
-Se reforzó la instrucción en el `System Message` para que sea más explícita y contundente, indicando al LLM que no debe usar herramientas de exploración de archivos para obtener información que ya está en el contexto.
-
--   **Punto 1**: Se modificó el método `_build_llm_context_message()` en `kogniterm/core/llm_service.py` para incluir una instrucción más directa y prohibitiva al inicio del `System Message`, enfatizando que el LLM ya tiene un resumen completo de la estructura de carpetas y que solo debe usar herramientas de exploración para detalles muy específicos no cubiertos.
-
-**Resultado:** El LLM ahora tiene una guía explícita y reforzada para utilizar la información de la estructura de carpetas proporcionada en el `System Message`, lo que debería eliminar la necesidad de exploración redundante del repositorio.
+- **Punto 1**: Se creó el archivo `kogniterm/core/context/workspace_context.py` con la clase `WorkspaceContext`. Esta clase es responsable de:
+    - Obtener la estructura de carpetas del directorio raíz.
+    - Leer el contenido de archivos especificados.
+    - Construir un mensaje de sistema formateado con el contexto recopilado.
+- **Punto 2**: Se modificó `kogniterm/core/llm_service.py` para integrar `WorkspaceContext`:
+    - Se importó `WorkspaceContext`.
+    - Se instanció `WorkspaceContext` en el método `__init__`.
+    - Se inicializaron `self.workspace_context_initialized`, `self.console`, `self.max_history_messages` y `self.max_history_chars` en `__init__`.
+    - Se modificó `_build_llm_context_message()` para que utilice la instancia de `WorkspaceContext` para obtener el mensaje de contexto.
+    - Se añadió el método `initialize_workspace_context()` para activar la recopilación del contexto.
+- **Punto 3**: Se modificó `kogniterm/terminal/meta_command_processor.py` para añadir el comando `%init`:
+    - Se implementó la lógica para procesar el comando `%init`, que llama a `llm_service.initialize_workspace_context()`.
+    - El comando `%init` ahora permite especificar archivos a incluir en el contexto (ej: `%init README.md,src/main.py`).
+    - Se actualizó el mensaje de ayuda (`%help`) para incluir la descripción del nuevo comando `%init`.

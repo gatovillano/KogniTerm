@@ -13,3 +13,8 @@ project_structure.md
 .project_structure.md
 GEMINI.md
 .aider*
+docs/Cambios.md
+.gitignore
+.kogniterm/.git_tracked_files_cache.json
+.kogniterm/folder_structure_cache/structure.json
+.kogniterm/history.json

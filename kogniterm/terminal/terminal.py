@@ -61,7 +61,6 @@ from kogniterm.core.command_executor import CommandExecutor # Importar CommandEx
 from kogniterm.core.agents.bash_agent import AgentState # Importar AgentState
 from kogniterm.core.tools.file_read_directory_tool import FileReadDirectoryTool
 from kogniterm.core.tools.file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
-from kogniterm.core.context.file_system_watcher import FileSystemWatcher # Importar FileSystemWatcher
 from prompt_toolkit.completion import Completer, Completion
 import os
 from rich.text import Text
@@ -77,7 +76,6 @@ import re
 import sys
 import os
 import asyncio
-from kogniterm.core.context.project_context_initializer import initializeProjectContext
 import threading # Importar threading para el watcher
 
 from .agent_interaction_manager import AgentInteractionManager
@@ -95,30 +93,13 @@ class FileCompleter(Completer):
         self.workspace_directory = workspace_directory
         self._cached_files = None  # Caché para almacenar la lista de archivos
         self._cache_lock = threading.Lock() # Bloqueo para proteger el acceso a la caché
-        self._watcher = None # Se inicializará al iniciar
-        # self._start_watcher() # Eliminar esta línea
-
-    def _start_watcher(self):
-        # Asegurarse de que el watcher se detenga si ya está corriendo
-        if self._watcher:
-            self._watcher.stop()
-        
-        self._watcher = FileSystemWatcher(self.workspace_directory, self._on_file_system_event)
-        self._watcher.start()
-        # console.print(f"[dim]Observando el directorio para autocompletado: {self.workspace_directory}[/dim]") # Eliminar este log
-
-    def _on_file_system_event(self, event_type: str, path: str):
-        """Callback llamado por el FileSystemWatcher cuando ocurre un evento."""
-        # console.print(f"[dim]Evento del sistema de archivos: {event_type} en {path}. Invalidando caché.[/dim]") # Eliminar este log
-        self.invalidate_cache()
 
     def invalidate_cache(self):
         """Invalida la caché de archivos, forzando una recarga la próxima vez que se necesite."""
         with self._cache_lock:
             self._cached_files = None
-            # console.print("[dim]Caché de autocompletado invalidada.[/dim]") # Eliminar este log
 
-    def _load_files_into_cache(self):
+    def _load_files_into_cache():
         """Carga todos los archivos y directorios relativos al workspace_directory en la caché."""
         with self._cache_lock:
             if self._cached_files is not None:
@@ -162,7 +143,7 @@ class FileCompleter(Completer):
         # Asegurarse de que la caché se cargue solo cuando se necesite
         if self._cached_files is None:
             self._load_files_into_cache()
-            self._start_watcher() # Iniciar el watcher solo después de la primera carga
+            # self._start_watcher() # Iniciar el watcher solo después de la primera carga
 
         all_relative_items = self._cached_files # Usar la caché
             
@@ -192,7 +173,7 @@ class FileCompleter(Completer):
 
 
 
-from kogniterm.core.context.workspace_context import WorkspaceContext # Importar WorkspaceContext
+
 
 async def _main_async():
     """Función principal asíncrona para iniciar la terminal de KogniTerm."""
@@ -201,10 +182,7 @@ async def _main_async():
     # Obtener el directorio de trabajo actual
     workspace_directory = os.getcwd()
 
-    # Inicializar el contexto del proyecto aquí, antes de crear LLMService
-    project_context = await initializeProjectContext(workspace_directory)
-    
-    llm_service_instance = LLMService(workspace_context=project_context) # Usar el project_context inicializado
+    llm_service_instance = LLMService() # Usar el project_context inicializado
     command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
     agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
 
@@ -213,7 +191,6 @@ async def _main_async():
         command_executor=command_executor_instance, # Pasar la instancia
         agent_state=agent_state_instance, # Pasar la instancia
         auto_approve=auto_approve,
-        project_context=project_context, # Pasar la instancia correcta
         workspace_directory=workspace_directory # Pasar el directorio de trabajo
     )
     try:
@@ -237,10 +214,7 @@ def main():
     for handler in list(litellm_logger.handlers):
         litellm_logger.removeHandler(handler)
 
-    logging.getLogger('kogniterm.core.llm_service').setLevel(logging.WARNING)
-    logging.getLogger('kogniterm.core.context.file_system_watcher').setLevel(logging.WARNING)
-    logging.getLogger('kogniterm.core.context.workspace_context').setLevel(logging.INFO)
-    logging.getLogger('kogniterm.core.context.ignore_pattern_manager').setLevel(logging.INFO)
+    logging.getLogger('kogniterm.terminal.kogniterm_app').setLevel(logging.WARNING)
     
     asyncio.run(_main_async())
 

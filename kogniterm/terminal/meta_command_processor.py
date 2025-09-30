@@ -8,7 +8,6 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage
 from rich.panel import Panel
 from rich.markdown import Markdown
-from kogniterm.core.context.project_context_initializer import initializeProjectContext
 
 """
 This module contains the MetaCommandProcessor class, responsible for handling
@@ -22,36 +21,13 @@ class MetaCommandProcessor:
         self.terminal_ui = terminal_ui
         self.kogniterm_app = kogniterm_app # Referencia a la instancia de KogniTermApp
 
-    def _handle_init_context(self):
-        """Inicializa el contexto del proyecto en segundo plano."""
-        self.terminal_ui.print_message("Inicializando contexto del proyecto en segundo plano...", style="yellow")
-        try:
-            current_directory = os.getcwd()
-            # Dado que initializeProjectContext es una función async, necesitamos un event loop
-            # para ejecutarla desde un hilo síncrono.
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            project_context = loop.run_until_complete(initializeProjectContext(current_directory))
-            loop.close()
-            
-            self.kogniterm_app.update_project_context(project_context) # Actualizar el contexto en la app y sus dependencias
-            self.terminal_ui.print_message("Contexto del proyecto inicializado correctamente.", style="green")
-        except Exception as e:
-            self.terminal_ui.print_message(f"Error al inicializar el contexto del proyecto: {e}", style="red")
-
     def process_meta_command(self, user_input: str) -> bool:
         """
-        Processes meta-commands like %salir, %reset, %undo, %help, %compress, %init_context.
+        Processes meta-commands like %salir, %reset, %undo, %help, %compress.
         Returns True if a meta-command was processed, False otherwise.
         """
         if user_input.lower().strip() in ['%salir', 'salir', 'exit']:
             sys.exit()
-
-        if user_input.lower().strip() == '%init_context':
-            # Crear y empezar un hilo para la inicialización del contexto
-            context_thread = threading.Thread(target=self._handle_init_context)
-            context_thread.start()
-            return True
 
         if user_input.lower().strip() == '%reset':
             self.agent_state.reset() # Reiniciar el estado
@@ -76,11 +52,25 @@ class MetaCommandProcessor:
                 self.terminal_ui.print_message("No hay nada que deshacer.", style="yellow")
             return True
         
+        if user_input.lower().strip().startswith('%init'):
+            command_parts = user_input.strip().split(' ', 1)
+            files_to_include = None
+            if len(command_parts) > 1:
+                files_to_include = [f.strip() for f in command_parts[1].split(',')]
+            
+            self.terminal_ui.print_message("Inicializando contexto del espacio de trabajo... Esto puede tardar un momento. ⏳", style="yellow")
+            try:
+                self.llm_service.initialize_workspace_context(files_to_include=files_to_include)
+                self.terminal_ui.print_message("Contexto del espacio de trabajo inicializado correctamente. ✨", style="green")
+            except Exception as e:
+                self.terminal_ui.print_message(f"Error al inicializar el contexto del espacio de trabajo: {e} ❌", style="red")
+            return True
+
         if user_input.lower().strip() == '%help':
             self.terminal_ui.print_message("""
 Comandos disponibles:
   %help         Muestra este mensaje de ayuda.
-  %init_context Inicializa el contexto del proyecto en segundo plano.
+  %init [archivos] Inicializa el contexto del proyecto. Opcionalmente, puedes especificar archivos a incluir (ej: %init README.md,src/main.py).
   %reset        Reinicia la conversación del modo actual.
   %undo         Deshace la última interacción.
   %compress     Resume el historial de conversación actual.

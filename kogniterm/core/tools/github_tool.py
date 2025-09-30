@@ -4,14 +4,12 @@ from typing import Type, Optional, Any
 from pydantic import BaseModel, Field
 from github import GithubException, Github
 from langchain_core.tools import BaseTool
-from kogniterm.core.context.workspace_context import WorkspaceContext
 
 logger = logging.getLogger(__name__)
 
 class GitHubTool(BaseTool):
     name: str = "github_tool"
     description: str = "Una herramienta unificada para interactuar con repositorios de GitHub. Permite obtener información del repositorio, listar contenidos de directorios, leer archivos y leer directorios recursivamente."
-    workspace_context: Optional[WorkspaceContext] = None
 
     class GitHubToolInput(BaseModel):
         action: str = Field(description="La acción a realizar: 'get_repo_info', 'list_contents', 'read_file', 'read_directory', 'read_recursive_directory'.")
@@ -21,9 +19,8 @@ class GitHubTool(BaseTool):
 
     args_schema: Type[BaseModel] = GitHubToolInput
 
-    def __init__(self, workspace_context: Optional[WorkspaceContext] = None, **kwargs: Any):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.workspace_context = workspace_context
 
     def _get_github_instance(self, github_token: Optional[str]) -> Github:
         if github_token is None:

@@ -3,14 +3,12 @@ import logging
 from typing import Type, Optional, Any
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
-from kogniterm.core.context.workspace_context import WorkspaceContext
 
 logger = logging.getLogger(__name__)
 
 class MemoryAppendTool(BaseTool):
     name: str = "memory_append"
     description: str = "Añade contenido a la memoria contextual del proyecto en 'llm_context.md'. Si el archivo no existe, lo crea."
-    workspace_context: Optional[WorkspaceContext] = None
 
     class MemoryAppendInput(BaseModel):
         content: str = Field(description="El contenido a añadir a la memoria.")
@@ -21,12 +19,11 @@ class MemoryAppendTool(BaseTool):
 
     args_schema: Type[BaseModel] = MemoryAppendInput
 
-    def __init__(self, workspace_context: Optional[WorkspaceContext] = None, **kwargs: Any):
+    def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self.workspace_context = workspace_context
 
     def _run(self, content: str, file_path: str = "llm_context.md") -> str:
-        base_dir = self.workspace_context.get_working_directory() if self.workspace_context else os.getcwd()
+        base_dir = os.getcwd()
         kogniterm_dir = os.path.join(base_dir, ".kogniterm")
         os.makedirs(kogniterm_dir, exist_ok=True)
         # Asegurarse de que file_path sea solo el nombre del archivo, no una ruta relativa con .kogniterm/
