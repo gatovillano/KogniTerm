@@ -23,6 +23,9 @@ class CommandExecutor:
             command (str): El comando a ejecutar.
             cwd (str, optional): El directorio de trabajo para el comando. Defaults to None.
         """
+        MAX_OUTPUT_LENGTH = 4000 # Definir la longitud máxima de la salida
+        output_buffer = "" # Buffer para acumular la salida
+
         # Guardar la configuración original de la terminal
         try:
             old_settings = termios.tcgetattr(sys.stdin.fileno())
@@ -73,7 +76,17 @@ class CommandExecutor:
                         try:
                             output = os.read(master_fd, 1024).decode(errors='replace')
                             if output:
-                                yield output
+                                if len(output_buffer) + len(output) > MAX_OUTPUT_LENGTH:
+                                    remaining_space = MAX_OUTPUT_LENGTH - len(output_buffer)
+                                    output_buffer += output[:remaining_space]
+                                    output_buffer += f"\n... (Salida truncada a {MAX_OUTPUT_LENGTH} caracteres. Longitud original excedida) ...\n"
+                                    yield output_buffer
+                                    output_buffer = "" # Limpiar el buffer después de ceder la salida truncada
+                                    self.terminate() # Terminar el proceso si se trunca
+                                    break # Salir del bucle
+                                else:
+                                    output_buffer += output
+                                    yield output # Ceder la salida en tiempo real
                             else:
                                 # Si no hay salida, y el proceso sigue vivo, esperamos un poco
                                 time.sleep(0.01) # Pequeño retardo para evitar bucle busy-wait
@@ -100,6 +113,10 @@ class CommandExecutor:
             self.process.wait()
 
         finally:
+            # Si aún hay contenido en el buffer y no se ha cedido (por ejemplo, si el comando terminó antes de truncar)
+            if output_buffer:
+                yield output_buffer
+
             # CRÍTICO: Restaurar siempre la configuración original de la terminal
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
             
