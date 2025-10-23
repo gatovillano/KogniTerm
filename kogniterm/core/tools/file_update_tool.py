@@ -35,8 +35,10 @@ class FileUpdateTool(BaseTool):
             logger.error(f"Error al aplicar la actualización en '{path}': {e}", exc_info=True)
             return json.dumps({"status": "error", "path": path, "message": f"Error al aplicar la actualización: {e}"})
 
-    def _run(self, path: str, content: Optional[str] = None) -> str:
-        logger.debug(f"FileUpdateTool - Intentando actualizar archivo en ruta '{path}'")
+    def _run(self, path: str, content: Optional[str] = None, confirm: bool = False) -> str:
+        logger.debug(f"FileUpdateTool - Intentando actualizar archivo en ruta '{path}' (confirm={confirm})")
+        if confirm:
+            return self._apply_update(path, content)
         try:
             if not os.path.exists(path):
                 return f"Error: El archivo '{path}' no existe para actualizar."

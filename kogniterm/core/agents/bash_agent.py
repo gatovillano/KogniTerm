@@ -139,8 +139,25 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
 
         if tool_name and tool_args:
             console.print(f"[bold blue]🛠️ Re-ejecutando herramienta '{tool_name}' tras aprobación:[/bold blue]")
+
             tool = llm_service.get_tool(tool_name)
             if tool:
+                # Si es file_update_tool, añadir el parámetro confirm=True
+                if tool_name == "file_update_tool":
+                    tool_args["confirm"] = True
+                    # Si el contenido original se pasó como parte de tool_args,
+                    # debemos asegurarnos de que el 'content' que se pasa para la re-ejecución
+                    # sea el contenido final que el usuario aprobó (que debería estar en tool_args).
+                    # No necesitamos el diff aquí, solo el contenido final.
+                    # El diff ya se mostró al usuario para la confirmación.
+                    # Si el content es None, significa que el LLM no lo proporcionó, lo cual es un error.
+                    if tool_args.get("content") is None:
+                        error_output = "Error: El contenido a actualizar no puede ser None."
+                        state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+                        console.print(f"[bold red]❌ {error_output}[/bold red]")
+                        state.reset_tool_confirmation()
+                        return state
+
                 try:
                     raw_tool_output = llm_service._invoke_tool_with_interrupt(tool, tool_args)
                     tool_output_str = str(raw_tool_output)
@@ -300,8 +317,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
                     confirmation_data = json_output
 
             if should_confirm and confirmation_data:
-                # Lanzar una excepción personalizada para que KogniTermApp maneje la confirmación de file_update_tool
-                # Pasamos la salida JSON completa en raw_tool_output
+                state.file_update_diff_pending_confirmation = confirmation_data.get("diff") # Guardar el diff
                 raise UserConfirmationRequired(
                     message=f"Confirmación de actualización de archivo requerida para '{tool_args.get('path', 'archivo desconocido')}'.",
                     tool_name=tool_name,

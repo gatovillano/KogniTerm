@@ -111,3 +111,15 @@ Descripción general: Se implementó una lógica de truncamiento en la clase `Co
 - **Punto 2**: Se definió una constante `MAX_OUTPUT_LENGTH` con un valor de 4000 caracteres y se inicializó un `output_buffer` para acumular la salida.
 - **Punto 3**: Se añadió una condición dentro del bucle de lectura de salida para verificar si la longitud del `output_buffer` más la nueva salida excede `MAX_OUTPUT_LENGTH`. Si es así, el contenido se trunca, se añade un mensaje indicando el truncamiento, se cede la salida truncada, se termina el proceso y se rompe el bucle.
 - **Punto 4**: Se añadió una sección `finally` para ceder cualquier contenido restante en el `output_buffer` si el comando termina antes de alcanzar el límite de truncamiento.
+---
+## 22-10-25 Solución de Bucle de Confirmación en FileUpdateTool
+Descripción general: Se resolvió el bucle de confirmación que ocurría con la herramienta `file_update_tool` al actualizar archivos. El problema se debía a que, tras la aprobación del usuario, la herramienta se re-invocaba sin el flag `confirm=True`, lo que la llevaba a solicitar confirmación nuevamente.
+
+- **Punto 1**: Se modificó `kogniterm/core/tools/file_update_tool.py` para añadir un parámetro `confirm: bool = False` al método `_run`. Si `confirm` es `True`, la herramienta aplica la actualización directamente sin solicitar confirmación.
+- **Punto 2**: Se modificó el nodo `execute_tool_node` en `kogniterm/core/agents/bash_agent.py` para guardar el `diff` de los cambios propuestos en `state.file_update_diff_pending_confirmation` cuando `file_update_tool` requiere confirmación.
+- **Punto 3**: Se modificó el nodo `handle_tool_confirmation` en `kogniterm/core/agents/bash_agent.py`. Cuando el usuario aprueba una operación de `file_update_tool`, se añade `confirm=True` a los `tool_args` antes de re-invocar la herramienta. También se añadió una validación para asegurar que el `content` no sea `None` en este escenario.
+---
+## 22-10-25 Corrección de IndentationError en bash_agent.py
+Descripción general: Se corrigió un `IndentationError: unexpected indent` en `kogniterm/core/agents/bash_agent.py` en la línea 140. Este error se debía a una indentación incorrecta en el bloque de código dentro de la función `handle_tool_confirmation`.
+
+- **Punto 1**: Se ajustó la indentación del bloque de código que comienza con `if tool_name and tool_args:` dentro de la función `handle_tool_confirmation` en `kogniterm/core/agents/bash_agent.py` para que estuviera al nivel correcto.
