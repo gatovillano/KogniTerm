@@ -123,3 +123,11 @@ Descripción general: Se resolvió el bucle de confirmación que ocurría con la
 Descripción general: Se corrigió un `IndentationError: unexpected indent` en `kogniterm/core/agents/bash_agent.py` en la línea 140. Este error se debía a una indentación incorrecta en el bloque de código dentro de la función `handle_tool_confirmation`.
 
 - **Punto 1**: Se ajustó la indentación del bloque de código que comienza con `if tool_name and tool_args:` dentro de la función `handle_tool_confirmation` en `kogniterm/core/agents/bash_agent.py` para que estuviera al nivel correcto.
+---
+## 23-10-25 Corrección de persistencia de historial y ajuste de truncamiento de salida de comandos
+Se abordó un problema donde el historial de conversación del LLM no persistía entre sesiones al reiniciar la aplicación en el mismo directorio. Además, se ajustó la longitud máxima de la salida de comandos para evitar truncamientos prematuros de información importante.
+
+- **Punto 1**: Se identificó que el método `_load_history()` en `kogniterm/core/llm_service.py` retornaba el historial cargado, pero este no se asignaba de vuelta a `self.conversation_history` en el constructor de `LLMService`.
+- **Punto 2**: Se modificó el constructor de `LLMService` en `kogniterm/core/llm_service.py` para asignar `self.conversation_history = self._load_history()`, asegurando que el historial cargado sea utilizado por la instancia.
+- **Punto 3**: Se aumentó la constante `MAX_OUTPUT_LENGTH` en `kogniterm/core/command_executor.py` de 4000 a 20000 caracteres para permitir una mayor visibilidad de la salida de los comandos antes de que se trunque.
+- **Punto 4**: Se eliminaron los logs de depuración temporales añadidos durante el proceso de diagnóstico en `kogniterm/core/llm_service.py`.

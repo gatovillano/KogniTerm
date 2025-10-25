@@ -252,7 +252,7 @@ class LLMService:
         self.tool_execution_lock = threading.Lock() # Inicializar el lock
         self.active_tool_future = None # Inicializar la referencia a la tarea activa
         self.tool_executor = ThreadPoolExecutor(max_workers=1) # Inicializar el ThreadPoolExecutor
-        self._load_history()
+        self.conversation_history = self._load_history()
 
     def _build_llm_context_message(self) -> Optional[SystemMessage]:
         if self.workspace_context_initialized:
