@@ -11,8 +11,7 @@ from rich.markup import escape # Nueva importación
 import sys # Nueva importación
 import json # Importar json para verificar si la salida es un JSON
 import queue # Importar el módulo queue
-
-from ..llm_service import LLMService
+from ..exceptions import UserConfirmationRequired # Importar desde exceptions.py
 
 console = Console()
 
@@ -114,7 +113,7 @@ from rich.live import Live # Importar Live
 from rich.markdown import Markdown # Importar Markdown
 from rich.padding import Padding # Nueva importación
 from rich.status import Status # ¡Nueva importación!
-def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
+def handle_tool_confirmation(state: AgentState, llm_service: 'LLMService'):
     """
     Maneja la respuesta de confirmación del usuario para una operación de herramienta.
     Si se aprueba, re-ejecuta la herramienta.
@@ -188,7 +187,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
     return state
 
-def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
+def call_model_node(state: AgentState, llm_service: 'LLMService', interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
     history = state.history_for_api
     
@@ -251,7 +250,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
         state.messages.append(AIMessage(content=error_message))
         return {"messages": state.messages}
 
-def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
+def execute_tool_node(state: AgentState, llm_service: 'LLMService', interrupt_queue: Optional[queue.Queue] = None):
     """Ejecuta las herramientas solicitadas por el modelo."""
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -392,7 +391,7 @@ def should_continue(state: AgentState) -> str:
 
 # --- Construcción del Grafo ---
 
-def create_bash_agent(llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
+def create_bash_agent(llm_service: 'LLMService', interrupt_queue: Optional[queue.Queue] = None):
     bash_agent_graph = StateGraph(AgentState)
 
     bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, interrupt_queue=interrupt_queue))

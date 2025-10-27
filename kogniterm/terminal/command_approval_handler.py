@@ -16,6 +16,8 @@ import json
 from io import StringIO # Importar StringIO
 from rich.console import Console as RichConsole # Importar RichConsole
 
+from kogniterm.core.tools.file_operations_tool import FileOperationsTool # Importar aquí
+
 logger = logging.getLogger(__name__)
 
 """
@@ -26,7 +28,7 @@ managing command approval from the user in the KogniTerm application.
 class CommandApprovalHandler:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor,
                  prompt_session: PromptSession, terminal_ui: TerminalUI, agent_state: AgentState,
-                 file_update_tool: FileUpdateTool, advanced_file_editor_tool: AdvancedFileEditorTool):
+                 file_update_tool: FileUpdateTool, advanced_file_editor_tool: AdvancedFileEditorTool, file_operations_tool: FileOperationsTool):
         self.llm_service = llm_service
         self.command_executor = command_executor
         self.prompt_session = prompt_session
@@ -35,6 +37,7 @@ class CommandApprovalHandler:
         self.interrupt_queue = terminal_ui.get_interrupt_queue()
         self.file_update_tool = file_update_tool
         self.advanced_file_editor_tool = advanced_file_editor_tool
+        self.file_operations_tool = file_operations_tool
 
     async def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
@@ -53,12 +56,13 @@ class CommandApprovalHandler:
         panel_title = 'Confirmación de Comando'
         panel_content_markdown = ""
         
-        is_file_update_confirmation = False
+
         diff_content = ""
         file_path = ""
         message = ""
 
-        if raw_tool_output and tool_name in ["file_update_tool", "advanced_file_editor"]:
+        logger.debug(f"DEBUG HANDLER: is_file_update_confirmation (initial): {is_file_update_confirmation}")
+        if is_file_update_confirmation or (raw_tool_output and tool_name in ["file_update_tool", "advanced_file_editor", "file_operations"]):
             try:
                 diff_data = json.loads(raw_tool_output)
                 diff_content = diff_data.get("diff", "")
@@ -67,6 +71,7 @@ class CommandApprovalHandler:
                 is_file_update_confirmation = True
             except json.JSONDecodeError:
                 logger.error(f"Error al decodificar raw_tool_output como JSON para diff: {raw_tool_output}")
+        logger.debug(f"DEBUG HANDLER: is_file_update_confirmation (after raw_tool_output check): {is_file_update_confirmation}")
 
         if is_file_update_confirmation:
             logger.debug("DEBUG: is_file_update_confirmation es True. Preparando panel de diff.")
@@ -158,10 +163,9 @@ class CommandApprovalHandler:
                 border_style='yellow',
                 title=panel_title
             ),
-            soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n", flush=True
+            soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
         )
-        # Forzar un re-renderizado del prompt para asegurar que el panel se muestre antes de la entrada
-        self.prompt_session.app.renderer.render(self.prompt_session.app.current_buffer)
+
 
         # 4. Solicitar aprobación al usuario
         run_action = False
@@ -210,6 +214,18 @@ class CommandApprovalHandler:
                     
                     result = self.advanced_file_editor_tool._run(**adapted_tool_args)
                     tool_message_content = result.get("message", "")
+                elif tool_name == "file_operations":
+                    operation = original_tool_args.get("operation")
+                    path = original_tool_args.get("path")
+                    if operation == "write_file":
+                        content = original_tool_args.get("content")
+                        result = self.file_operations_tool._perform_write_file(path, content)
+                        tool_message_content = result
+                    elif operation == "delete_file":
+                        result = self.file_operations_tool._perform_delete_file(path)
+                        tool_message_content = result
+                    else:
+                        tool_message_content = f"Operación '{operation}' no reconocida para confirmación de file_operations."
                 
                 self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
             elif is_user_confirmation:

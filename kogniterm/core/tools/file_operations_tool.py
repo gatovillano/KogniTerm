@@ -1,9 +1,12 @@
 import os
 import logging
+import json
+import difflib
 from typing import Type, Optional, List, ClassVar, Any, Dict
 
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
+from kogniterm.core.exceptions import UserConfirmationRequired # Importar aquí
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +51,25 @@ class FileOperationsTool(BaseTool):
 
     def _run(self, **kwargs) -> str | Dict[str, Any]:
         operation = kwargs.get("operation")
+        confirm = kwargs.get("confirm", False)
+
         try:
+            if confirm:
+                if operation == "write_file":
+                    return self._perform_write_file(kwargs["path"], kwargs["content"])
+                elif operation == "delete_file":
+                    return self._perform_delete_file(kwargs["path"])
+                else:
+                    return f"Operación '{operation}' no soporta confirmación directa."
+
             if operation == "read_file":
                 return self._read_file(kwargs["path"])
             elif operation == "write_file":
-                result = self._write_file(kwargs["path"], kwargs["content"])
-                if isinstance(result, dict) and result.get("_requires_confirmation"):
-                    return result
-                return result
+                # Ahora _write_file lanza UserConfirmationRequired
+                return self._write_file(kwargs["path"], kwargs["content"])
             elif operation == "delete_file":
-                result = self._delete_file(kwargs["path"])
-                if isinstance(result, dict) and result.get("_requires_confirmation"):
-                    return result
-                return result
+                # Ahora _delete_file lanza UserConfirmationRequired
+                return self._delete_file(kwargs["path"])
             elif operation == "list_directory":
                 recursive = kwargs.get("recursive", False)
                 items = self._list_directory(kwargs["path"], recursive=recursive)
@@ -101,7 +110,40 @@ class FileOperationsTool(BaseTool):
             raise InterruptedError("Operación de escritura de archivo interrumpida por el usuario.")
 
         print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}")
-        return {"_requires_confirmation": True, "action_description": f"escribir en el archivo '{path}'", "operation": "write_file", "args": {"path": path, "content": content}}
+        
+        original_content = ""
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                original_content = f.read()
+
+        diff = "".join(difflib.unified_diff(
+            original_content.splitlines(keepends=True),
+            content.splitlines(keepends=True),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            lineterm=''
+        ))
+
+        if not diff:
+            return self._perform_write_file(path, content)
+
+        raise UserConfirmationRequired(
+            message=f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar.",
+            tool_name=self.name,
+            tool_args={
+                "operation": "write_file",
+                "path": path,
+                "content": content,
+            },
+            raw_tool_output=json.dumps({
+                "status": "requires_confirmation",
+                "tool_name": self.name,
+                "path": path,
+                "diff": diff,
+                "message": f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar.",
+                "new_content": content,
+            })
+        )
 
     def _perform_write_file(self, path: str, content: str) -> str:
         try:
@@ -117,7 +159,24 @@ class FileOperationsTool(BaseTool):
             raise InterruptedError("Operación de eliminación de archivo interrumpida por el usuario.")
 
         print(f"🗑️ KogniTerm: Eliminando archivo 📄: {path}")
-        return {"_requires_confirmation": True, "action_description": f"eliminar el archivo '{path}'", "operation": "delete_file", "args": {"path": path}}
+        
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"El archivo '{path}' no fue encontrado para eliminar.")
+
+        raise UserConfirmationRequired(
+            message=f"Se solicita eliminar el archivo '{path}'. Por favor, confirma para proceder.",
+            tool_name=self.name,
+            tool_args={
+                "operation": "delete_file",
+                "path": path,
+            },
+            raw_tool_output=json.dumps({
+                "status": "requires_confirmation",
+                "tool_name": self.name,
+                "path": path,
+                "message": f"Se solicita eliminar el archivo '{path}'. Por favor, confirma para proceder.",
+            })
+        )
 
     def _perform_delete_file(self, path: str) -> str:
         try:

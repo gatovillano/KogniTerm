@@ -108,7 +108,7 @@ Descripción general: Se implementó una lógica de truncamiento en la clase `Co
 
 - **Punto 1**: Se modificó el método `execute` en `kogniterm/core/command_executor.py`.
 - **Punto 2**: Se definió una constante `MAX_OUTPUT_LENGTH` con un valor de 4000 caracteres y se inicializó un `output_buffer` para acumular la salida.
-- **Punto 3**: Se añadió una condición dentro del bucle de lectura de salida para verificar si la longitud del `output_buffer` más la nueva salida excede `MAX_OUTPUT_LENGTH`. Si es así, el contenido se trunca, se añade un mensaje indicando el truncamiento, se cede la salida truncada, se termina el proceso y se rompe el bucle.
+- **Punto 3**: Se añadió una condición dentro del bucle de lectura de salida para verificar si la longitud del `output_buffer` más la nueva salida excede `MAX_OUTPUT_LENGTH`. Si es así, el contenido se trunca, se añade un mensaje indicando el truncamiento, se cede la salida truncada, se rompe el bucle.
 - **Punto 4**: Se añadió una sección `finally` para ceder cualquier contenido restante en el `output_buffer` if el comando termina antes de alcanzar el límite de truncamiento.
 ---
 ## 22-10-25 Solución de Bucle de Confirmación en FileUpdateTool
@@ -134,8 +134,7 @@ Se abordó un problema donde el historial de conversación del LLM no persistía
 ## 23-10-25 Refactorización y Disponibilidad de advanced_file_editor_tool
 Descripción general: Se refactorizó la herramienta `advanced_file_editor_tool` para que gestione sus propias actualizaciones de archivos, eliminando la dependencia de `file_update_tool`. Además, se aseguró su disponibilidad para el LLM y se integró un mecanismo de confirmación interactiva.
 
-- **Punto 1**: Se transformó la función `advanced_file_editor_tool` en una clase `AdvancedFileEditorTool` que hereda de `langchain_core.tools.BaseTool`, incluyendo `name`, `description`, `args_schema`, `_run` y `_arun`.
-- **Punto 2**: Se añadió la función `_apply_advanced_update` en `kogniterm/core/tools/advanced_file_editor_tool.py` para manejar la escritura de contenido en el archivo.
+- **Punto 1**: Se transformó la función `advanced_file_editor_tool` en una clase `AdvancedFileEditorTool` que hereda de `langchain_core.tools.BaseTool`, incluyendo `name`, `description`, `args_schema`, `_run` y `_arun`.n- **Punto 2**: Se añadió la función `_apply_advanced_update` en `kogniterm/core/tools/advanced_file_editor_tool.py` para manejar la escritura de contenido en el archivo.
 - **Punto 3**: Se modificó el método `_run` de `AdvancedFileEditorTool` para incluir un parámetro `confirm: bool = False`. Si `confirm` es `True`, se llama a `_apply_advanced_update` para aplicar los cambios directamente. Si es `False`, la herramienta devuelve un `diff` y un mensaje de confirmación con `status: "requires_confirmation"`.
 - **Punto 4**: Se actualizó `kogniterm/core/tools/tool_manager.py` para importar la clase `AdvancedFileEditorTool` y añadirla a la lista `ALL_TOOLS_CLASSES`.
 - **Punto 5**: Se modificó el nodo `execute_tool_node` en `kogniterm/core/agents/bash_agent.py` para extender la lógica de confirmación a `AdvancedFileEditorTool`, guardando el `diff` y lanzando `UserConfirmationRequired` cuando la herramienta requiere confirmación.
@@ -187,9 +186,7 @@ Descripción general: Se corrigió el problema donde el panel de confirmación p
 - **Punto 4**: Se aseguró que el nodo retorne el `state` para permitir que el flujo del grafo continúe de manera controlada y que `should_continue` detecte la confirmación pendiente.
 ---
 ## 25-10-25 Robustecimiento de Detección de Confirmación en CommandApprovalHandler
-Descripción general: Se modificó `command_approval_handler.py` para que detecte y procese correctamente las confirmaciones pendientes de `advanced_file_editor_tool` (y otras herramientas que usen `UserConfirmationRequired`), incluso si los parámetros `tool_name` y `raw_tool_output` no se pasan directamente a `handle_command_approval`.
-
-- **Punto 1**: Se añadió lógica al inicio de la función `handle_command_approval` en `kogniterm/terminal/command_approval_handler.py`.
+Descripción general: Se modificó `command_approval_handler.py` para que detecte y procese correctamente las confirmaciones pendientes de `advanced_file_editor_tool` (y otras herramientas que usen `UserConfirmationRequired`), incluso si los parámetros `tool_name` y `raw_tool_output` no se pasan directamente a `handle_command_approval`.n- **Punto 1**: Se añadió lógica al inicio de la función `handle_command_approval` en `kogniterm/terminal/command_approval_handler.py`.
 - **Punto 2**: Esta nueva lógica verifica si `raw_tool_output` no se ha proporcionado y si `self.agent_state.file_update_diff_pending_confirmation` está presente.
 - **Punto 3**: Si se cumple la condición, se extrae la información de confirmación (incluyendo `diff`, `path`, `message`, `tool_name` y `original_tool_args`) directamente del `agent_state`, asegurando que el panel de confirmación se construya y muestre correctamente.
 ---
@@ -197,7 +194,7 @@ Descripción general: Se modificó `command_approval_handler.py` para que detect
 Descripción general: Se corrigió el problema donde el panel de confirmación para `advanced_file_editor_tool` no se mostraba correctamente debido a una lógica de flags incorrecta al invocar `handle_command_approval` desde `KogniTermApp`.
 
 - **Punto 1**: Se modificó la firma de la función `handle_command_approval` en `kogniterm/terminal/command_approval_handler.py` para incluir un nuevo parámetro `is_file_update_confirmation: bool = False`.
-- **Punto 2**: Se modificó la llamada a `handle_command_approval` en `kogniterm/terminal/kogniterm_app.py` dentro del bloque `except UserConfirmationRequired as e:`.
+- **Punto 2**: Se modificó la llamada a `handle_command_approval` en `kogniterm/terminal/kogniterm_app.py` dentro del bloque `except UserConfirmationRequired as e:`
 - **Punto 3**: Se cambió `is_user_confirmation=True` a `is_user_confirmation=False` y se añadió `is_file_update_confirmation=True` para indicar explícitamente que se trata de una confirmación de edición de archivo.
 - **Punto 4**: Se ajustó la lógica en `command_approval_handler.py` para que la condición `if is_file_update_confirmation:` se active correctamente, permitiendo la visualización del panel de `diff` para las actualizaciones de archivos.
 ---
@@ -206,3 +203,23 @@ Descripción general: Se añadieron logs de depuración en `command_approval_han
 
 - **Punto 1**: Se añadió un `logger.debug` dentro del bloque `if is_file_update_confirmation:` para confirmar que esta lógica se está activando.
 - **Punto 2**: Se añadió un `logger.debug` justo antes de la llamada a `self.terminal_ui.console.print` para verificar que el panel se está construyendo y que la llamada a impresión se está realizando.
+---
+## 25-10-25 Implementación y Corrección de Confirmación para FileOperationsTool
+Descripción general: Se implementó un mecanismo de confirmación interactiva para las operaciones de escritura y eliminación de archivos (`write_file`, `delete_file`) en `FileOperationsTool`, asegurando que el usuario apruebe estas acciones antes de su ejecución. Esto incluye la visualización de un `diff` para las operaciones de escritura y mensajes claros para las eliminaciones, integrándose correctamente con el manejador de aprobación de comandos.
+
+- **Punto 1**: Se añadieron las importaciones de `json` y `difflib` en `kogniterm/core/tools/file_operations_tool.py` para permitir la serialización de datos y la generación de diferencias de contenido de archivos. También se importó `UserConfirmationRequired` de `kogniterm/core/agents/bash_agent` para el manejo de confirmaciones.
+- **Punto 2**: Se modificó el método `_write_file` en `kogniterm/core/tools/file_operations_tool.py` para:
+    - Leer el contenido original del archivo si existe.
+    - Generar un `diff` entre el contenido original y el nuevo contenido propuesto.
+    - Lanzar una excepción `UserConfirmationRequired` que incluye el `diff` y un mensaje de confirmación, encapsulados en `raw_tool_output` como un JSON.
+    - En caso de no haber cambios (`diff` vacío), se procede directamente a escribir el archivo sin confirmación.
+- **Punto 3**: Se modificó el método `_delete_file` en `kogniterm/core/tools/file_operations_tool.py` para:
+    - Verificar si el archivo existe antes de lanzar la excepción. Si no existe, lanza `FileNotFoundError`.
+    - Lanzar una excepción `UserConfirmationRequired` que incluye un mensaje claro sobre la acción de eliminación, encapsulado en `raw_tool_output` como un JSON.
+- **Punto 4**: Se modificó el método `_run` en `kogniterm/core/tools/file_operations_tool.py` para manejar el argumento `confirm=True`.
+    - Si `confirm` es `True`, el método llama directamente a los métodos internos `_perform_write_file` o `_perform_delete_file` para ejecutar la acción sin solicitar confirmación nuevamente.
+    - Esto permite que el `CommandApprovalHandler` re-ejecute la herramienta después de la aprobación del usuario.
+- **Punto 5**: Se modificó el constructor de `CommandApprovalHandler` en `kogniterm/terminal/command_approval_handler.py` para aceptar una instancia de `FileOperationsTool`.
+- **Punto 6**: Se añadió lógica en `handle_command_approval` de `kogniterm/terminal/command_approval_handler.py` para detectar cuando `tool_name` es `file_operations` y la acción ha sido aprobada.
+    - En este caso, se llama al método `_perform_write_file` o `_perform_delete_file` de `file_operations_tool` (utilizando la instancia almacenada en `self.file_operations_tool`) con los argumentos originales.
+- **Punto 7**: Se modificó la inicialización de `CommandApprovalHandler` en `kogniterm/terminal/kogniterm_app.py` para pasar la instancia de `file_operations_tool` al constructor.

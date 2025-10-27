@@ -14,6 +14,8 @@ from typing import Optional, List # Nuevas importaciones para el FileCompleter
 import fnmatch # Nueva importación para el FileCompleter
 import logging
 
+logging.basicConfig(level=logging.DEBUG, format='%(levelname)s:%(name)s:%(message)s')
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -23,7 +25,8 @@ from rich.panel import Panel
 
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
-from kogniterm.core.agents.bash_agent import AgentState, UserConfirmationRequired
+from kogniterm.core.agents.bash_agent import AgentState
+from kogniterm.core.exceptions import UserConfirmationRequired # Importar desde exceptions.py
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool
 from kogniterm.core.tools.python_executor import PythonTool
 from kogniterm.core.tools.advanced_file_editor_tool import AdvancedFileEditorTool # Importar AdvancedFileEditorTool
@@ -175,7 +178,6 @@ class KogniTermApp:
         self.command_executor = command_executor
         self.agent_state = agent_state
         self.terminal_ui = TerminalUI()
-        self.file_update_tool = FileUpdateTool()
         self.auto_approve = auto_approve
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
@@ -185,11 +187,11 @@ class KogniTermApp:
         self.llm_service.interrupt_queue = self.terminal_ui.get_interrupt_queue()
 
         # Inicializar FileCompleter con el workspace_directory
-        file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
-        self.completer = FileCompleter(file_operations_tool=file_operations_tool, workspace_directory=self.workspace_directory, show_indicator=False)
+        self.file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
+        self.completer = FileCompleter(file_operations_tool=self.file_operations_tool, workspace_directory=self.workspace_directory, show_indicator=False)
 
         # Instanciar AdvancedFileEditorTool
-        advanced_file_editor_tool = AdvancedFileEditorTool()
+        self.advanced_file_editor_tool = AdvancedFileEditorTool()
 
         # Definir un estilo para el prompt
         custom_style = Style.from_dict({
@@ -228,14 +230,18 @@ class KogniTermApp:
             key_bindings=combined_key_bindings
         )
 
+        # Instanciar FileUpdateTool
+        self.file_update_tool = FileUpdateTool()
+
         self.command_approval_handler = CommandApprovalHandler(
             self.llm_service,
             self.command_executor,
-            self.prompt_session,
+            self.prompt_session, # Añadir prompt_session
             self.terminal_ui,
             self.agent_state,
-            self.file_update_tool,
-            advanced_file_editor_tool # Pasar la instancia de advanced_file_editor_tool
+            self.file_update_tool, # Añadir file_update_tool
+            self.advanced_file_editor_tool, # Pasar la instancia de advanced_file_editor_tool
+            self.file_operations_tool # Pasar la instancia de file_operations_tool
         )
 
     async def run(self): # Make run() async
@@ -299,11 +305,17 @@ class KogniTermApp:
                         tool_args_to_confirm = e.tool_args
                         raw_tool_output = e.raw_tool_output # El JSON con el diff
 
+                        logger.debug(f"DEBUG APP: tool_name_to_confirm: {tool_name_to_confirm}")
+                        logger.debug(f"DEBUG APP: tool_args_to_confirm: {tool_args_to_confirm}")
+                        logger.debug(f"DEBUG APP: raw_tool_output: {raw_tool_output}")
+                        dynamic_is_file_update_confirmation = (tool_name_to_confirm in ["file_update_tool", "advanced_file_editor", "file_operations"] and raw_tool_output is not None and 'diff' in raw_tool_output)
+                        logger.debug(f"DEBUG APP: dynamic_is_file_update_confirmation: {dynamic_is_file_update_confirmation}")
+
                         approval_result = await self.command_approval_handler.handle_command_approval(
                             command_to_execute=f"confirm_action('{confirmation_message}')", # Comando dummy
                             auto_approve=self.auto_approve,
                             is_user_confirmation=False,
-                            is_file_update_confirmation=True,
+                            is_file_update_confirmation=dynamic_is_file_update_confirmation,
                             confirmation_prompt=confirmation_message,
                             tool_name=tool_name_to_confirm,
                             raw_tool_output=raw_tool_output,
