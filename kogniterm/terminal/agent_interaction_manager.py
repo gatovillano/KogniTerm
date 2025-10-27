@@ -45,8 +45,15 @@ class AgentInteractionManager:
         # Siempre usaremos bash_agent_app por ahora
         final_state_dict = self.bash_agent_app.invoke(self.agent_state)
         
-        self.agent_state.messages = final_state_dict['messages']
+        # NO actualizar self.agent_state.messages aquí si hay una confirmación pendiente
+        # KogniTermApp manejará la confirmación y luego re-invocará al agente si es necesario.
+        if not final_state_dict.get('file_update_diff_pending_confirmation'):
+            self.agent_state.messages = final_state_dict['messages']
         # self.llm_service._save_history(self.agent_state.messages) # Se guarda en KogniTermApp.run()
         self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+        self.agent_state.tool_code_to_confirm = final_state_dict.get('tool_code_to_confirm')
+        self.agent_state.tool_code_tool_name = final_state_dict.get('tool_code_tool_name')
+        self.agent_state.tool_code_tool_args = final_state_dict.get('tool_code_tool_args')
+        self.agent_state.file_update_diff_pending_confirmation = final_state_dict.get('file_update_diff_pending_confirmation')
         
         return final_state_dict

@@ -21,6 +21,7 @@ class BraveSearchTool(BaseTool):
         if not api_key:
             return "Error: La variable de entorno 'BRAVE_SEARCH_API_KEY' no está configurada."
         search_tool = BraveSearch(api_key=api_key)
+        print(f"🌐 Buscando en Brave Search con la consulta: \"{query}\"") # Mensaje de depuración
         return search_tool.run(query)
 
     async def _arun(self, query: str) -> str:

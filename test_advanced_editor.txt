@@ -1,0 +1,6 @@
+Esta es una nueva línea al principio (con solicitud de confirmación).
+Esta es una nueva TEXTO al principio (con solicitud de confirmación).
+Línea 1: Este es el contenido inicial.
+Esta TEXTO fue insertada en la posición 3 (con solicitud de confirmación).
+Línea 2: Aquí hay otra TEXTO de texto.
+Línea 3: Una tercera TEXTO para probar.

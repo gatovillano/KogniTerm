@@ -26,6 +26,7 @@ from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState, UserConfirmationRequired
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool
 from kogniterm.core.tools.python_executor import PythonTool
+from kogniterm.core.tools.advanced_file_editor_tool import AdvancedFileEditorTool # Importar AdvancedFileEditorTool
 from langchain_core.messages import ToolMessage, HumanMessage, AIMessage
 
 from kogniterm.terminal.terminal_ui import TerminalUI
@@ -181,12 +182,14 @@ class KogniTermApp:
         self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui.get_interrupt_queue())
 
         # Asegurarse de que el interrupt_queue se pase al LLMService
-        self.llm_service.interrupt_queue = self.terminal_ui.get_interrupt_queue() # Añadir esta línea
+        self.llm_service.interrupt_queue = self.terminal_ui.get_interrupt_queue()
 
         # Inicializar FileCompleter con el workspace_directory
         file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
         self.completer = FileCompleter(file_operations_tool=file_operations_tool, workspace_directory=self.workspace_directory, show_indicator=False)
 
+        # Instanciar AdvancedFileEditorTool
+        advanced_file_editor_tool = AdvancedFileEditorTool()
 
         # Definir un estilo para el prompt
         custom_style = Style.from_dict({
@@ -216,16 +219,24 @@ class KogniTermApp:
             event.app.exit() # Salir del prompt actual, pero no de la aplicación
 
         # Combinar los KeyBindings
-        combined_key_bindings = merge_key_bindings([kb_enter, kb_esc, self.terminal_ui.kb]) # Usar merge_key_bindings
+        combined_key_bindings = merge_key_bindings([kb_enter, kb_esc, self.terminal_ui.kb])
 
         self.prompt_session = PromptSession(
             history=FileHistory('.gemini_interpreter_history'),
-            completer=self.completer, # Usar la instancia guardada
+            completer=self.completer,
             style=custom_style,
-            key_bindings=combined_key_bindings # Usar los key_bindings combinados
+            key_bindings=combined_key_bindings
         )
 
-        self.command_approval_handler = CommandApprovalHandler(self.llm_service, self.command_executor, self.prompt_session, self.terminal_ui, self.agent_state, self.file_update_tool)
+        self.command_approval_handler = CommandApprovalHandler(
+            self.llm_service,
+            self.command_executor,
+            self.prompt_session,
+            self.terminal_ui,
+            self.agent_state,
+            self.file_update_tool,
+            advanced_file_editor_tool # Pasar la instancia de advanced_file_editor_tool
+        )
 
     async def run(self): # Make run() async
         """Runs the main loop of the KogniTerm application."""
@@ -284,53 +295,38 @@ class KogniTermApp:
                         self.terminal_ui.print_message(f"Se requiere confirmación para: {confirmation_message}", style="yellow")
                         
                         # Usar CommandApprovalHandler para obtener la confirmación
-                        # Necesitamos un tool_call_id para el ToolMessage que se generará
-                        # Si no hay un AIMessage previo con tool_calls, generamos uno temporal
-                        last_ai_message = None
-                        for msg in reversed(self.agent_state.messages):
-                            if isinstance(msg, ToolMessage): # Ignorar ToolMessages
-                                continue
-                            if isinstance(msg, HumanMessage): # Ignorar HumanMessages
-                                continue
-                            if isinstance(msg, AIMessage):
-                                last_ai_message = msg
-                                break
-                        
-                        tool_call_id = None
-                        if last_ai_message and last_ai_message.tool_calls and last_ai_message.tool_calls[0] and 'id' in last_ai_message.tool_calls[0]:
-                            tool_call_id = last_ai_message.tool_calls[0]['id']
-                        else:
-                            tool_call_id = f"manual_tool_call_{os.urandom(8).hex()}"
-                            self.terminal_ui.print_message(f"Advertencia: No se encontró un tool_call_id asociado para la confirmación. Generando ID temporal: {tool_call_id}", style="yellow")
-
-                        self.agent_state.tool_call_id_to_confirm = tool_call_id # Asignar el tool_call_id al estado del agente
-
-                        # Capturar la operación pendiente y sus argumentos para re-invocación
-                        # Esta información debe ser pasada por la excepción UserConfirmationRequired
                         tool_name_to_confirm = e.tool_name
                         tool_args_to_confirm = e.tool_args
+                        raw_tool_output = e.raw_tool_output # El JSON con el diff
 
-                        # Simular la ejecución de un comando para el CommandApprovalHandler
-                        dummy_command_to_execute = f"confirm_action('{confirmation_message}')"
                         approval_result = await self.command_approval_handler.handle_command_approval(
-                            dummy_command_to_execute, self.auto_approve, is_user_confirmation=True, confirmation_prompt=confirmation_message
+                            command_to_execute=f"confirm_action('{confirmation_message}')", # Comando dummy
+                            auto_approve=self.auto_approve,
+                            is_user_confirmation=False,
+                            is_file_update_confirmation=True,
+                            confirmation_prompt=confirmation_message,
+                            tool_name=tool_name_to_confirm,
+                            raw_tool_output=raw_tool_output,
+                            original_tool_args=tool_args_to_confirm
                         )
 
                         tool_message_content = approval_result['tool_message_content']
-                        self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
-                        # self.agent_state.messages = approval_result['messages'] # Ya se actualiza a través de llm_service.conversation_history
+                        action_approved = approval_result['approved']
 
-                        # Determinar si la acción fue aprobada
-                        action_approved = "Aprobado" in tool_message_content
+                        # Añadir el ToolMessage al historial del agente
+                        tool_message_for_agent = ToolMessage(
+                            content=tool_message_content,
+                            tool_call_id=f"confirmation_response_{os.urandom(8).hex()}" # Generar un ID único
+                        )
+                        self.agent_state.messages.append(tool_message_for_agent)
+                        self.llm_service.conversation_history.append(tool_message_for_agent) # Asegurarse de que también esté en el historial del LLMService
 
                         if action_approved:
-                            self.terminal_ui.print_message("Acción aprobada por el usuario. Reintentando operación...", style="green")
-                            self.agent_interaction_manager.invoke_agent(f"Confirmación para '{confirmation_message}' recibida: {tool_message_content}. Por favor, procede con la operación original si fue aprobada.")
+                            self.terminal_ui.print_message("Acción aprobada por el usuario. El agente procesará la respuesta.", style="green")
                         else:
-                            self.terminal_ui.print_message("Acción denegada por el usuario.", style="yellow")
-                            self.agent_interaction_manager.invoke_agent(f"Confirmación para '{confirmation_message}' recibida: {tool_message_content}.")
+                            self.terminal_ui.print_message("Acción denegada por el usuario. El agente procesará la respuesta.", style="yellow")
                         
-                        continue # Continuar al siguiente ciclo del bucle principal
+                        continue # Continuar al siguiente ciclo del bucle principal para que el agente procese el ToolMessage
 
                     if self.agent_state.command_to_confirm:
                         command_to_execute = self.agent_state.command_to_confirm

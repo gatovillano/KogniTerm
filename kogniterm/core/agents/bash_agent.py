@@ -34,14 +34,14 @@ Cada directorio en el que se abre KogniTerm es un espacio de trabajo independien
 -   Archivos de configuración detectados y resumidos (ej. `package.json`, `tsconfig.json`).
 -   El estado actual de Git (cambios locales y rama actual).
 
-Utiliza esta información para entender rápidamente el entorno del proyecto y tomar decisiones más informadas, especialmente para saber qué archivos observar o a qué archivos ir en relación con la solicitud del usuario. No necesitas usar herramientas como `file_read_directory_tool` o `git_status` para obtener esta información básica inicial, ya te la he proporcionado.
+Utiliza esta información para entender rápidamente el entorno del proyecto y tomar decisiones más informadas, especialmente para saber qué archivos observar o a qué archivos ir en relación con la solicitud del usuario. No necesitas usar herramientas como `git_status` para obtener esta información básica inicial, ya te la he proporcionado.
 
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
 1.  **Analiza la petición**: Entiende lo que el usuario quiere lograr.
-2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, y `python_executor` para ejecutar código Python. Úsalas para llevar a cabo la tarea.
+2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, `advanced_file_editor` para ediciones de archivos con confirmación interactiva, y `python_executor` para ejecutar código Python. Úsalas para llevar a cabo la tarea.
     *   **Gestión de Proyectos**: Cuando el usuario hable de un proyecto, **debes** revisar los archivos locales, entender la estructura y arquitectura del proyecto, y guardar esta información en el archivo `.project_structure.md` en la carpeta de trabajo actual. De este modo, cuando el usuario haga consultas, podrás leer este archivo para ubicarte en qué archivos son importantes para la consulta.
-3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`, `file_operations` o `python_executor` según corresponda.
+3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`, `file_operations`, `advanced_file_editor` o `python_executor` según corresponda.
 4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
 5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
 6.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
@@ -50,9 +50,10 @@ Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
 La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
 La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
+La herramienta `advanced_file_editor` te permite realizar ediciones avanzadas en archivos, siempre con una confirmación interactiva del usuario.
 La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código. PRIORIZA utilizar codigo python para tus tareas. 
 
-**Al editar archivos, SIEMPRE debes usar la herramienta `file_update_tool`. Asegúrate de establecer `confirm=True` y de incluir el `diff` de los cambios propuestos en el argumento `content` para que el usuario pueda revisarlos antes de la aplicación.**
+**Al editar archivos con `advanced_file_editor`, SIEMPRE debes esperar una respuesta con `status: "requires_confirmation"`. Esta respuesta contendrá un `diff` que el usuario debe aprobar. NO asumas que la operación se completó hasta que el usuario confirme. Una vez que el usuario apruebe, la herramienta se re-ejecutará automáticamente con `confirm=True`.**
 
 Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
 
@@ -87,7 +88,6 @@ class AgentState:
         """Reinicia el estado de la confirmación de herramientas."""
         self.tool_pending_confirmation = None
         self.tool_args_pending_confirmation = None
-        # self.tool_call_id_to_confirm = None # Asegurarse de limpiar también este campo - ELIMINADO
         self.file_update_diff_pending_confirmation = None # Limpiar el diff también
 
     def reset(self):
@@ -101,7 +101,6 @@ class AgentState:
     def reset_temporary_state(self):
         """Reinicia los campos de estado temporal del agente, manteniendo el historial de mensajes."""
         self.command_to_confirm = None
-        # self.tool_call_id_to_confirm = None # ELIMINADO
         self.reset_tool_confirmation()
 
     @property
@@ -142,8 +141,8 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
 
             tool = llm_service.get_tool(tool_name)
             if tool:
-                # Si es file_update_tool, añadir el parámetro confirm=True
-                if tool_name == "file_update_tool":
+                # Si es file_update_tool o advanced_file_editor_tool, añadir el parámetro confirm=True
+                if tool_name == "file_update_tool" or tool_name == "advanced_file_editor":
                     tool_args["confirm"] = True
                     # Si el contenido original se pasó como parte de tool_args,
                     # debemos asegurarnos de que el 'content' que se pasa para la re-ejecución
@@ -182,7 +181,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
             console.print(f"[bold red]❌ {error_output}[/bold red]")
     else:
         console.print("[bold yellow]⚠️ Confirmación de usuario recibida: Denegado.[/bold yellow]")
-        tool_output_str = f"Operación denegada por el usuario: {state.tool_pending_confirmation}"
+        tool_output_str = f"Operación denegada por el usuario: {state.tool_pending_confirmation or state.tool_code_tool_name}"
         state.messages.append(ToolMessage(content=tool_output_str, tool_call_id=tool_id))
 
     state.reset_tool_confirmation() # Limpiar el estado de confirmación
@@ -279,16 +278,21 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
         else:
             try:
                 raw_tool_output = llm_service._invoke_tool_with_interrupt(tool, tool_args)
-                tool_output_str = str(raw_tool_output) # Convertir a cadena
+                if isinstance(raw_tool_output, dict):
+                    tool_output_str = json.dumps(raw_tool_output)
+                else:
+                    tool_output_str = str(raw_tool_output) # Convertir a cadena
             except UserConfirmationRequired as e:
                 # Si la herramienta requiere confirmación, guardamos el estado y terminamos la ejecución de herramientas.
-                state.tool_pending_confirmation = tool_name
-                state.tool_args_pending_confirmation = tool_args
-                # El mensaje de la excepción se usará como confirmation_prompt en KogniTermApp
+                state.tool_pending_confirmation = e.tool_name
+                state.tool_args_pending_confirmation = e.tool_args
                 state.tool_call_id_to_confirm = tool_id # Guardar el tool_id original
-                tool_output_str = f"UserConfirmationRequired: {e.message}"
-                console.print(f"[bold yellow]⚠️ Herramienta '{tool_name}' requiere confirmación:[/bold yellow] {e.message}")
-                return state # Salir de la ejecución de herramientas, KogniTermApp manejará la confirmación
+                state.file_update_diff_pending_confirmation = e.raw_tool_output # Guardar el raw_tool_output (que contiene el diff)
+                
+                console.print(f"[bold yellow]⚠️ Herramienta '{e.tool_name}' requiere confirmación:[/bold yellow] {e.message}")
+                # Añadir un ToolMessage al estado para que el command_approval_handler lo procese
+                tool_messages.append(ToolMessage(content=e.raw_tool_output, tool_call_id=tool_id))
+                return state # Terminar la ejecución de herramientas y permitir que should_continue decida
             except InterruptedError:
                 console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
                 state.reset_temporary_state() # Limpiar el estado temporal del agente
@@ -307,23 +311,27 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
 
             if isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output):
                 for item in json_output:
-                    if item.get("status") == "pending_confirmation" and tool_name == "file_update_tool":
+                    if item.get("status") == "requires_confirmation" and (tool_name == "file_update_tool" or tool_name == "advanced_file_editor"):
                         should_confirm = True
                         confirmation_data = item
                         break
             elif isinstance(json_output, dict):
-                if json_output.get("status") == "pending_confirmation" and tool_name == "file_update_tool":
+                if json_output.get("status") == "requires_confirmation" and (tool_name == "file_update_tool" or tool_name == "advanced_file_editor"):
                     should_confirm = True
                     confirmation_data = json_output
 
             if should_confirm and confirmation_data:
                 state.file_update_diff_pending_confirmation = confirmation_data.get("diff") # Guardar el diff
-                raise UserConfirmationRequired(
-                    message=f"Confirmación de actualización de archivo requerida para '{tool_args.get('path', 'archivo desconocido')}'.",
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    raw_tool_output=tool_output_str # Pasar el JSON completo aquí
-                )
+                state.tool_pending_confirmation = tool_name # Guardar el nombre de la herramienta
+                state.tool_args_pending_confirmation = tool_args # Guardar los argumentos originales
+                state.tool_call_id_to_confirm = tool_id # Guardar el tool_id original
+                
+                # En lugar de lanzar una excepción, terminamos el grafo aquí
+                # para que KogniTermApp pueda interceptar y mostrar el panel.
+                # El ToolMessage debe contener solo el diff como contenido para que KogniTermApp
+                # pueda interpretarlo correctamente y mostrar el panel de confirmación.
+                tool_messages.append(ToolMessage(content=confirmation_data.get("diff", ""), tool_call_id=tool_id))
+                return state # Terminar la ejecución de herramientas y volver al input del usuario
             remaining_output = tool_output_str # Si es JSON, la salida completa es relevante
         except json.JSONDecodeError:
             # Si no es JSON, aplicamos la heurística para el mensaje descriptivo
@@ -369,7 +377,7 @@ def should_continue(state: AgentState) -> str:
     
     # Si hay un comando pendiente de confirmación, siempre terminamos el grafo aquí
     # para que la terminal lo maneje.
-    if state.command_to_confirm:
+    if state.command_to_confirm or state.file_update_diff_pending_confirmation:
         return END
 
     # Si el último mensaje del AI tiene tool_calls, ejecutar herramientas
