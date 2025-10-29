@@ -60,16 +60,9 @@ Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala
 El usuario te está dando permiso para que operes en su sistema. Actúa de forma proactiva para completar sus peticiones.
 """)
 
-# --- Definición del Estado del Agente ---
+from kogniterm.core.exceptions import UserConfirmationRequired # Importación correcta
 
-class UserConfirmationRequired(Exception):
-    """Excepción personalizada para indicar que se requiere confirmación del usuario."""
-    def __init__(self, message: str, tool_name: Optional[str] = None, tool_args: Optional[Dict[str, Any]] = None, raw_tool_output: Optional[str] = None):
-        self.message = message
-        self.tool_name = tool_name
-        self.tool_args = tool_args
-        self.raw_tool_output = raw_tool_output # Nuevo campo para la salida cruda de la herramienta
-        super().__init__(self.message)
+# --- Definición del Estado del Agente ---
 
 @dataclass
 class AgentState:
@@ -287,11 +280,11 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
                 state.tool_pending_confirmation = e.tool_name
                 state.tool_args_pending_confirmation = e.tool_args
                 state.tool_call_id_to_confirm = tool_id # Guardar el tool_id original
-                state.file_update_diff_pending_confirmation = e.raw_tool_output # Guardar el raw_tool_output (que contiene el diff)
+                state.file_update_diff_pending_confirmation = e.raw_tool_output # Guardar el diccionario completo
                 
                 console.print(f"[bold yellow]⚠️ Herramienta '{e.tool_name}' requiere confirmación:[/bold yellow] {e.message}")
                 # Añadir un ToolMessage al estado para que el command_approval_handler lo procese
-                tool_messages.append(ToolMessage(content=e.raw_tool_output, tool_call_id=tool_id))
+                tool_messages.append(ToolMessage(content=json.dumps(e.raw_tool_output), tool_call_id=tool_id))
                 return state # Terminar la ejecución de herramientas y permitir que should_continue decida
             except InterruptedError:
                 console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
@@ -321,16 +314,16 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
                     confirmation_data = json_output
 
             if should_confirm and confirmation_data:
-                state.file_update_diff_pending_confirmation = confirmation_data.get("diff") # Guardar el diff
+                state.file_update_diff_pending_confirmation = confirmation_data # Guardar el diccionario completo
                 state.tool_pending_confirmation = tool_name # Guardar el nombre de la herramienta
                 state.tool_args_pending_confirmation = tool_args # Guardar los argumentos originales
                 state.tool_call_id_to_confirm = tool_id # Guardar el tool_id original
                 
                 # En lugar de lanzar una excepción, terminamos el grafo aquí
                 # para que KogniTermApp pueda interceptar y mostrar el panel.
-                # El ToolMessage debe contener solo el diff como contenido para que KogniTermApp
-                # pueda interpretarlo correctamente y mostrar el panel de confirmación.
-                tool_messages.append(ToolMessage(content=confirmation_data.get("diff", ""), tool_call_id=tool_id))
+                # El ToolMessage debe contener el diccionario completo como contenido (serializado a JSON string)
+                # para que KogniTermApp pueda interpretarlo correctamente y mostrar el panel de confirmación.
+                tool_messages.append(ToolMessage(content=json.dumps(confirmation_data), tool_call_id=tool_id))
                 return state # Terminar la ejecución de herramientas y volver al input del usuario
             remaining_output = tool_output_str # Si es JSON, la salida completa es relevante
         except json.JSONDecodeError:

@@ -2,7 +2,14 @@ import time
 import threading
 import queue
 import sys
-from jupyter_client import KernelManager
+
+_jupyter_client_available = False
+try:
+    from jupyter_client import KernelManager
+    _jupyter_client_available = True
+except ImportError:
+    print("Advertencia: jupyter_client no está disponible. La herramienta PythonTool no funcionará.")
+
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from typing import Optional, Any
@@ -18,6 +25,9 @@ class KogniTermKernel:
         self.current_execution_outputs = []
 
     def start_kernel(self):
+        if not _jupyter_client_available:
+            print("Error: No se puede iniciar el kernel. jupyter_client no está disponible.")
+            return
         try:
             self.km = KernelManager(kernel_name='kogniterm_venv')
             self.km.start_kernel()
@@ -102,8 +112,11 @@ class PythonTool(BaseTool):
 
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
-        self._kernel = KogniTermKernel()
-        self._kernel.start_kernel()
+        if _jupyter_client_available:
+            self._kernel = KogniTermKernel()
+            self._kernel.start_kernel()
+        else:
+            self._kernel = None # O un objeto dummy que siempre devuelva error
 
     def _run(self, code: str) -> str:
         """
@@ -111,6 +124,8 @@ class PythonTool(BaseTool):
         Este método es el que será llamado por LangChain/Gemini.
         La salida se convierte a una cadena para ser procesada por el LLM.
         """
+        if not _jupyter_client_available or self._kernel is None:
+            return "Error: La herramienta PythonTool no está disponible porque jupyter_client no está instalado o el kernel no pudo iniciarse."
         # Eliminamos la lógica de confirmación directa de la herramienta.
         # Esto será manejado por el grafo del agente.
         raw_output = self._kernel.execute_code(code)
@@ -160,4 +175,5 @@ class PythonTool(BaseTool):
         return self.last_structured_output
 
     def __del__(self):
-        self._kernel.stop_kernel()
+        if _jupyter_client_available and self._kernel:
+            self._kernel.stop_kernel()

@@ -49,6 +49,7 @@ elif google_api_key and gemini_model:
 else:
     print("ADVERTENCIA: No se encontraron credenciales válidas para OpenRouter ni Google AI Studio. Asegúrate de configurar OPENROUTER_API_KEY/LITELLM_MODEL o GOOGLE_API_KEY/GEMINI_MODEL en tu archivo .env", file=sys.stderr)
 
+from .exceptions import UserConfirmationRequired # Importar la excepción
 from .tools.tool_manager import ToolManager
 import tiktoken # Importar tiktoken
 from .context.workspace_context import WorkspaceContext # Importar WorkspaceContext
@@ -458,8 +459,23 @@ class LLMService:
         if workspace_context_message:
             all_initial_system_messages_for_llm.append(_to_litellm_message(workspace_context_message))
 
+        # Instrucción para el LLM sobre cómo manejar las confirmaciones de herramientas
+        tool_confirmation_instruction = (
+            "Cuando recibas un ToolMessage con un 'status: \"requires_confirmation\"', "
+            "analiza cuidadosamente el 'diff' y la 'action_description'. "
+            "Si la acción es segura y deseada, responde con un ToolMessage que contenga "
+            "el 'tool_name' y los 'args' originales de la herramienta, pero con 'confirm: True'. "
+            "Si la acción no es segura o no es deseada, responde con un mensaje de texto explicando por qué la deniegas. "
+            "Siempre prioriza la seguridad y la intención del usuario."
+        )
+
+        if all_initial_system_messages_for_llm and all_initial_system_messages_for_llm[0]["role"] == "system":
+            all_initial_system_messages_for_llm[0]["content"] += f"\n\n{tool_confirmation_instruction}"
+        else:
+            all_initial_system_messages_for_llm.append({"role": "system", "content": tool_confirmation_instruction})
+
         if system_message:
-            # Si ya hay un system_message del workspace_context, concatenar el system_message proporcionado
+            # Si ya hay un system_message del workspace_context o la instrucción de confirmación, concatenar el system_message proporcionado
             if all_initial_system_messages_for_llm and all_initial_system_messages_for_llm[0]["role"] == "system":
                 all_initial_system_messages_for_llm[0]["content"] += f"\n\n{system_message}"
             else:
@@ -770,41 +786,55 @@ class LLMService:
 
     def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Any:
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
+        def _tool_target():
+            try:
+                result = tool.invoke(tool_args)
+                if isinstance(result, dict) and result.get("status") == "requires_confirmation":
+                    raise UserConfirmationRequired(
+                        message=result.get("action_description", "Confirmación requerida"),
+                        tool_name=result.get("operation", tool.name),
+                        tool_args=result.get("args", tool_args),
+                        raw_tool_output=result
+                    )
+                return result
+            except UserConfirmationRequired as e:
+                raise e
+            except Exception as e:
+                raise e
+
         with self.tool_execution_lock:
             if self.active_tool_future is not None and self.active_tool_future.running():
                 raise RuntimeError("Ya hay una herramienta en ejecución. No se puede iniciar otra.")
             
-            # Usar functools.partial para pasar los argumentos a tool.invoke
-            # Esto asegura que la función que se ejecuta en el hilo sea simple y reciba los args correctos
-            future = self.tool_executor.submit(tool.invoke, tool_args)
+            future = self.tool_executor.submit(_tool_target)
             self.active_tool_future = future
 
         try:
             while True:
                 try:
-                    # Esperar el resultado de la tarea con un timeout corto
                     return future.result(timeout=0.01) 
                 except TimeoutError:
-                    # Si hay un timeout, verificar la cola de interrupción
                     if self.interrupt_queue and not self.interrupt_queue.empty():
                         print("DEBUG: _invoke_tool_with_interrupt - Interrupción detectada en la cola (via TimeoutError).", file=sys.stderr)
-                        self.interrupt_queue.get() # Consumir la señal
+                        self.interrupt_queue.get()
                         if future.running():
                             print("DEBUG: _invoke_tool_with_interrupt - Intentando cancelar la tarea (via TimeoutError).", file=sys.stderr)
-                            future.cancel() # Intentar cancelar la tarea
+                            future.cancel()
                             print("DEBUG: _invoke_tool_with_interrupt - Lanzando InterruptedError (via TimeoutError).", file=sys.stderr)
                             raise InterruptedError("Ejecución de herramienta interrumpida por el usuario.")
                 except InterruptedError:
-                    raise # Re-lanzar la excepción de interrupción
+                    raise
+                except UserConfirmationRequired as e:
+                    raise e
                 except Exception as e:
-                    # Capturar cualquier otra excepción de la herramienta
                     raise e
         except InterruptedError:
-            raise # Re-lanzar la excepción de interrupción
+            raise
+        except UserConfirmationRequired as e:
+            raise e
         except Exception as e:
-            # Capturar cualquier otra excepción de la herramienta
             raise e
         finally:
             with self.tool_execution_lock:
                 if self.active_tool_future is future:
-                    self.active_tool_future = None # Limpiar la referencia a la tarea activa
+                    self.active_tool_future = None

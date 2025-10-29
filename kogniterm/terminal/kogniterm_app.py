@@ -17,6 +17,13 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+# Configurar un StreamHandler para la consola
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 from rich.console import Console
 from rich.padding import Padding
 from rich.panel import Panel
@@ -42,7 +49,7 @@ class FileCompleter(Completer):
         "*/build/*", "*/venv/*", "*/.git/*", "*/__pycache__/*", "*/kogniterm.egg-info/*", "*/src/*",
         ".*/", "*/.*/", # Patrones para directorios ocultos en la raíz y subdirectorios
         "*.pyc", "*.tmp", "*.log", ".env", ".DS_Store", "*.swp", "*.bak", "*.old", "*.fuse_hidden*",
-        "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", "kogniterm.egg-info/", "src/", ".*/", ".*/",
+        "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", "kogniterm.egg-info/", "src/", "%.*/", ".*/",
         "*.pyc", "*.tmp", "*.log", ".env", ".DS_Store", "*.swp", "*.bak", "*.old", "*.fuse_hidden*",
         "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", ".pytest_cache/",
         # "docs/", "examples/", "tests/", # Comentar si se quieren incluir estos directorios
@@ -235,7 +242,8 @@ class KogniTermApp:
             self.terminal_ui,
             self.agent_state,
             self.file_update_tool,
-            advanced_file_editor_tool # Pasar la instancia de advanced_file_editor_tool
+            advanced_file_editor_tool, # Pasar la instancia de advanced_file_editor_tool
+            file_operations_tool # Pasar la instancia de file_operations_tool
         )
 
     async def run(self): # Make run() async
@@ -251,152 +259,153 @@ class KogniTermApp:
             # Si el usuario cambia de directorio usando 'cd', se iniciará una nueva instancia de KogniTermApp
             # o se deberá manejar explícitamente el cambio de directorio en una futura mejora.
             while True:
-                try:
-                    cwd = os.getcwd() # Obtener el CWD actual para el prompt
-                    prompt_text = f"({os.path.basename(cwd)}) > " # Eliminado el indicador de modo de agente
-                    user_input = await self.prompt_session.prompt_async(prompt_text) # Use prompt_async
+                cwd = os.getcwd() # Obtener el CWD actual para el prompt
+                prompt_text = f"({os.path.basename(cwd)}) > " # Eliminado el indicador de modo de agente
+                user_input = await self.prompt_session.prompt_async(prompt_text) # Use prompt_async
 
-                    if user_input is None:
-                        if not self.terminal_ui.get_interrupt_queue().empty():
-                            while not self.terminal_ui.get_interrupt_queue().empty():
-                                self.terminal_ui.get_interrupt_queue().get_nowait() # Vaciar la cola
-                            self.terminal_ui.print_message("Generación de respuesta cancelada por el usuario. 🛑", style="yellow")
-                            self.llm_service.stop_generation_flag = False # Resetear la bandera
-                            continue # Continuar el bucle para un nuevo prompt
-                        else:
-                            # Si user_input es None y no se ha establecido la bandera de stop_generation_flag,
-                            # significa que el usuario ha salido del prompt de alguna otra manera (ej. Ctrl+D).
-                            # En este caso, salimos de la aplicación.
-                            break
+                if user_input is None:
+                    if not self.terminal_ui.get_interrupt_queue().empty():
+                        while not self.terminal_ui.get_interrupt_queue().empty():
+                            self.terminal_ui.get_interrupt_queue().get_nowait() # Vaciar la cola
+                        self.terminal_ui.print_message("Generación de respuesta cancelada por el usuario. 🛑", style="yellow")
+                        self.llm_service.stop_generation_flag = False # Resetear la bandera
+                        continue # Continuar el bucle para un nuevo prompt
+                    else:
+                        # Si user_input es None y no se ha establecido la bandera de stop_generation_flag,
+                        # significa que el usuario ha salido del prompt de alguna otra manera (ej. Ctrl+D).
+                        # En este caso, salimos de la aplicación.
+                        break
 
-                    if not user_input.strip():
-                        continue
+                if not user_input.strip():
+                    continue
 
-                    # Imprimir el mensaje del usuario en un panel gris
-                    self.terminal_ui.print_message(user_input, is_user_message=True)
+                # Imprimir el mensaje del usuario en un panel gris
+                self.terminal_ui.print_message(user_input, is_user_message=True)
 
-                    # Limpiar el input después de enviar el mensaje
-                    self.prompt_session.app.current_buffer.text = ""
-                    self.prompt_session.app.current_buffer.cursor_position = 0
+                # Limpiar el input después de enviar el mensaje
+                self.prompt_session.app.current_buffer.text = ""
+                self.prompt_session.app.current_buffer.cursor_position = 0
 
-                    if self.meta_command_processor.process_meta_command(user_input): # Eliminar await
-                        continue
+                if self.meta_command_processor.process_meta_command(user_input): # Eliminar await
+                    continue
 
-                    try:
-                        final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
+                final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
+                
+                # Actualizar el estado del agente con lo que devuelve el manager
+                self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
+                self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+
+                # --- NUEVA LÓGICA PARA MANEJAR CONFIRMACIONES PENDIENTES ---
+                if self.agent_state.file_update_diff_pending_confirmation:
+                    confirmation_message = self.agent_state.file_update_diff_pending_confirmation.get("action_description", "Se requiere confirmación para una operación de archivo.")
+                    self.terminal_ui.print_message(f"Se requiere confirmación para: {confirmation_message}", style="yellow")
+                    
+                    tool_name_to_confirm = self.agent_state.tool_pending_confirmation
+                    tool_args_to_confirm = self.agent_state.tool_args_pending_confirmation
+                    raw_tool_output_dict = self.agent_state.file_update_diff_pending_confirmation
+
+                    approval_result = await self.command_approval_handler.handle_command_approval(
+                        command_to_execute=f"confirm_action('{confirmation_message}')", # Comando dummy
+                        auto_approve=self.auto_approve,
+                        is_user_confirmation=False,
+                        is_file_update_confirmation=True,
+                        confirmation_prompt=confirmation_message,
+                        tool_name=tool_name_to_confirm,
+                        raw_tool_output=raw_tool_output_dict,
+                        original_tool_args=tool_args_to_confirm
+                    )
+
+                    tool_message_content = approval_result['tool_message_content']
+                    action_approved = approval_result['approved']
+
+                    tool_message_for_agent = ToolMessage(
+                        content=tool_message_content,
+                        tool_call_id=f"confirmation_response_{os.urandom(8).hex()}"
+                    )
+                    self.agent_state.messages.append(tool_message_for_agent)
+                    self.llm_service.conversation_history.append(tool_message_for_agent)
+
+                    if action_approved:
+                        self.terminal_ui.print_message("Acción aprobada por el usuario. El agente procesará la respuesta.", style="green")
+                        self.terminal_ui.print_message("El agente continuará su flujo...", style="cyan")
+                        self.agent_state.messages.append(HumanMessage(content="La herramienta anterior se ejecutó con éxito. Por favor, continúa con la tarea."))
+                        final_state_after_reinvocation = self.agent_interaction_manager.invoke_agent("Procesa la salida de la herramienta que acaba de ser añadida al historial.")
                         
-                        # Actualizar el estado del agente con lo que devuelve el manager
-                        self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
-                        self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+                        self.agent_state.reset_tool_confirmation()
+                        self.agent_state.tool_call_id_to_confirm = None
+                    else:
+                        self.terminal_ui.print_message("Acción denegada por el usuario. El agente procesará la respuesta.", style="yellow")
+                    
+                    self.agent_state.reset_tool_confirmation()
+                    self.agent_state.tool_call_id_to_confirm = None
+                    continue # Reiniciar el bucle principal para que el agente procese el nuevo estado.
+                # --- FIN DE LA NUEVA LÓGICA ---
 
-                    except UserConfirmationRequired as e:
-                        # Capturar la solicitud de confirmación del usuario
-                        confirmation_message = e.message
-                        self.terminal_ui.print_message(f"Se requiere confirmación para: {confirmation_message}", style="yellow")
-                        
-                        # Usar CommandApprovalHandler para obtener la confirmación
-                        tool_name_to_confirm = e.tool_name
-                        tool_args_to_confirm = e.tool_args
-                        raw_tool_output = e.raw_tool_output # El JSON con el diff
+                if self.agent_state.command_to_confirm:
+                    command_to_execute = self.agent_state.command_to_confirm
+                    self.agent_state.command_to_confirm = None # Limpiar después de usar
 
-                        approval_result = await self.command_approval_handler.handle_command_approval(
-                            command_to_execute=f"confirm_action('{confirmation_message}')", # Comando dummy
-                            auto_approve=self.auto_approve,
-                            is_user_confirmation=False,
-                            is_file_update_confirmation=True,
-                            confirmation_prompt=confirmation_message,
-                            tool_name=tool_name_to_confirm,
-                            raw_tool_output=raw_tool_output,
-                            original_tool_args=tool_args_to_confirm
-                        )
+                    approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
+                    
+                    # Actualizar el estado del agente con los mensajes devueltos por el handler
+                    self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
+                    # self.agent_state.messages = approval_result['messages']
+                    tool_message_content = approval_result['tool_message_content']
 
-                        tool_message_content = approval_result['tool_message_content']
-                        action_approved = approval_result['approved']
+                    # Re-invocar al agente para procesar la salida de la herramienta
+                    self.terminal_ui.print_message("Procesando salida del comando...", style="cyan")
+                    
+                    # Asegurar que tool_call_id_to_confirm siempre tenga un valor
+                    if self.agent_state.tool_call_id_to_confirm is None:
+                        self.agent_state.tool_call_id_to_confirm = f"manual_tool_call_{os.urandom(8).hex()}"
+                        self.terminal_ui.print_message(f"Advertencia: tool_call_id_to_confirm era None. Generando ID temporal: {self.agent_state.tool_call_id_to_confirm}", style="yellow")
 
-                        # Añadir el ToolMessage al historial del agente
-                        tool_message_for_agent = ToolMessage(
-                            content=tool_message_content,
-                            tool_call_id=f"confirmation_response_{os.urandom(8).hex()}" # Generar un ID único
-                        )
-                        self.agent_state.messages.append(tool_message_for_agent)
-                        self.llm_service.conversation_history.append(tool_message_for_agent) # Asegurarse de que también esté en el historial del LLMService
+                    # Construir el ToolMessage con el tool_call_id correcto
+                    tool_message_for_agent = ToolMessage(
+                        content=tool_message_content,
+                        tool_call_id=self.agent_state.tool_call_id_to_confirm # Usar el tool_call_id guardado
+                    )
+                    self.agent_state.messages.append(tool_message_for_agent) # Añadir al historial
+                    self.agent_interaction_manager.invoke_agent("Procesa la salida de la herramienta que acaba de ser añadida al historial.") # Invocar al agente con una instrucción de texto
+                    self.agent_state.tool_call_id_to_confirm = None # Limpiar el tool_call_id después de usarlo
 
-                        if action_approved:
-                            self.terminal_ui.print_message("Acción aprobada por el usuario. El agente procesará la respuesta.", style="green")
-                        else:
-                            self.terminal_ui.print_message("Acción denegada por el usuario. El agente procesará la respuesta.", style="yellow")
-                        
-                        continue # Continuar al siguiente ciclo del bucle principal para que el agente procese el ToolMessage
+                # Manejo de la salida de PythonTool
+                final_response_message = self.agent_state.messages[-1]
+                if isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "python_executor":
+                    python_tool_instance = self.llm_service.get_tool("python_executor")
+                    if isinstance(python_tool_instance, PythonTool) and hasattr(python_tool_instance, 'get_last_structured_output'):
+                        structured_output = python_tool_instance.get_last_structured_output()
+                        if structured_output and "result" in structured_output:
+                            self.terminal_ui.console.print(Padding(Panel("[bold green]Salida del Código Python:[/bold green]", border_style='green'), (1, 2)))
+                            for item in structured_output["result"]:
+                                if item['type'] == 'stream':
+                                    self.terminal_ui.console.print(f"[cyan]STDOUT:[/cyan] {item['text']}")
+                                elif item['type'] == 'error':
+                                    self.terminal_ui.console.print(f"[red]ERROR ({item['ename']}):[/red] {item['evalue']}")
+                                    self.terminal_ui.console.print(f"[red]TRACEBACK:[/red]\n{"".join(item['traceback'])}")
+                                elif item['type'] == 'execute_result':
+                                    data_str = item['data'].get('text/plain', str(item['data']))
+                                    self.terminal_ui.console.print(f"[green]RESULTADO:[/green] {data_str}")
+                                elif item['type'] == 'display_data':
+                                    if 'image/png' in item['data']:
+                                        self.terminal_ui.console.print("[magenta]IMAGEN PNG GENERADA[/magenta]")
+                                    elif 'text/html' in item['data']:
+                                        self.terminal_ui.console.print(f"[magenta]HTML GENERADO:[/magenta] {item['data']['text/html'][:100]}...")
+                                    else:
+                                        self.terminal_ui.console.print(f"[magenta]DATOS DE VISUALIZACIÓN:[/magenta] {str(item['data'])}")
+                            self.terminal_ui.console.print(Padding(Panel("[bold green]Fin de la Salida Python[/bold green]", border_style='green'), (1, 2)))
+                        elif "error" in structured_output:
+                            self.terminal_ui.console.print(f"[red]Error en la ejecución de Python:[/red] {structured_output['error']}")
+                    continue
+                elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
+                    continue
 
-                    if self.agent_state.command_to_confirm:
-                        command_to_execute = self.agent_state.command_to_confirm
-                        self.agent_state.command_to_confirm = None # Limpiar después de usar
-
-                        approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
-                        
-                        # Actualizar el estado del agente con los mensajes devueltos por el handler
-                        self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
-                        # self.agent_state.messages = approval_result['messages']
-                        tool_message_content = approval_result['tool_message_content']
-
-                        # Re-invocar al agente para procesar la salida de la herramienta
-                        self.terminal_ui.print_message("Procesando salida del comando...", style="cyan")
-                        
-                        # Asegurar que tool_call_id_to_confirm siempre tenga un valor
-                        if self.agent_state.tool_call_id_to_confirm is None:
-                            self.agent_state.tool_call_id_to_confirm = f"manual_tool_call_{os.urandom(8).hex()}"
-                            self.terminal_ui.print_message(f"Advertencia: tool_call_id_to_confirm era None. Generando ID temporal: {self.agent_state.tool_call_id_to_confirm}", style="yellow")
-
-                        # Construir el ToolMessage con el tool_call_id correcto
-                        tool_message_for_agent = ToolMessage(
-                            content=tool_message_content,
-                            tool_call_id=self.agent_state.tool_call_id_to_confirm # Usar el tool_call_id guardado
-                        )
-                        self.agent_state.messages.append(tool_message_for_agent) # Añadir al historial
-                        self.agent_interaction_manager.invoke_agent("Procesa la salida de la herramienta que acaba de ser añadida al historial.") # Invocar al agente con una instrucción de texto
-                        self.agent_state.tool_call_id_to_confirm = None # Limpiar el tool_call_id después de usarlo
-
-                    # Manejo de la salida de PythonTool
-                    final_response_message = self.agent_state.messages[-1]
-                    if isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "python_executor":
-                        python_tool_instance = self.llm_service.get_tool("python_executor")
-                        if isinstance(python_tool_instance, PythonTool) and hasattr(python_tool_instance, 'get_last_structured_output'):
-                            structured_output = python_tool_instance.get_last_structured_output()
-                            if structured_output and "result" in structured_output:
-                                self.terminal_ui.console.print(Padding(Panel("[bold green]Salida del Código Python:[/bold green]", border_style='green'), (1, 2)))
-                                for item in structured_output["result"]:
-                                    if item['type'] == 'stream':
-                                        self.terminal_ui.console.print(f"[cyan]STDOUT:[/cyan] {item['text']}")
-                                    elif item['type'] == 'error':
-                                        self.terminal_ui.console.print(f"[red]ERROR ({item['ename']}):[/red] {item['evalue']}")
-                                        self.terminal_ui.console.print(f"[red]TRACEBACK:[/red]\n{"".join(item['traceback'])}")
-                                    elif item['type'] == 'execute_result':
-                                        data_str = item['data'].get('text/plain', str(item['data']))
-                                        self.terminal_ui.console.print(f"[green]RESULTADO:[/green] {data_str}")
-                                    elif item['type'] == 'display_data':
-                                        if 'image/png' in item['data']:
-                                            self.terminal_ui.console.print("[magenta]IMAGEN PNG GENERADA[/magenta]")
-                                        elif 'text/html' in item['data']:
-                                            self.terminal_ui.console.print(f"[magenta]HTML GENERADO:[/magenta] {item['data']['text/html'][:100]}...")
-                                        else:
-                                            self.terminal_ui.console.print(f"[magenta]DATOS DE VISUALIZACIÓN:[/magenta] {str(item['data'])}")
-                                self.terminal_ui.console.print(Padding(Panel("[bold green]Fin de la Salida Python[/bold green]", border_style='green'), (1, 2)))
-                            elif "error" in structured_output:
-                                self.terminal_ui.console.print(f"[red]Error en la ejecución de Python:[/red] {structured_output['error']}")
-                        continue
-                    elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
-                        continue
-
-                    # self.llm_service._save_history(self.agent_state.messages) # No es necesario aquí, ya se guarda en finally
-
-                except KeyboardInterrupt:
-                    self.terminal_ui.print_message("\nSaliendo...", style="yellow")
-                    break
-                except Exception as e:
-                    self.terminal_ui.print_message(f"Ocurrió un error inesperado: {e}", style="red")
-                    import traceback
-                    traceback.print_exc()
-                    break
+        except KeyboardInterrupt:
+            self.terminal_ui.print_message("\nSaliendo...", style="yellow")
+        except Exception as e:
+            self.terminal_ui.print_message(f"Ocurrió un error inesperado: {e}", style="red")
+            import traceback
+            traceback.print_exc()
         finally:
             # Asegurarse de que el historial se guarde siempre al salir de la aplicación
             self.llm_service._save_history(self.llm_service.conversation_history)

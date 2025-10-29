@@ -1,7 +1,13 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from typing import Dict, Any
 import queue # Importar queue
+from kogniterm.core.exceptions import UserConfirmationRequired # ¡Añadir esta línea!
 
 """
 This module contains the AgentInteractionManager class, responsible for
@@ -34,8 +40,8 @@ class AgentInteractionManager:
                         self.agent_state.messages.pop(i)
                         break
 
-    def invoke_agent(self, user_input: str) -> dict:
-        """Invokes the active agent with the user's input."""
+    def invoke_agent(self, user_input: str) -> Dict[str, Any]:
+        logger.debug(f"DEBUG: invoke_agent - user_input: {user_input}")
         processed_input = user_input.strip()
         if processed_input.startswith('@'):
             processed_input = processed_input[1:]
@@ -45,15 +51,21 @@ class AgentInteractionManager:
         # Siempre usaremos bash_agent_app por ahora
         final_state_dict = self.bash_agent_app.invoke(self.agent_state)
         
-        # NO actualizar self.agent_state.messages aquí si hay una confirmación pendiente
-        # KogniTermApp manejará la confirmación y luego re-invocará al agente si es necesario.
-        if not final_state_dict.get('file_update_diff_pending_confirmation'):
-            self.agent_state.messages = final_state_dict['messages']
-        # self.llm_service._save_history(self.agent_state.messages) # Se guarda en KogniTermApp.run()
+        # Actualizar el estado del agente con los valores del final_state_dict
         self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
         self.agent_state.tool_code_to_confirm = final_state_dict.get('tool_code_to_confirm')
         self.agent_state.tool_code_tool_name = final_state_dict.get('tool_code_tool_name')
         self.agent_state.tool_code_tool_args = final_state_dict.get('tool_code_tool_args')
         self.agent_state.file_update_diff_pending_confirmation = final_state_dict.get('file_update_diff_pending_confirmation')
+
+        # Si hay una confirmación de archivo pendiente, la información ya está en final_state_dict
+        # y será manejada por KogniTermApp.
+
+        # Si no hay confirmación pendiente, actualizar los mensajes del agente
+        if not self.agent_state.file_update_diff_pending_confirmation:
+            self.agent_state.messages = final_state_dict['messages']
         
         return final_state_dict
+
+
+
