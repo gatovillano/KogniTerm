@@ -1,22 +1,20 @@
 import os
 import logging
-import json
-import difflib
 from typing import Type, Optional, List, ClassVar, Any, Dict
 
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
-from kogniterm.core.exceptions import UserConfirmationRequired # Importar aquí
 
 logger = logging.getLogger(__name__)
 
 
 import queue
+import difflib # Añadir esta línea
 
 
 class FileOperationsTool(BaseTool):
     name: str = "file_operations"
-    description: str = "Permite realizar operaciones CRUD (Crear, Leer, Actualizar, Borrar) en archivos y directorios."
+    description: str = "Permite realizar operaciones CRUD (Crear, Leer, Actualizar, Borrar) en archivos y directorios. La confirmación de los cambios se gestiona de forma conversacional."
 
     ignored_directories: ClassVar[List[str]] = ['venv', '.git', '__pycache__', '.venv']
     llm_service: Any
@@ -36,9 +34,11 @@ class FileOperationsTool(BaseTool):
     class WriteFileInput(BaseModel):
         path: str = Field(description="La ruta absoluta del archivo a escribir/crear.")
         content: str = Field(description="El contenido a escribir en el archivo.")
+        confirm: Optional[bool] = Field(default=False, description="Si es True, confirma la operación de escritura sin requerir aprobación adicional.")
 
     class DeleteFileInput(BaseModel):
         path: str = Field(description="La ruta absoluta del archivo a borrar.")
+        confirm: Optional[bool] = Field(default=False, description="Si es True, confirma la operación de eliminación sin requerir aprobación adicional.")
 
     class ListDirectoryInput(BaseModel):
         path: str = Field(description="La ruta absoluta del directorio a listar.")
@@ -50,26 +50,24 @@ class FileOperationsTool(BaseTool):
     # --- Implementación de las operaciones ---
 
     def _run(self, **kwargs) -> str | Dict[str, Any]:
+        logger.debug(f"DEBUG: _run - Recibiendo kwargs: {kwargs}") # <-- Añadir este log
+        # print(f"*** DEBUG PRINT: _run - Recibiendo kwargs: {kwargs} ***") # <-- Añadir este print
         operation = kwargs.get("operation")
         confirm = kwargs.get("confirm", False)
-
+        result: str | Dict[str, Any] | None = None
         try:
-            if confirm:
-                if operation == "write_file":
-                    return self._perform_write_file(kwargs["path"], kwargs["content"])
-                elif operation == "delete_file":
-                    return self._perform_delete_file(kwargs["path"])
-                else:
-                    return f"Operación '{operation}' no soporta confirmación directa."
-
             if operation == "read_file":
                 return self._read_file(kwargs["path"])
             elif operation == "write_file":
-                # Ahora _write_file lanza UserConfirmationRequired
-                return self._write_file(kwargs["path"], kwargs["content"])
+                result = self._write_file(kwargs["path"], kwargs["content"], confirm=confirm)
+                if isinstance(result, dict) and result.get("status") == "requires_confirmation":
+                    return result
+                return result
             elif operation == "delete_file":
-                # Ahora _delete_file lanza UserConfirmationRequired
-                return self._delete_file(kwargs["path"])
+                result = self._delete_file(kwargs["path"], confirm=confirm)
+                if isinstance(result, dict) and result.get("status") == "requires_confirmation":
+                    return result
+                return result
             elif operation == "list_directory":
                 recursive = kwargs.get("recursive", False)
                 items = self._list_directory(kwargs["path"], recursive=recursive)
@@ -88,62 +86,69 @@ class FileOperationsTool(BaseTool):
             return f"Error en la operación '{operation}': {e}"
 
 
-    def _read_file(self, path: str) -> str:
+    MAX_FILE_CONTENT_LENGTH: ClassVar[int] = 10000 # Limite de caracteres para el contenido del archivo
+
+    def _read_file(self, path: str) -> Dict[str, Any]:
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de lectura de archivo interrumpida por el usuario.")
 
-        print(f"✨ KogniTerm: Leyendo archivo 📄: {path}")
         path = path.strip().replace('@', '')
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            return f"FILE_CONTENT_START: {path}\n{content}\n:FILE_CONTENT_END"
+            
+            if len(content) > self.MAX_FILE_CONTENT_LENGTH:
+                content = content[:self.MAX_FILE_CONTENT_LENGTH] + f"\n... [Contenido truncado a {self.MAX_FILE_CONTENT_LENGTH} caracteres] ..."
+            
+            return {"file_path": path, "content": content}
         except FileNotFoundError:
             raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
         except Exception as e:
             raise Exception(f"Error al leer el archivo '{path}': {e}")
 
-    def _write_file(self, path: str, content: str) -> str | Dict[str, Any]:
+    def _write_file(self, path: str, content: str, confirm: bool = False) -> str | Dict[str, Any]:
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de escritura de archivo interrumpida por el usuario.")
 
         print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}")
-        
-        original_content = ""
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                original_content = f.read()
+        logger.debug(f"DEBUG: _write_file - confirm: {confirm}")
+        # print(f"*** DEBUG PRINT: _write_file - confirm: {confirm} ***")
+        if confirm:
+            logger.debug("DEBUG: _write_file - Ejecutando _perform_write_file (confirm=True).")
+            # print("*** DEBUG PRINT: _write_file - Ejecutando _perform_write_file (confirm=True). ***")
+            result = self._perform_write_file(path, content)
+            logger.debug(f"DEBUG: _write_file - Devolviendo status success: {result}")
+            logger.debug(f"DEBUG: _write_file - Devolviendo status success: {result}")
+            return {"status": "success", "message": result}
+        else:
+            logger.debug("DEBUG: _write_file - Solicitando confirmación (confirm=False).")
+            logger.debug("DEBUG: _write_file - Solicitando confirmación (confirm=False).")
+            original_content = ""
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        original_content = f.read()
+                except Exception:
+                    pass # Ignorar errores de lectura si el archivo no existe o no es legible
 
-        diff = "".join(difflib.unified_diff(
-            original_content.splitlines(keepends=True),
-            content.splitlines(keepends=True),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}",
-            lineterm=''
-        ))
-
-        if not diff:
-            return self._perform_write_file(path, content)
-
-        raise UserConfirmationRequired(
-            message=f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar.",
-            tool_name=self.name,
-            tool_args={
-                "operation": "write_file",
-                "path": path,
-                "content": content,
-            },
-            raw_tool_output=json.dumps({
+            diff = "".join(difflib.unified_diff(
+                original_content.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}"
+            ))
+            logger.debug(f"DEBUG: _write_file - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
+            logger.debug(f"DEBUG: _write_file - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
+            return {
                 "status": "requires_confirmation",
-                "tool_name": self.name,
-                "path": path,
+                "action_description": f"escribir en el archivo '{path}'",
+                "operation": "file_operations",
+                "args": {"operation": "write_file", "path": path, "content": content, "confirm": True},
                 "diff": diff,
-                "message": f"Se detectaron cambios para '{path}'. Por favor, confirma para aplicar.",
                 "new_content": content,
-            })
-        )
+            }
 
     def _perform_write_file(self, path: str, content: str) -> str:
         try:
@@ -153,30 +158,30 @@ class FileOperationsTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error al escribir/crear el archivo '{path}': {e}")
 
-    def _delete_file(self, path: str) -> str | Dict[str, Any]:
+    def _delete_file(self, path: str, confirm: bool = False) -> str | Dict[str, Any]:
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de eliminación de archivo interrumpida por el usuario.")
 
         print(f"🗑️ KogniTerm: Eliminando archivo 📄: {path}")
-        
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"El archivo '{path}' no fue encontrado para eliminar.")
-
-        raise UserConfirmationRequired(
-            message=f"Se solicita eliminar el archivo '{path}'. Por favor, confirma para proceder.",
-            tool_name=self.name,
-            tool_args={
-                "operation": "delete_file",
-                "path": path,
-            },
-            raw_tool_output=json.dumps({
+        logger.debug(f"DEBUG: _delete_file - confirm: {confirm}")
+        print(f"*** DEBUG PRINT: _delete_file - confirm: {confirm} ***")
+        if confirm:
+            logger.debug("DEBUG: _delete_file - Ejecutando _perform_delete_file (confirm=True).")
+            print("*** DEBUG PRINT: _delete_file - Ejecutando _perform_delete_file (confirm=True). ***")
+            result = self._perform_delete_file(path)
+            logger.debug(f"DEBUG: _delete_file - Devolviendo status success: {result}")
+            print(f"*** DEBUG PRINT: _delete_file - Devolviendo status success: {result} ***")
+            return {"status": "success", "message": result}
+        else:
+            logger.debug("DEBUG: _delete_file - Solicitando confirmación (confirm=False).")
+            print("*** DEBUG PRINT: _delete_file - Solicitando confirmación (confirm=False). ***")
+            return {
                 "status": "requires_confirmation",
-                "tool_name": self.name,
-                "path": path,
-                "message": f"Se solicita eliminar el archivo '{path}'. Por favor, confirma para proceder.",
-            })
-        )
+                "action_description": f"eliminar el archivo '{path}'",
+                "operation": "file_operations",
+                "args": {"operation": "delete_file", "path": path, "confirm": True}
+            }
 
     def _perform_delete_file(self, path: str) -> str:
         try:
@@ -231,8 +236,7 @@ class FileOperationsTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error al listar el directorio '{path}': {e}")
 
-    def _read_many_files(self, paths: List[str]) -> str:
-        print(f"📚 KogniTerm: Leyendo múltiples archivos 📄: {', '.join(paths)}")
+    def _read_many_files(self, paths: List[str]) -> Dict[str, Any]:
         combined_content = []
         for p in paths:
             if self.interrupt_queue and not self.interrupt_queue.empty():
@@ -242,12 +246,12 @@ class FileOperationsTool(BaseTool):
             try:
                 with open(p, 'r', encoding='utf-8') as f:
                     content = f.read()
-                combined_content.append(content)
+                combined_content.append({"file_path": p, "content": content})
             except FileNotFoundError:
-                combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---""")
+                combined_content.append({"file_path": p, "error": f"Archivo '{p}' no encontrado."})
             except Exception as e:
-                combined_content.append(f"""--- Error al leer '{p}': {e} ---""")
-        return "\n".join(combined_content)
+                combined_content.append({"file_path": p, "error": f"Error al leer '{p}': {e}"})
+        return {"files": combined_content}
 
     def _create_directory(self, path: str) -> str:
         if self.interrupt_queue and not self.interrupt_queue.empty():
@@ -262,8 +266,6 @@ class FileOperationsTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error al crear el directorio '{path}': {e}")
 
-    def _confirm_action(self, action_description: str, operation_name: str, operation_args: dict) -> Dict[str, Any]:
-        return {"_requires_confirmation": True, "action_description": action_description, "operation": operation_name, "args": operation_args}
 
     async def _arun(self, **kwargs) -> str:
         raise NotImplementedError("FileOperationsTool does not support async")

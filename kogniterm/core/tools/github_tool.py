@@ -35,12 +35,18 @@ class GitHubTool(BaseTool):
         except GithubException as e:
             raise ValueError(f"Error al acceder al repositorio '{repo_name}': {e}")
 
+    MAX_GITHUB_FILE_CONTENT_LENGTH: int = 100000 # Limite de caracteres para el contenido del archivo de GitHub
+
     def _get_file_content(self, repo, path: str) -> str:
         try:
             content_obj = repo.get_contents(path)
             # Intentar decodificar como UTF-8
             try:
                 file_content = content_obj.decoded_content.decode('utf-8')
+                
+                if len(file_content) > self.MAX_GITHUB_FILE_CONTENT_LENGTH:
+                    file_content = file_content[:self.MAX_GITHUB_FILE_CONTENT_LENGTH] + f"\n... [Contenido truncado a {self.MAX_GITHUB_FILE_CONTENT_LENGTH} caracteres] ..."
+
                 return f"### Contenido de '{path}'\n```\n{file_content}\n```"
             except UnicodeDecodeError:
                 # Si falla la decodificación UTF-8, asumimos que es un archivo binario

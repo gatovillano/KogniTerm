@@ -16,13 +16,20 @@ class BraveSearchTool(BaseTool):
 
     args_schema: Type[BaseModel] = BraveSearchInput
 
+    MAX_BRAVE_SEARCH_OUTPUT_LENGTH: int = 30000 # Limite de caracteres para la salida de Brave Search
+
     def _run(self, query: str) -> str:
         api_key = os.getenv("BRAVE_SEARCH_API_KEY")
         if not api_key:
             return "Error: La variable de entorno 'BRAVE_SEARCH_API_KEY' no está configurada."
         search_tool = BraveSearch(api_key=api_key)
-        print(f"🌐 Buscando en Brave Search con la consulta: \"{query}\"") # Mensaje de depuración
-        return search_tool.run(query)
+        # print(f"🌐 Buscando en Brave Search con la consulta: \"{query}\"") # Mensaje de depuración
+        search_result = search_tool.run(query)
+
+        if len(search_result) > self.MAX_BRAVE_SEARCH_OUTPUT_LENGTH:
+            search_result = search_result[:self.MAX_BRAVE_SEARCH_OUTPUT_LENGTH] + f"\n... [Contenido truncado a {self.MAX_BRAVE_SEARCH_OUTPUT_LENGTH} caracteres] ..."
+
+        return search_result
 
     async def _arun(self, query: str) -> str:
         raise NotImplementedError("brave_search does not support async")

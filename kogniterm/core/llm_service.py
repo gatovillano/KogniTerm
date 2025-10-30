@@ -14,114 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 from typing import Union # ¡Nueva importación para Union!
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-load_dotenv()
-
-# Lógica de fallback para credenciales
-openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-litellm_model = os.getenv("LITELLM_MODEL")
-litellm_api_base = os.getenv("LITELLM_API_BASE")
-
-google_api_key = os.getenv("GOOGLE_API_KEY")
-gemini_model = os.getenv("GEMINI_MODEL")
-
-print(f"DEBUG: OPENROUTER_API_KEY: {openrouter_api_key is not None}", file=sys.stderr)
-print(f"DEBUG: LITELLM_MODEL: {litellm_model}", file=sys.stderr)
-print(f"DEBUG: LITELLM_API_BASE: {litellm_api_base}", file=sys.stderr)
-print(f"DEBUG: GOOGLE_API_KEY: {google_api_key is not None}", file=sys.stderr)
-print(f"DEBUG: GEMINI_MODEL: {gemini_model}", file=sys.stderr)
-
-if openrouter_api_key and litellm_model:
-    # Usar OpenRouter
-    os.environ["LITELLM_MODEL"] = litellm_model
-    os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
-    litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
-    print("DEBUG: Usando configuración de OpenRouter.", file=sys.stderr)
-elif google_api_key and gemini_model:
-    # Usar Google AI Studio
-    os.environ["LITELLM_MODEL"] = f"gemini/{gemini_model}" # Asegurarse de que sea gemini/gemini-1.5-flash
-    os.environ["LITELLM_API_KEY"] = google_api_key
-    litellm.api_base = None # Asegurarse de que no haya un api_base de Vertex AI
-    print("DEBUG: Usando configuración de Google AI Studio.", file=sys.stderr)
-else:
-    print("ADVERTENCIA: No se encontraron credenciales válidas para OpenRouter ni Google AI Studio. Asegúrate de configurar OPENROUTER_API_KEY/LITELLM_MODEL o GOOGLE_API_KEY/GEMINI_MODEL en tu archivo .env", file=sys.stderr)
-
-from .tools.tool_manager import ToolManager
-import tiktoken # Importar tiktoken
-from .context.workspace_context import WorkspaceContext # Importar WorkspaceContext
-
-
-
-def _to_litellm_message(message):
-    """Convierte un mensaje de LangChain a un formato compatible con LiteLLM."""
-    if isinstance(message, HumanMessage):
-        return {"role": "user", "content": message.content}
-    elif isinstance(message, AIMessage):
-        if message.tool_calls:
-            litellm_tool_calls = []
-            for tc in message.tool_calls:
-                # Asegurarse de que el ID de la herramienta se propague correctamente
-                tool_call_id = tc.get("id", str(uuid.uuid4()))
-                litellm_tool_calls.append({
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(tc["args"])
-                    }
-                })
-            content = message.content if message.content is not None else "" # Asegurarse de que el contenido no sea None
-            return {"role": "assistant", "content": content, "tool_calls": litellm_tool_calls}
-        else:
-            return {"role": "assistant", "content": message.content}
-    elif isinstance(message, ToolMessage):
-        tool_call_id = message.tool_call_id if message.tool_call_id is not None else str(uuid.uuid4())
-        return {
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": message.content
-        }
-    elif isinstance(message, SystemMessage):
-        return {"role": "system", "content": message.content}
-    else:
-        raise ValueError(f"Tipo de mensaje desconocido para LiteLLM: {type(message)}")
-
-def _from_litellm_message(message):
-    """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
-    role = message.get("role")
-    content = message.get("content", "")
-    if role == "user":
-        return HumanMessage(content=content)
-    elif role == "assistant":
-        tool_calls_data = message.get("tool_calls")
-        if tool_calls_data:
-            tool_calls = []
-            for tc in tool_calls_data:
-                args = tc["function"]["arguments"]
-                # Asegurarse de que los argumentos se manejen como un diccionario
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except json.JSONDecodeError:
-                        args = {} # Fallback si no es un JSON válido
-                tool_calls.append({
-                    "id": tc.get("id", str(uuid.uuid4())),
-                    "name": tc["function"]["name"],
-                    "args": args
-                })
-            return AIMessage(content=content, tool_calls=tool_calls)
-        else:
-            return AIMessage(content=content)
-    elif role == "tool":
-        return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
-    elif role == "system":
-        return SystemMessage(content=content)
-    else:
-        raise ValueError(f"Tipo de mensaje desconocido de LiteLLM para LangChain: {role}")
-
 def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
     args_schema = {"type": "object", "properties": {}}
@@ -149,7 +41,8 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
                     properties = {}
                     for field_name, field_info in tool.args_schema.model_fields.items():
                         # Excluir campos marcados con exclude=True o que no deberían estar en el esquema de argumentos
-                        if not getattr(field_info, 'exclude', False): # Usar getattr para manejar 'exclude' opcional
+                        # como account_id, workspace_id, telegram_id, thread_id
+                        if field_name not in ["account_id", "workspace_id", "telegram_id", "thread_id"] and not getattr(field_info, 'exclude', False):
                             field_type = 'string'  # Tipo por defecto
                             if hasattr(field_info, 'annotation'):
                                 # Intentar inferir el tipo de la anotación
@@ -222,6 +115,50 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
         }
     }
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+# Lógica de fallback para credenciales
+openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+litellm_model = os.getenv("LITELLM_MODEL")
+litellm_api_base = os.getenv("LITELLM_API_BASE")
+
+google_api_key = os.getenv("GOOGLE_API_KEY")
+gemini_model = os.getenv("GEMINI_MODEL")
+
+print(f"DEBUG: OPENROUTER_API_KEY: {openrouter_api_key is not None}", file=sys.stderr)
+print(f"DEBUG: LITELLM_MODEL: {litellm_model}", file=sys.stderr)
+print(f"DEBUG: LITELLM_API_BASE: {litellm_api_base}", file=sys.stderr)
+print(f"DEBUG: GOOGLE_API_KEY: {google_api_key is not None}", file=sys.stderr)
+print(f"DEBUG: GEMINI_MODEL: {gemini_model}", file=sys.stderr)
+
+if openrouter_api_key and litellm_model:
+    # Usar OpenRouter
+    os.environ["LITELLM_MODEL"] = litellm_model
+    os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
+    litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
+    print("DEBUG: Usando configuración de OpenRouter.", file=sys.stderr)
+elif google_api_key and gemini_model:
+    # Usar Google AI Studio
+    os.environ["LITELLM_MODEL"] = f"gemini/{gemini_model}" # Asegurarse de que sea gemini/gemini-1.5-flash
+    os.environ["LITELLM_API_KEY"] = google_api_key
+    litellm.api_base = None # Asegurarse de que no haya un api_base de Vertex AI
+    print("DEBUG: Usando configuración de Google AI Studio.", file=sys.stderr)
+else:
+    print("ADVERTENCIA: No se encontraron credenciales válidas para OpenRouter ni Google AI Studio. Asegúrate de configurar OPENROUTER_API_KEY/LITELLM_MODEL o GOOGLE_API_KEY/GEMINI_MODEL en tu archivo .env", file=sys.stderr)
+
+from .exceptions import UserConfirmationRequired # Importar la excepción
+from .tools.tool_manager import ToolManager
+import tiktoken # Importar tiktoken
+from .context.workspace_context import WorkspaceContext # Importar WorkspaceContext
+
+
+
+
+
 class LLMService:
     def __init__(self, interrupt_queue: Optional[queue.Queue] = None):
         self.model_name = os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash")
@@ -236,13 +173,14 @@ class LLMService:
         self.tool_map = {tool.name: tool for tool in self.tool_manager.get_tools()}
         self.litellm_tools = [_convert_langchain_tool_to_litellm(tool) for tool in self.tool_manager.get_tools()]
         self.max_conversation_tokens = 128000 # Gemini 1.5 Flash context window
-        self.max_tool_output_tokens = 10000 # Max tokens for tool output
+        self.max_tool_output_tokens = 100000 # Max tokens for tool output
+        self.MAX_TOOL_MESSAGE_CONTENT_LENGTH = 100000 # Nuevo: Límite de caracteres para el contenido de ToolMessage
         self.max_history_tokens = self.max_conversation_tokens - self.max_tool_output_tokens # Remaining for history
         self.tokenizer = tiktoken.encoding_for_model("gpt-4") # Usar un tokenizer compatible
         self.history_file_path = os.path.join(os.getcwd(), ".kogniterm", "history.json") # Inicializar history_file_path
         self.console = None # Inicializar console
-        self.max_history_messages = 100 # Valor por defecto, ajustar según necesidad
-        self.max_history_chars = 100000 # Valor por defecto, ajustar según necesidad
+        self.max_history_messages = 20 # Valor por defecto, ajustar según necesidad
+        self.max_history_chars = 15000 # Valor por defecto, ajustar según necesidad
         self.workspace_context = WorkspaceContext(root_dir=os.getcwd())
         self.workspace_context_initialized = False
         self.call_timestamps = deque() # Inicializar call_timestamps
@@ -253,6 +191,42 @@ class LLMService:
         self.active_tool_future = None # Inicializar la referencia a la tarea activa
         self.tool_executor = ThreadPoolExecutor(max_workers=1) # Inicializar el ThreadPoolExecutor
         self.conversation_history = self._load_history()
+        self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
+
+    def _from_litellm_message(self, message):
+        """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
+        role = message.get("role")
+        content = message.get("content", "")
+        if role == "user":
+            return HumanMessage(content=content)
+        elif role == "assistant":
+            tool_calls_data = message.get("tool_calls")
+            if tool_calls_data:
+                tool_calls = []
+                for tc in tool_calls_data:
+                    function_data = tc.get("function")
+                    if function_data:
+                        args = function_data.get("arguments", "")
+                        # Asegurarse de que los argumentos se manejen como un diccionario
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except json.JSONDecodeError:
+                                args = {} # Fallback si no es un JSON válido
+                        tool_calls.append({
+                            "id": tc.get("id", str(uuid.uuid4())),
+                            "name": function_data.get("name", ""),
+                            "args": args
+                        })
+                return AIMessage(content=content, tool_calls=tool_calls)
+            else:
+                return AIMessage(content=content)
+        elif role == "tool":
+            return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
+        elif role == "system":
+            return SystemMessage(content=content)
+        else:
+            raise ValueError(f"Tipo de mensaje desconocido de LiteLLM para LangChain: {role}")
 
     def _build_llm_context_message(self) -> Optional[SystemMessage]:
         if self.workspace_context_initialized:
@@ -278,11 +252,31 @@ class LLMService:
             return {"role": "user", "content": message.content}
         elif isinstance(message, AIMessage):
             if message.tool_calls:
-                return {"role": "assistant", "content": message.content, "tool_calls": message.tool_calls}
+                serialized_tool_calls = []
+                for tc in message.tool_calls:
+                    # Asegurarse de que tc sea un diccionario y acceder a sus elementos como tal
+                    tc_id = tc.get("id", str(uuid.uuid4()))
+                    tc_name = tc.get("name", "")
+                    tc_args = tc.get("args", {})
+
+                    serialized_tool_calls.append({
+                        "id": tc_id,
+                        "function": {
+                            "name": tc_name,
+                            "arguments": json.dumps(tc_args)
+                        }
+                    })
+                return {"role": "assistant", "content": message.content, "tool_calls": serialized_tool_calls}
             return {"role": "assistant", "content": message.content}
         elif isinstance(message, ToolMessage):
-            return {"role": "tool", "content": message.content, "tool_call_id": message.tool_call_id}
+            content = message.content
+            # Aplicar truncamiento directo a la salida de la herramienta si excede el límite
+            if len(content) > self.MAX_TOOL_MESSAGE_CONTENT_LENGTH:
+                content = content[:self.MAX_TOOL_MESSAGE_CONTENT_LENGTH] + "... [Salida de herramienta truncada]"
+            return {"role": "tool", "content": content, "tool_call_id": message.tool_call_id}
         return {"role": "user", "content": str(message)} # Fallback
+
+
 
     def _truncate_messages(self, messages: List[Union[HumanMessage, AIMessage, ToolMessage]]) -> List[Union[HumanMessage, AIMessage, ToolMessage]]:
         # Implementación de truncamiento de mensajes
@@ -456,17 +450,33 @@ class LLMService:
         # Añadir el contexto dinámico del espacio de trabajo si está disponible
         workspace_context_message = self._build_llm_context_message()
         if workspace_context_message:
-            all_initial_system_messages_for_llm.append(_to_litellm_message(workspace_context_message))
+            all_initial_system_messages_for_llm.append(self._to_litellm_message(workspace_context_message))
+
+        # Instrucción para el LLM sobre cómo manejar las confirmaciones de herramientas
+        tool_confirmation_instruction = (
+            "Cuando recibas un ToolMessage con un 'status: \"requires_confirmation\"', "
+            "analiza cuidadosamente el 'diff' y la 'action_description'. "
+            "Si la acción es segura y deseada, responde con un ToolMessage que contenga "
+            "el 'tool_name' y los 'args' originales de la herramienta, pero con 'confirm: True'. "
+            "Si la acción no es segura o no es deseada, responde con un mensaje de texto explicando por qué la deniegas. "
+            "Siempre prioriza la seguridad y la intención del usuario. "
+            "**IMPORTANTE:** Si un ToolMessage indica que una herramienta se ejecutó con éxito, considera esa acción como completada y no la anuncies ni la propongas de nuevo en tu siguiente respuesta. Continúa con el siguiente paso de la tarea."
+        )
+
+        if all_initial_system_messages_for_llm and all_initial_system_messages_for_llm[0]["role"] == "system":
+            all_initial_system_messages_for_llm[0]["content"] += f"\n\n{tool_confirmation_instruction}"
+        else:
+            all_initial_system_messages_for_llm.append({"role": "system", "content": tool_confirmation_instruction})
 
         if system_message:
-            # Si ya hay un system_message del workspace_context, concatenar el system_message proporcionado
+            # Si ya hay un system_message del workspace_context o la instrucción de confirmación, concatenar el system_message proporcionado
             if all_initial_system_messages_for_llm and all_initial_system_messages_for_llm[0]["role"] == "system":
                 all_initial_system_messages_for_llm[0]["content"] += f"\n\n{system_message}"
             else:
                 all_initial_system_messages_for_llm.append({"role": "system", "content": system_message})
         
         # 2. Convertir el historial de conversación (sin los mensajes de sistema estáticos/dinámicos)
-        litellm_conversation_history = [_to_litellm_message(msg) for msg in history]
+        litellm_conversation_history = [self._to_litellm_message(msg) for msg in history]
 
         # 3. Filtrar mensajes de asistente vacíos del historial de conversación
         filtered_conversation_messages = []
@@ -518,21 +528,92 @@ class LLMService:
 
                 # El nuevo historial de conversación incluirá el resumen y los últimos mensajes relevantes.
                 new_conversation_history_litellm = []
-                new_conversation_history_litellm.append({"role": "system", "content": f"Resumen de la conversación anterior: {summary}"})
+                new_conversation_history_litellm.append(self._to_litellm_message({"role": "system", "content": f"Resumen de la conversación anterior: {summary}"}))
                 
-                # Seleccionar los últimos 5 mensajes (o menos si no hay tantos) de filtered_conversation_messages
-                messages_to_keep_from_conversation = filtered_conversation_messages[-5:] 
-                new_conversation_history_litellm.extend(messages_to_keep_from_conversation)
+                # Identificar todos los pares AIMessage/ToolMessage en el historial completo
+                tool_call_pairs = []
+                for i, msg in enumerate(filtered_conversation_messages):
+                    if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                        tool_call_id = msg['tool_calls'][0]['id'] # Asumiendo un solo tool_call por AIMessage
+                        # Buscar el ToolMessage correspondiente
+                        for j in range(i + 1, len(filtered_conversation_messages)):
+                            next_msg = filtered_conversation_messages[j]
+                            if next_msg.get('role') == 'tool' and next_msg.get('tool_call_id') == tool_call_id:
+                                tool_call_pairs.append((msg, next_msg))
+                                break
                 
+                # Identificar todos los pares AIMessage/ToolMessage en el historial completo
+                # y reconstruir el historial para mantenerlos juntos.
+                temp_filtered_conversation_messages = []
+                i = 0
+                while i < len(filtered_conversation_messages):
+                    msg = filtered_conversation_messages[i]
+                    temp_filtered_conversation_messages.append(msg)
+                    if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                        tool_call_id = msg['tool_calls'][0]['id'] # Asumiendo un solo tool_call por AIMessage
+                        # Buscar el ToolMessage correspondiente inmediatamente después
+                        if i + 1 < len(filtered_conversation_messages) and \
+                           filtered_conversation_messages[i+1].get('role') == 'tool' and \
+                           filtered_conversation_messages[i+1].get('tool_call_id') == tool_call_id:
+                            temp_filtered_conversation_messages.append(filtered_conversation_messages[i+1])
+                            i += 1 # Saltar el ToolMessage ya añadido
+                    i += 1
+
+                # Ahora, `temp_filtered_conversation_messages` contiene los pares de tool_calls juntos.
+                # Necesitamos truncar esto para que quepa en el historial.
+                # Priorizamos los mensajes más recientes y los pares de tool_calls.
+                
+                # Invertir para procesar desde los más recientes
+                reversed_temp_filtered_conversation_messages = list(reversed(temp_filtered_conversation_messages))
+                
+                final_conversational_messages = []
+                current_length = 0
+                
+                for msg in reversed_temp_filtered_conversation_messages:
+                    msg_len = len(json.dumps(msg, ensure_ascii=False))
+                    
+                    # Si añadir este mensaje excede el límite, y no es un mensaje de tool_call
+                    # o su AIMessage correspondiente ya ha sido añadido, entonces no lo añadimos.
+                    if current_length + msg_len > self.max_history_chars and \
+                       len(final_conversational_messages) >= self.max_history_messages:
+                        break
+                    
+                    final_conversational_messages.insert(0, msg)
+                    current_length += msg_len
+                    
+                    # Si el mensaje actual es un ToolMessage, asegurarnos de que su AIMessage esté presente
+                    if msg.get('role') == 'tool':
+                        tool_call_id = msg.get('tool_call_id')
+                        found_ai_message = False
+                        for prev_msg in final_conversational_messages[:-1]: # Buscar en los ya añadidos
+                            if prev_msg.get('role') == 'assistant' and prev_msg.get('tool_calls'):
+                                for tc in prev_msg['tool_calls']:
+                                    if tc.get('id') == tool_call_id:
+                                        found_ai_message = True
+                                        break
+                            if found_ai_message:
+                                break
+                        
+                        if not found_ai_message:
+                            # Si el AIMessage no está, buscarlo en el historial original y añadirlo
+                            for original_msg in reversed_temp_filtered_conversation_messages:
+                                if original_msg.get('role') == 'assistant' and original_msg.get('tool_calls'):
+                                    for tc in original_msg['tool_calls']:
+                                        if tc.get('id') == tool_call_id:
+                                            final_conversational_messages.insert(0, original_msg)
+                                            current_length += len(json.dumps(original_msg, ensure_ascii=False))
+                                            break
+                                    break
+                
+                new_conversation_history_litellm.extend(final_conversational_messages)
+
                 # Actualizar `litellm_messages` con los system messages iniciales y el nuevo historial resumido
                 litellm_messages = all_initial_system_messages_for_llm + new_conversation_history_litellm
 
                 # Actualizar self.conversation_history para reflejar el resumen (en formato LangChain)
                 # Esto es crucial para futuras llamadas a summarize_conversation_history
                 # Solo guardamos el historial de conversación real, no los mensajes de contexto dinámicos.
-                self.conversation_history = [
-                    _from_litellm_message(msg) for msg in new_conversation_history_litellm
-                ]
+                self.conversation_history = [self._from_litellm_message(msg) for msg in new_conversation_history_litellm]
                 self._save_history(self.conversation_history) # Guardar el historial de conversación resumido
                 if self.console:
                     self.console.print("[green]Historial resumido y actualizado.[/green]")
@@ -556,6 +637,7 @@ class LLMService:
         for msg in litellm_messages:
             if msg.get('role') == 'tool':
                 tool_call_id = msg.get('tool_call_id')
+                # Solo eliminar si el tool_call_id existe y no está en los AIMessages válidos
                 if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
                     continue # Eliminar ToolMessage huérfano
             processed_litellm_messages.append(msg)
@@ -565,23 +647,44 @@ class LLMService:
         # Truncamiento estándar si aún es necesario después del resumen
         # Ahora, solo truncamos la parte conversacional, manteniendo los system messages iniciales.
         current_conversational_messages = [msg for msg in litellm_messages if msg.get('role') != 'system']
-        num_system_messages = len(all_initial_system_messages_for_llm)
+        
+        # Recalcular la longitud total de los mensajes para el truncamiento final
+        total_litellm_messages_length = sum(len(json.dumps(msg, ensure_ascii=False)) for msg in (all_initial_system_messages_for_llm + current_conversational_messages))
 
         while (len(current_conversational_messages) > self.max_history_messages or
-               sum(len(json.dumps(msg, ensure_ascii=False)) for msg in litellm_messages) > self.max_history_chars) and \
+               total_litellm_messages_length > self.max_history_chars) and \
               len(current_conversational_messages) > min_messages_to_keep_in_conversation:
             
             # Remove from the oldest conversational messages
             if current_conversational_messages:
                 removed_msg = current_conversational_messages.pop(0)
                 # Recalculate total length for the next iteration
-                litellm_messages = all_initial_system_messages_for_llm + current_conversational_messages
+                total_litellm_messages_length = sum(len(json.dumps(msg, ensure_ascii=False)) for msg in (all_initial_system_messages_for_llm + current_conversational_messages))
             else:
                 break # No conversational messages left to truncate
 
         # Reconstruct litellm_messages with the truncated conversational part
         litellm_messages = all_initial_system_messages_for_llm + current_conversational_messages
-        logger.debug(f"LiteLLM Messages antes de la invocación: {litellm_messages}")
+
+        # Lógica adicional para asegurar que el último AIMessage con tool_calls y su ToolMessage estén presentes
+        if litellm_messages and litellm_messages[-1].get('role') == 'tool':
+            last_tool_message = litellm_messages[-1]
+            tool_call_id_of_last_tool_message = last_tool_message.get('tool_call_id')
+            
+            found_ai_message_for_tool = False
+            for i in range(len(litellm_messages) - 2, -1, -1): # Buscar hacia atrás desde el penúltimo mensaje
+                msg = litellm_messages[i]
+                if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                    for tc in msg['tool_calls']:
+                        if tc.get('id') == tool_call_id_of_last_tool_message:
+                            # Si encontramos el AIMessage correspondiente, nos aseguramos de que esté en la lista
+                            # Si ya está, no hacemos nada. Si no, lo insertamos justo antes del ToolMessage.
+                            if msg not in litellm_messages:
+                                litellm_messages.insert(i + 1, msg) # Insertar antes del ToolMessage
+                            found_ai_message_for_tool = True
+                            break
+                if found_ai_message_for_tool:
+                    break
 
         try:
             completion_kwargs = {
@@ -597,6 +700,9 @@ class LLMService:
             if "top_k" in self.generation_params:
                 completion_kwargs["top_k"] = self.generation_params["top_k"]
 
+            logger.debug(f"DEBUG: Mensajes finales enviados a LiteLLM: {json.dumps(litellm_messages, indent=2, ensure_ascii=False)}")
+    
+            sys.stderr.flush()
             start_time = time.perf_counter()
             response_generator = completion(
                 **completion_kwargs
@@ -636,15 +742,18 @@ class LLMService:
                 if tool_calls_from_delta is not None:
                     # Acumular tool_calls
                     for tc in tool_calls_from_delta:
-                        if tc.index >= len(tool_calls):
-                            tool_calls.extend([{"id": "", "function": {"name": "", "arguments": ""}}] * (tc.index - len(tool_calls) + 1))
+                        # Asegurarse de que la lista tool_calls tenga el tamaño suficiente
+                        while tc.index >= len(tool_calls):
+                            tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
                         
-                        # Solo actualizar el ID si no está vacío y es diferente, o si es la primera vez que se asigna
-                        if getattr(tc, 'id', None) is not None and (not tool_calls[tc.index]["id"] or tool_calls[tc.index]["id"] != tc.id):
+                        # Actualizar el ID si está presente en el chunk
+                        if getattr(tc, 'id', None) is not None:
                             tool_calls[tc.index]["id"] = tc.id
-                        if getattr(tc, 'function', None) is not None:
-                            if getattr(tc.function, 'name', None) is not None:
-                                tool_calls[tc.index]["function"]["name"] = tc.function.name
+                        
+                        # Actualizar el nombre de la función si está presente
+                        if getattr(tc.function, 'name', None) is not None:
+                            tool_calls[tc.index]["function"]["name"] = tc.function.name
+                            # Acumular los argumentos
                             if getattr(tc.function, 'arguments', None) is not None:
                                 tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
             
@@ -676,13 +785,13 @@ class LLMService:
             error_message = f"¡Ups! 😵 Ocurrió un error inesperado al comunicarme con el modelo (LiteLLM): {e}. Por favor, revisa los logs para más detalles. ¡Intentemos de nuevo!"""
             yield AIMessage(content=error_message)
 
-    def summarize_conversation_history(self) -> Optional[str]:
+    def summarize_conversation_history(self) -> str:
         """Resume el historial de conversación actual utilizando el modelo LLM a través de LiteLLM."""
         if not self.conversation_history:
-            return None
+            return ""
         
         # Convertir el historial a mensajes de LiteLLM para aplicar la lógica de filtrado
-        litellm_history_for_summary = [_to_litellm_message(msg) for msg in self.conversation_history]
+        litellm_history_for_summary = [self._to_litellm_message(msg) for msg in self.conversation_history]
 
         # Aplicar la lógica de post-procesamiento para eliminar ToolMessages huérfanos
         processed_litellm_history = []
@@ -697,19 +806,20 @@ class LLMService:
         for msg in litellm_history_for_summary:
             if msg.get('role') == 'tool':
                 tool_call_id = msg.get('tool_call_id')
+                # Solo eliminar si el tool_call_id existe y no está en los AIMessages válidos
                 if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
                     continue
             processed_litellm_history.append(msg)
         
         # Convertir de nuevo a mensajes de LangChain para añadir el summarize_prompt
-        langchain_processed_history = [_from_litellm_message(msg) for msg in processed_litellm_history]
+        langchain_processed_history = [self._from_litellm_message(msg) for msg in processed_litellm_history]
 
-        summarize_prompt = HumanMessage(content="Por favor, resume la siguiente conversación de manera CONCISA pero COMPLETA. Captura los puntos clave, decisiones tomadas, tareas pendientes y contexto esencial. Limita el resumen a máximo 1500 caracteres para evitar problemas de longitud. Sé específico pero económico con las palabras.")
+        summarize_prompt = HumanMessage(content="Genera un resumen EXTENSO y DETALLADO de la conversación anterior. Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad y cualquier información relevante que ayude a retomar la conversación sin perder el hilo. Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica.")
         
         temp_history_for_summary = langchain_processed_history + [summarize_prompt]
 
         try:
-            litellm_messages_for_summary = [_to_litellm_message(msg) for msg in temp_history_for_summary]
+            litellm_messages_for_summary = [self._to_litellm_message(msg) for msg in temp_history_for_summary]
             
             litellm_generation_params = self.generation_params
 
@@ -757,12 +867,12 @@ class LLMService:
                                     return str(content)
             except Exception:
                 pass
-            return None
+            return "Error: No se pudo generar el resumen de la conversación."
         except Exception as e:
             import traceback
             print(f"Error de LiteLLM al resumir el historial: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
-            return f"¡Ups! 😵 Ocurrió un error inesperado al resumir el historial con LiteLLM: {e}. Por favor, revisa los logs para más detalles. ¡Intentemos de nuevo!"""
+            return f"Error: Ocurrió un error inesperado al resumir el historial con LiteLLM: {e}."
 
     def get_tool(self, tool_name: str) -> BaseTool | None:
         """Encuentra y devuelve una herramienta de LangChain por su nombre."""
@@ -770,41 +880,64 @@ class LLMService:
 
     def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Any:
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
+        def _tool_target():
+            try:
+                result = tool._run(**tool_args) # Usar _run directamente para obtener el generador si existe
+                if isinstance(result, dict) and result.get("status") == "requires_confirmation":
+                    raise UserConfirmationRequired(
+                        message=result.get("action_description", "Confirmación requerida"),
+                        tool_name=result.get("operation", tool.name),
+                        tool_args=result.get("args", tool_args),
+                        raw_tool_output=result
+                    )
+                return result
+            except UserConfirmationRequired as e:
+                raise e
+            except Exception as e:
+                raise e
+
         with self.tool_execution_lock:
             if self.active_tool_future is not None and self.active_tool_future.running():
                 raise RuntimeError("Ya hay una herramienta en ejecución. No se puede iniciar otra.")
             
-            # Usar functools.partial para pasar los argumentos a tool.invoke
-            # Esto asegura que la función que se ejecuta en el hilo sea simple y reciba los args correctos
-            future = self.tool_executor.submit(tool.invoke, tool_args)
+            future = self.tool_executor.submit(_tool_target)
             self.active_tool_future = future
 
         try:
+            full_tool_output = "" # Eliminar esta línea, la acumulación se hará en el llamador
             while True:
                 try:
-                    # Esperar el resultado de la tarea con un timeout corto
-                    return future.result(timeout=0.01) 
+                    # Intentar obtener el resultado. Si es un generador, iterar sobre él.
+                    result = future.result(timeout=0.01)
+                    if isinstance(result, Generator):
+                        yield from result # Ceder directamente del generador de la herramienta
+                        return # El generador de la herramienta ha terminado
+                    else:
+                        # Si no es un generador, ceder el resultado directamente
+                        yield result
+                        return
                 except TimeoutError:
-                    # Si hay un timeout, verificar la cola de interrupción
                     if self.interrupt_queue and not self.interrupt_queue.empty():
                         print("DEBUG: _invoke_tool_with_interrupt - Interrupción detectada en la cola (via TimeoutError).", file=sys.stderr)
-                        self.interrupt_queue.get() # Consumir la señal
+                        self.interrupt_queue.get()
                         if future.running():
                             print("DEBUG: _invoke_tool_with_interrupt - Intentando cancelar la tarea (via TimeoutError).", file=sys.stderr)
-                            future.cancel() # Intentar cancelar la tarea
+                            future.cancel()
                             print("DEBUG: _invoke_tool_with_interrupt - Lanzando InterruptedError (via TimeoutError).", file=sys.stderr)
                             raise InterruptedError("Ejecución de herramienta interrumpida por el usuario.")
                 except InterruptedError:
-                    raise # Re-lanzar la excepción de interrupción
+                    raise
+                except UserConfirmationRequired as e:
+                    raise e
                 except Exception as e:
-                    # Capturar cualquier otra excepción de la herramienta
                     raise e
         except InterruptedError:
-            raise # Re-lanzar la excepción de interrupción
+            raise
+        except UserConfirmationRequired as e:
+            raise e
         except Exception as e:
-            # Capturar cualquier otra excepción de la herramienta
             raise e
         finally:
             with self.tool_execution_lock:
                 if self.active_tool_future is future:
-                    self.active_tool_future = None # Limpiar la referencia a la tarea activa
+                    self.active_tool_future = None

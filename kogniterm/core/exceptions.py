@@ -2,7 +2,7 @@ from typing import Optional, Dict, Any
 
 class UserConfirmationRequired(Exception):
     """Excepción personalizada para indicar que se requiere confirmación del usuario."""
-    def __init__(self, message: str, tool_name: Optional[str] = None, tool_args: Optional[Dict[str, Any]] = None, raw_tool_output: Optional[str] = None):
+    def __init__(self, message: str, tool_name: Optional[str] = None, tool_args: Optional[Dict[str, Any]] = None, raw_tool_output: Optional[Dict[str, Any]] = None):
         self.message = message
         self.tool_name = tool_name
         self.tool_args = tool_args

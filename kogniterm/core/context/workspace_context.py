@@ -60,10 +60,34 @@ class WorkspaceContext:
                 contents[file_path] = "Archivo ignorado por las reglas de contexto."
                 continue
 
+            # Aplicar _should_ignore aquí también, antes de intentar leer
+            if self._should_ignore(os.path.basename(file_path), is_dir) or \
+               self._should_ignore(file_path, is_dir): # Verificar también la ruta completa
+                contents[file_path] = "Archivo ignorado por las reglas de contexto."
+                continue
+
             if os.path.exists(abs_path) and os.path.isfile(abs_path):
                 try:
-                    with open(abs_path, 'r', encoding='utf-8') as f:
-                        contents[file_path] = f.read()
+                    # Intentar detectar si es un archivo de texto o binario
+                    # Una forma simple es intentar leer una pequeña parte
+                    with open(abs_path, 'rb') as f:
+                        # Leer los primeros N bytes para detectar si es binario
+                        # Si contiene bytes nulos, es probable que sea binario
+                        # O si la decodificación falla en los primeros bytes
+                        header = f.read(512)
+                        is_binary = b'\0' in header
+
+                    if is_binary:
+                        contents[file_path] = "(Contenido binario no legible)"
+                    else:
+                        with open(abs_path, 'r', encoding='utf-8') as f:
+                            file_content = f.read()
+                            # Truncar el contenido si es muy largo
+                            MAX_FILE_CONTENT_LENGTH = 5000 # Definir un límite razonable
+                            if len(file_content) > MAX_FILE_CONTENT_LENGTH:
+                                contents[file_path] = file_content[:MAX_FILE_CONTENT_LENGTH] + "\n... [Contenido truncado]"
+                            else:
+                                contents[file_path] = file_content
                 except Exception as e:
                     contents[file_path] = f"Error al leer el archivo: {e}"
             else:
