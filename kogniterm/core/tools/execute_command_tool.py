@@ -24,21 +24,19 @@ class ExecuteCommandTool(BaseTool):
         if self.command_executor is None:
             self.command_executor = CommandExecutor()
 
-    def _run(self, command: str) -> str:
+    def _run(self, command: str) -> Any:
         """Usa el CommandExecutor para ejecutar el comando."""
         logger.debug(f"ExecuteCommandTool - Recibido comando: '{command}'")
-        full_output = "" # Initialize full_output here
         assert self.command_executor is not None
         try:
             # Pasar el interrupt_queue al método execute del CommandExecutor
             for chunk in self.command_executor.execute(command, interrupt_queue=self.interrupt_queue):
-                full_output += chunk # Still collect for the return value
-            logger.debug(f"ExecuteCommandTool - Salida del comando: \"{full_output}\"\n")
-            return full_output
+                yield chunk # Ceder cada chunk directamente
+            logger.debug(f"ExecuteCommandTool - Comando '{command}' finalizado.\n")
         except Exception as e:
             error_message = f"ERROR: ExecuteCommandTool - Error al ejecutar el comando '{command}': {type(e).__name__}: {e}"
             logger.error(error_message, exc_info=True)
-            return error_message
+            yield error_message # Ceder el mensaje de error
 
     def get_command_generator(self, command: str):
         """Devuelve un generador para ejecutar el comando de forma incremental."""

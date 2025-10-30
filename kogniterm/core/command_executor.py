@@ -86,6 +86,8 @@ class CommandExecutor:
                                     break # Salir del bucle
                                 else:
                                     output_buffer += output
+                                    sys.stdout.write(output) # Imprimir directamente en sys.stdout
+                                    sys.stdout.flush() # Asegurar que se imprime inmediatamente
                                     yield output # Ceder la salida en tiempo real
                             else:
                                 # Si no hay salida, y el proceso sigue vivo, esperamos un poco

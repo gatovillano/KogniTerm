@@ -19,9 +19,9 @@ class WebFetchTool(BaseTool):
         requests_wrapper = RequestsWrapper()
         try:
             content = requests_wrapper.get(url)
-            MAX_OUTPUT_LENGTH = 10000 # Definir la longitud máxima de la salida
+            MAX_OUTPUT_LENGTH = 20000 # Definir la longitud máxima de la salida
             if len(content) > MAX_OUTPUT_LENGTH:
-                truncated_content = content[:MAX_OUTPUT_LENGTH] + f"\n... (Contenido truncado a {MAX_OUTPUT_LENGTH} caracteres para evitar exceder el límite. Longitud original: {len(content)}) ...\n"
+                truncated_content = content[:MAX_OUTPUT_LENGTH] + f"\n... [Contenido truncado a {MAX_OUTPUT_LENGTH} caracteres] ..."
                 return truncated_content
             return content
         except Exception as e:

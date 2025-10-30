@@ -51,7 +51,7 @@ class FileOperationsTool(BaseTool):
 
     def _run(self, **kwargs) -> str | Dict[str, Any]:
         logger.debug(f"DEBUG: _run - Recibiendo kwargs: {kwargs}") # <-- Añadir este log
-        print(f"*** DEBUG PRINT: _run - Recibiendo kwargs: {kwargs} ***") # <-- Añadir este print
+        # print(f"*** DEBUG PRINT: _run - Recibiendo kwargs: {kwargs} ***") # <-- Añadir este print
         operation = kwargs.get("operation")
         confirm = kwargs.get("confirm", False)
         result: str | Dict[str, Any] | None = None
@@ -86,17 +86,22 @@ class FileOperationsTool(BaseTool):
             return f"Error en la operación '{operation}': {e}"
 
 
-    def _read_file(self, path: str) -> str:
+    MAX_FILE_CONTENT_LENGTH: ClassVar[int] = 10000 # Limite de caracteres para el contenido del archivo
+
+    def _read_file(self, path: str) -> Dict[str, Any]:
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de lectura de archivo interrumpida por el usuario.")
 
-        print(f"✨ KogniTerm: Leyendo archivo 📄: {path}")
         path = path.strip().replace('@', '')
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            return f"FILE_CONTENT_START: {path}\n{content}\n:FILE_CONTENT_END"
+            
+            if len(content) > self.MAX_FILE_CONTENT_LENGTH:
+                content = content[:self.MAX_FILE_CONTENT_LENGTH] + f"\n... [Contenido truncado a {self.MAX_FILE_CONTENT_LENGTH} caracteres] ..."
+            
+            return {"file_path": path, "content": content}
         except FileNotFoundError:
             raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
         except Exception as e:
@@ -109,17 +114,17 @@ class FileOperationsTool(BaseTool):
 
         print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}")
         logger.debug(f"DEBUG: _write_file - confirm: {confirm}")
-        print(f"*** DEBUG PRINT: _write_file - confirm: {confirm} ***")
+        # print(f"*** DEBUG PRINT: _write_file - confirm: {confirm} ***")
         if confirm:
             logger.debug("DEBUG: _write_file - Ejecutando _perform_write_file (confirm=True).")
-            print("*** DEBUG PRINT: _write_file - Ejecutando _perform_write_file (confirm=True). ***")
+            # print("*** DEBUG PRINT: _write_file - Ejecutando _perform_write_file (confirm=True). ***")
             result = self._perform_write_file(path, content)
             logger.debug(f"DEBUG: _write_file - Devolviendo status success: {result}")
-            print(f"*** DEBUG PRINT: _write_file - Devolviendo status success: {result} ***")
+            logger.debug(f"DEBUG: _write_file - Devolviendo status success: {result}")
             return {"status": "success", "message": result}
         else:
             logger.debug("DEBUG: _write_file - Solicitando confirmación (confirm=False).")
-            print("*** DEBUG PRINT: _write_file - Solicitando confirmación (confirm=False). ***")
+            logger.debug("DEBUG: _write_file - Solicitando confirmación (confirm=False).")
             original_content = ""
             if os.path.exists(path):
                 try:
@@ -135,7 +140,7 @@ class FileOperationsTool(BaseTool):
                 tofile=f"b/{path}"
             ))
             logger.debug(f"DEBUG: _write_file - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
-            print(f"*** DEBUG PRINT: _write_file - Devolviendo requires_confirmation. Diff: {diff[:200]}... ***")
+            logger.debug(f"DEBUG: _write_file - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
             return {
                 "status": "requires_confirmation",
                 "action_description": f"escribir en el archivo '{path}'",
@@ -231,8 +236,7 @@ class FileOperationsTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error al listar el directorio '{path}': {e}")
 
-    def _read_many_files(self, paths: List[str]) -> str:
-        print(f"📚 KogniTerm: Leyendo múltiples archivos 📄: {', '.join(paths)}")
+    def _read_many_files(self, paths: List[str]) -> Dict[str, Any]:
         combined_content = []
         for p in paths:
             if self.interrupt_queue and not self.interrupt_queue.empty():
@@ -242,12 +246,12 @@ class FileOperationsTool(BaseTool):
             try:
                 with open(p, 'r', encoding='utf-8') as f:
                     content = f.read()
-                combined_content.append(content)
+                combined_content.append({"file_path": p, "content": content})
             except FileNotFoundError:
-                combined_content.append(f"""--- Error: Archivo '{p}' no encontrado. ---""")
+                combined_content.append({"file_path": p, "error": f"Archivo '{p}' no encontrado."})
             except Exception as e:
-                combined_content.append(f"""--- Error al leer '{p}': {e} ---""")
-        return "\n".join(combined_content)
+                combined_content.append({"file_path": p, "error": f"Error al leer '{p}': {e}"})
+        return {"files": combined_content}
 
     def _create_directory(self, path: str) -> str:
         if self.interrupt_queue and not self.interrupt_queue.empty():

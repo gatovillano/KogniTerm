@@ -4,7 +4,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
-from kogniterm.core.agents.bash_agent import AgentState
+from kogniterm.core.agent_state_types import AgentState # Importar AgentState desde el nuevo archivo
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from rich.console import Console
 from rich.markdown import Markdown
@@ -26,6 +26,15 @@ class TerminalUI:
         def _(event):
             self.interrupt_queue.put("interrupt")
             event.app.current_buffer.cancel_completion() # Limpiar el prompt
+
+    def print_stream(self, text: str):
+        """
+        Prints a chunk of text to the console without adding a newline,
+        and flushes the output immediately.
+        """
+        self.console.file.write(text)
+        self.console.file.flush()
+
     async def handle_file_update_confirmation(self, diff_json_str: str, original_tool_call: dict) -> dict:
         """
         Handles the approval process for a file update operation, displaying the diff and requesting confirmation.
@@ -38,17 +47,9 @@ class TerminalUI:
             message = diff_data.get("message", f"Se detectaron cambios para '{file_path}'. Por favor, confirma para aplicar.")
             new_content = original_tool_call.get("args", {}).get("content", "")
 
-            # Preparar el diff para mostrarlo con colores
-            colored_diff_lines = []
-            for line in diff_content.splitlines():
-                if line.startswith('+'):
-                    colored_diff_lines.append(f"[green]{line}[/green]")
-                elif line.startswith('-'):
-                    colored_diff_lines.append(f"[red]{line}[/red]")
-                else:
-                    colored_diff_lines.append(line)
-            
-            formatted_diff = "\n".join(colored_diff_lines)
+            # Preparar el diff para mostrarlo en un bloque de código Markdown
+            # El resaltado de sintaxis para 'diff' será manejado por el bloque de código Markdown.
+            formatted_diff = diff_content
 
             panel_content_markdown = Markdown(
                 f"""**Actualización de Archivo Requerida:**\n{message}\n\n```diff

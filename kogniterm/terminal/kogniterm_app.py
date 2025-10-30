@@ -15,11 +15,11 @@ import fnmatch # Nueva importación para el FileCompleter
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # Configurar un StreamHandler para la consola
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -64,7 +64,7 @@ class FileCompleter(Completer):
         self._loading_future: Optional[concurrent.futures.Future] = None
         try:
             self._loop = asyncio.get_event_loop()
-            logger.debug("FileCompleter: Bucle de eventos de asyncio obtenido.")
+            # logger.debug("FileCompleter: Bucle de eventos de asyncio obtenido.")
         except RuntimeError:
             logger.warning("FileCompleter: No hay un bucle de eventos de asyncio corriendo. Esto puede causar problemas.")
             self._loop = None # O manejar de otra forma si no hay loop
@@ -76,7 +76,7 @@ class FileCompleter(Completer):
         """Invalida la caché de archivos, forzando una recarga la próxima vez que se necesite."""
         with self.cache_lock:
             self._cached_files = None
-            logger.debug("FileCompleter: Caché de autocompletado invalidada.")
+            # logger.debug("FileCompleter: Caché de autocompletado invalidada.")
         # Si no hay una carga en progreso, iniciar una nueva carga.
         if self._loading_future is None or self._loading_future.done():
             self._start_background_load_files()
@@ -85,14 +85,14 @@ class FileCompleter(Completer):
         """Inicia la carga de archivos en un hilo secundario."""
         with self.cache_lock:
             if self._loading_future is not None and not self._loading_future.done():
-                logger.debug("FileCompleter: Ya hay una carga de archivos en progreso.")
+                # logger.debug("FileCompleter: Ya hay una carga de archivos en progreso.")
                 return # Ya hay una carga en progreso
 
             if self._loop is None:
                 logger.error("FileCompleter: No se puede iniciar la carga en segundo plano, no hay bucle de eventos.")
                 return
 
-            logger.debug("FileCompleter: Iniciando carga de archivos para autocompletado en segundo plano...")
+            # logger.debug("FileCompleter: Iniciando carga de archivos para autocompletado en segundo plano...")
             self._loading_future = self._loop.run_in_executor(
                 self._executor, # Usar el ThreadPoolExecutor
                 self._do_load_files
@@ -100,7 +100,7 @@ class FileCompleter(Completer):
 
     def _do_load_files(self) -> List[str]:
         """Realiza la carga real de archivos de forma síncrona en un hilo secundario."""
-        logger.debug(f"FileCompleter: Ejecutando _do_load_files en hilo: {threading.current_thread().name}")
+        # logger.debug(f"FileCompleter: Ejecutando _do_load_files en hilo: {threading.current_thread().name}")
         try:
             raw_items = self.file_operations_tool._list_directory(
                 path=self.workspace_directory,
@@ -117,7 +117,7 @@ class FileCompleter(Completer):
                         continue
                     all_relative_items.append(item)
             
-            logger.debug(f"FileCompleter: Cargados {len(all_relative_items)} elementos en la caché.")
+            # logger.debug(f"FileCompleter: Cargados {len(all_relative_items)} elementos en la caché.")
             with self.cache_lock:
                 self._cached_files = all_relative_items
             return all_relative_items
@@ -186,7 +186,7 @@ class KogniTermApp:
         self.auto_approve = auto_approve
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
-        self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui.get_interrupt_queue())
+        self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui, self.terminal_ui.get_interrupt_queue())
 
         # Asegurarse de que el interrupt_queue se pase al LLMService
         self.llm_service.interrupt_queue = self.terminal_ui.get_interrupt_queue()

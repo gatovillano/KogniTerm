@@ -1,32 +1,100 @@
----
-## 28-10-25 Refactorización del Manejo de Confirmaciones en KogniTerm
-Descripción general: Se refactorizó el flujo de manejo de confirmaciones para evitar la propagación de excepciones `UserConfirmationRequired` y centralizar la lógica de aprobación en `kogniterm_app.py`, asegurando que el selector de confirmación (s/n) se muestre correctamente al usuario.
+---                                                                    
+## 29-10-25 Corrección de Importación Circular de AgentState
+Descripción general: Se resolvió un `ImportError` causado por una importación circular entre `kogniterm.terminal.terminal_ui` y `kogniterm.core.agents.bash_agent` al importar la clase `AgentState`.
 
-- **Punto 1**: En `kogniterm/terminal/agent_interaction_manager.py`, se modificó la función `invoke_agent` para que ya no lance la excepción `UserConfirmationRequired`. En su lugar, ahora devuelve el `final_state_dict` que contiene la información de la confirmación pendiente (si la hay).
-- **Punto 2**: En `kogniterm/terminal/kogniterm_app.py`, se eliminó el bloque `except UserConfirmationRequired`. Ahora, después de invocar `agent_interaction_manager.invoke_agent`, `kogniterm_app.py` verifica si `self.agent_state.file_update_diff_pending_confirmation` tiene un valor. Si es así, extrae los datos necesarios y llama a `self.command_approval_handler.handle_command_approval` para gestionar la interacción con el usuario.
-- **Punto 3**: Se ajustó el flujo posterior en `kogniterm_app.py` para que, una vez que `handle_command_approval` devuelve el resultado (aprobado o denegado), el agente pueda procesar esta respuesta y continuar con la tarea o manejar la denegación.
+- **Punto 1**: Se creó un nuevo archivo `kogniterm/core/agent_state_types.py` para contener la definición de la clase `AgentState`.
+- **Punto 2**: Se eliminó la definición de `AgentState` de `kogniterm/core/agents/bash_agent.py` y se actualizó su importación para que apunte a `kogniterm/core/agent_state_types.py`.
+- **Punto 3**: Se actualizó la importación de `AgentState` en `kogniterm/terminal/terminal_ui.py` para que apunte a `kogniterm/core/agent_state_types.py`.
+- **Punto 4**: Se eliminó la importación de `TerminalUI` de `kogniterm/core/agents/bash_agent.py` ya que no era necesaria directamente en ese módulo, rompiendo así el ciclo de importación.
 ---
-## 28-10-25 Corrección de SyntaxError en kogniterm_app.py
-Descripción general: Se corrigió un `SyntaxError` en `kogniterm/terminal/kogniterm_app.py` causado por una indentación incorrecta de los bloques `try`, `except` y `finally` dentro de la función `run()`.
+## 29-10-25 Corrección de TypeError y Propagación de TerminalUI
+Descripción general: Se corrigió un `TypeError` en la llamada a `create_bash_agent` y se aseguró la correcta propagación de la instancia de `TerminalUI` a través de las capas de la aplicación para habilitar la interactividad de la terminal.
 
-- **Punto 1**: Se eliminó un `try` anidado innecesario que estaba causando un conflicto de indentación.
-- **Punto 2**: Se ajustó la indentación de todo el bloque de código dentro del bucle `while True:` para que estuviera correctamente alineado con el `try` principal y sus `except` y `finally` asociados, resolviendo el `SyntaxError`.
+- **Punto 1**: Se modificó `AgentInteractionManager.__init__` en `kogniterm/terminal/agent_interaction_manager.py` para aceptar `terminal_ui` como argumento y pasarlo a `create_bash_agent`.
+- **Punto 2**: Se modificó `KogniTermApp.__init__` en `kogniterm/terminal/kogniterm_app.py` para pasar la instancia de `TerminalUI` al constructor de `AgentInteractionManager`.
 ---
-## 28-10-25 Corrección de SyntaxError: 'break' outside loop en kogniterm_app.py
-Descripción general: Se corrigió un `SyntaxError: 'break' outside loop` en `kogniterm/terminal/kogniterm_app.py` moviendo la sentencia `break` del bloque `finally` al bloque `except Exception as e:`, donde lógicamente corresponde para salir de la aplicación en caso de un error inesperado.
+## 29-10-25 Ajuste de Suspensión/Reanudación de prompt_toolkit para Interactividad de Comandos
+Descripción general: Se ajustó la lógica de suspensión y reanudación de `prompt_toolkit` para asegurar la correcta interactividad con comandos de terminal que requieren entrada del usuario (ej. `sudo`), moviendo estas operaciones al momento de la ejecución real del comando.
 
-- **Punto 1**: Se identificó que la sentencia `break` en la línea 405 estaba fuera de un bucle, dentro de un bloque `finally`, lo que provocaba el `SyntaxError`.
-- **Punto 2**: Se movió la sentencia `break` al bloque `except Exception as e:` para asegurar que la aplicación salga correctamente cuando se produce una excepción inesperada, manteniendo la lógica deseada.
+- **Punto 1**: Se modificó `handle_command_approval` en `kogniterm/terminal/command_approval_handler.py`.
+- **Punto 2**: La suspensión (`self.prompt_session.app.suspend_to_background()`) y reanudación (`self.prompt_session.app.run_in_terminal(lambda: None)`) de `prompt_toolkit` ahora ocurren *dentro* del bloque `try` donde se ejecuta `self.command_executor.execute()`.
+- **Punto 3**: Se añadió `self.terminal_ui.print_stream(output_chunk)` para mostrar la salida del comando en tiempo real.
+- **Punto 4**: Se incluyó un bloque `except Exception as e` para asegurar que `prompt_toolkit` se reanude incluso si ocurre un error durante la ejecución del comando.
 ---
-## 28-10-25 Corrección de SyntaxError: 'break' outside loop en kogniterm_app.py (Revisión)
-Descripción general: Se corrigió un `SyntaxError: 'break' outside loop` en `kogniterm/terminal/kogniterm_app.py` eliminando la sentencia `break` del bloque `except Exception as e:`. La sentencia `break` estaba fuera del bucle `while True`, causando el error. Al eliminarla, se permite que la excepción se propague y la aplicación termine de forma controlada, ejecutando el bloque `finally` antes de salir.
+## 29-10-25 Impresión Directa de Salida de Comandos en CommandExecutor
+Descripción general: Se modificó `CommandExecutor` para imprimir la salida de los comandos directamente en `sys.stdout` en tiempo real, asegurando la interactividad con comandos que requieren entrada del usuario.
 
-- **Punto 1**: Se identificó que la sentencia `break` en el bloque `except Exception as e:` estaba fuera del alcance del bucle `while True`, lo que generaba el `SyntaxError`.
-- **Punto 2**: Se eliminó la sentencia `break` de dicho bloque. Esto asegura que, en caso de una excepción inesperada, la ejecución de la función `run()` termine de manera natural después de manejar la excepción y ejecutar el bloque `finally`, sin causar un error de sintaxis.
+- **Punto 1**: En `kogniterm/core/command_executor.py`, dentro del método `execute`, se añadió `sys.stdout.write(output)` y `sys.stdout.flush()` justo después de leer la salida del PTY.
+- **Punto 2**: Esto delega la responsabilidad de la visualización en tiempo real al `CommandExecutor`, que ya maneja el PTY, evitando conflictos con `prompt_toolkit` y permitiendo la interactividad con comandos como `sudo`.
 ---
-## 28-10-25 Mejora en la Generación de Explicaciones de Comandos en KogniTerm
-Descripción general: Se mejoró la generación de explicaciones para los comandos en `kogniterm/terminal/command_approval_handler.py` ajustando el prompt enviado al LLM y haciendo más robusto el manejo de su respuesta. Esto resuelve el problema de que no se generaban explicaciones para los comandos.
+## 29-10-25 Consistencia en la Salida de Herramientas para el LLM
+Descripción general: Se aseguró que el método `_invoke_tool_with_interrupt` en `LLMService` siempre devuelva un generador, independientemente de si la herramienta subyacente produce una salida generada o un resultado directo. Esto garantiza que el LLM reciba la salida de todas las herramientas de manera consistente.
 
-- **Punto 1**: Se simplificó el `explanation_prompt` para el LLM, haciéndolo más directo y conciso, solicitando una explicación de máximo dos frases.
-- **Punto 2**: Se mejoró el manejo de la respuesta del LLM, asegurando que la iteración sobre los `chunks` del generador sea más robusta y que `explanation_text` siempre contenga un valor coherente, incluso si la respuesta del LLM es vacía o inesperada.
-- **Punto 3**: Se añadió un `logger.warning` para casos donde `explanation_response_generator` no es un generador asíncrono, lo que ayuda a depurar posibles problemas en la integración con el `llm_service`.
+- **Punto 1**: Se modificó el método `_invoke_tool_with_interrupt` en `kogniterm/core/llm_service.py`.
+- **Punto 2**: Si la herramienta invocada devuelve un resultado directo (no un generador), este resultado ahora se envuelve en un generador de un solo elemento (`yield from [result]`), asegurando que el método siempre devuelva un generador.
+- **Punto 3**: Esto resuelve el problema donde el LLM no recibía la salida de herramientas que no eran generadores, como `file_operations`, permitiendo que el agente razone correctamente sobre la información proporcionada por todas las herramientas.
+---
+## 29-10-25 Corrección de Propagación de Salida de file_operations al LLM
+Descripción general: Se corrigió un problema donde el LLM no recibía la salida completa de la herramienta `file_operations`, especialmente para archivos de texto plano, debido a una lógica incorrecta en la construcción del `ToolMessage`.
+
+- **Punto 1**: Se modificó el método `execute_tool_node` en `kogniterm/core/agents/bash_agent.py`.
+- **Punto 2**: Se reestructuró la lógica para la construcción del `ToolMessage` para `file_operations`, asegurando que `full_tool_output` (que contiene el contenido completo del archivo) se utilice directamente como contenido del `ToolMessage`.
+- **Punto 3**: La lógica de procesamiento de JSON y mensajes descriptivos ahora se aplica solo a otras herramientas, garantizando que la salida de `file_operations` no sea alterada antes de ser enviada al LLM.
+---
+## 29-10-25 Corrección de IndentationError y Propagación de Salida de file_operations al LLM
+Descripción general: Se corrigió un `IndentationError` en `kogniterm/core/agents/bash_agent.py` y se ajustó la lógica para asegurar que el LLM reciba la salida completa de la herramienta `file_operations`.
+
+- **Punto 1**: Se corrigió el `IndentationError` en la línea 248 de `kogniterm/core/agents/bash_agent.py`.
+- **Punto 2**: Se reestructuró la lógica en `execute_tool_node` para la construcción del `ToolMessage` para `file_operations`, asegurando que `full_tool_output` (que contiene el contenido completo del archivo) se utilice directamente como contenido del `ToolMessage`.
+- **Punto 3**: La lógica de procesamiento de JSON y mensajes descriptivos ahora se aplica solo a otras herramientas, garantizando que la salida de `file_operations` no sea alterada antes de ser enviada al LLM.
+---
+## 30-10-25 Mejora en la Acumulación de Tool Calls en LLMService
+Descripción general: Se mejoró la robustez en la acumulación de `tool_calls` dentro de la función `invoke` de `LLMService` para mitigar el error `litellm.APIConnectionError: Missing corresponding tool call for tool response message`.
+
+- **Punto 1**: Se modificó la lógica de acumulación de `tool_calls` en `kogniterm/core/llm_service.py`, dentro de la función `invoke`.
+- **Punto 2**: Se aseguró que la lista `tool_calls` se expanda dinámicamente para acomodar nuevos índices (`tc.index`).
+- **Punto 3**: Se implementó una lógica para que el `id` de cada `tool_call` se establezca de forma más robusta tan pronto como esté disponible en cualquier `chunk` de la respuesta del modelo.
+- **Punto 4**: Se ajustó la actualización del nombre de la función para que no sobrescriba un nombre ya establecido si el `delta` no lo proporciona.
+---
+## 30-10-25 Mejora en la Visualización de Diff en Confirmaciones de Actualización
+Descripción general: Se modificó la forma en que se presenta el `diff` en las confirmaciones de actualización de archivos para que se muestre dentro de un bloque de código Markdown con resaltado de sintaxis `diff`, mejorando la legibilidad.
+
+- **Punto 1**: Se modificó la función `handle_file_update_confirmation` en `kogniterm/terminal/terminal_ui.py`.
+- **Punto 2**: Se simplificó la construcción de la variable `formatted_diff` para que contenga directamente el contenido del `diff` en texto plano, eliminando los estilos `rich` (`[green]`, `[red]`).
+- **Punto 3**: El bloque de código Markdown (` ```diff `) ahora es el encargado de aplicar el resaltado de sintaxis al `diff` en la interfaz de usuario.
+---
+## 30-10-25 Mejora en la Interpretación de ToolMessages por el LLM
+Descripción general: Se añadió una instrucción al sistema del LLM para que interprete correctamente los `ToolMessage`s de ejecución exitosa, evitando la redundancia en los anuncios de ejecución de herramientas.
+
+- **Punto 1**: Se modificó la variable `tool_confirmation_instruction` en `kogniterm/core/llm_service.py`.
+- **Punto 2**: Se añadió una instrucción explícita al LLM para que, al recibir un `ToolMessage` que indica una ejecución exitosa, considere esa acción como completada y no la anuncie ni la proponga de nuevo en su siguiente respuesta, sino que continúe con el siguiente paso de la tarea.
+---
+## 30-10-25 Corrección de `AttributeError` en `summarize_conversation_history`
+Descripción general: Se corrigió un `AttributeError: 'NoneType' object has no attribute 'startswith'` que ocurría cuando la función `summarize_conversation_history()` en `kogniterm/core/llm_service.py` devolvía `None`, lo que causaba un fallo en `kogniterm/terminal/meta_command_processor.py`.
+- **Punto 1**: Se modificó la firma de la función `summarize_conversation_history()` en `kogniterm/core/llm_service.py` para que siempre devuelva una cadena (`str`) en lugar de `Optional[str]`.
+- **Punto 2**: Se añadió una condición para que, si el historial de conversación está vacío, la función devuelva una cadena vacía (`""`) en lugar de `None`.
+- **Punto 3**: Se ajustó el manejo de errores en la función para que, en caso de fallo al generar el resumen, se devuelva un mensaje de error como cadena de texto, asegurando que `summary` nunca sea `None`.
+---
+## 30-10-25 Mejora en el Manejo de Contexto del Espacio de Trabajo para el LLM
+Descripción general: Se mejoró el manejo del contexto del espacio de trabajo en `WorkspaceContext` para evitar errores de decodificación y mensajes de herramientas excesivamente largos que causaban `litellm.BadRequestError`.
+
+- **Punto 1**: Se modificó la función `_get_file_contents` en `kogniterm/core/context/workspace_context.py`.
+- **Punto 2**: Ahora se aplica `_should_ignore` de forma más estricta antes de intentar leer un archivo, verificando tanto el nombre del elemento como la ruta completa.
+- **Punto 3**: Se implementó una lógica para detectar y marcar archivos binarios como "(Contenido binario no legible)", evitando intentos de decodificación `utf-8` en ellos.
+- **Punto 4**: Se añadió un truncamiento para el contenido de archivos de texto extensos (`MAX_FILE_CONTENT_LENGTH = 5000`) para asegurar que la salida del `ToolMessage` no exceda los límites de la API del LLM.
+---
+## 30-10-25 Mejora en el Truncamiento y Formateo de Salidas de Herramientas para el LLM
+Descripción general: Se implementó una lógica de truncamiento y formateo más robusta para las salidas de herramientas en `kogniterm/core/agents/bash_agent.py` antes de que se conviertan en `ToolMessage`s. Esto resuelve el `litellm.BadRequestError` causado por mensajes de herramientas excesivamente largos o mal formateados.
+
+- **Punto 1**: Se modificó la función `execute_tool_node` en `kogniterm/core/agents/bash_agent.py`.
+- **Punto 2**: Se añadió una lógica para detectar si la salida de la herramienta es un JSON que contiene `file_path` y `content` (como las salidas de lectura de archivos). En este caso, el `content` se trunca a `MAX_TOOL_OUTPUT_CONTENT_LENGTH` (2000 caracteres) antes de ser serializado nuevamente a JSON.
+- **Punto 3**: Si la salida es una lista de JSONs (como en `read_many_files`), cada `content` individual dentro de la lista se trunca a `MAX_TOOL_OUTPUT_CONTENT_LENGTH` (500 caracteres).
+- **Punto 4**: Para otras salidas JSON, la representación de cadena del JSON se trunca a `MAX_GENERIC_JSON_LENGTH` (2000 caracteres).
+- **Punto 5**: Si la salida no es JSON, la cadena completa se trunca a `MAX_GENERIC_OUTPUT_LENGTH` (2000 caracteres).
+- **Punto 6**: Estos truncamientos aseguran que el `ToolMessage` final sea conciso y esté correctamente formateado antes de ser enviado a `litellm`, evitando errores de `BadRequestError` y mejorando la comunicación con el LLM.
+---
+## 30-10-25 Manejo de Errores en AdvancedFileEditorTool
+Descripción general: Se mejoró el manejo de errores en `advanced_file_editor_tool.py` para evitar `litellm.APIConnectionError` cuando se intenta editar un archivo no existente. La herramienta ahora devuelve un mensaje de error estructurado en lugar de lanzar una excepción.
+
+- **Punto 1**: Se modificó la función `_read_file_content` en `kogniterm/core/tools/advanced_file_editor_tool.py` para que devuelva un diccionario con `status` y `content` (si es exitoso) o `status` y `message` (si hay un error), en lugar de lanzar excepciones.
+- **Punto 2**: Se ajustó la función `_run` en `kogniterm/core/tools/advanced_file_editor_tool.py` para que verifique el `status` del resultado de `_read_file_content`. Si el `status` es `error`, `_run` devuelve un diccionario con el mensaje de error, lo que permite que `litellm` procese la respuesta correctamente.

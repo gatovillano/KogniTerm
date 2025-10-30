@@ -1,4 +1,5 @@
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -7,7 +8,7 @@ from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYST
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import Dict, Any
 import queue # Importar queue
-from kogniterm.core.exceptions import UserConfirmationRequired # ¡Añadir esta línea!
+from kogniterm.terminal.terminal_ui import TerminalUI # Importar TerminalUI
 
 """
 This module contains the AgentInteractionManager class, responsible for
@@ -15,11 +16,12 @@ orchestrating AI agent interactions in the KogniTerm application.
 """
 
 class AgentInteractionManager:
-    def __init__(self, llm_service: LLMService, agent_state: AgentState, interrupt_queue: queue.Queue):
+    def __init__(self, llm_service: LLMService, agent_state: AgentState, terminal_ui: TerminalUI, interrupt_queue: queue.Queue):
         self.llm_service = llm_service
         self.agent_state = agent_state
+        self.terminal_ui = terminal_ui # Guardar la instancia de TerminalUI
         self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
-        self.bash_agent_app = create_bash_agent(llm_service) # Se eliminó el argumento interrupt_queue
+        self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue) # Pasar terminal_ui e interrupt_queue
         
         # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial.
         if not self.agent_state.messages or not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == SYSTEM_MESSAGE.content):
@@ -48,8 +50,12 @@ class AgentInteractionManager:
 
         self.agent_state.messages.append(HumanMessage(content=processed_input))
         
+
+        sys.stderr.flush()
         # Siempre usaremos bash_agent_app por ahora
         final_state_dict = self.bash_agent_app.invoke(self.agent_state)
+
+        sys.stderr.flush()
         
         # Actualizar el estado del agente con los valores del final_state_dict
         self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
@@ -64,6 +70,21 @@ class AgentInteractionManager:
         # Si no hay confirmación pendiente, actualizar los mensajes del agente
         if not self.agent_state.file_update_diff_pending_confirmation:
             self.agent_state.messages = final_state_dict['messages']
+        
+        # Capturar el tool_call_id del último AIMessage si existe
+        last_ai_message = None
+        for msg in reversed(self.agent_state.messages):
+            if isinstance(msg, AIMessage):
+                last_ai_message = msg
+                break
+        
+        if last_ai_message and last_ai_message.tool_calls:
+            # Asumiendo que solo hay una tool_call por AIMessage para simplificar
+            self.agent_state.tool_call_id_to_confirm = last_ai_message.tool_calls[0]['id']
+            logger.debug(f"DEBUG: tool_call_id_to_confirm establecido en AgentInteractionManager: {self.agent_state.tool_call_id_to_confirm}")
+        else:
+            self.agent_state.tool_call_id_to_confirm = None
+            logger.debug("DEBUG: No se encontró tool_call_id en el último AIMessage.")
         
         return final_state_dict
 

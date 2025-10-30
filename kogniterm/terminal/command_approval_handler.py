@@ -20,6 +20,8 @@ from rich.text import Text # ¡Nueva importación!
 from rich.syntax import Syntax # ¡Nueva importación!
 from rich.console import Group # ¡Nueva importación!
 
+import uuid # Importar uuid
+
 logger = logging.getLogger(__name__)
 
 """
@@ -52,12 +54,14 @@ class CommandApprovalHandler:
         Returns a dictionary with the updated agent state and tool message content.
         """
         # 1. Recuperar el tool_call_id del AIMessage más reciente
-        tool_call_id = self.agent_state.tool_call_id_to_confirm
+        # Asegurarse de que tool_call_id siempre sea una cadena válida
+        tool_call_id = self.agent_state.tool_call_id_to_confirm if self.agent_state.tool_call_id_to_confirm else str(uuid.uuid4())
 
         # 2. Generar la explicación del comando o usar el prompt de confirmación
         explanation_text = ""
         panel_title = 'Confirmación de Comando'
         panel_content_markdown = ""
+        full_command_output = "" # Inicializar aquí
         
         is_file_update_confirmation = False
         diff_content = ""
@@ -120,55 +124,36 @@ class CommandApprovalHandler:
             panel_title = 'Confirmación de Usuario Requerida'
             panel_content_markdown = Markdown(f"""**Acción requerida:**\n{explanation_text}""")
         else:
-            if tool_call_id:
-                # Recuperar el último AIMessage para generar la explicación
-                last_ai_message = None
-                for msg in reversed(self.agent_state.messages):
-                    if isinstance(msg, AIMessage):
-                        last_ai_message = msg
-                        break
-
-                temp_history_for_explanation = [
-                    msg for msg in self.agent_state.messages if msg.type != "tool"
-                ]
-                explanation_prompt = HumanMessage(
-                    content=f"Genera una explicación concisa del siguiente comando bash: `{command_to_execute}`. No incluyas el comando en la explicación, solo el texto explicativo. La explicación debe ser de máximo 2 frases."
-                )
-                logger.debug(f"DEBUG: temp_history_for_explanation antes de invoke: {temp_history_for_explanation}")
-                temp_history_for_explanation.append(explanation_prompt)
+            # Siempre intentar generar una explicación para el comando bash
+            explanation_prompt = HumanMessage(
+                content=f"Genera una explicación concisa del siguiente comando bash: `{command_to_execute}`. No incluyas el comando en la explicación, solo el texto explicativo. La explicación debe ser de máximo 2 frases."
+            )
+            temp_history_for_explanation = [
+                msg for msg in self.agent_state.messages if msg.type != "tool"
+            ]
+            temp_history_for_explanation.append(explanation_prompt)
+            
+            try:
+                explanation_response_generator = self.llm_service.invoke(temp_history_for_explanation) # Ya no se usa await aquí
+                full_response_content = ""
                 
-                try:
-                    explanation_response_generator = await self.llm_service.invoke(temp_history_for_explanation) # Usar await
-                    full_response_content = ""
-                    
-                    # Asegurarse de que explanation_response_generator es un async generator
-                    if not hasattr(explanation_response_generator, '__aiter__'):
-                        logger.warning("explanation_response_generator no es un generador asíncrono. Intentando extraer contenido directamente.")
-                        if isinstance(explanation_response_generator, AIMessage):
-                            full_response_content = explanation_response_generator.content
-                        else:
-                            full_response_content = str(explanation_response_generator)
+                # Asegurarse de que explanation_response_generator es un async generator
+                for chunk in explanation_response_generator: # Siempre iterar sobre el generador
+                    if isinstance(chunk, AIMessage):
+                        content_part = chunk.content if chunk.content else ""
+                        full_response_content += content_part
+                    elif isinstance(chunk, str):
+                        full_response_content += chunk
                     else:
-                        async for chunk in explanation_response_generator: # Iterar sobre el generador
-                            logger.debug(f"DEBUG: Chunk recibido del LLM para explicación: {chunk}")
-                            if isinstance(chunk, AIMessage):
-                                content_part = chunk.content if chunk.content else ""
-                                full_response_content += content_part
-                                logger.debug(f"DEBUG: Contenido de AIMessage en chunk: {content_part}")
-                            elif isinstance(chunk, str):
-                                full_response_content += chunk
-                                logger.debug(f"DEBUG: Contenido de string en chunk: {chunk}")
-                            else:
-                                content_part = str(chunk)
-                                full_response_content += content_part
-                                logger.debug(f"DEBUG: Contenido de otro tipo en chunk: {content_part}")
+                        content_part = str(chunk)
+                        full_response_content += content_part
 
-                    logger.debug(f"DEBUG: full_response_content final después de iterar: {full_response_content}")
-                    explanation_text = full_response_content.strip() if full_response_content.strip() else "No se pudo generar una explicación concisa." # Manejo de respuesta vacía
+                explanation_text = full_response_content.strip() if full_response_content.strip() else "No se pudo generar una explicación concisa." # Manejo de respuesta vacía
+                logger.debug(f"DEBUG: Longitud de explanation_text: {len(explanation_text)}") # Nuevo log
 
-                except Exception as e:
-                    logger.error(f"Error al generar explicación para el comando: {e}")
-                    explanation_text = f"No se pudo generar una explicación para el comando. Error: {e}"
+            except Exception as e:
+                logger.error(f"Error al generar explicación para el comando: {e}")
+                explanation_text = f"No se pudo generar una explicación para el comando. Error: {e}"
 
             if not explanation_text:
                 explanation_text = "No se pudo generar una explicación para el comando."
@@ -181,14 +166,14 @@ class CommandApprovalHandler:
 {explanation_text}""")
 
         # 3. Mostrar la explicación y pedir confirmación
-        logger.debug(f"DEBUG: is_file_update_confirmation: {is_file_update_confirmation}")
-        logger.debug(f"DEBUG: diff_content (primeras 100 chars): {diff_content[:100]}")
-        logger.debug(f"DEBUG: file_path: {file_path}")
-        logger.debug(f"DEBUG: message: {message}")
-        logger.debug(f"DEBUG: panel_title: {panel_title}")
-        logger.debug(f"DEBUG: panel_content_markdown (primeras 100 chars): {str(panel_content_markdown)[:100]}")
+        # logger.debug(f"DEBUG: is_file_update_confirmation: {is_file_update_confirmation}")
+        # logger.debug(f"DEBUG: diff_content (primeras 100 chars): {diff_content[:100]}")
+        # logger.debug(f"DEBUG: file_path: {file_path}")
+        # logger.debug(f"DEBUG: message: {message}")
+        # logger.debug(f"DEBUG: panel_title: {panel_title}")
+        # logger.debug(f"DEBUG: panel_content_markdown (primeras 100 chars): {str(panel_content_markdown)[:100]}")
 
-        logger.debug(f"DEBUG: Intentando imprimir panel con título: {panel_title}")
+        # logger.debug(f"DEBUG: Intentando imprimir panel con título: {panel_title}")
         self.terminal_ui.console.print(
             Panel(
                 panel_content_markdown,
@@ -206,21 +191,21 @@ class CommandApprovalHandler:
             self.terminal_ui.print_message("Acción auto-aprobada.", style="yellow")
         else:
             while True:
-                logger.debug("DEBUG: Esperando input de aprobación del usuario...")
+                # logger.debug("DEBUG: Esperando input de aprobación del usuario...")
                 try:
                     approval_input = await self.prompt_session.prompt_async("¿Deseas ejecutar esta acción? (s/n): ")
-                    logger.debug(f"DEBUG: Input de aprobación recibido: {approval_input}")
+                    # logger.debug(f"DEBUG: Input de aprobación recibido: {approval_input}")
                 except Exception as e:
                     logger.error(f"ERROR: Excepción al solicitar input de aprobación: {e}", exc_info=True)
                     approval_input = "n" # Asumir denegación en caso de error
                 
                 if approval_input is None:
-                    logger.debug("DEBUG: approval_input es None. Asumiendo denegación.")
+                    # logger.debug("DEBUG: approval_input es None. Asumiendo denegación.")
                     # Si el usuario interrumpe el prompt (ej. Ctrl+D), asumimos que deniega.
                     approval_input = "n"
                 else:
                     approval_input = approval_input.lower().strip()
-                    logger.debug(f"DEBUG: approval_input procesado: {approval_input}")
+                    # logger.debug(f"DEBUG: approval_input procesado: {approval_input}")
 
                 if approval_input == 's':
                     run_action = True
@@ -236,7 +221,7 @@ class CommandApprovalHandler:
         if run_action:
             if is_file_update_confirmation:
                 # Re-ejecutar la herramienta con los args originales (que ya incluyen confirm=True)
-                logger.debug(f"DEBUG: CommandApprovalHandler - tool_name en re-invocación: {tool_name}") # <-- Añadir este log
+                # logger.debug(f"DEBUG: CommandApprovalHandler - tool_name en re-invocación: {tool_name}") # <-- Añadir este log
                 if tool_name == "file_update_tool":
                     result = self.file_update_tool._apply_update(file_path, original_tool_args.get("content", ""))
                     tool_message_content = json.loads(result).get("message", "")
@@ -244,9 +229,9 @@ class CommandApprovalHandler:
                     result = self.advanced_file_editor_tool._run(**original_tool_args)
                     tool_message_content = result.get("message", "")
                 elif tool_name == "file_operations": # Añadir manejo para file_operations
-                    logger.debug(f"DEBUG: CommandApprovalHandler - Re-invocando file_operations con args: {original_tool_args}") # <-- Añadir este log
+                    # logger.debug(f"DEBUG: CommandApprovalHandler - Re-invocando file_operations con args: {original_tool_args}") # <-- Añadir este log
                     result = self.file_operations_tool._run(**original_tool_args)
-                    logger.debug(f"DEBUG: CommandApprovalHandler - Resultado de re-invocación de file_operations: {result}") # <-- Añadir este log
+                    # logger.debug(f"DEBUG: CommandApprovalHandler - Resultado de re-invocación de file_operations: {result}") # <-- Añadir este log
                     tool_message_content = result.get("message", str(result)) if isinstance(result, dict) else str(result) # Modificación aquí
                 
                 self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
@@ -259,15 +244,19 @@ class CommandApprovalHandler:
                     self.terminal_ui.print_message("Ejecutando comando... (Presiona Ctrl+C para cancelar)", style="yellow")
 
                     for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
+                        # Aquí es donde la salida del comando se imprime en tiempo real
+                        self.terminal_ui.print_stream(output_chunk)
                         full_command_output += output_chunk
-                        print(output_chunk, end='', flush=True)
-                    print()
+                    
+                    self.terminal_ui.print_message("") # Imprimir una nueva línea después de la salida del comando
                     tool_message_content = full_command_output if full_command_output.strip() else "El comando se ejecutó correctamente y no produjo ninguna salida."
 
                 except KeyboardInterrupt:
                     self.command_executor.terminate()
                     tool_message_content = "Comando cancelado por el usuario."
                     self.terminal_ui.print_message("\n\nComando cancelado por el usuario.", style="red")
+                except Exception as e:
+                    raise e # Re-lanzar la excepción
         else:
             if is_file_update_confirmation:
                 tool_message_content = f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
@@ -278,33 +267,26 @@ class CommandApprovalHandler:
             else:
                 tool_message_content = "Comando no ejecutado por el usuario."
                 self.terminal_ui.print_message("Comando no ejecutado.", style="yellow")
+            full_command_output = "" # Asegurar que full_command_output siempre tenga un valor
 
         # 6. Añadir el mensaje al historial (AIMessage si es denegado, ToolMessage si es ejecutado)
-        logger.debug(f"DEBUG: CommandApprovalHandler - run_action: {run_action}") # <-- Añadir este log
-        logger.debug(f"DEBUG: CommandApprovalHandler - tool_message_content antes de añadir al historial: {tool_message_content}") # <-- Añadir este log
+        # logger.debug(f"DEBUG: CommandApprovalHandler - run_action: {run_action}") # <-- Añadir este log
+        # logger.debug(f"DEBUG: CommandApprovalHandler - tool_message_content antes de añadir al historial: {tool_message_content}") # <-- Añadir este log
         if run_action:
             if is_user_confirmation or is_file_update_confirmation:
-                # Generar un tool_call_id único para estas confirmaciones
-                generated_tool_call_id = f"confirmation_response_{os.urandom(8).hex()}"
                 self.agent_state.messages.append(ToolMessage(
                     content=tool_message_content,
-                    tool_call_id=generated_tool_call_id
+                    tool_call_id=tool_call_id # Usar el tool_call_id propagado
                 ))
-                logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {generated_tool_call_id}") # <-- Añadir este log
-            else:
-                self.agent_state.messages.append(ToolMessage(
-                    content=tool_message_content,
-                    tool_call_id=tool_call_id if tool_call_id else f"manual_tool_call_{os.urandom(8).hex()}" # Asegurar que tool_call_id no sea None
-                ))
-                logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {tool_call_id if tool_call_id else 'manual_tool_call'}") # <-- Añadir este log
+                # logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {tool_call_id}") # <-- Añadir este log
         else: # Acción denegada
             self.agent_state.messages.append(AIMessage(content=tool_message_content))
             self.terminal_ui.print_message("Acción denegada por el usuario.", style="yellow")
-            logger.debug("DEBUG: CommandApprovalHandler - AIMessage de denegación añadido al historial.") # <-- Añadir este log
+            # logger.debug("DEBUG: CommandApprovalHandler - AIMessage de denegación añadido al historial.") # <-- Añadir este log
 
         # 7. Guardar el historial antes de la re-invocación
         self.llm_service._save_history(self.agent_state.messages)
-        logger.debug("DEBUG: CommandApprovalHandler - Historial guardado.") # <-- Añadir este log
+        # logger.debug("DEBUG: CommandApprovalHandler - Historial guardado.") # <-- Añadir este log
 
         # 8. Devolver el estado actualizado y el contenido del ToolMessage
-        return {"messages": self.agent_state.messages, "tool_message_content": tool_message_content, "approved": run_action}
+        return {"messages": self.agent_state.messages, "tool_message_content": tool_message_content, "approved": run_action, "command_output": full_command_output}

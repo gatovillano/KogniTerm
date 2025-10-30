@@ -1,7 +1,7 @@
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 import difflib
 import re
@@ -11,15 +11,15 @@ from typing import Optional, Dict, Any, Type # ¡Aquí va la importación de typ
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 
-def _read_file_content(path: str) -> str:
+def _read_file_content(path: str) -> Dict[str, Any]:
     try:
         if os.path.exists(path):
             with open(path, 'r', encoding='utf-8') as f:
-                return f.read()
+                return {"status": "success", "content": f.read()}
         else:
-            raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
+            return {"status": "error", "message": f"El archivo '{path}' no fue encontrado."}
     except Exception as e:
-        raise RuntimeError(f"Error simulado al leer el archivo '{path}': {e}")
+        return {"status": "error", "message": f"Error al leer el archivo '{path}': {e}"}
 
 def _apply_advanced_update(path: str, content: str) -> Dict[str, Any]:
     try:
@@ -48,7 +48,10 @@ class AdvancedFileEditorTool(BaseTool):
         logger.debug(f"AdvancedFileEditorTool._run - Valor de confirm: {confirm}")
         print(f"*** DEBUG PRINT: AdvancedFileEditorTool._run - Valor de confirm: {confirm} ***")
         try:
-            original_content = _read_file_content(path=path)
+            read_result = _read_file_content(path=path)
+            if read_result["status"] == "error":
+                return {"error": f"Error al leer el archivo '{path}': {read_result["message"]}"}
+            original_content = read_result["content"]
             original_lines = original_content.splitlines(keepends=True)
             modified_lines = list(original_lines)
 

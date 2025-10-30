@@ -18,3 +18,17 @@ Se inicializaron los atributos `self.history_file_path`, `self.console`, `self.m
     - Se añadió la línea `self.max_history_messages = 100` para inicializar el número máximo de mensajes en el historial.
     - Se añadió la línea `self.max_history_chars = 100000` para inicializar el número máximo de caracteres en el historial.
     - Se eliminó una de las dos llamadas a `self._load_history()` para evitar redundancia.
+---
+## 30-10-25 - litellm.APIConnectionError: Missing corresponding tool call for tool response message
+
+### Descripción del Error
+El error `litellm.APIConnectionError: Missing corresponding tool call for tool response message` ocurrió durante la ejecución de la herramienta `file_search`. Este error indica que el modelo no pudo encontrar una llamada a la herramienta correspondiente para el mensaje de respuesta que recibió, lo que sugiere un problema en la comunicación o el formato de los mensajes entre el modelo y las herramientas.
+
+### Solución Propuesta
+Se registrará este error para su seguimiento. La solución inmediata es investigar la causa raíz de por qué el modelo no está reconociendo la respuesta de la herramienta `file_search` y ajustar la lógica de manejo de herramientas o la configuración de `litellm` si es necesario.
+
+### Archivos Modificados
+- Ninguno directamente en esta fase, solo el registro de errores.
+
+### Detalles de los Cambios
+- Se añadió una nueva entrada en `docs/registro_errores_soluciones.md` para documentar este error.
