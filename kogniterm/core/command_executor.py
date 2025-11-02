@@ -23,7 +23,7 @@ class CommandExecutor:
             command (str): El comando a ejecutar.
             cwd (str, optional): El directorio de trabajo para el comando. Defaults to None.
         """
-        MAX_OUTPUT_LENGTH = 20000 # Definir la longitud máxima de la salida
+        MAX_OUTPUT_LENGTH = 40000 # Definir la longitud máxima de la salida
         output_buffer = "" # Buffer para acumular la salida
 
         # Guardar la configuración original de la terminal

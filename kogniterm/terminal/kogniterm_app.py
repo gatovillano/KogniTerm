@@ -30,11 +30,13 @@ from rich.panel import Panel
 
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
-from kogniterm.core.agents.bash_agent import AgentState, UserConfirmationRequired
+from kogniterm.core.agent_state import AgentState
+from kogniterm.core.agents.bash_agent import UserConfirmationRequired
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool
 from kogniterm.core.tools.python_executor import PythonTool
 from kogniterm.core.tools.advanced_file_editor_tool import AdvancedFileEditorTool # Importar AdvancedFileEditorTool
 from langchain_core.messages import ToolMessage, HumanMessage, AIMessage
+from kogniterm.core.agents.bash_agent import SYSTEM_MESSAGE # Importar SYSTEM_MESSAGE
 
 from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
@@ -195,6 +197,9 @@ class KogniTermApp:
         file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
         self.completer = FileCompleter(file_operations_tool=file_operations_tool, workspace_directory=self.workspace_directory, show_indicator=False)
 
+        # Cargar el historial del agente al inicio, pasándole el SYSTEM_MESSAGE
+        self.agent_state.load_history(SYSTEM_MESSAGE)
+
         # Instanciar AdvancedFileEditorTool
         advanced_file_editor_tool = AdvancedFileEditorTool()
 
@@ -286,14 +291,21 @@ class KogniTermApp:
                 self.prompt_session.app.current_buffer.text = ""
                 self.prompt_session.app.current_buffer.cursor_position = 0
 
-                if self.meta_command_processor.process_meta_command(user_input): # Eliminar await
+                if self.meta_command_processor.process_meta_command(user_input):
                     continue
 
+                # Iniciar el ciclo de interacción del agente con la entrada del usuario
                 final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
                 
                 # Actualizar el estado del agente con lo que devuelve el manager
-                self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
                 self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+
+                # Después de la interacción inicial con el agente, el flujo debería esperar la confirmación del usuario
+                # o una nueva entrada si el agente ha finalizado su ciclo.
+                # Ya no necesitamos un bucle de "continúa automáticamente" aquí.
+                # La lógica de should_continue en bash_agent.py se encarga de determinar si el grafo debe terminar.
+                pass
+                
 
                 # --- NUEVA LÓGICA PARA MANEJAR CONFIRMACIONES PENDIENTES ---
                 if self.agent_state.file_update_diff_pending_confirmation:
@@ -318,23 +330,34 @@ class KogniTermApp:
                     tool_message_content = approval_result['tool_message_content']
                     action_approved = approval_result['approved']
 
+                    # Eliminar el ToolMessage anterior de requires_confirmation si existe
+                    if self.agent_state.tool_call_id_to_confirm:
+                        for i in range(len(self.agent_state.messages) - 1, -1, -1):
+                            msg = self.agent_state.messages[i]
+                            if isinstance(msg, ToolMessage) and msg.tool_call_id == self.agent_state.tool_call_id_to_confirm:
+                                if "requires_confirmation" in msg.content:
+                                    self.agent_state.messages.pop(i)
+                                    break
+
                     tool_message_for_agent = ToolMessage(
                         content=tool_message_content,
-                        tool_call_id=f"confirmation_response_{os.urandom(8).hex()}"
+                        tool_call_id=self.agent_state.tool_call_id_to_confirm
                     )
-                    self.agent_state.messages.append(tool_message_for_agent)
-                    self.llm_service.conversation_history.append(tool_message_for_agent)
+                    # Verificar si ya existe un ToolMessage con el mismo tool_call_id
+                    if not any(isinstance(msg, ToolMessage) and msg.tool_call_id == tool_message_for_agent.tool_call_id for msg in self.agent_state.messages):
+                        self.agent_state.messages.append(tool_message_for_agent) # Añadir al historial solo si no existe
+                    # self.llm_service.conversation_history.append(tool_message_for_agent) # Eliminado para evitar duplicación
 
                     if action_approved:
                         self.terminal_ui.print_message("Acción aprobada por el usuario. El agente procesará la respuesta.", style="green")
-                        self.terminal_ui.print_message("El agente continuará su flujo...", style="cyan")
-                        self.agent_state.messages.append(HumanMessage(content="La herramienta anterior se ejecutó con éxito. Por favor, continúa con la tarea."))
-                        final_state_after_reinvocation = self.agent_interaction_manager.invoke_agent("Procesa la salida de la herramienta que acaba de ser añadida al historial.")
-                        
+                        # Invocar al agente para que procese el ToolMessage de aprobación
+                        final_state_dict = self.agent_interaction_manager.invoke_agent(user_input=None) # Corregido: user_input en lugar de agent_input
                         self.agent_state.reset_tool_confirmation()
                         self.agent_state.tool_call_id_to_confirm = None
                     else:
                         self.terminal_ui.print_message("Acción denegada por el usuario. El agente procesará la respuesta.", style="yellow")
+                        # Invocar al agente para que procese el ToolMessage de denegación
+                        final_state_dict = self.agent_interaction_manager.invoke_agent(user_input=None) # Corregido: user_input en lugar de agent_input
                     
                     self.agent_state.reset_tool_confirmation()
                     self.agent_state.tool_call_id_to_confirm = None
@@ -348,17 +371,24 @@ class KogniTermApp:
                     approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
                     
                     # Actualizar el estado del agente con los mensajes devueltos por el handler
-                    self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
-                    # self.agent_state.messages = approval_result['messages']
                     tool_message_content = approval_result['tool_message_content']
 
                     # Re-invocar al agente para procesar la salida de la herramienta
                     self.terminal_ui.print_message("Procesando salida del comando...", style="cyan")
-                    
+
                     # Asegurar que tool_call_id_to_confirm siempre tenga un valor
                     if self.agent_state.tool_call_id_to_confirm is None:
                         self.agent_state.tool_call_id_to_confirm = f"manual_tool_call_{os.urandom(8).hex()}"
                         self.terminal_ui.print_message(f"Advertencia: tool_call_id_to_confirm era None. Generando ID temporal: {self.agent_state.tool_call_id_to_confirm}", style="yellow")
+
+                    # Eliminar el ToolMessage anterior de requires_confirmation si existe
+                    if self.agent_state.tool_call_id_to_confirm:
+                        for i in range(len(self.agent_state.messages) - 1, -1, -1):
+                            msg = self.agent_state.messages[i]
+                            if isinstance(msg, ToolMessage) and msg.tool_call_id == self.agent_state.tool_call_id_to_confirm:
+                                if "requires_confirmation" in msg.content:
+                                    self.agent_state.messages.pop(i)
+                                    break
 
                     # Construir el ToolMessage con el tool_call_id correcto
                     tool_message_for_agent = ToolMessage(
@@ -366,8 +396,13 @@ class KogniTermApp:
                         tool_call_id=self.agent_state.tool_call_id_to_confirm # Usar el tool_call_id guardado
                     )
                     self.agent_state.messages.append(tool_message_for_agent) # Añadir al historial
-                    self.agent_interaction_manager.invoke_agent("Procesa la salida de la herramienta que acaba de ser añadida al historial.") # Invocar al agente con una instrucción de texto
+                    # self.llm_service.conversation_history.append(tool_message_for_agent) # Eliminado para evitar duplicación
+                    logger.debug(f"DEBUG: kogniterm_app - tool_message_content después de aprobación: {tool_message_content[:100]}...") # Nuevo DEBUG PRINT
+
+                    # Invocar al agente para que procese este ToolMessage
+                    final_state_dict = self.agent_interaction_manager.invoke_agent(user_input=None) # Corregido: user_input en lugar de agent_input
                     self.agent_state.tool_call_id_to_confirm = None # Limpiar el tool_call_id después de usarlo
+                    continue # Reiniciar el bucle principal para que el agente procese el nuevo estado.
 
                 # Manejo de la salida de PythonTool
                 final_response_message = self.agent_state.messages[-1]
@@ -408,7 +443,7 @@ class KogniTermApp:
             traceback.print_exc()
         finally:
             # Asegurarse de que el historial se guarde siempre al salir de la aplicación
-            self.llm_service._save_history(self.llm_service.conversation_history)
+            self.agent_state.save_history() # Guardar el historial desde AgentState
             self.terminal_ui.print_message("Historial guardado al salir.", style="dim")
             # Asegurarse de que el FileCompleter se limpie al salir
             if self.completer:

@@ -6,7 +6,7 @@ import queue
 from typing import List, Any, Generator, Optional, Union, Dict
 from collections import deque
 from langchain_core.tools import BaseTool
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage, BaseMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from litellm import completion, litellm
 import uuid
 from dotenv import load_dotenv
@@ -129,26 +129,26 @@ litellm_api_base = os.getenv("LITELLM_API_BASE")
 google_api_key = os.getenv("GOOGLE_API_KEY")
 gemini_model = os.getenv("GEMINI_MODEL")
 
-logger.debug(f"OPENROUTER_API_KEY: {openrouter_api_key is not None}")
-logger.debug(f"LITELLM_MODEL: {litellm_model}")
-logger.debug(f"LITELLM_API_BASE: {litellm_api_base}")
-logger.debug(f"GOOGLE_API_KEY: {google_api_key is not None}")
-logger.debug(f"GEMINI_MODEL: {gemini_model}")
+print(f"DEBUG: OPENROUTER_API_KEY: {openrouter_api_key is not None}", file=sys.stderr)
+print(f"DEBUG: LITELLM_MODEL: {litellm_model}", file=sys.stderr)
+print(f"DEBUG: LITELLM_API_BASE: {litellm_api_base}", file=sys.stderr)
+print(f"DEBUG: GOOGLE_API_KEY: {google_api_key is not None}", file=sys.stderr)
+print(f"DEBUG: GEMINI_MODEL: {gemini_model}", file=sys.stderr)
 
 if openrouter_api_key and litellm_model:
     # Usar OpenRouter
     os.environ["LITELLM_MODEL"] = litellm_model
     os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
     litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
-    logger.debug("Usando configuración de OpenRouter.")
+    print("DEBUG: Usando configuración de OpenRouter.", file=sys.stderr)
 elif google_api_key and gemini_model:
     # Usar Google AI Studio
     os.environ["LITELLM_MODEL"] = f"gemini/{gemini_model}" # Asegurarse de que sea gemini/gemini-1.5-flash
     os.environ["LITELLM_API_KEY"] = google_api_key
     litellm.api_base = None # Asegurarse de que no haya un api_base de Vertex AI
-    logger.debug("Usando configuración de Google AI Studio.")
+    print("DEBUG: Usando configuración de Google AI Studio.", file=sys.stderr)
 else:
-    logger.warning("No se encontraron credenciales válidas para OpenRouter ni Google AI Studio. Asegúrate de configurar OPENROUTER_API_KEY/LITELLM_MODEL o GOOGLE_API_KEY/GEMINI_MODEL en tu archivo .env")
+    print("ADVERTENCIA: No se encontraron credenciales válidas para OpenRouter ni Google AI Studio. Asegúrate de configurar OPENROUTER_API_KEY/LITELLM_MODEL o GOOGLE_API_KEY/GEMINI_MODEL en tu archivo .env", file=sys.stderr)
 
 from .exceptions import UserConfirmationRequired # Importar la excepción
 from .tools.tool_manager import ToolManager
@@ -179,8 +179,8 @@ class LLMService:
         self.tokenizer = tiktoken.encoding_for_model("gpt-4") # Usar un tokenizer compatible
         self.history_file_path = os.path.join(os.getcwd(), ".kogniterm", "history.json") # Inicializar history_file_path
         self.console = None # Inicializar console
-        self.max_history_messages = 50 # Aumentado para preservar más contexto
-        self.max_history_chars = 30000 # Aumentado para preservar más contexto
+        self.max_history_messages = 20 # Valor por defecto, ajustar según necesidad
+        self.max_history_chars = 15000 # Valor por defecto, ajustar según necesidad
         self.workspace_context = WorkspaceContext(root_dir=os.getcwd())
         self.workspace_context_initialized = False
         self.call_timestamps = deque() # Inicializar call_timestamps
@@ -193,15 +193,11 @@ class LLMService:
         self.conversation_history = LLMService._load_history(self.history_file_path)
         self.SUMMARY_MAX_TOKENS = 750 # Tokens, longitud máxima del resumen de herramientas
 
-    def _from_litellm_message(self, message: Union[Dict, BaseMessage]):
-        """Convierte un mensaje de LiteLLM (dict) o LangChain (BaseMessage) a un formato compatible con LangChain."""
-        if isinstance(message, BaseMessage): # Ya es un mensaje de LangChain, retornarlo directamente
-            return message
-
-        # Si es un diccionario, procesarlo
+    def _from_litellm_message(self, message):
+        """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
         role = message.get("role")
         content = message.get("content", "")
-        logger.debug(f"_from_litellm_message - Convirtiendo de LiteLLM a LangChain. Rol: {role}, Contenido: {content[:100]}...")
+        logger.debug(f"DEBUG: _from_litellm_message - Convirtiendo de LiteLLM a LangChain. Rol: {role}, Contenido: {content[:100]}...")
         if role == "user":
             return HumanMessage(content=content)
         elif role == "assistant":
@@ -212,6 +208,7 @@ class LLMService:
                     function_data = tc.get("function")
                     if function_data:
                         args = function_data.get("arguments", "")
+                        # Asegurarse de que los argumentos se manejen como un diccionario
                         if isinstance(args, str):
                             try:
                                 args = json.loads(args)
@@ -223,13 +220,13 @@ class LLMService:
                             "args": args
                         }
                         tool_calls.append(tool_call_item)
-                        logger.debug(f"_from_litellm_message - ToolCall convertido: {tool_call_item}")
+                        logger.debug(f"DEBUG: _from_litellm_message - ToolCall convertido: {tool_call_item}")
                 return AIMessage(content=content, tool_calls=tool_calls)
             else:
                 return AIMessage(content=content)
         elif role == "tool":
             tool_message = ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
-            logger.debug(f"_from_litellm_message - ToolMessage convertido: {tool_message}")
+            logger.debug(f"DEBUG: _from_litellm_message - ToolMessage convertido: {tool_message}")
             return tool_message
         elif role == "system":
             return SystemMessage(content=content)
@@ -281,11 +278,6 @@ class LLMService:
             return {"role": "assistant", "content": message.content}
         elif isinstance(message, ToolMessage):
             content = message.content
-            # Truncar el contenido del ToolMessage si es demasiado largo
-            if len(content) > self.MAX_TOOL_MESSAGE_CONTENT_LENGTH:
-                truncated_content = content[:self.MAX_TOOL_MESSAGE_CONTENT_LENGTH] + "\n... [Contenido de ToolMessage truncado]"
-                logger.debug(f"DEBUG: _to_litellm_message - ToolMessage content truncado de {len(content)} a {len(truncated_content)} caracteres.")
-                content = truncated_content
             litellm_tool_message = {"role": "tool", "content": content, "tool_call_id": message.tool_call_id}
             logger.debug(f"DEBUG: _to_litellm_message - ToolMessage serializado: {litellm_tool_message}")
             return litellm_tool_message
@@ -308,6 +300,129 @@ class LLMService:
         # ... (la lógica de carga se mantiene igual)
         return []
 
+    def invoke(self, messages: List[Union[HumanMessage, AIMessage, ToolMessage]]) -> Generator[str, None, None]:
+        # Implementación de invocación del LLM
+        # ... (la lógica de invocación se mantiene igual)
+        yield ""
+
+    def summarize_conversation_history(self) -> str:
+        # Implementación de resumen de historial
+        # ... (la lógica de resumen se mantiene igual)
+        return ""
+
+    def get_tool(self, tool_name: str) -> BaseTool:
+        return self.tool_map.get(tool_name)
+
+    def get_tools(self) -> List[BaseTool]:
+        return self.tool_manager.get_tools()
+
+    def _initialize_memory(self):
+        """Inicializa la memoria si no existe."""
+        memory_init_tool = self.get_tool("memory_init")
+        if memory_init_tool:
+            try:
+                # La herramienta memory_init puede necesitar acceso al history_file_path
+                # Si es así, se deberá pasar como argumento o hacer que la herramienta lo obtenga de llm_service.
+                memory_init_tool.invoke({"history_file_path": self.history_file_path})
+            except Exception as e:
+                # print(f"Advertencia: Error al inicializar la memoria: {e}", file=sys.stderr)
+                pass # No es crítico si falla la inicialización de memoria
+
+    @staticmethod
+    def _load_history(history_file_path: str) -> list:
+        """Carga el historial de conversación desde un archivo JSON."""
+        print(f"DEBUG: Intentando cargar historial desde: {history_file_path}", file=sys.stderr)
+        if not history_file_path:
+            print("DEBUG: No hay ruta de historial configurada.", file=sys.stderr)
+            return [] # No hay ruta de historial configurada
+
+        if os.path.exists(history_file_path):
+            try:
+                with open(history_file_path, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+                    if not file_content.strip():
+                        print("DEBUG: Archivo de historial vacío.", file=sys.stderr)
+                        return []
+                    serializable_history = json.loads(file_content)
+                    loaded_history = []
+                    for item in serializable_history:
+                        if item['type'] == 'human':
+                            loaded_history.append(HumanMessage(content=item['content']))
+                        elif item['type'] == 'ai':
+                            tool_calls = item.get('tool_calls', [])
+                            if tool_calls:
+                                formatted_tool_calls = []
+                                for tc in tool_calls:
+                                    if isinstance(tc['args'], dict):
+                                        formatted_tool_calls.append({'name': tc['name'], 'args': tc['args'], 'id': tc.get('id')})
+                                    else:
+                                        try:
+                                            parsed_args = json.loads(tc['args'])
+                                            formatted_tool_calls.append({'name': tc['name'], 'args': parsed_args, 'id': tc.get('id')})
+                                        except (json.JSONDecodeError, TypeError):
+                                            print(f"Advertencia: No se pudieron parsear los argumentos de la herramienta: {tc['args']}", file=sys.stderr)
+                                            formatted_tool_calls.append({'name': tc['name'], 'args': {}, 'id': tc.get('id')})
+                                loaded_history.append(AIMessage(content=item['content'], tool_calls=formatted_tool_calls))
+                            else:
+                                loaded_history.append(AIMessage(content=item['content']))
+                        elif item['type'] == 'tool':
+                            loaded_history.append(ToolMessage(content=item['content'], tool_call_id=item['tool_call_id']))
+                        elif item['type'] == 'system':
+                            loaded_history.append(SystemMessage(content=item['content']))
+                        else:
+                            pass
+                    print(f"DEBUG: Historial cargado exitosamente. {len(loaded_history)} mensajes.", file=sys.stderr)
+                    return loaded_history
+            except json.JSONDecodeError as e:
+                print(f"Error al decodificar el historial JSON desde {history_file_path}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+            except Exception as e:
+                print(f"Error inesperado al cargar el historial desde {history_file_path}: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+        else:
+            print(f"DEBUG: Archivo de historial no encontrado: {history_file_path}", file=sys.stderr)
+        return []
+
+    @staticmethod
+    def _save_history(history_file_path: str, history: list):
+        """Guarda el historial de conversación en un archivo JSON."""
+        print(f"DEBUG: Intentando guardar historial en: {history_file_path}", file=sys.stderr)
+        if not history_file_path:
+            print("DEBUG: No hay ruta de historial configurada para guardar.", file=sys.stderr)
+            return # No hay ruta de historial configurada
+
+        history_dir = os.path.dirname(history_file_path)
+        if not os.path.exists(history_dir):
+            print(f"DEBUG: Creando directorio de historial: {history_dir}", file=sys.stderr)
+            os.makedirs(history_dir, exist_ok=True)
+
+        try:
+            serializable_history = []
+            for msg in history:
+                if isinstance(msg, HumanMessage):
+                    serializable_history.append({'type': 'human', 'content': msg.content})
+                elif isinstance(msg, AIMessage):
+                    if msg.tool_calls:
+                        serializable_history.append({'type': 'ai', 'content': msg.content, 'tool_calls': [{'name': tc['name'], 'args': tc['args'], 'id': tc.get('id')} for tc in msg.tool_calls]})
+                    else:
+                        serializable_history.append({'type': 'ai', 'content': msg.content})
+                elif isinstance(msg, ToolMessage):
+                    serializable_history.append({'type': 'tool', 'content': msg.content, 'tool_call_id': msg.tool_call_id})
+                elif isinstance(msg, SystemMessage):
+                    serializable_history.append({'type': 'system', 'content': msg.content})
+                else:
+                    continue # Saltar mensajes desconocidos
+
+            with open(history_file_path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_history, f, indent=4, ensure_ascii=False)
+            print(f"DEBUG: Historial guardado exitosamente. {len(serializable_history)} mensajes.", file=sys.stderr)
+        except Exception as e:
+            print(f"Error al guardar el historial en {history_file_path}: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+
     def invoke(self, history: list, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None):
         """Invoca el modelo LLM con un historial de conversación y un mensaje de sistema opcional.
 
@@ -326,10 +441,10 @@ class LLMService:
         if len(self.call_timestamps) >= self.rate_limit_calls:
             time_to_wait = self.rate_limit_period - (current_time - self.call_timestamps[0])
             if time_to_wait > 0:
-                logger.debug(f"Rate limit hit. Waiting for {time_to_wait:.2f} seconds...")
+                print(f"DEBUG: Rate limit hit. Waiting for {time_to_wait:.2f} seconds...", file=sys.stderr)
                 time.sleep(time_to_wait)
                 current_time = time.time()
-                logger.debug("Finished waiting for rate limit.")
+                print(f"DEBUG: Finished waiting for rate limit.", file=sys.stderr)
                 while self.call_timestamps and self.call_timestamps[0] <= current_time - self.rate_limit_period:
                     self.call_timestamps.popleft()
 
@@ -410,10 +525,11 @@ class LLMService:
         # La lógica de resumen debe operar sobre `self.conversation_history` (LangChain messages)
         # y no debe afectar `all_initial_system_messages_for_llm`.
         
-        # Calculamos la longitud total de `litellm_messages` para la decisión de resumen/truncamiento
-        total_litellm_messages_length = sum(len(json.dumps(m, ensure_ascii=False)) for m in litellm_messages)
-
-        if (len(filtered_conversation_messages) > self.max_history_messages or total_litellm_messages_length > self.max_history_chars) and \
+        # Calculamos la longitud total de `litellm_messages` (incluyendo system messages) para la decisión de resumen/truncamiento
+        total_litellm_messages_length = sum(len(json.dumps(msg, ensure_ascii=False)) for msg in litellm_messages)
+        
+        if (len(filtered_conversation_messages) > self.max_history_messages or
+            total_litellm_messages_length > self.max_history_chars) and \
            len(filtered_conversation_messages) > min_messages_to_keep_in_conversation:
             
             if self.console:
@@ -421,38 +537,90 @@ class LLMService:
             
             summary = self.summarize_conversation_history() # Opera en self.conversation_history
             if summary:
-                # Crear un nuevo historial con el resumen al principio
+                max_summary_length = min(2000, self.max_history_chars // 4)
+                if len(summary) > max_summary_length:
+                    summary = summary[:max_summary_length] + "... [Resumen truncado para evitar bucles]"
+
+                # El nuevo historial de conversación incluirá el resumen y los últimos mensajes relevantes.
+                new_conversation_history_litellm = []
                 summary_message_lc = SystemMessage(content=f"Resumen de la conversación anterior: {summary}")
-                new_conversation_history_litellm = [self._to_litellm_message(summary_message_lc)]
+                new_conversation_history_litellm.append(self._to_litellm_message(summary_message_lc))
                 
-                # Mantener los mensajes más recientes que no excedan el límite de caracteres
+                # Identificar todos los pares AIMessage/ToolMessage en el historial completo
+                tool_call_pairs = []
+                for i, msg in enumerate(filtered_conversation_messages):
+                    if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                        tool_call_id = msg['tool_calls'][0]['id'] # Asumiendo un solo tool_call por AIMessage
+                        # Buscar el ToolMessage correspondiente
+                        for j in range(i + 1, len(filtered_conversation_messages)):
+                            next_msg = filtered_conversation_messages[j]
+                            if next_msg.get('role') == 'tool' and next_msg.get('tool_call_id') == tool_call_id:
+                                tool_call_pairs.append((msg, next_msg))
+                                break
+                
+                # Identificar todos los pares AIMessage/ToolMessage en el historial completo
+                # y reconstruir el historial para mantenerlos juntos.
+                temp_filtered_conversation_messages = []
+                i = 0
+                while i < len(filtered_conversation_messages):
+                    msg = filtered_conversation_messages[i]
+                    temp_filtered_conversation_messages.append(msg)
+                    if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+                        tool_call_id = msg['tool_calls'][0]['id'] # Asumiendo un solo tool_call por AIMessage
+                        # Buscar el ToolMessage correspondiente inmediatamente después
+                        if i + 1 < len(filtered_conversation_messages) and \
+                           filtered_conversation_messages[i+1].get('role') == 'tool' and \
+                           filtered_conversation_messages[i+1].get('tool_call_id') == tool_call_id:
+                            temp_filtered_conversation_messages.append(filtered_conversation_messages[i+1])
+                            i += 1 # Saltar el ToolMessage ya añadido
+                    i += 1
+
+                # Ahora, `temp_filtered_conversation_messages` contiene los pares de tool_calls juntos.
+                # Necesitamos truncar esto para que quepa en el historial.
+                # Priorizamos los mensajes más recientes y los pares de tool_calls.
+                
+                # Invertir para procesar desde los más recientes
+                reversed_temp_filtered_conversation_messages = list(reversed(temp_filtered_conversation_messages))
+                
                 final_conversational_messages = []
-                current_length = len(json.dumps(new_conversation_history_litellm, ensure_ascii=False))
-
-                # Iterar desde el final del historial para conservar los mensajes más recientes
-                for msg in reversed(filtered_conversation_messages):
-                    # Mantener siempre los pares de tool_calls juntos
-                    pair_to_add = []
-                    if msg.get("role") == "tool":
-                        # Si es un ToolMessage, buscar su AIMessage correspondiente
-                        tool_call_id = msg.get("tool_call_id")
-                        for prev_msg in reversed(filtered_conversation_messages):
-                            if prev_msg.get("role") == "assistant" and prev_msg.get("tool_calls"):
-                                if any(tc.get("id") == tool_call_id for tc in prev_msg["tool_calls"]):
-                                    pair_to_add = [prev_msg, msg]
-                                    break
-                    else:
-                        pair_to_add = [msg]
-
-                    # Calcular el tamaño del par y añadirlo si cabe
-                    pair_length = sum(len(json.dumps(m, ensure_ascii=False)) for m in pair_to_add)
-                    if current_length + pair_length > self.max_history_chars or len(final_conversational_messages) >= self.max_history_messages:
+                current_length = 0
+                
+                for msg in reversed_temp_filtered_conversation_messages:
+                    msg_len = len(json.dumps(msg, ensure_ascii=False))
+                    
+                    # Si añadir este mensaje excede el límite, y no es un mensaje de tool_call
+                    # o su AIMessage correspondiente ya ha sido añadido, entonces no lo añadimos.
+                    if current_length + msg_len > self.max_history_chars and \
+                       len(final_conversational_messages) >= self.max_history_messages:
                         break
-
-                    # Insertar el par al principio de la lista para mantener el orden
-                    final_conversational_messages = pair_to_add + final_conversational_messages
-                    current_length += pair_length
-
+                    
+                    final_conversational_messages.insert(0, msg)
+                    current_length += msg_len
+                    
+                    # Si el mensaje actual es un ToolMessage, asegurarnos de que su AIMessage esté presente
+                    if msg.get('role') == 'tool':
+                        tool_call_id = msg.get('tool_call_id')
+                        found_ai_message = False
+                        for prev_msg in final_conversational_messages[:-1]: # Buscar en los ya añadidos
+                            if prev_msg.get('role') == 'assistant' and prev_msg.get('tool_calls'):
+                                for tc in prev_msg['tool_calls']:
+                                    if tc.get('id') == tool_call_id:
+                                        found_ai_message = True
+                                        break
+                            if found_ai_message:
+                                break
+                        
+                        if not found_ai_message:
+                            # Si el AIMessage no está, buscarlo en el historial original y añadirlo
+                            for original_msg in reversed_temp_filtered_conversation_messages:
+                                if original_msg.get('role') == 'assistant' and original_msg.get('tool_calls'):
+                                    for tc in original_msg['tool_calls']:
+                                        if tc.get('id') == tool_call_id:
+                                            final_conversational_messages.insert(0, original_msg)
+                                            current_length += len(json.dumps(original_msg, ensure_ascii=False))
+                                            break
+                                    break
+                
                 new_conversation_history_litellm.extend(final_conversational_messages)
 
                 # Actualizar `litellm_messages` con los system messages iniciales y el nuevo historial resumido
@@ -462,7 +630,7 @@ class LLMService:
                 # Esto es crucial para futuras llamadas a summarize_conversation_history
                 # Solo guardamos el historial de conversación real, no los mensajes de contexto dinámicos.
                 self.conversation_history = [self._from_litellm_message(msg) for msg in new_conversation_history_litellm]
-                LLMService._save_history(self.history_file_path, self.conversation_history) # Guardar el historial de conversación resumido
+                self._save_history(self.history_file_path, self.conversation_history) # Guardar el historial de conversación resumido
                 if self.console:
                     self.console.print("[green]Historial resumido y actualizado.[/green]")
             else:
@@ -487,8 +655,7 @@ class LLMService:
                 tool_call_id = msg.get('tool_call_id')
                 # Solo eliminar si el tool_call_id existe y no está en los AIMessages válidos
                 if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
-                    logger.debug(f"DEBUG: summarize_conversation_history - Eliminando ToolMessage huérfano: {msg}")
-                    continue
+                    continue # Eliminar ToolMessage huérfano
             processed_litellm_messages.append(msg)
         
         litellm_messages = processed_litellm_messages
@@ -587,11 +754,11 @@ class LLMService:
                     while not interrupt_queue.empty(): # Vaciar la cola
                         interrupt_queue.get_nowait()
                     self.stop_generation_flag = True
-                    logger.debug("Interrupción detectada desde la cola.") # Para depuración
+                    print("DEBUG: Interrupción detectada desde la cola.", file=sys.stderr) # Para depuración
                     break # Salir del bucle de chunks
 
                 if self.stop_generation_flag:
-                    logger.debug("Generación detenida por bandera.")
+                    print("DEBUG: Generación detenida por bandera.", file=sys.stderr)
                     break
 
                 choices = getattr(chunk, 'choices', None)
@@ -651,7 +818,7 @@ class LLMService:
 
         except Exception as e:
             import traceback
-            logger.error(f"Error de LiteLLM: {e}")
+            print(f"Error de LiteLLM: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             error_message = f"¡Ups! 😵 Ocurrió un error inesperado al comunicarme con el modelo (LiteLLM): {e}. Por favor, revisa los logs para más detalles. ¡Intentemos de nuevo!"""
             logger.error(f"DEBUG: invoke - Error en LiteLLM: {e}")
@@ -690,7 +857,7 @@ class LLMService:
         # Convertir de nuevo a mensajes de LangChain para añadir el summarize_prompt
         langchain_processed_history = [self._from_litellm_message(msg) for msg in processed_litellm_history]
 
-        summarize_prompt = HumanMessage(content="Genera un resumen EXTENSO y DETALLADO de la conversación anterior. Incluye TODOS los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad y CUALQUIER información relevante que ayude a retomar la conversación sin perder el hilo. Prioriza la fidelidad y la exhaustividad sobre la brevedad. Limita el resumen a 4000 caracteres, pero asegúrate de no omitir detalles críticos.")
+        summarize_prompt = HumanMessage(content="Genera un resumen EXTENSO y DETALLADO de la conversación anterior. Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad y cualquier información relevante que ayude a retomar la conversación sin perder el hilo. Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica.")
         
         temp_history_for_summary = langchain_processed_history + [summarize_prompt]
 
@@ -750,7 +917,7 @@ class LLMService:
             return "Error: No se pudo generar el resumen de la conversación."
         except Exception as e:
             import traceback
-            logger.error(f"Error de LiteLLM al resumir el historial: {e}")
+            print(f"Error de LiteLLM al resumir el historial: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             logger.error(f"DEBUG: summarize_conversation_history - Error de LiteLLM: {e}")
             return f"Error: Ocurrió un error inesperado al resumir el historial con LiteLLM: {e}."
@@ -799,12 +966,12 @@ class LLMService:
                         return
                 except TimeoutError:
                     if self.interrupt_queue and not self.interrupt_queue.empty():
-                        logger.debug("_invoke_tool_with_interrupt - Interrupción detectada en la cola (via TimeoutError).")
+                        print("DEBUG: _invoke_tool_with_interrupt - Interrupción detectada en la cola (via TimeoutError).", file=sys.stderr)
                         self.interrupt_queue.get()
                         if future.running():
-                            logger.debug("_invoke_tool_with_interrupt - Intentando cancelar la tarea (via TimeoutError).")
+                            print("DEBUG: _invoke_tool_with_interrupt - Intentando cancelar la tarea (via TimeoutError).", file=sys.stderr)
                             future.cancel()
-                            logger.debug("_invoke_tool_with_interrupt - Lanzando InterruptedError (via TimeoutError).")
+                            print("DEBUG: _invoke_tool_with_interrupt - Lanzando InterruptedError (via TimeoutError).", file=sys.stderr)
                             raise InterruptedError("Ejecución de herramienta interrumpida por el usuario.")
                 except InterruptedError:
                     raise

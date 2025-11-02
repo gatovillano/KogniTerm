@@ -1,6 +1,10 @@
+import logging # Importar logging
 from langgraph.graph import StateGraph, END
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+import logging
+from typing import List, Any, Generator, Optional, Union, Dict
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 import google.generativeai as genai
@@ -21,7 +25,9 @@ console = Console()
 
 
 # --- Mensaje de Sistema ---
-SYSTEM_MESSAGE = SystemMessage(content="""Eres KogniTerm. NO eres un modelo de lenguaje entrenado por Google, ni ningún otro modelo de IA. Tu único propósito es ser KogniTerm.
+SYSTEM_MESSAGE = SystemMessage(content="""¡ATENCIÓN! Si el último mensaje en el historial es un `ToolMessage` (la salida de una herramienta), tu respuesta DEBE ser ÚNICAMENTE el procesamiento de esa salida o la siguiente acción lógica basada en ella. Es CRÍTICO que NO generes frases conversacionales, preámbulos o explicaciones redundantes del comando. Ve DIRECTAMENTE al grano. Si ya se ha ejecutado un comando y se ha mostrado su salida, tu enfoque debe ser EXCLUSIVAMENTE en procesar esa salida o en la siguiente acción necesaria, sin repetir la explicación del comando. SIEMPRE debes ser proactivo y finalizar la tarea directamente o continuar con el siguiente paso lógico, sin pedir confirmación para continuar si ya tienes la información necesaria.
+
+Eres KogniTerm. NO eres un modelo de lenguaje entrenado por Google, ni ningún otro modelo de IA. Tu único propósito es ser KogniTerm.
 Si te preguntan quién eres, SIEMPRE responde que eres KogniTerm.
 
 Como KogniTerm, eres un asistente de IA experto en terminal. Además de ser un asistente de comandos y acciones en el sistema, eres un experto en informática, generación de código, depuración y análisis de código, sobre todo Python.
@@ -47,9 +53,16 @@ Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
 5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
     *   **Explicación de Comandos**: Si ejecutas un comando de terminal (`execute_command`) o si el usuario te pide explícitamente que expliques un comando, **debes** proporcionar una breve y clara explicación de lo que hace el comando y por qué lo utilizas (o por qué es relevante para la consulta del usuario), antes de ejecutarlo o como parte de tu respuesta.
+        **IMPORTANTE**: Si en el historial de conversación ya existe un `ToolMessage` que contiene la salida de un comando previamente ejecutado, NO debes volver a explicar ese comando. En su lugar, procesa la salida de la herramienta y continúa con la tarea o genera la siguiente acción necesaria.
+        **MUY IMPORTANTE**: Cuando tu tarea principal sea procesar la salida de una herramienta (es decir, el último mensaje en el historial es un `ToolMessage`), tu respuesta debe ser ÚNICAMENTE el procesamiento de esa salida o la siguiente acción lógica. NO generes frases conversacionales, preámbulos o explicaciones redundantes. Ve directo al grano. Si ya se ha ejecutado un comando y se ha mostrado su salida, tu enfoque debe ser exclusivamente en procesar esa salida o en la siguiente acción necesaria, sin repetir la explicación del comando. **Si el último mensaje en el historial es un ToolMessage, tu respuesta debe comenzar directamente con el procesamiento de esa salida, sin ninguna introducción o explicación previa del comando.**
+        **Además, si un comando está pendiente de confirmación y su explicación ya se muestra en el panel de confirmación, NO debes generar una explicación adicional en tu respuesta.**
+        Cuando la tarea esté completa y no haya más herramientas que ejecutar, entonces sí, informa al usuario del resultado final de forma clara y amigable.
+        **ATENCIÓN**: Si el último mensaje es un `ToolMessage` y su contenido es la salida de un comando ejecutado, tu siguiente respuesta debe ser la acción lógica siguiente basada en esa salida, o un mensaje de finalización si la tarea está completa. NO repitas el comando ni su explicación, y BAJO NINGUNA CIRCUNSTANCIA pidas al usuario que "continúe con la tarea" si ya tienes la información para hacerlo o si la tarea puede progresar directamente. Tu objetivo es la proactividad y la finalización directa de la tarea.
 6.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
     *   Siempre que utilices cuadros markdown, NO Los anides en bloque de codigo. 
     *   Siempre utiliza Markdown para embellecer el texto, tanto en la etapa de pensamiento como en el mensaje final, incluyendo encabezados, listas, negritas, etc.
+
+**MUY IMPORTANTE: SIEMPRE debes solicitar confirmación al usuario para cualquier operación que modifique archivos, especialmente al usar `advanced_file_editor` o `file_update_tool`.**
 
 La herramienta `execute_command` se encarga de la interactividad y la seguridad de los comandos; no dudes en usarla.
 La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
@@ -76,6 +89,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     Maneja la respuesta de confirmación del usuario para una operación de herramienta.
     Si se aprueba, re-ejecuta la herramienta.
     """
+    logger.debug(f"handle_tool_confirmation - Inicio. state.messages: {state.messages}")
     last_message = state.messages[-1]
     if not isinstance(last_message, ToolMessage):
         # Esto no debería pasar si el flujo es correcto
@@ -120,12 +134,15 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
                     tool_messages = [ToolMessage(content=tool_output_str, tool_call_id=tool_id)]
                     state.messages.extend(tool_messages)
                     console.print(f"[green]✨ Herramienta '{tool_name}' re-ejecutada con éxito.[/green]")
+                    logger.debug(f"Estado de state.messages después de re-ejecución en handle_tool_confirmation: {state.messages}")
+                    logger.debug(f"command_output_ready_for_processing en handle_tool_confirmation: {state.command_output_ready_for_processing}")
 
-                    # --- NUEVA LÓGICA ---
-                    # Añadir un AIMessage que indique que la herramienta se ejecutó con éxito
-                    success_message = f"La herramienta '{tool_name}' se ejecutó con éxito. El resultado fue: {tool_output_str[:200]}..." # Truncar para brevedad
-                    state.messages.append(AIMessage(content=success_message))
-                    # --- FIN NUEVA LÓGICA ---
+                    # Eliminar el ToolMessage original de confirmación del historial
+                    # Esto evita que el LLM lo procese nuevamente y genere respuestas redundantes.
+                    if len(state.messages) >= 2 and isinstance(state.messages[-2], ToolMessage) and state.messages[-2].tool_call_id == tool_id:
+                        state.messages.pop(-2) # Eliminar el ToolMessage anterior que solicitaba confirmación
+                    # No añadir un AIMessage de éxito aquí; el ToolMessage con la salida real es suficiente.
+                    # El LLM debe procesar el ToolMessage directamente y continuar.
                 except InterruptedError:
                     console.print("[bold yellow]⚠️ Re-ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
                     state.reset_temporary_state() # Limpiar el estado temporal del agente
@@ -149,19 +166,35 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
 
     state.reset_tool_confirmation() # Limpiar el estado de confirmación
     state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
+    state.file_update_diff_pending_confirmation = None # Asegurarse de limpiar esto
+    state.command_to_confirm = None # Asegurarse de limpiar esto también
+    logger.debug(f"handle_tool_confirmation - state.messages antes de retornar: {state.messages}")
+    logger.debug(f"handle_tool_confirmation - command_output_ready_for_processing antes de retornar: {state.command_output_ready_for_processing}")
     return state
 
 def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
-    history = state.history_for_api
-    
+    last_message = state.messages[-1] if state.messages else None
+    logger.debug(f"call_model_node - last_message TYPE: {type(last_message).__name__}")
+    logger.debug(f"call_model_node - last_message CONTENT: {getattr(last_message, 'content', 'N/A')}")
+    if isinstance(last_message, AIMessage) and getattr(last_message, 'tool_calls', None):
+        logger.debug(f"call_model_node - last_message TOOL_CALLS: {last_message.tool_calls}")
+    logger.debug(f"call_model_node - command_output_ready_for_processing: {state.command_output_ready_for_processing}")
+
+    # El historial para la API es directamente el historial del estado del agente,
+    # ya que AgentState.load_history() se encarga de asegurar el SYSTEM_MESSAGE.
+    history_for_llm_call = state.messages
+
+    # Añadir DEBUG print para mostrar el historial completo antes de la llamada al LLM
+    logger.debug(f"call_model_node - Historial completo enviado al LLM: {history_for_llm_call}")
+
     full_response_content = ""
     final_ai_message_from_llm = None
     text_streamed = False # Bandera para saber si hubo contenido de texto transmitido
 
     # Usar Live para actualizar el contenido en tiempo real
     with Live(console=console, screen=False, refresh_per_second=4) as live:
-        for part in llm_service.invoke(history=history, system_message=str(SYSTEM_MESSAGE.content), interrupt_queue=interrupt_queue):
+        for part in llm_service.invoke(history=history_for_llm_call, interrupt_queue=interrupt_queue):
             if isinstance(part, AIMessage):
                 final_ai_message_from_llm = part
                 # No acumulamos el contenido aquí si ya lo hemos hecho con los chunks de str
@@ -176,6 +209,12 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
 
     # Si hubo tool_calls, el AIMessage ya los contendrá.
+
+    # Si hubo tool_calls, el AIMessage ya los contendrá.
+    # No necesitamos imprimir el ToolMessage aquí, ya que su contenido ya fue impreso en command_approval_handler.py
+
+    # Si hubo tool_calls, el AIMessage ya los contendrá.
+    # No necesitamos imprimir el ToolMessage aquí, ya que su contenido ya fue impreso en command_approval_handler.py
 
     if final_ai_message_from_llm and final_ai_message_from_llm.tool_calls:
         # El AIMessage final para el historial debe contener el contenido completo
@@ -246,10 +285,15 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 # Iterar sobre el generador de la herramienta
                 tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
                 
-                # Imprimir cada chunk usando terminal_ui.print_stream para visibilidad en tiempo real
-                for chunk in tool_output_generator:
-                    terminal_ui.print_stream(str(chunk))
-                    full_tool_output += str(chunk)
+                # Si es un comando de ejecución, la salida ya se maneja en command_approval_handler
+                if tool_name == "execute_command":
+                    # Solo acumular la salida, no imprimirla aquí
+                    for chunk in tool_output_generator:
+                        full_tool_output += str(chunk)
+                else:
+                    # Para otras herramientas, acumular la salida sin imprimir en tiempo real
+                    for chunk in tool_output_generator:
+                        full_tool_output += str(chunk)
                 
                 # Después de que el generador termine, procesar la salida acumulada
                 # La salida final para el LLM es `full_tool_output`.
@@ -263,7 +307,12 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 
                 console.print(f"[bold yellow]⚠️ Herramienta '{e.tool_name}' requiere confirmación:[/bold yellow] {e.message}")
                 # Añadir un ToolMessage al estado para que el command_approval_handler lo procese
-                tool_messages.append(ToolMessage(content=json.dumps(e.raw_tool_output), tool_call_id=tool_id))
+                # Asegurarse de que el diff se muestre como bloque de código Markdown
+                diff_content = e.raw_tool_output.get("diff", "")
+                if isinstance(diff_content, str):
+                    tool_messages.append(ToolMessage(content=json.dumps({"status": "requires_confirmation", "diff": f"```diff\n{diff_content}\n```"}), tool_call_id=tool_id))
+                else:
+                    tool_messages.append(ToolMessage(content=json.dumps(e.raw_tool_output), tool_call_id=tool_id))
                 return state # Terminar la ejecución de herramientas y permitir que should_continue decida
             except InterruptedError:
                 console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
@@ -278,49 +327,25 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             # Para execute_command, el ToolMessage debe contener la salida completa del comando.
             # La lógica de confirmación se maneja por separado.
             if tool_name == "execute_command":
-                tool_messages.append(ToolMessage(content=full_tool_output, tool_call_id=tool_id))
-                state.command_to_confirm = tool_args['command']
+                command_to_execute = tool_args['command']
+                state.command_to_confirm = command_to_execute
                 state.tool_call_id_to_confirm = tool_id
-            else:
-                # Para todas las demás herramientas, la salida completa se añade directamente al ToolMessage.
-                # --- NUEVA LÓGICA ---
-                # Procesar la salida de la herramienta para asegurar que no sea excesivamente larga
-                processed_tool_output = full_tool_output
-                try:
-                    json_output = json.loads(full_tool_output)
-                    if isinstance(json_output, dict) and "content" in json_output and "file_path" in json_output:
-                        # Si es una salida de lectura de archivo, truncar el contenido
-                        MAX_TOOL_OUTPUT_CONTENT_LENGTH = 2000 # Límite para el contenido del archivo en el ToolMessage
-                        if len(json_output["content"]) > MAX_TOOL_OUTPUT_CONTENT_LENGTH:
-                            json_output["content"] = json_output["content"][:MAX_TOOL_OUTPUT_CONTENT_LENGTH] + "\n... [Contenido truncado]"
-                        processed_tool_output = json.dumps(json_output, ensure_ascii=False)
-                    elif isinstance(json_output, list):
-                        # Si es una lista (ej. read_many_files), procesar cada elemento
-                        processed_list = []
-                        for item in json_output:
-                            if isinstance(item, dict) and "content" in item and "file_path" in item:
-                                MAX_TOOL_OUTPUT_CONTENT_LENGTH = 500 # Límite para cada archivo en read_many_files
-                                if len(item["content"]) > MAX_TOOL_OUTPUT_CONTENT_LENGTH:
-                                    item["content"] = item["content"][:MAX_TOOL_OUTPUT_CONTENT_LENGTH] + "\n... [Contenido truncado]"
-                            processed_list.append(item)
-                        processed_tool_output = json.dumps(processed_list, ensure_ascii=False)
-                    else:
-                        # Si es otro JSON, truncar la representación de cadena si es muy larga
-                        MAX_GENERIC_JSON_LENGTH = 2000
-                        str_json_output = json.dumps(json_output, ensure_ascii=False)
-                        if len(str_json_output) > MAX_GENERIC_JSON_LENGTH:
-                            processed_tool_output = str_json_output[:MAX_GENERIC_JSON_LENGTH] + "\n... [Salida JSON truncada]"
-                        else:
-                            processed_tool_output = str_json_output
-                except json.JSONDecodeError:
-                    # Si no es JSON, truncar la cadena directamente
-                    MAX_GENERIC_OUTPUT_LENGTH = 2000
-                    if len(full_tool_output) > MAX_GENERIC_OUTPUT_LENGTH:
-                        processed_tool_output = full_tool_output[:MAX_GENERIC_OUTPUT_LENGTH] + "\n... [Salida truncada]"
-                # --- FIN NUEVA LÓGICA ---
+                state.command_explanation = f"`{command_to_execute}`"
 
-                tool_messages.append(ToolMessage(content=processed_tool_output, tool_call_id=tool_id))
-                
+                # Añadir un ToolMessage explícito para la confirmación pendiente
+                tool_messages.append(ToolMessage(
+                    content=json.dumps({
+                        "status": "requires_confirmation",
+                        "operation": tool_name,
+                        "command": command_to_execute,
+                        "action_description": state.command_explanation
+                    }),
+                    tool_call_id=tool_id
+                ))
+                # No añadir la salida completa del comando aquí, ya que está pendiente de confirmación
+                # y el ToolMessage de confirmación ya se añadió.
+                # El grafo terminará aquí y esperará la interacción del usuario.
+            else:
                 # Lógica para herramientas que requieren confirmación (file_update_tool, advanced_file_editor)
                 try:
                     json_output = json.loads(full_tool_output)
@@ -343,40 +368,56 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                         state.tool_pending_confirmation = tool_name # Guardar el nombre de la herramienta
                         state.tool_args_pending_confirmation = tool_args # Guardar los argumentos originales
                         state.tool_call_id_to_confirm = tool_id # Guardar el tool_id original
-                        
+
                         # El ToolMessage ya se añadió con la salida real. Ahora, el grafo terminará
                         # y KogniTermApp manejará la confirmación basándose en el estado.
                         return state # Terminar la ejecución de herramientas y volver al input del usuario
                 except json.JSONDecodeError:
                     pass # No es un JSON, continuar con el flujo normal
 
-    state.messages.extend(tool_messages) # Añadir todos los ToolMessages acumulados
-    return state
+                # Para todas las herramientas (excepto execute_command que ya se manejó arriba), añadir el ToolMessage con la salida completa
+                processed_tool_output = full_tool_output # Ya no truncamos aquí
+                logger.debug(f"Longitud de full_tool_output en execute_tool_node: {len(full_tool_output)}")
+                tool_messages.append(ToolMessage(content=processed_tool_output, tool_call_id=tool_id))
 
-    sys.stderr.write(f"DEBUG: execute_tool_node - tool_messages antes de extend: {tool_messages}\n")
-    sys.stderr.flush()
-    state.messages.extend(tool_messages)
+    state.messages.extend(tool_messages) # Añadir todos los ToolMessages acumulados
     return state
 
 # --- Lógica Condicional del Grafo ---
 
 def should_continue(state: AgentState) -> str:
-    """Decide si continuar llamando a herramientas o finalizar."""
     last_message = state.messages[-1]
-    
+    logger.debug(f"should_continue - command_to_confirm: {state.command_to_confirm}, file_update_diff_pending_confirmation: {state.file_update_diff_pending_confirmation}")
+    logger.debug(f"should_continue - last_message TYPE: {type(last_message).__name__}")
+    logger.debug(f"should_continue - last_message CONTENT: {getattr(last_message, 'content', 'N/A')}")
+
     # Si hay un comando pendiente de confirmación, siempre terminamos el grafo aquí
     # para que la terminal lo maneje.
     if state.command_to_confirm or state.file_update_diff_pending_confirmation:
+        logger.debug("should_continue - Retornando END por confirmación pendiente.")
         return END
 
     # Si el último mensaje del AI tiene tool_calls, ejecutar herramientas
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        logger.debug("should_continue - Retornando execute_tool.")
         return "execute_tool"
-    # Si el último mensaje es un ToolMessage (resultado de una herramienta),
-    # volver a llamar al modelo para que genere una respuesta final.
+    # Si el último mensaje es un ToolMessage (resultado de una herramienta)
+    # y no hay confirmación pendiente, entonces la tarea ha finalizado o
+    # se espera una nueva entrada del usuario.
     elif isinstance(last_message, ToolMessage):
+        # Si el último mensaje es un ToolMessage (resultado de una herramienta),
+        # siempre debemos volver a call_model para que el LLM procese la salida.
+        logger.debug("should_continue - Retornando call_model (después de ToolMessage).")
         return "call_model"
+    elif isinstance(last_message, HumanMessage): # Si el último mensaje es un HumanMessage, siempre llamar al modelo
+        logger.debug("should_continue - Retornando call_model (después de HumanMessage).")
+        return "call_model"
+    elif isinstance(last_message, AIMessage) and not last_message.tool_calls:
+        # Si el último mensaje es un AIMessage sin tool_calls, terminar el grafo
+        logger.debug("should_continue - Retornando END (AIMessage sin tool_calls).")
+        return END
     else:
+        logger.debug("should_continue - Retornando END (condición por defecto).")
         return END
 
 # --- Construcción del Grafo ---
@@ -394,6 +435,7 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
         should_continue,
         {
             "execute_tool": "execute_tool",
+            "call_model": "call_model", # Añadir esta línea
             END: END
         }
     )

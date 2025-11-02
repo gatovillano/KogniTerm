@@ -1,5 +1,5 @@
---- a/kogniterm/core/llm_service.py
-+++ b/kogniterm/core/llm_service.py
+--- llm_service.py
++++ llm_service.py
 @@ -560,70 +560,37 @@
          # La lógica de resumen debe operar sobre `self.conversation_history` (LangChain messages)
          # y no debe afectar `all_initial_system_messages_for_llm`.
@@ -95,54 +95,3 @@
 +                    else:
 +                        pair_to_add = [msg]
 +
-+                    # Calcular el tamaño del par y añadirlo si cabe
-+                    pair_length = sum(len(json.dumps(m, ensure_ascii=False)) for m in pair_to_add)
-+                    if current_length + pair_length > self.max_history_chars or len(final_conversational_messages) >= self.max_history_messages:
-                         break
--                    
--                    final_conversational_messages.insert(0, msg)
--                    current_length += msg_len
--                    
--                    # Si el mensaje actual es un ToolMessage, asegurarnos de que su AIMessage esté presente
--                    if msg.get('role') == 'tool':
--                        tool_call_id = msg.get('tool_call_id')
--                        found_ai_message = False
--                        for prev_msg in final_conversational_messages[:-1]: # Buscar en los ya añadidos
--                            if prev_msg.get('role') == 'assistant' and prev_msg.get('tool_calls'):
--                                for tc in prev_msg['tool_calls']:
--                                     if tc.get('id') == tool_call_id:
--                                         found_ai_message = True
--                                         break
--                             if found_ai_message:
--                                 break
--                        
--                        if not found_ai_message:
--                            # Si el AIMessage no está, buscarlo en el historial original y añadirlo
--                            for original_msg in reversed_temp_filtered_conversation_messages:
--                                if original_msg.get('role') == 'assistant' and original_msg.get('tool_calls'):
--                                     for tc in original_msg['tool_calls']:
--                                         if tc.get('id') == tool_call_id:
--                                             final_conversational_messages.insert(0, original_msg)
--                                             current_length += len(json.dumps(original_msg, ensure_ascii=False))
--                                             break
--                                     break
--                
--                new_conversation_history_litellm.extend(final_conversational_messages)
-+
-+                    # Insertar el par al principio de la lista para mantener el orden
-+                    final_conversational_messages = pair_to_add + final_conversational_messages
-+                    current_length += pair_length
-+
-+                new_conversation_history_litellm.extend(final_conversational_messages)
- 
-                 # Actualizar `litellm_messages` con los system messages iniciales y el nuevo historial resumido
-                 litellm_messages = all_initial_system_messages_for_llm + new_conversation_history_litellm
-@@ -632,7 +599,7 @@
-                 # Esto es crucial para futuras llamadas a summarize_conversation_history
-                 # Solo guardamos el historial de conversación real, no los mensajes de contexto dinámicos.
-                 self.conversation_history = [self._from_litellm_message(msg) for msg in new_conversation_history_litellm]
--                self._save_history(self.history_file_path, self.conversation_history) # Guardar el historial de conversación resumido
-+                LLMService._save_history(self.history_file_path, self.conversation_history) # Guardar el historial de conversación resumido
-                 if self.console:
-                     self.console.print("[green]Historial resumido y actualizado.[/green]")
-             else:

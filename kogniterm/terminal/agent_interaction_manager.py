@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from typing import Dict, Any, Optional
 from typing import Dict, Any
 import queue # Importar queue
 from kogniterm.terminal.terminal_ui import TerminalUI # Importar TerminalUI
@@ -23,32 +24,17 @@ class AgentInteractionManager:
         self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
         self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue) # Pasar terminal_ui e interrupt_queue
         
-        # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial.
-        if not self.agent_state.messages or not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == SYSTEM_MESSAGE.content):
-            if self.agent_state.messages and not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == SYSTEM_MESSAGE.content):
-                self.agent_state.messages.insert(0, SYSTEM_MESSAGE)
-            elif not self.agent_state.messages:
-                self.agent_state.messages.append(SYSTEM_MESSAGE)
-        
-        # Filtrar cualquier SYSTEM_MESSAGE duplicado del historial si ya lo hemos añadido
-        system_message_count = sum(1 for msg in self.agent_state.messages if isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content)
-        if system_message_count > 1:
-            first_system_message_index = -1
-            for i, msg in enumerate(self.agent_state.messages):
-                if isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content:
-                    if first_system_message_index == -1:
-                        first_system_message_index = i
-                    else:
-                        self.agent_state.messages.pop(i)
-                        break
+        # El SYSTEM_MESSAGE y la gestión del historial inicial se manejan ahora en AgentState y KogniTermApp.
+        # No se necesita lógica de deduplicación o inserción aquí.
 
-    def invoke_agent(self, user_input: str) -> Dict[str, Any]:
+    def invoke_agent(self, user_input: Optional[str]) -> Dict[str, Any]:
         logger.debug(f"DEBUG: invoke_agent - user_input: {user_input}")
-        processed_input = user_input.strip()
-        if processed_input.startswith('@'):
-            processed_input = processed_input[1:]
-
-        self.agent_state.messages.append(HumanMessage(content=processed_input))
+        
+        if user_input is not None:
+            processed_input = user_input.strip()
+            if processed_input.startswith('@'):
+                processed_input = processed_input[1:]
+            self.agent_state.messages.append(HumanMessage(content=processed_input))
         
 
         sys.stderr.flush()
@@ -67,9 +53,8 @@ class AgentInteractionManager:
         # Si hay una confirmación de archivo pendiente, la información ya está en final_state_dict
         # y será manejada por KogniTermApp.
 
-        # Si no hay confirmación pendiente, actualizar los mensajes del agente
-        if not self.agent_state.file_update_diff_pending_confirmation:
-            self.agent_state.messages = final_state_dict['messages']
+        # El historial de mensajes del agente se actualizará en KogniTermApp con el historial de AgentState.
+        # No es necesario actualizarlo aquí.
         
         # Capturar el tool_call_id del último AIMessage si existe
         last_ai_message = None

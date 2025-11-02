@@ -101,6 +101,7 @@ class TerminalUI:
             return {"tool_message_content": f"Error inesperado: {e}", "approved": False}
 
     def print_message(self, message: str, style: str = "", is_user_message: bool = False):
+        self.console.print(f"DEBUG: print_message - message: {message[:50]}..., style: {style}, is_user_message: {is_user_message}") # DEBUG PRINT
         """
         Prints a message to the console with optional styling.
         If is_user_message is True, the message will be enclosed in a Panel.
@@ -188,7 +189,7 @@ class CommandApprovalHandler:
                 msg for msg in self.agent_state.messages if msg is not last_ai_message
             ]
             explanation_prompt = HumanMessage(
-                content=f"Explica en lenguaje natural y de forma concisa qué hará el siguiente comando y por qué es útil para la tarea actual. No incluyas el comando en la explicación, solo el texto explicativo. Comando: `{command_to_execute}`"
+                content=f"""Genera una explicación concisa y directa en lenguaje natural sobre qué hará el siguiente comando y por qué es útil para la tarea actual. Tu respuesta debe ser ÚNICAMENTE la explicación, sin preámbulos, frases conversacionales, ni el comando en sí. Comando: `{command_to_execute}`"""
             )
             temp_history_for_explanation.append(explanation_prompt)
             
@@ -272,6 +273,12 @@ class CommandApprovalHandler:
 
         # 6. Añadir ToolMessage al historial
         if tool_call_id:
+            # Añadir un AIMessage vacío con el tool_call_id para asegurar que el ToolMessage no sea considerado huérfano
+            # Esto es necesario porque el AIMessage original que generó el tool_call puede haber sido truncado o resumido.
+            self.agent_state.messages.append(AIMessage(
+                content="",
+                tool_calls=[{'id': tool_call_id, 'name': 'execute_command', 'args': {'command': command_to_execute}}]
+            ))
             self.agent_state.messages.append(ToolMessage(
                 content=tool_message_content,
                 tool_call_id=tool_call_id

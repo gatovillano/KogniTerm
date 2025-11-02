@@ -58,7 +58,7 @@ def _format_text_with_basic_markdown(text: str) -> Text:
 from kogniterm.terminal.kogniterm_app import KogniTermApp
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor # Importar CommandExecutor
-from kogniterm.core.agents.bash_agent import AgentState # Importar AgentState
+from kogniterm.core.agent_state import AgentState # Importar AgentState
 from kogniterm.core.tools.file_read_directory_tool import FileReadDirectoryTool
 from kogniterm.core.tools.file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
 from prompt_toolkit.completion import Completer, Completion

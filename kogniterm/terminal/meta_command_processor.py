@@ -33,10 +33,12 @@ class MetaCommandProcessor:
             self.agent_state.reset() # Reiniciar el estado
             # También reiniciamos el historial de llm_service al resetear la conversación
             self.llm_service.conversation_history = []
-            self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial vacío
+            LLMService._save_history(self.llm_service.history_file_path, self.llm_service.conversation_history) # Guardar historial vacío
             # ¡IMPORTANTE! Re-añadir el SYSTEM_MESSAGE después de resetear
             self.llm_service.conversation_history.append(SYSTEM_MESSAGE)
-            
+            # También reiniciar el historial en AgentState
+            self.agent_state.messages = [SYSTEM_MESSAGE]
+
             # Limpiar la pantalla de la terminal
             os.system('cls' if os.name == 'nt' else 'clear')
             self.kogniterm_app.terminal_ui.print_welcome_banner() # Volver a imprimir el banner de bienvenida
@@ -88,7 +90,7 @@ Comandos disponibles:
             else:
                 self.llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
                 self.agent_state.messages = self.llm_service.conversation_history
-                self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial comprimido
+                LLMService._save_history(self.llm_service.history_file_path, self.llm_service.conversation_history) # Guardar historial comprimido
                 self.terminal_ui.console.print(Panel(Markdown(f"Historial comprimido:\n{summary}"), border_style="green", title="[bold green]Historial Comprimido[/bold green]"))
             return True
 

@@ -15,6 +15,8 @@ class AgentState:
     tool_pending_confirmation: Optional[str] = None
     tool_args_pending_confirmation: Optional[Dict[str, Any]] = None
     file_update_diff_pending_confirmation: Optional[str] = None # Nuevo campo para el diff de file_update_tool
+    command_output_ready_for_processing: bool = False # Nuevo campo para indicar si la salida del comando está lista para procesar
+    command_explanation: Optional[str] = None # Nuevo campo para almacenar la explicación del comando
 
     def reset_tool_confirmation(self):
         """Reinicia el estado de la confirmación de herramientas."""
@@ -29,11 +31,15 @@ class AgentState:
         self.tool_call_id_to_confirm = None
         self.reset_tool_confirmation()
         self.file_update_diff_pending_confirmation = None # Limpiar el diff también
+        self.command_output_ready_for_processing = False # Resetear la nueva bandera
+        self.command_explanation = None # Resetear la explicación del comando
 
     def reset_temporary_state(self):
         """Reinicia los campos de estado temporal del agente, manteniendo el historial de mensajes."""
         self.command_to_confirm = None
         self.reset_tool_confirmation()
+        self.command_output_ready_for_processing = False # Resetear la nueva bandera
+        self.command_explanation = None # Resetear la explicación del comando
 
     @property
     def history_for_api(self) -> list[BaseMessage]:
