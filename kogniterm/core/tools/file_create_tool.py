@@ -15,16 +15,27 @@ class FileCreateTool(BaseTool):
         path: str = Field(description="La ruta del archivo a crear.")
         content: Optional[str] = Field(default=None, description="El contenido del archivo.")
         preview: Optional[bool] = Field(default=False, description="Si es True, devuelve una previsualización del contenido a crear sin crear el archivo.")
+        confirm: Optional[bool] = Field(default=True, description="Si es True, la operación requerirá confirmación antes de ejecutarse.")
 
     args_schema: Type[BaseModel] = FileCreateInput
 
-    def _run(self, path: str, content: Optional[str] = None, preview: Optional[bool] = False) -> str:
-        logger.debug(f"FileCreateTool - Intentando crear archivo en ruta '{path}' (preview: {preview})")
+    def _run(self, path: str, content: Optional[str] = None, preview: Optional[bool] = False, confirm: Optional[bool] = True) -> str:
+        logger.debug(f"FileCreateTool - Intentando crear archivo en ruta '{path}' (preview: {preview}, confirm: {confirm})")
         
         content_to_write = content if content is not None else ""
 
         if preview:
             return f"Previsualización de la creación del archivo '{path}':\n```\n{content_to_write}\n```\n(El archivo no ha sido creado. Para crearlo, llama a la herramienta sin 'preview=True' o con 'preview=False')."
+
+        if confirm:
+            return {
+                "status": "requires_confirmation",
+                "operation": self.name,
+                "path": path,
+                "content": content_to_write,
+                "action_description": f"Se requiere confirmación para crear el archivo '{path}'.",
+                "args": {"path": path, "content": content_to_write, "confirm": False} # Los args para la re-invocación
+            }
 
         try:
             dir_name = os.path.dirname(path)

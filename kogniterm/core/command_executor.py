@@ -68,8 +68,9 @@ class CommandExecutor:
                     break
 
                 try:
-                    # Usar select para esperar E/S en el PTY o en stdin
-                    readable_fds, _, _ = select.select([master_fd, sys.stdin.fileno()], [], [])
+                    # Usar select para esperar E/S en el PTY o en stdin, con un timeout corto
+                    # Esto permite que el bucle verifique la interrupt_queue periódicamente
+                    readable_fds, _, _ = select.select([master_fd, sys.stdin.fileno()], [], [], 0.1) # Timeout de 0.1 segundos
 
                     # Manejar la salida del comando
                     if master_fd in readable_fds:

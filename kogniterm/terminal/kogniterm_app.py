@@ -15,7 +15,7 @@ import fnmatch # Nueva importación para el FileCompleter
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.WARNING)
 
 # Configurar un StreamHandler para la consola
 handler = logging.StreamHandler(sys.stdout)
@@ -66,7 +66,7 @@ class FileCompleter(Completer):
         self._loading_future: Optional[concurrent.futures.Future] = None
         try:
             self._loop = asyncio.get_event_loop()
-            # logger.debug("FileCompleter: Bucle de eventos de asyncio obtenido.")
+
         except RuntimeError:
             logger.warning("FileCompleter: No hay un bucle de eventos de asyncio corriendo. Esto puede causar problemas.")
             self._loop = None # O manejar de otra forma si no hay loop
@@ -87,14 +87,14 @@ class FileCompleter(Completer):
         """Inicia la carga de archivos en un hilo secundario."""
         with self.cache_lock:
             if self._loading_future is not None and not self._loading_future.done():
-                # logger.debug("FileCompleter: Ya hay una carga de archivos en progreso.")
+    
                 return # Ya hay una carga en progreso
 
             if self._loop is None:
                 logger.error("FileCompleter: No se puede iniciar la carga en segundo plano, no hay bucle de eventos.")
                 return
 
-            # logger.debug("FileCompleter: Iniciando carga de archivos para autocompletado en segundo plano...")
+
             self._loading_future = self._loop.run_in_executor(
                 self._executor, # Usar el ThreadPoolExecutor
                 self._do_load_files
@@ -102,7 +102,7 @@ class FileCompleter(Completer):
 
     def _do_load_files(self) -> List[str]:
         """Realiza la carga real de archivos de forma síncrona en un hilo secundario."""
-        # logger.debug(f"FileCompleter: Ejecutando _do_load_files en hilo: {threading.current_thread().name}")
+
         try:
             raw_items = self.file_operations_tool._list_directory(
                 path=self.workspace_directory,
@@ -119,7 +119,7 @@ class FileCompleter(Completer):
                         continue
                     all_relative_items.append(item)
             
-            # logger.debug(f"FileCompleter: Cargados {len(all_relative_items)} elementos en la caché.")
+
             with self.cache_lock:
                 self._cached_files = all_relative_items
             return all_relative_items
@@ -177,14 +177,17 @@ class FileCompleter(Completer):
             # print("ThreadPoolExecutor de autocompletado detenido.")
 
 from kogniterm.core.tools.file_update_tool import FileUpdateTool
+from kogniterm.core.tools.file_create_tool import FileCreateTool
 
 class KogniTermApp:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor, agent_state: AgentState, auto_approve: bool = False, workspace_directory: str = None):
         self.llm_service = llm_service
         self.command_executor = command_executor
         self.agent_state = agent_state
+        self.agent_state.llm_service = self.llm_service
         self.terminal_ui = TerminalUI()
         self.file_update_tool = FileUpdateTool()
+        self.file_create_tool = FileCreateTool() # Inicializar FileCreateTool
         self.auto_approve = auto_approve
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
@@ -228,6 +231,7 @@ class KogniTermApp:
         def _(event):
             # Enviar una señal de interrupción a la cola
             self.terminal_ui.get_interrupt_queue().put_nowait(True)
+            self.agent_interrupted = True # Establecer la bandera de interrupción del agente
             event.app.exit() # Salir del prompt actual, pero no de la aplicación
 
         # Combinar los KeyBindings
@@ -248,8 +252,10 @@ class KogniTermApp:
             self.agent_state,
             self.file_update_tool,
             advanced_file_editor_tool, # Pasar la instancia de advanced_file_editor_tool
-            file_operations_tool # Pasar la instancia de file_operations_tool
+            file_operations_tool, # Pasar la instancia de file_operations_tool
+            self.file_create_tool # Pasar la instancia de file_create_tool
         )
+        self.agent_interrupted = False # Bandera para la interrupción del agente
 
     async def run(self): # Make run() async
         """Runs the main loop of the KogniTerm application."""
@@ -264,6 +270,16 @@ class KogniTermApp:
             # Si el usuario cambia de directorio usando 'cd', se iniciará una nueva instancia de KogniTermApp
             # o se deberá manejar explícitamente el cambio de directorio en una futura mejora.
             while True:
+                if self.agent_interrupted:
+                    self.agent_interrupted = False # Resetear la bandera
+                    self.terminal_ui.print_message("Agente interrumpido por el usuario. 🛑", style="yellow")
+                    self.llm_service.stop_generation_flag = False # Resetear la bandera del LLM
+                    # Vaciar la cola de interrupción si hay algo
+                    while not self.terminal_ui.get_interrupt_queue().empty():
+                        self.terminal_ui.get_interrupt_queue().get_nowait()
+                    # No continuar con el procesamiento del input si se interrumpió
+                    continue # Volver al prompt principal
+
                 cwd = os.getcwd() # Obtener el CWD actual para el prompt
                 prompt_text = f"({os.path.basename(cwd)}) > " # Eliminado el indicador de modo de agente
                 user_input = await self.prompt_session.prompt_async(prompt_text) # Use prompt_async
@@ -295,114 +311,133 @@ class KogniTermApp:
                     continue
 
                 # Iniciar el ciclo de interacción del agente con la entrada del usuario
-                final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
+                current_user_input = user_input
                 
-                # Actualizar el estado del agente con lo que devuelve el manager
-                self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+                while True:
+                    if self.agent_interrupted:
+                        self.terminal_ui.print_message("Agente interrumpido por el usuario. 🛑", style="yellow")
+                        self.llm_service.stop_generation_flag = False # Resetear la bandera del LLM
+                        # Vaciar la cola de interrupción si hay algo
+                        while not self.terminal_ui.get_interrupt_queue().empty():
+                            self.terminal_ui.get_interrupt_queue().get_nowait()
+                        break # Salir del bucle de ejecución continua del agente
 
-                # Después de la interacción inicial con el agente, el flujo debería esperar la confirmación del usuario
-                # o una nueva entrada si el agente ha finalizado su ciclo.
-                # Ya no necesitamos un bucle de "continúa automáticamente" aquí.
-                # La lógica de should_continue en bash_agent.py se encarga de determinar si el grafo debe terminar.
-                pass
-                
+                    if not self.terminal_ui.get_interrupt_queue().empty():
+                        while not self.terminal_ui.get_interrupt_queue().empty():
+                            self.terminal_ui.get_interrupt_queue().get_nowait() # Vaciar la cola
+                        self.terminal_ui.print_message("Generación de respuesta cancelada por el usuario. 🛑", style="yellow")
+                        self.llm_service.stop_generation_flag = False # Resetear la bandera
+                        break # Salir del bucle de ejecución continua
 
-                # --- NUEVA LÓGICA PARA MANEJAR CONFIRMACIONES PENDIENTES ---
-                if self.agent_state.file_update_diff_pending_confirmation:
-                    confirmation_message = self.agent_state.file_update_diff_pending_confirmation.get("action_description", "Se requiere confirmación para una operación de archivo.")
-                    self.terminal_ui.print_message(f"Se requiere confirmación para: {confirmation_message}", style="yellow")
-                    
-                    tool_name_to_confirm = self.agent_state.tool_pending_confirmation
-                    tool_args_to_confirm = self.agent_state.tool_args_pending_confirmation
-                    raw_tool_output_dict = self.agent_state.file_update_diff_pending_confirmation
+                    final_state_dict = self.agent_interaction_manager.invoke_agent(current_user_input)
+                    current_user_input = None # Las invocaciones subsiguientes no deben usar el input original del usuario
 
-                    approval_result = await self.command_approval_handler.handle_command_approval(
-                        command_to_execute=f"confirm_action('{confirmation_message}')", # Comando dummy
-                        auto_approve=self.auto_approve,
-                        is_user_confirmation=False,
-                        is_file_update_confirmation=True,
-                        confirmation_prompt=confirmation_message,
-                        tool_name=tool_name_to_confirm,
-                        raw_tool_output=raw_tool_output_dict,
-                        original_tool_args=tool_args_to_confirm
-                    )
+                    # Actualizar el estado del agente con lo que devuelve el manager
+                    self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+                    self.agent_state.tool_code_to_confirm = final_state_dict.get('tool_code_to_confirm')
+                    self.agent_state.tool_code_tool_name = final_state_dict.get('tool_code_tool_name')
+                    self.agent_state.tool_code_tool_args = final_state_dict.get('tool_code_tool_args')
+                    self.agent_state.file_update_diff_pending_confirmation = final_state_dict.get('file_update_diff_pending_confirmation')
 
-                    tool_message_content = approval_result['tool_message_content']
-                    action_approved = approval_result['approved']
+                    # --- Lógica para manejar confirmaciones pendientes (archivos y comandos) ---
+                    if self.agent_state.file_update_diff_pending_confirmation:
+                        confirmation_message = self.agent_state.file_update_diff_pending_confirmation.get("action_description", "Se requiere confirmación para una operación de archivo.")
+                        self.terminal_ui.print_message(f"Se requiere confirmación para: {confirmation_message}", style="yellow")
+                        
+                        tool_name_to_confirm = self.agent_state.tool_pending_confirmation
+                        tool_args_to_confirm = self.agent_state.tool_args_pending_confirmation
+                        raw_tool_output_dict = self.agent_state.file_update_diff_pending_confirmation
 
-                    # Eliminar el ToolMessage anterior de requires_confirmation si existe
-                    if self.agent_state.tool_call_id_to_confirm:
-                        for i in range(len(self.agent_state.messages) - 1, -1, -1):
-                            msg = self.agent_state.messages[i]
-                            if isinstance(msg, ToolMessage) and msg.tool_call_id == self.agent_state.tool_call_id_to_confirm:
-                                if "requires_confirmation" in msg.content:
-                                    self.agent_state.messages.pop(i)
-                                    break
+                        approval_result = await self.command_approval_handler.handle_command_approval(
+                            command_to_execute=f"confirm_action('{confirmation_message}')", # Comando dummy
+                            auto_approve=self.auto_approve,
+                            is_user_confirmation=False,
+                            is_file_update_confirmation=True,
+                            confirmation_prompt=confirmation_message,
+                            tool_name=tool_name_to_confirm,
+                            raw_tool_output=raw_tool_output_dict,
+                            original_tool_args=tool_args_to_confirm
+                        )
 
-                    tool_message_for_agent = ToolMessage(
-                        content=tool_message_content,
-                        tool_call_id=self.agent_state.tool_call_id_to_confirm
-                    )
-                    # Verificar si ya existe un ToolMessage con el mismo tool_call_id
-                    if not any(isinstance(msg, ToolMessage) and msg.tool_call_id == tool_message_for_agent.tool_call_id for msg in self.agent_state.messages):
-                        self.agent_state.messages.append(tool_message_for_agent) # Añadir al historial solo si no existe
-                    # self.llm_service.conversation_history.append(tool_message_for_agent) # Eliminado para evitar duplicación
+                        tool_message_content = approval_result['tool_message_content']
+                        action_approved = approval_result['approved']
 
-                    if action_approved:
-                        self.terminal_ui.print_message("Acción aprobada por el usuario. El agente procesará la respuesta.", style="green")
-                        # Invocar al agente para que procese el ToolMessage de aprobación
-                        final_state_dict = self.agent_interaction_manager.invoke_agent(user_input=None) # Corregido: user_input en lugar de agent_input
+                        # Eliminar el ToolMessage anterior de requires_confirmation si existe
+                        if self.agent_state.tool_call_id_to_confirm:
+                            for i in range(len(self.agent_state.messages) - 1, -1, -1):
+                                msg = self.agent_state.messages[i]
+                                if isinstance(msg, ToolMessage) and msg.tool_call_id == self.agent_state.tool_call_id_to_confirm:
+                                    if "requires_confirmation" in msg.content:
+                                        self.agent_state.messages.pop(i)
+                                        break
+
+                        tool_message_for_agent = ToolMessage(
+                            content=tool_message_content,
+                            tool_call_id=self.agent_state.tool_call_id_to_confirm
+                        )
+                        # Verificar si ya existe un ToolMessage con el mismo tool_call_id
+                        if not any(isinstance(msg, ToolMessage) and msg.tool_call_id == tool_message_for_agent.tool_call_id for msg in self.agent_state.messages):
+                            self.agent_state.messages.append(tool_message_for_agent)
+
+                        if action_approved:
+                            self.terminal_ui.print_message("Acción aprobada por el usuario. El agente procesará la respuesta.", style="green")
+                        else:
+                            self.terminal_ui.print_message("Acción denegada por el usuario. El agente procesará la respuesta.", style="yellow")
+                        
                         self.agent_state.reset_tool_confirmation()
                         self.agent_state.tool_call_id_to_confirm = None
+                        continue # Continuar el bucle de ejecución continua para que el agente procese el nuevo estado.
+
+                    elif self.agent_state.command_to_confirm:
+                        command_to_execute = self.agent_state.command_to_confirm
+                        self.agent_state.command_to_confirm = None # Limpiar después de usar
+
+                        approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
+                        
+                        # Actualizar el estado del agente con los mensajes devueltos por el handler
+                        tool_message_content = approval_result['tool_message_content']
+
+                        self.terminal_ui.print_message("Procesando salida del comando...", style="cyan")
+
+                        # Asegurar que tool_call_id_to_confirm siempre tenga un valor
+                        if self.agent_state.tool_call_id_to_confirm is None:
+                            self.agent_state.tool_call_id_to_confirm = f"manual_tool_call_{os.urandom(8).hex()}"
+                            self.terminal_ui.print_message(f"Advertencia: tool_call_id_to_confirm era None. Generando ID temporal: {self.agent_state.tool_call_id_to_confirm}", style="yellow")
+
+                        # Eliminar el ToolMessage anterior de requires_confirmation si existe
+                        if self.agent_state.tool_call_id_to_confirm:
+                            for i in range(len(self.agent_state.messages) - 1, -1, -1):
+                                msg = self.agent_state.messages[i]
+                                if isinstance(msg, ToolMessage) and msg.tool_call_id == self.agent_state.tool_call_id_to_confirm:
+                                    if "requires_confirmation" in msg.content:
+                                        self.agent_state.messages.pop(i)
+                                        break
+
+                        # Construir el ToolMessage con el tool_call_id correcto
+                        tool_message_for_agent = ToolMessage(
+                            content=tool_message_content,
+                            tool_call_id=self.agent_state.tool_call_id_to_confirm
+                        )
+                        self.agent_state.messages.append(tool_message_for_agent)
+
+                        continue # Continuar el bucle de ejecución continua para que el agente procese el nuevo estado.
+                    
+                    elif self.agent_state.tool_call_id_to_confirm:
+                        # Si hay un tool_call_id_to_confirm pero no un command_to_confirm o file_update_diff_pending_confirmation,
+                        # significa que el agente ha generado una tool_call que no requiere confirmación explícita del usuario
+                        # (ej. una herramienta interna que ya se ejecutó y solo necesita que el agente procese su resultado).
+                        # En este caso, simplemente continuamos el bucle para que el agente procese el ToolMessage
+                        # que ya debería haber sido añadido al historial por la herramienta.
+                        continue
+
                     else:
-                        self.terminal_ui.print_message("Acción denegada por el usuario. El agente procesará la respuesta.", style="yellow")
-                        # Invocar al agente para que procese el ToolMessage de denegación
-                        final_state_dict = self.agent_interaction_manager.invoke_agent(user_input=None) # Corregido: user_input en lugar de agent_input
-                    
-                    self.agent_state.reset_tool_confirmation()
-                    self.agent_state.tool_call_id_to_confirm = None
-                    continue # Reiniciar el bucle principal para que el agente procese el nuevo estado.
-                # --- FIN DE LA NUEVA LÓGICA ---
-
-                if self.agent_state.command_to_confirm:
-                    command_to_execute = self.agent_state.command_to_confirm
-                    self.agent_state.command_to_confirm = None # Limpiar después de usar
-
-                    approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
-                    
-                    # Actualizar el estado del agente con los mensajes devueltos por el handler
-                    tool_message_content = approval_result['tool_message_content']
-
-                    # Re-invocar al agente para procesar la salida de la herramienta
-                    self.terminal_ui.print_message("Procesando salida del comando...", style="cyan")
-
-                    # Asegurar que tool_call_id_to_confirm siempre tenga un valor
-                    if self.agent_state.tool_call_id_to_confirm is None:
-                        self.agent_state.tool_call_id_to_confirm = f"manual_tool_call_{os.urandom(8).hex()}"
-                        self.terminal_ui.print_message(f"Advertencia: tool_call_id_to_confirm era None. Generando ID temporal: {self.agent_state.tool_call_id_to_confirm}", style="yellow")
-
-                    # Eliminar el ToolMessage anterior de requires_confirmation si existe
-                    if self.agent_state.tool_call_id_to_confirm:
-                        for i in range(len(self.agent_state.messages) - 1, -1, -1):
-                            msg = self.agent_state.messages[i]
-                            if isinstance(msg, ToolMessage) and msg.tool_call_id == self.agent_state.tool_call_id_to_confirm:
-                                if "requires_confirmation" in msg.content:
-                                    self.agent_state.messages.pop(i)
-                                    break
-
-                    # Construir el ToolMessage con el tool_call_id correcto
-                    tool_message_for_agent = ToolMessage(
-                        content=tool_message_content,
-                        tool_call_id=self.agent_state.tool_call_id_to_confirm # Usar el tool_call_id guardado
-                    )
-                    self.agent_state.messages.append(tool_message_for_agent) # Añadir al historial
-                    # self.llm_service.conversation_history.append(tool_message_for_agent) # Eliminado para evitar duplicación
-                    logger.debug(f"DEBUG: kogniterm_app - tool_message_content después de aprobación: {tool_message_content[:100]}...") # Nuevo DEBUG PRINT
-
-                    # Invocar al agente para que procese este ToolMessage
-                    final_state_dict = self.agent_interaction_manager.invoke_agent(user_input=None) # Corregido: user_input en lugar de agent_input
-                    self.agent_state.tool_call_id_to_confirm = None # Limpiar el tool_call_id después de usarlo
-                    continue # Reiniciar el bucle principal para que el agente procese el nuevo estado.
+                        # Si no hay command_to_confirm ni file_update_diff_pending_confirmation ni tool_call_id_to_confirm,
+                        # significa que el agente ha terminado su turno o está esperando una nueva instrucción del usuario.
+                        break # Salir del bucle de ejecución continua
+                
+                # Limpiar el estado de confirmación después de que el bucle de ejecución continua haya terminado
+                self.agent_state.reset_tool_confirmation()
+                self.agent_state.tool_call_id_to_confirm = None
 
                 # Manejo de la salida de PythonTool
                 final_response_message = self.agent_state.messages[-1]

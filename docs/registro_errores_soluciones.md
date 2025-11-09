@@ -32,3 +32,17 @@ Se registrará este error para su seguimiento. La solución inmediata es investi
 
 ### Detalles de los Cambios
 - Se añadió una nueva entrada en `docs/registro_errores_soluciones.md` para documentar este error.
+---
+## 08-11-25 - litellm.RateLimitError: Quota exceeded for metric
+
+### Descripción del Error
+Se ha producido un `litellm.RateLimitError` debido a que se ha excedido la cuota de solicitudes para la API de Gemini (generativelanguage.googleapis.com/generate_content_free_tier_requests, límite: 250). Esto significa que se ha alcanzado el número máximo de solicitudes permitidas en un período de tiempo determinado para el nivel gratuito.
+
+### Solución Propuesta
+Este error es temporal y se resuelve esperando el tiempo indicado en el mensaje de error (`Please retry in 59.570876906s.`). No requiere una modificación del código, sino una pausa en las solicitudes a la API.
+
+### Archivos Modificados
+- Ninguno directamente en esta fase, solo el registro de errores.
+
+### Detalles de los Cambios
+- Se añadió una nueva entrada en `docs/registro_errores_soluciones.md` para documentar este error.

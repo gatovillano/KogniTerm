@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from kogniterm.core.tools.file_update_tool import FileUpdateTool
 from kogniterm.core.tools.advanced_file_editor_tool import AdvancedFileEditorTool
 from kogniterm.core.tools.file_operations_tool import FileOperationsTool
+from kogniterm.core.tools.file_create_tool import FileCreateTool
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -32,7 +33,7 @@ managing command approval from the user in the KogniTerm application.
 class CommandApprovalHandler:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor,
                  prompt_session: PromptSession, terminal_ui: TerminalUI, agent_state: AgentState,
-                 file_update_tool: FileUpdateTool, advanced_file_editor_tool: AdvancedFileEditorTool, file_operations_tool: FileOperationsTool):
+                 file_update_tool: FileUpdateTool, advanced_file_editor_tool: AdvancedFileEditorTool, file_operations_tool: FileOperationsTool, file_create_tool: FileCreateTool):
         self.llm_service = llm_service
         self.command_executor = command_executor
         self.prompt_session = prompt_session
@@ -42,6 +43,7 @@ class CommandApprovalHandler:
         self.file_update_tool = file_update_tool
         self.advanced_file_editor_tool = advanced_file_editor_tool
         self.file_operations_tool = file_operations_tool
+        self.file_create_tool = file_create_tool
 
     async def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
@@ -78,12 +80,17 @@ class CommandApprovalHandler:
             logger.debug(f"DEBUG: CommandApprovalHandler - original_tool_args después de asignación: {original_tool_args}") # <-- Añadir este log
             is_file_update_confirmation = True
 
+        panel_content_to_print = None # Inicializar para asegurar que siempre se asigne
         if is_file_update_confirmation:
             logger.debug("DEBUG: is_file_update_confirmation es True. Preparando panel de diff.")
             panel_title = f'Confirmación de Actualización: {file_path}'
-            if tool_name == "file_operations" and original_tool_args and original_tool_args.get("operation") == "delete_file":
-                # Si es una operación de eliminación, mostrar solo la ruta del archivo
-                panel_content_markdown = Markdown(
+            if tool_name == "file_create_tool":
+                content_to_create = original_tool_args.get("content", "")
+                panel_content_to_print = Markdown(
+                    f"""**Creación de Archivo Requerida:**\n{message}\n\n**Archivo a crear:** `{file_path}`\n\n**Contenido:**\n```\n{content_to_create}\n```\n"""
+                )
+            elif tool_name == "file_operations" and original_tool_args and original_tool_args.get("operation") == "delete_file":
+                panel_content_to_print = Markdown(
                     f"""**Eliminación de Archivo Requerida:**\n{message}\n\n**Archivo a eliminar:**\n```\n{file_path}\n```\n"""
                 )
             else:
@@ -99,30 +106,14 @@ class CommandApprovalHandler:
                     else:
                         diff_formatted_text.append(line + "\n")
                 
-                # Construir el contenido del panel con el mensaje y el diff formateado
-                panel_content = Group(
+                panel_content_to_print = Group(
                     Text.from_markup(f"**Actualización de Archivo Requerida:**\n{message}\n\n"),
                     diff_formatted_text # Usar el Text formateado para el diff
                 )
-                
-                self.terminal_ui.console.print(
-                    Panel(
-                        panel_content, # Usar el Group directamente
-                        border_style='yellow',
-                        title=panel_title
-                    ),
-                    soft_wrap=False, # Desactivar soft_wrap para el panel
-                    overflow="crop", # Cambiar overflow a crop
-                    highlight=False, markup=True, end="\n"
-                )
-                
-                # El diccionario de confirmación se procesará más adelante en este mismo método
-                # para mostrar el panel y solicitar la aprobación del usuario.
-                pass # Continuar el flujo de ejecución
         elif is_user_confirmation and confirmation_prompt:
             explanation_text = confirmation_prompt
             panel_title = 'Confirmación de Usuario Requerida'
-            panel_content_markdown = Markdown(f"""**Acción requerida:**\n{explanation_text}""")
+            panel_content_to_print = Markdown(f"""**Acción requerida:**\n{explanation_text}""")
         else:
             # Siempre intentar generar una explicación para el comando bash
             explanation_prompt = HumanMessage(
@@ -157,8 +148,8 @@ class CommandApprovalHandler:
             if not explanation_text:
                 explanation_text = "No se pudo generar una explicación para el comando."
             
-            # Construir el contenido del panel usando Group y Text para más control
-            panel_content = Group(
+            panel_title = 'Confirmación de Comando'
+            panel_content_to_print = Group(
                 Markdown(f"""**Comando a ejecutar:**
 ```bash
 {command_to_execute}
@@ -168,23 +159,10 @@ class CommandApprovalHandler:
             )
 
         # 3. Mostrar la explicación y pedir confirmación
-        # Aquí, vamos a asegurarnos de que el final_panel_content sea siempre un Group o Markdown
-        final_panel_content = None
-        if is_file_update_confirmation:
-            # La lógica para file_update_confirmation ya construye y imprime un Group en la línea 108
-            # No necesitamos hacer nada más aquí, ya que ya se ha impreso.
-            return {"messages": self.agent_state.messages, "tool_message_content": "", "approved": False, "command_output": ""} # Retornar temprano
-        elif is_user_confirmation and confirmation_prompt:
-            explanation_text = confirmation_prompt
-            panel_title = 'Confirmación de Usuario Requerida'
-            final_panel_content = Group(Markdown(f"""**Acción requerida:**\n{explanation_text}""")) # Envolver en Group
-        else: # Este es el caso de confirmación de comando bash
-            final_panel_content = panel_content # Usar el Group que acabamos de construir
-
-        if final_panel_content: # Solo imprimir si tenemos contenido final
+        if panel_content_to_print: # Solo imprimir si tenemos contenido final
             self.terminal_ui.console.print(
                 Panel(
-                    final_panel_content, # Usar el Group o Markdown
+                    panel_content_to_print,
                     border_style='yellow',
                     title=panel_title
                 ),
@@ -228,8 +206,7 @@ class CommandApprovalHandler:
         tool_message_content = ""
         if run_action:
             if is_file_update_confirmation:
-                # Re-ejecutar la herramienta con los args originales (que ya incluyen confirm=True)
-                # logger.debug(f"DEBUG: CommandApprovalHandler - tool_name en re-invocación: {tool_name}") # <-- Añadir este log
+                logger.debug(f"DEBUG: CommandApprovalHandler - Re-invocando herramienta. tool_name: {tool_name}, original_tool_args: {original_tool_args}")
                 if tool_name == "file_update_tool":
                     result = self.file_update_tool._apply_update(file_path, original_tool_args.get("content", ""))
                     tool_message_content = json.loads(result).get("message", "")
@@ -237,10 +214,11 @@ class CommandApprovalHandler:
                     result = self.advanced_file_editor_tool._run(**original_tool_args)
                     tool_message_content = result.get("message", "")
                 elif tool_name == "file_operations": # Añadir manejo para file_operations
-                    # logger.debug(f"DEBUG: CommandApprovalHandler - Re-invocando file_operations con args: {original_tool_args}") # <-- Añadir este log
                     result = self.file_operations_tool._run(**original_tool_args)
-                    # logger.debug(f"DEBUG: CommandApprovalHandler - Resultado de re-invocación de file_operations: {result}") # <-- Añadir este log
-                    tool_message_content = result.get("message", str(result)) if isinstance(result, dict) else str(result) # Modificación aquí
+                    tool_message_content = result.get("message", str(result)) if isinstance(result, dict) else str(result)
+                elif tool_name == "file_create_tool":
+                    result = self.file_create_tool._run(**original_tool_args)
+                    tool_message_content = result # file_create_tool devuelve un string directamente
                 
                 self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
             elif is_user_confirmation:
@@ -293,7 +271,7 @@ class CommandApprovalHandler:
             logger.debug("DEBUG: CommandApprovalHandler - AIMessage de denegación añadido al historial.") # <-- Añadir este log
 
         # 7. Guardar el historial antes de la re-invocación
-        LLMService._save_history(self.llm_service.history_file_path, self.agent_state.messages)
+        self.llm_service._save_history(self.agent_state.messages)
         logger.debug("DEBUG: CommandApprovalHandler - Historial guardado.") # <-- Añadir este log
 
         # 8. Devolver el estado actualizado y el contenido del ToolMessage

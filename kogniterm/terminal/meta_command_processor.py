@@ -33,7 +33,7 @@ class MetaCommandProcessor:
             self.agent_state.reset() # Reiniciar el estado
             # También reiniciamos el historial de llm_service al resetear la conversación
             self.llm_service.conversation_history = []
-            LLMService._save_history(self.llm_service.history_file_path, self.llm_service.conversation_history) # Guardar historial vacío
+            self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial vacío
             # ¡IMPORTANTE! Re-añadir el SYSTEM_MESSAGE después de resetear
             self.llm_service.conversation_history.append(SYSTEM_MESSAGE)
             # También reiniciar el historial en AgentState
@@ -83,14 +83,14 @@ Comandos disponibles:
         if user_input.lower().strip() == '%compress':
             self.terminal_ui.print_message("Resumiendo historial de conversación...", style="yellow")
             
-            summary = self.llm_service.summarize_conversation_history()
+            summary = self.llm_service.summarize_conversation_history(self.agent_state.messages)
             
             if summary.startswith("Error") or summary.startswith("No se pudo"):
                 self.terminal_ui.print_message(summary, style="red")
             else:
                 self.llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
                 self.agent_state.messages = self.llm_service.conversation_history
-                LLMService._save_history(self.llm_service.history_file_path, self.llm_service.conversation_history) # Guardar historial comprimido
+                self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial comprimido
                 self.terminal_ui.console.print(Panel(Markdown(f"Historial comprimido:\n{summary}"), border_style="green", title="[bold green]Historial Comprimido[/bold green]"))
             return True
 

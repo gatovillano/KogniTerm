@@ -1,0 +1,6 @@
+
+# 2025-11-05 04:22:01.934694
++necesito que me ayudes a entender porque OBS no reconoce mis tarjeta grafica y no la usa
+
+# 2025-11-05 04:23:50.479064
++%salir

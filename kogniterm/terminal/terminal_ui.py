@@ -57,7 +57,7 @@ class TerminalUI:
 ```\n"""
             )
 
-            self.terminal_ui.console.print(Padding(Panel(
+            self.console.print(Padding(Panel(
                 panel_content_markdown,
                 border_style='yellow',
                 title=f'Confirmación de Actualización: {file_path}'
@@ -79,29 +79,29 @@ class TerminalUI:
                     run_update = False
                     break
                 else:
-                    self.terminal_ui.print_message("Respuesta no válida. Por favor, responde 's' o 'n'.", style="red")
+                    self.print_message("Respuesta no válida. Por favor, responde 's' o 'n'.", style="red")
 
             tool_message_content = ""
             if run_update:
                 # Llamar directamente a _apply_update de FileUpdateTool
                 result = self.file_update_tool._apply_update(file_path, new_content)
                 tool_message_content = json.loads(result).get("message", "")
-                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
+                self.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
             else:
                 tool_message_content = f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
-                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
+                self.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
             
             return {"tool_message_content": tool_message_content, "approved": run_update}
 
         except json.JSONDecodeError:
-            self.terminal_ui.print_message("Error: La salida de la herramienta no es un JSON válido para la confirmación de actualización.", style="red")
+            self.print_message("Error: La salida de la herramienta no es un JSON válido para la confirmación de actualización.", style="red")
             return {"tool_message_content": "Error al procesar la confirmación de actualización de archivo.", "approved": False}
         except Exception as e:
-            self.terminal_ui.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
+            self.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
             return {"tool_message_content": f"Error inesperado: {e}", "approved": False}
 
     def print_message(self, message: str, style: str = "", is_user_message: bool = False):
-        self.console.print(f"DEBUG: print_message - message: {message[:50]}..., style: {style}, is_user_message: {is_user_message}") # DEBUG PRINT
+
         """
         Prints a message to the console with optional styling.
         If is_user_message is True, the message will be enclosed in a Panel.

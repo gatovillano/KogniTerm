@@ -118,6 +118,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.ERROR)
 
 load_dotenv()
 
@@ -190,7 +191,7 @@ class LLMService:
         self.tool_execution_lock = threading.Lock() # Inicializar el lock
         self.active_tool_future = None # Inicializar la referencia a la tarea activa
         self.tool_executor = ThreadPoolExecutor(max_workers=1) # Inicializar el ThreadPoolExecutor
-        self.conversation_history = LLMService._load_history(self.history_file_path)
+        self.conversation_history = self._load_history()
         self.SUMMARY_MAX_TOKENS = 750 # Tokens, longitud máxima del resumen de herramientas
 
     def _from_litellm_message(self, message: Union[Dict, BaseMessage]):
@@ -281,6 +282,10 @@ class LLMService:
             return {"role": "assistant", "content": message.content}
         elif isinstance(message, ToolMessage):
             content = message.content
+            # Si el contenido es un diccionario, serializarlo a JSON
+            if isinstance(content, dict):
+                content = json.dumps(content, ensure_ascii=False)
+            
             # Truncar el contenido del ToolMessage si es demasiado largo
             if len(content) > self.MAX_TOOL_MESSAGE_CONTENT_LENGTH:
                 truncated_content = content[:self.MAX_TOOL_MESSAGE_CONTENT_LENGTH] + "\n... [Contenido de ToolMessage truncado]"
@@ -299,14 +304,68 @@ class LLMService:
         return len(self.tokenizer.encode(text))
 
     def _save_history(self, history: List[Union[HumanMessage, AIMessage, ToolMessage]]):
-        # Implementación de guardado de historial
-        # ... (la lógica de guardado se mantiene igual)
-        pass
+        history_dir = os.path.dirname(self.history_file_path)
+        if not os.path.exists(history_dir):
+            os.makedirs(history_dir)
+        
+        serializable_history = []
+        for msg in history:
+            if isinstance(msg, HumanMessage):
+                serializable_history.append({"type": "human", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                tool_calls_data = []
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_calls_data.append({
+                            "id": tc.get("id"),
+                            "name": tc.get("name"),
+                            "args": tc.get("args")
+                        })
+                serializable_history.append({"type": "ai", "content": msg.content, "tool_calls": tool_calls_data})
+            elif isinstance(msg, ToolMessage):
+                serializable_history.append({"type": "tool", "content": msg.content, "tool_call_id": msg.tool_call_id})
+            elif isinstance(msg, SystemMessage):
+                serializable_history.append({"type": "system", "content": msg.content})
+        
+        with open(self.history_file_path, 'w', encoding='utf-8') as f:
+            json.dump(serializable_history, f, ensure_ascii=False, indent=2)
 
     def _load_history(self) -> List[Union[HumanMessage, AIMessage, ToolMessage]]:
-        # Implementación de carga de historial
-        # ... (la lógica de carga se mantiene igual)
-        return []
+        if not os.path.exists(self.history_file_path):
+            return []
+        
+        try:
+            with open(self.history_file_path, 'r', encoding='utf-8') as f:
+                serializable_history = json.load(f)
+            
+            loaded_messages = []
+            for msg_data in serializable_history:
+                msg_type = msg_data.get("type")
+                content = msg_data.get("content", "")
+                if msg_type == "human":
+                    loaded_messages.append(HumanMessage(content=content))
+                elif msg_type == "ai":
+                    tool_calls_data = msg_data.get("tool_calls")
+                    tool_calls = []
+                    if tool_calls_data:
+                        for tc_data in tool_calls_data:
+                            tool_calls.append({
+                                "id": tc_data.get("id"),
+                                "name": tc_data.get("name"),
+                                "args": tc_data.get("args")
+                            })
+                    loaded_messages.append(AIMessage(content=content, tool_calls=tool_calls))
+                elif msg_type == "tool":
+                    loaded_messages.append(ToolMessage(content=content, tool_call_id=msg_data.get("tool_call_id")))
+                elif msg_type == "system":
+                    loaded_messages.append(SystemMessage(content=content))
+            return loaded_messages
+        except json.JSONDecodeError as e:
+            logger.error(f"Error al decodificar el historial JSON desde {self.history_file_path}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error al cargar el historial desde {self.history_file_path}: {e}")
+            return []
 
     def invoke(self, history: list, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None):
         """Invoca el modelo LLM con un historial de conversación y un mensaje de sistema opcional.
@@ -462,36 +521,48 @@ class LLMService:
                 # Esto es crucial para futuras llamadas a summarize_conversation_history
                 # Solo guardamos el historial de conversación real, no los mensajes de contexto dinámicos.
                 self.conversation_history = [self._from_litellm_message(msg) for msg in new_conversation_history_litellm]
-                LLMService._save_history(self.history_file_path, self.conversation_history) # Guardar el historial de conversación resumido
+                self._save_history(self.conversation_history) # Guardar el historial de conversación resumido
                 if self.console:
                     self.console.print("[green]Historial resumido y actualizado.[/green]")
             else:
                 if self.console:
                     self.console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento.[/red]")
  
-        # Post-procesamiento del historial para eliminar ToolMessages huérfanos
-        # Esto se aplica a `litellm_messages` después del resumen/truncamiento.
-        processed_litellm_messages = []
-        tool_call_ids_in_aimessages = set()
-        
-        # Primero, identificar todos los tool_call_ids válidos de AIMessages
-        for msg in litellm_messages:
-            if msg.get('role') == 'assistant' and msg.get('tool_calls'):
-                for tc in msg['tool_calls']:
-                    if 'id' in tc:
-                        tool_call_ids_in_aimessages.add(tc['id'])
-        
-        # Luego, reconstruir la lista filtrando ToolMessages huérfanos
-        for msg in litellm_messages:
+        # Post-procesamiento del historial para asegurar la secuencia AIMessage (tool_calls) -> ToolMessage
+        final_litellm_messages = []
+        for i, msg in enumerate(litellm_messages):
             if msg.get('role') == 'tool':
                 tool_call_id = msg.get('tool_call_id')
-                # Solo eliminar si el tool_call_id existe y no está en los AIMessages válidos
-                if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
-                    logger.debug(f"DEBUG: summarize_conversation_history - Eliminando ToolMessage huérfano: {msg}")
-                    continue
-            processed_litellm_messages.append(msg)
+                # Buscar si el AIMessage anterior tiene una tool_call con este ID
+                found_matching_ai_message = False
+                if i > 0 and litellm_messages[i-1].get('role') == 'assistant' and litellm_messages[i-1].get('tool_calls'):
+                    for tc in litellm_messages[i-1]['tool_calls']:
+                        if tc.get('id') == tool_call_id:
+                            found_matching_ai_message = True
+                            break
+                
+                if not found_matching_ai_message:
+                    # Si no se encontró un AIMessage coincidente, insertar uno simulado
+                    # Intentar inferir el nombre de la herramienta del ToolMessage content si es posible
+                    tool_name = "unknown_tool"
+                    if "Contenido añadido exitosamente a la memoria" in msg.get("content", ""):
+                        tool_name = "memory_append"
+                    elif "Archivo escrito con éxito" in msg.get("content", ""):
+                        tool_name = "file_operations" # O file_update_tool, dependiendo del contexto
+                    
+                    simulated_tool_call = {
+                        "id": tool_call_id,
+                        "function": {
+                            "name": tool_name,
+                            "arguments": "{}" # Argumentos vacíos o inferidos si es posible
+                        }
+                    }
+                    simulated_ai_message = {"role": "assistant", "content": "", "tool_calls": [simulated_tool_call]}
+                    final_litellm_messages.append(simulated_ai_message)
+                    logger.debug(f"DEBUG: Insertado AIMessage simulado para ToolMessage huérfano: {simulated_ai_message}")
+            final_litellm_messages.append(msg)
         
-        litellm_messages = processed_litellm_messages
+        litellm_messages = final_litellm_messages
 
         # Truncamiento estándar si aún es necesario después del resumen
         # Ahora, solo truncamos la parte conversacional, manteniendo los system messages iniciales.

@@ -3,11 +3,12 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
-from kogniterm.core.llm_service import LLMService # Importar LLMService para los métodos estáticos de historial
+
 
 @dataclass
 class AgentState:
     """Define la estructura del estado que fluye a través del grafo."""
+    llm_service: Any = field(init=False) # Se inicializará después
     messages: List[BaseMessage] = field(default_factory=list)
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
     tool_call_id_to_confirm: Optional[str] = None # Nuevo campo para el tool_call_id asociado al comando
@@ -19,6 +20,7 @@ class AgentState:
     tool_code_to_confirm: Optional[str] = None # Nuevo campo para el código (diff) a confirmar
     tool_code_tool_name: Optional[str] = None # Nuevo campo para el nombre de la herramienta que generó el código
     tool_code_tool_args: Optional[Dict[str, Any]] = None # Nuevo campo para los args originales de la herramienta
+    file_update_diff_pending_confirmation: Optional[Dict[str, Any]] = None # Nuevo campo para la confirmación de actualización de archivo
     search_memory: List[Dict[str, Any]] = field(default_factory=list) # ¡Nuevo campo para la memoria de búsqueda!
 
     # Añadir un campo para la ruta del archivo de historial
@@ -31,6 +33,8 @@ class AgentState:
         self.tool_code_to_confirm = None
         self.tool_code_tool_name = None
         self.tool_code_tool_args = None
+        self.tool_call_id_to_confirm = None
+        self.file_update_diff_pending_confirmation = None
 
     def reset(self):
         """Reinicia completamente el estado del agente."""
@@ -42,6 +46,7 @@ class AgentState:
     def reset_temporary_state(self):
         """Reinicia los campos de estado temporal del agente, manteniendo el historial de mensajes."""
         self.command_to_confirm = None
+        self.tool_call_id_to_confirm = None
         self.reset_tool_confirmation()
 
     @property
@@ -51,7 +56,7 @@ class AgentState:
 
     def load_history(self, system_message: SystemMessage):
         """Carga el historial de conversación desde el archivo especificado y asegura el SYSTEM_MESSAGE."""
-        loaded_messages = LLMService._load_history(self.history_file_path)
+        loaded_messages = self.llm_service._load_history()
 
         # Asegurarse de que el SYSTEM_MESSAGE esté al principio
         if not loaded_messages or not (isinstance(loaded_messages[0], SystemMessage) and loaded_messages[0].content == system_message.content):
@@ -93,4 +98,4 @@ class AgentState:
 
     def save_history(self):
         """Guarda el historial de conversación actual en el archivo especificado."""
-        LLMService._save_history(self.history_file_path, self.messages)
+        self.llm_service._save_history(self.messages)
