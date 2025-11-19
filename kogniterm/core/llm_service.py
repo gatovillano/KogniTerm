@@ -672,19 +672,24 @@ class LLMService:
             tool_call_id_of_last_tool_message = last_tool_message.get('tool_call_id')
             
             found_ai_message_for_tool = False
-            for i in range(len(litellm_messages) - 2, -1, -1): # Buscar hacia atrás desde el penúltimo mensaje
-                msg = litellm_messages[i]
+            # Buscar el AIMessage correspondiente en todo el historial
+            for msg in reversed(litellm_messages[:-1]):
                 if msg.get('role') == 'assistant' and msg.get('tool_calls'):
                     for tc in msg['tool_calls']:
                         if tc.get('id') == tool_call_id_of_last_tool_message:
-                            # Si encontramos el AIMessage correspondiente, nos aseguramos de que esté en la lista
-                            # Si ya está, no hacemos nada. Si no, lo insertamos justo antes del ToolMessage.
-                            if msg not in litellm_messages:
-                                litellm_messages.insert(i + 1, msg) # Insertar antes del ToolMessage
                             found_ai_message_for_tool = True
                             break
                 if found_ai_message_for_tool:
                     break
+            
+            # Si no se encuentra el AIMessage, es más seguro eliminar el ToolMessage huérfano
+            if not found_ai_message_for_tool:
+                litellm_messages.pop()
+
+
+        # Eliminar el último mensaje si es un AIMessage vacío, ya que puede causar problemas.
+        if litellm_messages and litellm_messages[-1].get('role') == 'assistant' and not litellm_messages[-1].get('content') and not litellm_messages[-1].get('tool_calls'):
+            litellm_messages.pop()
 
         try:
             completion_kwargs = {
@@ -694,6 +699,9 @@ class LLMService:
                 "stream": True,
                 "api_key": self.api_key, # Pasar la API Key directamente
                 "temperature": self.generation_params.get("temperature", 0.7),
+                # Añadir reintentos para errores 503 y otros errores de servidor
+                "num_retries": 5,
+                "retry_strategy": "exponential_backoff_retry",
             }
             if "top_p" in self.generation_params:
                 completion_kwargs["top_p"] = self.generation_params["top_p"]
@@ -829,6 +837,9 @@ class LLMService:
                 "api_key": self.api_key, # Pasar la API Key directamente
                 "temperature": litellm_generation_params.get("temperature", 0.7),
                 "stream": False,
+                # Añadir reintentos para errores 503 y otros errores de servidor
+                "num_retries": 3,
+                "retry_strategy": "exponential_backoff_retry",
             }
             if "top_p" in litellm_generation_params:
                 summary_completion_kwargs["top_p"] = litellm_generation_params["top_p"]

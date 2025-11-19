@@ -98,3 +98,10 @@ Descripción general: Se mejoró el manejo de errores en `advanced_file_editor_t
 
 - **Punto 1**: Se modificó la función `_read_file_content` en `kogniterm/core/tools/advanced_file_editor_tool.py` para que devuelva un diccionario con `status` y `content` (si es exitoso) o `status` y `message` (si hay un error), en lugar de lanzar excepciones.
 - **Punto 2**: Se ajustó la función `_run` en `kogniterm/core/tools/advanced_file_editor_tool.py` para que verifique el `status` del resultado de `_read_file_content`. Si el `status` es `error`, `_run` devuelve un diccionario con el mensaje de error, lo que permite que `litellm` procese la respuesta correctamente.
+---
+## 19-11-25 Solución a Errores de LiteLLM: Missing Tool Call y 503 Service Unavailable
+Descripción general: Se implementaron mejoras en `kogniterm/core/llm_service.py` para solucionar el error `Missing corresponding tool call for tool response message` y para manejar de forma robusta los errores 503 (`Service Unavailable`) del modelo.
+
+- **Consistencia del historial de mensajes**: Se ajustó la lógica en la función `invoke` para asegurar que cada `ToolMessage` tenga un `AIMessage` con la `tool_call` correspondiente en el historial que se envía a `litellm`. Esto evita que se envíen `ToolMessage`s huérfanos que causaban el error `Missing corresponding tool call for tool response message`.
+- **Manejo de errores 503 con reintentos**: Se añadió una lógica de reintentos con backoff exponencial a las llamadas de `litellm.completion` (tanto para la invocación principal como para el resumen del historial). Esto permite que la aplicación espere y reintente automáticamente si el modelo devuelve un error 503 debido a sobrecarga, mejorando la robustez de la aplicación.
+- **Mensajes AIMessage vacíos**: Se añadió una verificación para eliminar `AIMessage`s vacíos al final del historial, lo cual también puede causar problemas con `litellm`.
