@@ -105,7 +105,7 @@ class FileCompleter(Completer):
             if self._cached_files is not None:
                 return self._cached_files
 
-            # console.print("[dim]Cargando archivos para autocompletado...[/dim]") # Eliminar este log
+
             raw_output = self.file_read_recursive_directory_tool._run(path=self.workspace_directory)
             
             # Asegurarse de que raw_output sea una cadena antes de intentar split
@@ -129,7 +129,6 @@ class FileCompleter(Completer):
                     all_relative_items.append(line[len('- Directorio: '):].rstrip('/'))
             
             self._cached_files = all_relative_items
-            # console.print(f"[dim]Cargados {len(self._cached_files)} elementos en la caché.[/dim]") # Eliminar este log
             return self._cached_files
 
     def get_completions(self, document, complete_event):
@@ -169,7 +168,6 @@ class FileCompleter(Completer):
         """Detiene el FileSystemWatcher cuando la aplicación se cierra."""
         if self._watcher:
             self._watcher.stop()
-            # console.print("[dim]FileSystemWatcher detenido.[/dim]") # Eliminar este log
 
 
 

@@ -8,6 +8,7 @@ import time
 import tty
 import queue
 from typing import Optional
+from .config import settings
 
 class CommandExecutor:
     def __init__(self):
@@ -23,7 +24,7 @@ class CommandExecutor:
             command (str): El comando a ejecutar.
             cwd (str, optional): El directorio de trabajo para el comando. Defaults to None.
         """
-        MAX_OUTPUT_LENGTH = 20000 # Definir la longitud máxima de la salida
+        MAX_OUTPUT_LENGTH = settings.max_output_length # Usar valor de configuración
         output_buffer = "" # Buffer para acumular la salida
 
         # Guardar la configuración original de la terminal
@@ -116,8 +117,8 @@ class CommandExecutor:
 
         finally:
             # Si aún hay contenido en el buffer y no se ha cedido (por ejemplo, si el comando terminó antes de truncar)
-            if output_buffer:
-                yield output_buffer
+            # if output_buffer:
+            #    yield output_buffer
 
             # CRÍTICO: Restaurar siempre la configuración original de la terminal
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)

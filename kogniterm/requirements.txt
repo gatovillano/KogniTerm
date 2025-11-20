@@ -16,3 +16,5 @@ watchdog
 litellm
 
 GitPython
+pydantic
+pydantic-settings

@@ -137,37 +137,29 @@ class PythonTool(BaseTool):
                 if item['type'] == 'stream':
                     output_line = f"Output ({item['name']}): {item['text']}"
                     formatted_output.append(output_line)
-                    print(output_line) # Imprimir directamente en la terminal
                 elif item['type'] == 'error':
                     traceback_str = '\n'.join(item['traceback'])
                     error_line = f"Error ({item['ename']}): {item['evalue']}\nTraceback:\n{traceback_str}"
                     formatted_output.append(error_line)
-                    print(error_line) # Imprimir directamente en la terminal
                 elif item['type'] == 'execute_result':
                     data_str = item['data'].get('text/plain', str(item['data']))
                     result_line = f"Result: {data_str}"
                     formatted_output.append(result_line)
-                    print(result_line) # Imprimir directamente en la terminal
                 elif item['type'] == 'display_data':
                     if 'image/png' in item['data']:
                         display_line = "[IMAGEN PNG GENERADA]"
                         formatted_output.append(display_line)
-                        print(display_line) # Imprimir directamente en la terminal
                     elif 'text/html' in item['data']:
                         display_line = f"[HTML GENERADO]: {item['data']['text/html'][:100]}..."
                         formatted_output.append(display_line)
-                        print(display_line) # Imprimir directamente en la terminal
                     else:
                         display_line = f"Display Data: {str(item['data'])}"
                         formatted_output.append(display_line)
-                        print(display_line) # Imprimir directamente en la terminal
             return "\n".join(formatted_output)
         elif "error" in raw_output:
             error_message = f"Error en el kernel de Python: {raw_output['error']}"
-            print(error_message) # Imprimir directamente en la terminal
             return error_message
         no_output_message = "PythonTool: No se recibió salida discernible."
-        print(no_output_message) # Imprimir directamente en la terminal
         return no_output_message
 
     def get_last_structured_output(self):

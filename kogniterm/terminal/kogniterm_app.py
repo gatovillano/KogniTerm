@@ -178,18 +178,22 @@ from kogniterm.core.tools.file_update_tool import FileUpdateTool
 
 class KogniTermApp:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor, agent_state: AgentState, auto_approve: bool = False, workspace_directory: str = None):
+        # Primero crear terminal_ui para que esté disponible
+        self.terminal_ui = TerminalUI()
+        
+        # Usar el llm_service pasado como parámetro y configurarlo
         self.llm_service = llm_service
+        self.llm_service.interrupt_queue = self.terminal_ui.get_interrupt_queue()
+        self.llm_service.terminal_ui = self.terminal_ui
+        
+        # Inicializar el resto de atributos
         self.command_executor = command_executor
         self.agent_state = agent_state
-        self.terminal_ui = TerminalUI()
         self.file_update_tool = FileUpdateTool()
         self.auto_approve = auto_approve
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
         self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui, self.terminal_ui.get_interrupt_queue())
-
-        # Asegurarse de que el interrupt_queue se pase al LLMService
-        self.llm_service.interrupt_queue = self.terminal_ui.get_interrupt_queue()
 
         # Inicializar FileCompleter con el workspace_directory
         file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
@@ -279,21 +283,30 @@ class KogniTermApp:
                 if not user_input.strip():
                     continue
 
-                # Imprimir el mensaje del usuario en un panel gris
-                self.terminal_ui.print_message(user_input, is_user_message=True)
+                # Si el usuario ingresa un comando, se imprime como mensaje de usuario.
+                # Si el agente propone un comando, no se imprime aquí, se maneja en CommandApprovalHandler.
+                # Se determina si es un comando propuesto por el agente si self.agent_state.command_to_confirm es True.
+                if not self.agent_state.command_to_confirm:
+                    self.terminal_ui.print_message(user_input, is_user_message=True)
 
                 # Limpiar el input después de enviar el mensaje
                 self.prompt_session.app.current_buffer.text = ""
                 self.prompt_session.app.current_buffer.cursor_position = 0
 
-                if self.meta_command_processor.process_meta_command(user_input): # Eliminar await
+                if self.meta_command_processor.process_meta_command(user_input):
                     continue
+
+                # Añadir el mensaje del usuario al historial del agente
+                user_human_message = HumanMessage(content=user_input)
+                self.agent_state.messages.append(user_human_message)
+                self.llm_service.conversation_history.append(user_human_message)
 
                 final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
                 
                 # Actualizar el estado del agente con lo que devuelve el manager
                 self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
                 self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+                self.agent_state.tool_call_id_to_confirm = final_state_dict.get('tool_call_id_to_confirm') # <<--- FIX: Propagar el ID del tool call
 
                 # --- NUEVA LÓGICA PARA MANEJAR CONFIRMACIONES PENDIENTES ---
                 if self.agent_state.file_update_diff_pending_confirmation:
@@ -345,11 +358,11 @@ class KogniTermApp:
                     command_to_execute = self.agent_state.command_to_confirm
                     self.agent_state.command_to_confirm = None # Limpiar después de usar
 
+
                     approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
                     
-                    # Actualizar el estado del agente con los mensajes devueltos por el handler
-                    self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
-                    # self.agent_state.messages = approval_result['messages']
+                    # El ToolMessage ya fue añadido por CommandApprovalHandler al historial
+                    # No es necesario sobrescribir agent_state.messages aquí
                     tool_message_content = approval_result['tool_message_content']
 
                     # Re-invocar al agente para procesar la salida de la herramienta
@@ -360,13 +373,9 @@ class KogniTermApp:
                         self.agent_state.tool_call_id_to_confirm = f"manual_tool_call_{os.urandom(8).hex()}"
                         self.terminal_ui.print_message(f"Advertencia: tool_call_id_to_confirm era None. Generando ID temporal: {self.agent_state.tool_call_id_to_confirm}", style="yellow")
 
-                    # Construir el ToolMessage con el tool_call_id correcto
-                    tool_message_for_agent = ToolMessage(
-                        content=tool_message_content,
-                        tool_call_id=self.agent_state.tool_call_id_to_confirm # Usar el tool_call_id guardado
-                    )
-                    self.agent_state.messages.append(tool_message_for_agent) # Añadir al historial
-                    self.agent_interaction_manager.invoke_agent("Procesa la salida de la herramienta que acaba de ser añadida al historial.") # Invocar al agente con una instrucción de texto
+                    # El ToolMessage ya fue añadido por CommandApprovalHandler, no es necesario añadirlo de nuevo.
+                    # Invocar al agente para que procese el ToolMessage que está en el historial
+                    self.agent_interaction_manager.invoke_agent(None) # Invocar al agente sin un HumanMessage adicional
                     self.agent_state.tool_call_id_to_confirm = None # Limpiar el tool_call_id después de usarlo
 
                 # Manejo de la salida de PythonTool
@@ -399,6 +408,13 @@ class KogniTermApp:
                     continue
                 elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
                     continue
+                
+                # --- NUEVA LÓGICA PARA MOSTRAR LA SALIDA DE OTRAS HERRAMIENTAS ---
+                if isinstance(final_response_message, ToolMessage):
+                    tool_output = final_response_message.content
+                    if tool_output and isinstance(tool_output, str):
+                        self.terminal_ui.console.print(Padding(Panel(tool_output, title="[bold green]Salida de la Herramienta[/bold green]", border_style="green"), (1, 2)))
+                # --- FIN DE LA NUEVA LÓGICA ---
 
         except KeyboardInterrupt:
             self.terminal_ui.print_message("\nSaliendo...", style="yellow")

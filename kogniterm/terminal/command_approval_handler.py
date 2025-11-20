@@ -64,21 +64,48 @@ class CommandApprovalHandler:
         full_command_output = "" # Inicializar aquí
         
         is_file_update_confirmation = False
+        is_plan_confirmation = False # Nueva bandera para la confirmación del plan
         diff_content = ""
         file_path = ""
         message = ""
+        plan_title = ""
+        plan_steps = []
 
         if isinstance(raw_tool_output, dict) and raw_tool_output.get("status") == "requires_confirmation":
-            logger.debug("DEBUG: raw_tool_output es un diccionario con status: requires_confirmation.")
-            diff_content = raw_tool_output.get("diff", "")
-            file_path = raw_tool_output.get("path", raw_tool_output.get("args", {}).get("path", "archivo desconocido"))
-            message = raw_tool_output.get("action_description", f"Se detectaron cambios para '{file_path}'. Por favor, confirma para aplicar.")
-            tool_name = raw_tool_output.get("operation", tool_name) # Actualizar tool_name con la operación real
-            original_tool_args = raw_tool_output.get("args", original_tool_args)
-            logger.debug(f"DEBUG: CommandApprovalHandler - original_tool_args después de asignación: {original_tool_args}") # <-- Añadir este log
-            is_file_update_confirmation = True
+            if raw_tool_output.get("operation") == "plan_creation":
+                logger.debug("DEBUG: raw_tool_output es un diccionario con status: requires_confirmation y operation: plan_creation.")
+                is_plan_confirmation = True
+                plan_title = raw_tool_output.get("plan_title", "Plan de Acción")
+                plan_steps = raw_tool_output.get("plan_steps", [])
+                message = raw_tool_output.get("message", "Se ha generado un plan. Por favor, revísalo y confírmalo para proceder.")
+                tool_name = "plan_creation_tool" # Asegurar que el tool_name sea correcto
+            else:
+                logger.debug("DEBUG: raw_tool_output es un diccionario con status: requires_confirmation.")
+                diff_content = raw_tool_output.get("diff", "")
+                file_path = raw_tool_output.get("path", raw_tool_output.get("args", {}).get("path", "archivo desconocido"))
+                message = raw_tool_output.get("action_description", f"Se detectaron cambios para '{file_path}'. Por favor, confirma para aplicar.")
+                tool_name = raw_tool_output.get("operation", tool_name) # Actualizar tool_name con la operación real
+                original_tool_args = raw_tool_output.get("args", original_tool_args)
+                logger.debug(f"DEBUG: CommandApprovalHandler - original_tool_args después de asignación: {original_tool_args}") # <-- Añadir este log
+                is_file_update_confirmation = True
 
-        if is_file_update_confirmation:
+        if is_plan_confirmation:
+            logger.debug("DEBUG: is_plan_confirmation es True. Preparando panel de plan.")
+            panel_title = f'Confirmación de Plan: {plan_title}'
+            plan_markdown = f"**{message}**\n\n"
+            for step in plan_steps:
+                plan_markdown += f"- **Paso {step['step']}**: {step['description']}\n"
+            panel_content_markdown = Markdown(plan_markdown)
+
+            self.terminal_ui.console.print(
+                Panel(
+                    panel_content_markdown,
+                    border_style='cyan', # Un color diferente para los planes
+                    title=panel_title
+                ),
+                soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
+            )
+        elif is_file_update_confirmation:
             logger.debug("DEBUG: is_file_update_confirmation es True. Preparando panel de diff.")
             panel_title = f'Confirmación de Actualización: {file_path}'
             if tool_name == "file_operations" and original_tool_args and original_tool_args.get("operation") == "delete_file":
@@ -87,22 +114,13 @@ class CommandApprovalHandler:
                     f"""**Eliminación de Archivo Requerida:**\n{message}\n\n**Archivo a eliminar:**\n```\n{file_path}\n```\n"""
                 )
             else:
-                # Si es una actualización o cualquier otra operación con diff, construir el diff con Text
-                diff_formatted_text = Text()
-                for line in diff_content.splitlines():
-                    if line.startswith('---') or line.startswith('+++') or line.startswith('@@'):
-                        diff_formatted_text.append(line + "\n", style="bold blue")
-                    elif line.startswith('+'):
-                        diff_formatted_text.append(line + "\n", style="green")
-                    elif line.startswith('-'):
-                        diff_formatted_text.append(line + "\n", style="red")
-                    else:
-                        diff_formatted_text.append(line + "\n")
+                # Si es una actualización o cualquier otra operación con diff, usar Syntax para resaltado
+                diff_syntax = Syntax(diff_content, "diff", theme="monokai", line_numbers=False, word_wrap=True)
                 
                 # Construir el contenido del panel con el mensaje y el diff formateado
                 panel_content = Group(
                     Text.from_markup(f"**Actualización de Archivo Requerida:**\n{message}\n\n"),
-                    diff_formatted_text # Usar el Text formateado para el diff
+                    diff_syntax # Usar Syntax para el diff
                 )
                 
                 self.terminal_ui.console.print(
@@ -112,7 +130,7 @@ class CommandApprovalHandler:
                         title=panel_title
                     ),
                     soft_wrap=False, # Desactivar soft_wrap para el panel
-                    overflow="crop", # Cambiar overflow a crop
+                    overflow="fold", # Cambiar overflow a fold para mejor ajuste
                     highlight=False, markup=True, end="\n"
                 )
                 
@@ -134,7 +152,7 @@ class CommandApprovalHandler:
             temp_history_for_explanation.append(explanation_prompt)
             
             try:
-                explanation_response_generator = self.llm_service.invoke(temp_history_for_explanation) # Ya no se usa await aquí
+                explanation_response_generator = self.llm_service.invoke(temp_history_for_explanation, save_history=False) # No guardar historial para explicaciones
                 full_response_content = ""
                 
                 # Asegurarse de que explanation_response_generator es un async generator
@@ -173,15 +191,12 @@ class CommandApprovalHandler:
         # logger.debug(f"DEBUG: panel_title: {panel_title}")
         # logger.debug(f"DEBUG: panel_content_markdown (primeras 100 chars): {str(panel_content_markdown)[:100]}")
 
-        # logger.debug(f"DEBUG: Intentando imprimir panel con título: {panel_title}")
-        self.terminal_ui.console.print(
-            Panel(
+        if not is_plan_confirmation and not is_file_update_confirmation: # Solo imprimir si no se imprimió ya
+            self.terminal_ui.print_confirmation_panel(
                 panel_content_markdown,
-                border_style='yellow',
-                title=panel_title
-            ),
-            soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
-        )
+                panel_title,
+                'yellow'
+            )
         # Forzar un re-renderizado del prompt para asegurar que el panel se muestre antes de la entrada
 
         # 4. Solicitar aprobación al usuario
@@ -219,7 +234,15 @@ class CommandApprovalHandler:
         # 5. Ejecutar el comando y manejar la salida (o procesar la confirmación del usuario)
         tool_message_content = ""
         if run_action:
-            if is_file_update_confirmation:
+            if is_plan_confirmation:
+                tool_message_content = json.dumps({
+                    "status": "plan_approved",
+                    "plan_title": plan_title,
+                    "plan_steps": plan_steps,
+                    "message": "Plan aprobado por el usuario."
+                })
+                self.terminal_ui.print_message(f"Plan '{plan_title}' aprobado. ¡A trabajar! 🚀", style="green")
+            elif is_file_update_confirmation:
                 # Re-ejecutar la herramienta con los args originales (que ya incluyen confirm=True)
                 # logger.debug(f"DEBUG: CommandApprovalHandler - tool_name en re-invocación: {tool_name}") # <-- Añadir este log
                 if tool_name == "file_update_tool":
@@ -241,15 +264,44 @@ class CommandApprovalHandler:
             else:
                 full_command_output = ""
                 try:
-                    self.terminal_ui.print_message("Ejecutando comando... (Presiona Ctrl+C para cancelar)", style="yellow")
+                    # Separador visual antes del comando
+                    separator = "━" * 80
+                    self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
+                    self.terminal_ui.console.print(f"[bold cyan]🔧 Ejecutando:[/bold cyan] [yellow]{command_to_execute}[/yellow]")
+                    self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
 
                     for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
                         # Aquí es donde la salida del comando se imprime en tiempo real
                         self.terminal_ui.print_stream(output_chunk)
                         full_command_output += output_chunk
                     
-                    self.terminal_ui.print_message("") # Imprimir una nueva línea después de la salida del comando
-                    tool_message_content = full_command_output if full_command_output.strip() else "El comando se ejecutó correctamente y no produjo ninguna salida."
+                    # Separador visual después del comando
+                    self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
+                    self.terminal_ui.console.print(f"[bold green]✓ Comando completado[/bold green]")
+                    self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
+                    
+                    # Truncamiento inteligente de la salida para el historial
+                    MAX_COMMAND_OUTPUT_LENGTH = 10000
+                    if len(full_command_output) > MAX_COMMAND_OUTPUT_LENGTH:
+                        lines = full_command_output.split('\n')
+                        total_lines = len(lines)
+                        
+                        if total_lines > 100:
+                            first_lines = '\n'.join(lines[:50])
+                            last_lines = '\n'.join(lines[-50:])
+                            truncated_lines_count = total_lines - 100
+                            
+                            tool_message_content = (
+                                f"{first_lines}\n\n"
+                                f"... [Truncado: {truncated_lines_count} líneas intermedias omitidas] ...\n\n"
+                                f"{last_lines}\n\n"
+                                f"📊 Resumen: Salida total de {total_lines} líneas, {len(full_command_output)} caracteres. "
+                                f"Se muestran las primeras y últimas 50 líneas para contexto."
+                            )
+                        else:
+                            tool_message_content = full_command_output[:MAX_COMMAND_OUTPUT_LENGTH] + "\n... [Salida truncada]"
+                    else:
+                        tool_message_content = full_command_output if full_command_output.strip() else "El comando se ejecutó correctamente y no produjo ninguna salida."
 
                 except KeyboardInterrupt:
                     self.command_executor.terminate()
@@ -258,7 +310,14 @@ class CommandApprovalHandler:
                 except Exception as e:
                     raise e # Re-lanzar la excepción
         else:
-            if is_file_update_confirmation:
+            if is_plan_confirmation:
+                tool_message_content = json.dumps({
+                    "status": "plan_denied",
+                    "plan_title": plan_title,
+                    "message": "Plan denegado por el usuario."
+                })
+                self.terminal_ui.print_message(f"Plan '{plan_title}' denegado. 😔", style="yellow")
+            elif is_file_update_confirmation:
                 tool_message_content = f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
                 self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
             elif is_user_confirmation:
@@ -273,12 +332,12 @@ class CommandApprovalHandler:
         # logger.debug(f"DEBUG: CommandApprovalHandler - run_action: {run_action}") # <-- Añadir este log
         # logger.debug(f"DEBUG: CommandApprovalHandler - tool_message_content antes de añadir al historial: {tool_message_content}") # <-- Añadir este log
         if run_action:
-            if is_user_confirmation or is_file_update_confirmation:
-                self.agent_state.messages.append(ToolMessage(
-                    content=tool_message_content,
-                    tool_call_id=tool_call_id # Usar el tool_call_id propagado
-                ))
-                # logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {tool_call_id}") # <-- Añadir este log
+            # Si es una confirmación de plan, el contenido ya es un JSON que el agente puede parsear
+            self.agent_state.messages.append(ToolMessage(
+                content=tool_message_content,
+                tool_call_id=tool_call_id # Usar el tool_call_id propagado
+            ))
+            # logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {tool_call_id}") # <-- Añadir este log
         else: # Acción denegada
             self.agent_state.messages.append(AIMessage(content=tool_message_content))
             self.terminal_ui.print_message("Acción denegada por el usuario.", style="yellow")

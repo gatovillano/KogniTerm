@@ -1,15 +1,18 @@
 import os
 import queue
+import json # Importar json
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
-from kogniterm.core.agent_state_types import AgentState # Importar AgentState desde el nuevo archivo
+from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from rich.console import Console
+from rich.console import Console, Group # Importar Group
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
+from rich.text import Text # Importar Text
+from rich.syntax import Syntax # Importar Syntax
 
 """
 This module contains the TerminalUI class, responsible for handling all user interface
@@ -21,6 +24,7 @@ class TerminalUI:
         self.console = console if console else Console()
         self.interrupt_queue = queue.Queue()
         self.kb = KeyBindings()
+        self.prompt_session = PromptSession(key_bindings=self.kb) # Inicializar prompt_session aquí
 
         @self.kb.add('escape')
         def _(event):
@@ -32,8 +36,7 @@ class TerminalUI:
         Prints a chunk of text to the console without adding a newline,
         and flushes the output immediately.
         """
-        self.console.file.write(text)
-        self.console.file.flush()
+        self.console.print(text, end="")
 
     async def handle_file_update_confirmation(self, diff_json_str: str, original_tool_call: dict) -> dict:
         """
@@ -48,20 +51,20 @@ class TerminalUI:
             new_content = original_tool_call.get("args", {}).get("content", "")
 
             # Preparar el diff para mostrarlo en un bloque de código Markdown
-            # El resaltado de sintaxis para 'diff' será manejado por el bloque de código Markdown.
-            formatted_diff = diff_content
-
-            panel_content_markdown = Markdown(
-                f"""**Actualización de Archivo Requerida:**\n{message}\n\n```diff
-\n{formatted_diff}\n
-```\n"""
+            # Si es una actualización o cualquier otra operación con diff, usar Syntax para resaltado
+            diff_syntax = Syntax(diff_content, "diff", theme="monokai", line_numbers=False, word_wrap=True)
+            
+            # Construir el contenido del panel con el mensaje y el diff formateado
+            panel_content = Group(
+                Text.from_markup(f"**Actualización de Archivo Requerida:**\n{message}\n\n"),
+                diff_syntax # Usar Syntax para el diff
             )
 
-            self.terminal_ui.console.print(Padding(Panel(
-                panel_content_markdown,
-                border_style='yellow',
-                title=f'Confirmación de Actualización: {file_path}'
-            ), (1, 2)))
+            self.print_confirmation_panel(
+                panel_content,
+                f'Confirmación de Actualización: {file_path}',
+                'yellow'
+            )
 
             run_update = False
             while True:
@@ -79,25 +82,25 @@ class TerminalUI:
                     run_update = False
                     break
                 else:
-                    self.terminal_ui.print_message("Respuesta no válida. Por favor, responde 's' o 'n'.", style="red")
+                    self.print_message("Respuesta no válida. Por favor, responde 's' o 'n'.", style="red")
 
             tool_message_content = ""
             if run_update:
-                # Llamar directamente a _apply_update de FileUpdateTool
-                result = self.file_update_tool._apply_update(file_path, new_content)
-                tool_message_content = json.loads(result).get("message", "")
-                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
+                # La lógica para aplicar la actualización de archivo se moverá a CommandApprovalHandler
+                # por ahora, se simula una respuesta.
+                tool_message_content = f"Simulación: Actualización para '{file_path}' aplicada."
+                self.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
             else:
                 tool_message_content = f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
-                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
+                self.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
             
             return {"tool_message_content": tool_message_content, "approved": run_update}
 
         except json.JSONDecodeError:
-            self.terminal_ui.print_message("Error: La salida de la herramienta no es un JSON válido para la confirmación de actualización.", style="red")
+            self.print_message("Error: La salida de la herramienta no es un JSON válido para la confirmación de actualización.", style="red")
             return {"tool_message_content": "Error al procesar la confirmación de actualización de archivo.", "approved": False}
         except Exception as e:
-            self.terminal_ui.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
+            self.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
             return {"tool_message_content": f"Error inesperado: {e}", "approved": False}
 
     def print_message(self, message: str, style: str = "", is_user_message: bool = False):
@@ -117,6 +120,23 @@ class TerminalUI:
 
     def get_interrupt_queue(self) -> queue.Queue:
         return self.interrupt_queue
+
+    def print_confirmation_panel(self, content, title, border_style):
+        """
+        Imprime un panel de confirmación estandarizado.
+        """
+        self.console.print(
+            Padding(
+                Panel(
+                    content,
+                    border_style=border_style,
+                    title=title,
+                    width=min(self.console.width, 100),  # Limitar el ancho del panel
+                    expand=False
+                ),
+                (1, 2)
+            )
+        )
 
     def print_welcome_banner(self):
         """

@@ -1,12 +1,19 @@
 import logging
 import sys
+import time
+import threading
+from kogniterm.core.config import settings
+from rich.console import Console
+from rich.spinner import Spinner
+from rich.live import Live
+from rich.text import Text
 
 logger = logging.getLogger(__name__)
 
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import queue # Importar queue
 from kogniterm.terminal.terminal_ui import TerminalUI # Importar TerminalUI
 
@@ -42,18 +49,56 @@ class AgentInteractionManager:
                         self.agent_state.messages.pop(i)
                         break
 
-    def invoke_agent(self, user_input: str) -> Dict[str, Any]:
-        logger.debug(f"DEBUG: invoke_agent - user_input: {user_input}")
-        processed_input = user_input.strip()
-        if processed_input.startswith('@'):
-            processed_input = processed_input[1:]
+    def invoke_agent(self, user_input: Optional[str]) -> Dict[str, Any]:
 
-        self.agent_state.messages.append(HumanMessage(content=processed_input))
+        
+        if user_input is not None:
+            processed_input = user_input.strip()
+            if processed_input.startswith('@'):
+                processed_input = processed_input[1:]
+            self.agent_state.messages.append(HumanMessage(content=processed_input))
+        
         
 
         sys.stderr.flush()
         # Siempre usaremos bash_agent_app por ahora
-        final_state_dict = self.bash_agent_app.invoke(self.agent_state)
+        
+        # Crear console para el spinner
+        console = Console(file=sys.stderr)
+        
+        # Variable para controlar el spinner
+        spinner_active = True
+        elapsed_time = [0]  # Usar lista para permitir modificación en el thread
+        live_display = [None]  # Para almacenar la referencia a Live
+        
+        def show_spinner():
+            """Función que muestra el spinner con tiempo transcurrido"""
+            spinner = Spinner("simpleDots", text=Text("🤖 Procesando respuesta del agente... (0s)", style="cyan"))
+            with Live(spinner, console=console, refresh_per_second=2) as live:
+                live_display[0] = live  # Guardar referencia
+                start_time = time.time()
+                while spinner_active:
+                    elapsed = int(time.time() - start_time)
+                    if elapsed != elapsed_time[0]:  # Solo actualizar cuando cambie el segundo
+                        elapsed_time[0] = elapsed
+                        spinner.text = Text(f"🤖 Procesando respuesta del agente... ({elapsed}s)", style="cyan")
+                    time.sleep(0.5)  # Dormir medio segundo para reducir el uso de CPU
+        
+        # Iniciar el spinner en un thread separado
+        spinner_thread = threading.Thread(target=show_spinner, daemon=True)
+        spinner_thread.start()
+        
+        try:
+            # Ejecutar invoke sin timeout
+            final_state_dict = self.bash_agent_app.invoke(self.agent_state)
+        finally:
+            # Detener el spinner
+            spinner_active = False
+            spinner_thread.join(timeout=0.5)
+            # Limpiar completamente la salida del spinner usando control codes
+            console.print("\r" + " " * 80 + "\r", end="")  # Limpiar la línea
+            # NO imprimir mensaje de completado, dejar limpio
+
 
         sys.stderr.flush()
         
@@ -81,10 +126,8 @@ class AgentInteractionManager:
         if last_ai_message and last_ai_message.tool_calls:
             # Asumiendo que solo hay una tool_call por AIMessage para simplificar
             self.agent_state.tool_call_id_to_confirm = last_ai_message.tool_calls[0]['id']
-            logger.debug(f"DEBUG: tool_call_id_to_confirm establecido en AgentInteractionManager: {self.agent_state.tool_call_id_to_confirm}")
         else:
             self.agent_state.tool_call_id_to_confirm = None
-            logger.debug("DEBUG: No se encontró tool_call_id en el último AIMessage.")
         
         return final_state_dict
 

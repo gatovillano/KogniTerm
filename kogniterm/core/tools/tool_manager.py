@@ -12,6 +12,9 @@ from .file_search_tool import FileSearchTool
 from .file_operations_tool import FileOperationsTool
 from .file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
 from .advanced_file_editor_tool import AdvancedFileEditorTool
+from .pc_interaction_tool import PCInteractionTool
+from .plan_creation_tool import PlanCreationTool
+from .task_complete_tool import TaskCompleteTool # Nueva importación
 
 # You can also define a list of all tools here for easy access
 # Las herramientas que necesitan la instancia de LLMService se inicializarán en LLMService
@@ -29,7 +32,10 @@ ALL_TOOLS_CLASSES = [
     FileSearchTool,
     FileOperationsTool,
     FileReadRecursiveDirectoryTool,
-    AdvancedFileEditorTool
+    AdvancedFileEditorTool,
+    PCInteractionTool,
+    PlanCreationTool,
+    TaskCompleteTool # Añadir la nueva herramienta aquí
 ]
 
 import queue

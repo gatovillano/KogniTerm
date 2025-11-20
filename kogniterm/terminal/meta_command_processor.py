@@ -33,9 +33,12 @@ class MetaCommandProcessor:
             self.agent_state.reset() # Reiniciar el estado
             # También reiniciamos el historial de llm_service al resetear la conversación
             self.llm_service.conversation_history = []
-            self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial vacío
             # ¡IMPORTANTE! Re-añadir el SYSTEM_MESSAGE después de resetear
             self.llm_service.conversation_history.append(SYSTEM_MESSAGE)
+            # Guardar historial CON el SYSTEM_MESSAGE
+            self.llm_service._save_history(self.llm_service.conversation_history)
+            # Sincronizar agent_state.messages con el historial
+            self.agent_state.messages = self.llm_service.conversation_history.copy()
             
             # Limpiar la pantalla de la terminal
             os.system('cls' if os.name == 'nt' else 'clear')
