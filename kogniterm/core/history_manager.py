@@ -245,13 +245,9 @@ class HistoryManager:
                          continue
                 
                 if msg.tool_call_id and msg.tool_call_id not in valid_tool_call_ids:
-                    # Si el ID no coincide, verificar si el mensaje anterior es un AIMessage con tool_calls
-                    # Esto maneja el caso donde el LLM no devuelve ID y generamos uno nosotros
-                    if i > 0 and isinstance(history[i-1], AIMessage) and history[i-1].tool_calls:
-                         # Asumimos que es la respuesta a la herramienta anterior
-                         filtered_history.append(msg)
-                         continue
-                    
+                    # Si el ID no coincide con ninguno conocido, es un huérfano definitivo.
+                    # La heurística anterior de "si el anterior es AIMessage" es peligrosa porque
+                    # permite pasar ToolMessages con IDs incorrectos que hacen fallar a LiteLLM.
                     print(f"DEBUG: Eliminando ToolMessage huérfano. ID: {msg.tool_call_id}, IDs válidos: {valid_tool_call_ids}", file=sys.stderr)
                     continue
             filtered_history.append(msg)
@@ -327,15 +323,38 @@ class HistoryManager:
         while i < len(conversational_messages):
             msg = conversational_messages[i]
             if isinstance(msg, AIMessage) and msg.tool_calls:
-                # Buscar el ToolMessage correspondiente inmediatamente después
-                tool_call_id = msg.tool_calls[0].get('id') # Asumiendo un solo tool_call por AIMessage
-                if i + 1 < len(conversational_messages) and \
-                   isinstance(conversational_messages[i+1], ToolMessage) and \
-                   conversational_messages[i+1].tool_call_id == tool_call_id:
-                    message_units.append([msg, conversational_messages[i+1]])
-                    i += 1 # Saltar el ToolMessage ya añadido
-                else:
-                    message_units.append([msg])
+                # Crear una unidad con el AIMessage
+                current_unit = [msg]
+                
+                # Recopilar IDs de tools llamados por este mensaje
+                expected_tool_ids = set()
+                for tc in msg.tool_calls:
+                    if tc.get('id'):
+                        expected_tool_ids.add(tc.get('id'))
+                
+                # Buscar ToolMessages correspondientes inmediatamente después
+                # Avanzamos i para mirar los siguientes mensajes
+                next_idx = i + 1
+                while next_idx < len(conversational_messages):
+                    next_msg = conversational_messages[next_idx]
+                    if isinstance(next_msg, ToolMessage):
+                        # Si tiene ID y coincide, o si no tiene ID (asumimos coincidencia por posición), lo agregamos
+                        if (next_msg.tool_call_id and next_msg.tool_call_id in expected_tool_ids) or \
+                           (not next_msg.tool_call_id):
+                            current_unit.append(next_msg)
+                            next_idx += 1
+                        else:
+                            # Es un ToolMessage pero no coincide con los IDs esperados
+                            # Podría ser de una llamada anterior o huérfano, paramos de agrupar
+                            break
+                    else:
+                        # No es un ToolMessage, terminamos el grupo
+                        break
+                
+                message_units.append(current_unit)
+                # Actualizar i para saltar los mensajes ya procesados
+                # Restamos 1 porque el bucle principal hace i += 1
+                i = next_idx - 1 
             else:
                 message_units.append([msg])
             i += 1
@@ -495,6 +514,21 @@ class HistoryManager:
         if len(history) <= keep_count:
             return history
 
+        # Ajustar keep_count para no cortar pares AIMessage-ToolMessage
+        # Si el primer mensaje a mantener es un ToolMessage, necesitamos incluir su AIMessage anterior
+        split_index = len(history) - keep_count
+        while split_index > 0 and split_index < len(history):
+            msg = history[split_index]
+            if isinstance(msg, ToolMessage):
+                # Estamos cortando en un ToolMessage, retroceder para incluir el AIMessage
+                split_index -= 1
+                keep_count += 1
+            else:
+                # Es seguro cortar aquí (o es AIMessage o HumanMessage)
+                # Nota: Si es AIMessage, verificamos que no sea parte de un grupo anterior... 
+                # Pero asumimos que AIMessage inicia grupo.
+                break
+        
         messages_to_keep = history[-keep_count:]
         messages_to_summarize = history[:-keep_count]
         

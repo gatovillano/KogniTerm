@@ -70,3 +70,30 @@ Se ha corregido un `AttributeError: 'LLMService' object has no attribute 'settin
 Se ha corregido un error donde `_truncate_history` devolvía `None` si no se realizaba ningún truncamiento, causando un fallo en `llm_service.py`.
 
 - **Punto 1**: Se modificó `_truncate_history` en `kogniterm/core/history_manager.py` para asegurar que siempre devuelva una lista de mensajes, incluso cuando no se entra en el bucle de truncamiento.
+
+---
+
+## 20-11-2025 Corrección de Bug en Listas JSON y Ocultamiento de Salida de Herramientas
+
+Se han realizado dos correcciones importantes en `kogniterm/core/agents/bash_agent.py`: una para solucionar un bug en el procesamiento de listas JSON y otra para mejorar la experiencia de usuario ocultando la salida cruda de herramientas no interactivas.
+
+- **Punto 1**: Se corrigió un error en `execute_single_tool` que filtraba incorrectamente los elementos de listas JSON que no cumplían con un esquema específico (content/file_path), causando que herramientas como `brave_search` devolvieran listas vacías. Ahora se preservan todos los elementos.
+- **Punto 2**: Se modificó `execute_single_tool` para que solo se muestre la salida en tiempo real (streaming) de la herramienta `execute_command`. La salida de otras herramientas se oculta al usuario para reducir el ruido visual, mostrando solo la acción y el resultado final procesado por el agente.
+
+---
+
+## 20-11-2025 Corrección de Parpadeo del Spinner de Carga
+
+Se ha solucionado el problema del parpadeo constante del spinner de carga del agente.
+
+- **Punto 1**: Se eliminó la implementación del spinner en un hilo separado en `kogniterm/terminal/agent_interaction_manager.py`, que entraba en conflicto con la actualización de la interfaz en `bash_agent.py`.
+- **Punto 2**: Se integró el spinner directamente en `kogniterm/core/agents/bash_agent.py` utilizando `rich.Live`. Ahora el spinner se muestra inicialmente y es reemplazado suavemente por el texto de la respuesta del agente a medida que se recibe, eliminando el conflicto de renderizado y el parpadeo.
+
+---
+
+## 20-11-2025 Aumento del Límite de Recursión y Eliminación de Spinner
+
+Se ha aumentado el límite de recursión para la ejecución del agente y se ha simplificado la interfaz eliminando el spinner de carga.
+
+- **Punto 1**: Se aumentó el `recursion_limit` a 100 en la invocación del grafo del agente en `kogniterm/terminal/agent_interaction_manager.py` para prevenir el error "Recursion limit of 25 reached".
+- **Punto 2**: Se eliminó el código relacionado con el spinner de carga en `kogniterm/terminal/agent_interaction_manager.py` para limpiar la salida y evitar posibles conflictos de hilos.

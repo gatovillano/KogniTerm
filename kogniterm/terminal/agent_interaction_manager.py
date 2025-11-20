@@ -61,44 +61,9 @@ class AgentInteractionManager:
         
 
         sys.stderr.flush()
-        # Siempre usaremos bash_agent_app por ahora
         
-        # Crear console para el spinner
-        console = Console(file=sys.stderr)
-        
-        # Variable para controlar el spinner
-        spinner_active = True
-        elapsed_time = [0]  # Usar lista para permitir modificación en el thread
-        live_display = [None]  # Para almacenar la referencia a Live
-        
-        def show_spinner():
-            """Función que muestra el spinner con tiempo transcurrido"""
-            spinner = Spinner("simpleDots", text=Text("🤖 Procesando respuesta del agente... (0s)", style="cyan"))
-            with Live(spinner, console=console, refresh_per_second=2) as live:
-                live_display[0] = live  # Guardar referencia
-                start_time = time.time()
-                while spinner_active:
-                    elapsed = int(time.time() - start_time)
-                    if elapsed != elapsed_time[0]:  # Solo actualizar cuando cambie el segundo
-                        elapsed_time[0] = elapsed
-                        spinner.text = Text(f"🤖 Procesando respuesta del agente... ({elapsed}s)", style="cyan")
-                    time.sleep(0.5)  # Dormir medio segundo para reducir el uso de CPU
-        
-        # Iniciar el spinner en un thread separado
-        spinner_thread = threading.Thread(target=show_spinner, daemon=True)
-        spinner_thread.start()
-        
-        try:
-            # Ejecutar invoke sin timeout
-            final_state_dict = self.bash_agent_app.invoke(self.agent_state)
-        finally:
-            # Detener el spinner
-            spinner_active = False
-            spinner_thread.join(timeout=0.5)
-            # Limpiar completamente la salida del spinner usando control codes
-            console.print("\r" + " " * 80 + "\r", end="")  # Limpiar la línea
-            # NO imprimir mensaje de completado, dejar limpio
-
+        # Ejecutar invoke sin timeout
+        final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 100})
 
         sys.stderr.flush()
         

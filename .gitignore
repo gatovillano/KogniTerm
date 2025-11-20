@@ -1,4 +1,4 @@
-*.env
+.env
 venv
 *.gemini_interpreter_history
 __pycache__
@@ -17,3 +17,4 @@ GEMINI.md
 .kogniterm/.git_tracked_files_cache.json
 .kogniterm/folder_structure_cache/structure.json
 .kogniterm/history.json
+informe_kilo_code.md

@@ -169,8 +169,14 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
     final_ai_message_from_llm = None
     text_streamed = False # Bandera para saber si hubo contenido de texto transmitido
 
+    # Inicializar el spinner
+    from rich.spinner import Spinner
+    from rich.text import Text
+    spinner = Spinner("dots", text=Text("🤖 Procesando...", style="cyan"))
+
     # Usar Live para actualizar el contenido en tiempo real
-    with Live(console=console, screen=False, refresh_per_second=10) as live:
+    # Iniciamos con el spinner
+    with Live(spinner, console=console, screen=False, refresh_per_second=10) as live:
         for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
             if isinstance(part, AIMessage):
                 final_ai_message_from_llm = part
@@ -180,7 +186,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
                 # Este 'part' es un chunk de texto (str)
                 full_response_content += part
                 text_streamed = True # Hubo streaming de texto
-                # Actualizar el contenido de Live con el Markdown acumulado
+                # Actualizar el contenido de Live con el Markdown acumulado, reemplazando el spinner
                 live.update(Padding(Markdown(full_response_content), (1, 4)))
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
@@ -245,7 +251,8 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
         tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
 
         for chunk in tool_output_generator:
-            terminal_ui.print_stream(str(chunk))
+            if tool_name == "execute_command":
+                terminal_ui.print_stream(str(chunk))
             full_tool_output += str(chunk)
 
         processed_tool_output = full_tool_output
@@ -263,7 +270,7 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
                         MAX_TOOL_OUTPUT_CONTENT_LENGTH = 500
                         if len(item["content"]) > MAX_TOOL_OUTPUT_CONTENT_LENGTH:
                             item["content"] = item["content"][:MAX_TOOL_OUTPUT_CONTENT_LENGTH] + "\n... [Contenido truncado]"
-                        processed_list.append(item)
+                    processed_list.append(item)
                 processed_tool_output = json.dumps(processed_list, ensure_ascii=False)
             else:
                 MAX_GENERIC_JSON_LENGTH = 2000

@@ -408,13 +408,9 @@ class KogniTermApp:
                     continue
                 elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
                     continue
-                
-                # --- NUEVA LÓGICA PARA MOSTRAR LA SALIDA DE OTRAS HERRAMIENTAS ---
-                if isinstance(final_response_message, ToolMessage):
-                    tool_output = final_response_message.content
-                    if tool_output and isinstance(tool_output, str):
-                        self.terminal_ui.console.print(Padding(Panel(tool_output, title="[bold green]Salida de la Herramienta[/bold green]", border_style="green"), (1, 2)))
-                # --- FIN DE LA NUEVA LÓGICA ---
+                elif isinstance(final_response_message, ToolMessage): # Para cualquier otra ToolMessage
+                    self.terminal_ui.print_message(f"Herramienta '{final_response_message.tool_call_id}' ejecutada.", style="green")
+                    continue
 
         except KeyboardInterrupt:
             self.terminal_ui.print_message("\nSaliendo...", style="yellow")
