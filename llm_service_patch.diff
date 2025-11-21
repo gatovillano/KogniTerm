@@ -1,10 +1,148 @@
---- kogniterm/core/llm_service.py
-+++ kogniterm/core/llm_service.py
-@@ -6,7 +6,7 @@
- from typing import Optional, Any
- from collections import deque
- from langchain_core.tools import BaseTool
--from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage\n from litellm import completion, litellm
- import uuid
- from dotenv import load_dotenv
+--- a/kogniterm/core/llm_service.py
++++ b/kogniterm/core/llm_service.py
+@@ -560,70 +560,37 @@
+         # La lógica de resumen debe operar sobre `self.conversation_history` (LangChain messages)
+         # y no debe afectar `all_initial_system_messages_for_llm`.
+         
+-        # Calculamos la longitud total de `litellm_messages` (incluyendo system messages) para la decisión de resumen/truncamiento
+-        total_litellm_messages_length = sum(len(json.dumps(msg, ensure_ascii=False)) for msg in litellm_messages)
+-        
+-        if (len(filtered_conversation_messages) > self.max_history_messages or
+-            total_litellm_messages_length > self.max_history_chars) and \
++        # Calculamos la longitud total de `litellm_messages` para la decisión de resumen/truncamiento
++        total_litellm_messages_length = sum(len(json.dumps(m, ensure_ascii=False)) for m in litellm_messages)
++
++        if (len(filtered_conversation_messages) > self.max_history_messages or total_litellm_messages_length > self.max_history_chars) and \
+            len(filtered_conversation_messages) > min_messages_to_keep_in_conversation:
+             
+             if self.console:
+                 self.console.print("[yellow]El historial de conversación es demasiado largo. Intentando resumir...[/yellow]")
+             
+             summary = self.summarize_conversation_history() # Opera en self.conversation_history
+             if summary:
+-                max_summary_length = min(2000, self.max_history_chars // 4)
+-                if len(summary) > max_summary_length:
+-                    summary = summary[:max_summary_length] + "... [Resumen truncado para evitar bucles]"
+-
+-                # El nuevo historial de conversación incluirá el resumen y los últimos mensajes relevantes.
+-                new_conversation_history_litellm = []
++                # Crear un nuevo historial con el resumen al principio
+                 summary_message_lc = SystemMessage(content=f"Resumen de la conversación anterior: {summary}")
+-                new_conversation_history_litellm.append(self._to_litellm_message(summary_message_lc))
++                new_conversation_history_litellm = [self._to_litellm_message(summary_message_lc)]
+                 
+-                # Identificar todos los pares AIMessage/ToolMessage en el historial completo
+-                tool_call_pairs = []
+-                for i, msg in enumerate(filtered_conversation_messages):
+-                    if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+-                        tool_call_id = msg['tool_calls'][0]['id'] # Asumiendo un solo tool_call por AIMessage
+-                        # Buscar el ToolMessage correspondiente
+-                        for j in range(i + 1, len(filtered_conversation_messages)):
+-                            next_msg = filtered_conversation_messages[j]
+-                            if next_msg.get('role') == 'tool' and next_msg.get('tool_call_id') == tool_call_id:
+-                                tool_call_pairs.append((msg, next_msg))
+-                                break
+-                
+-                # Identificar todos los pares AIMessage/ToolMessage en el historial completo
+-                # y reconstruir el historial para mantenerlos juntos.
+-                temp_filtered_conversation_messages = []
+-                i = 0
+-                while i < len(filtered_conversation_messages):
+-                    msg = filtered_conversation_messages[i]
+-                    temp_filtered_conversation_messages.append(msg)
+-                    if msg.get('role') == 'assistant' and msg.get('tool_calls'):
+-                        tool_call_id = msg['tool_calls'][0]['id'] # Asumiendo un solo tool_call por AIMessage
+-                        # Buscar el ToolMessage correspondiente inmediatamente después
+-                        if i + 1 < len(filtered_conversation_messages) and \
+-                           filtered_conversation_messages[i+1].get('role') == 'tool' and \
+-                           filtered_conversation_messages[i+1].get('tool_call_id') == tool_call_id:
+-                            temp_filtered_conversation_messages.append(filtered_conversation_messages[i+1])
+-                            i += 1 # Saltar el ToolMessage ya añadido
+-                    i += 1
+-
+-                # Ahora, `temp_filtered_conversation_messages` contiene los pares de tool_calls juntos.
+-                # Necesitamos truncar esto para que quepa en el historial.
+-                # Priorizamos los mensajes más recientes y los pares de tool_calls.
+-                
+-                # Invertir para procesar desde los más recientes
+-                reversed_temp_filtered_conversation_messages = list(reversed(temp_filtered_conversation_messages))
+-                
++                # Mantener los mensajes más recientes que no excedan el límite de caracteres
+                 final_conversational_messages = []
+-                current_length = 0
+-                
+-                for msg in reversed_temp_filtered_conversation_messages:
+-                    msg_len = len(json.dumps(msg, ensure_ascii=False))
+-                    
+-                    # Si añadir este mensaje excede el límite, y no es un mensaje de tool_call
+-                    # o su AIMessage correspondiente ya ha sido añadido, entonces no lo añadimos.
+-                    if current_length + msg_len > self.max_history_chars and \
+-                       len(final_conversational_messages) >= self.max_history_messages:
++                current_length = len(json.dumps(new_conversation_history_litellm, ensure_ascii=False))
++
++                # Iterar desde el final del historial para conservar los mensajes más recientes
++                for msg in reversed(filtered_conversation_messages):
++                    # Mantener siempre los pares de tool_calls juntos
++                    pair_to_add = []
++                    if msg.get("role") == "tool":
++                        # Si es un ToolMessage, buscar su AIMessage correspondiente
++                        tool_call_id = msg.get("tool_call_id")
++                        for prev_msg in reversed(filtered_conversation_messages):
++                            if prev_msg.get("role") == "assistant" and prev_msg.get("tool_calls"):
++                                if any(tc.get("id") == tool_call_id for tc in prev_msg["tool_calls"]):
++                                    pair_to_add = [prev_msg, msg]
++                                    break
++                    else:
++                        pair_to_add = [msg]
++
++                    # Calcular el tamaño del par y añadirlo si cabe
++                    pair_length = sum(len(json.dumps(m, ensure_ascii=False)) for m in pair_to_add)
++                    if current_length + pair_length > self.max_history_chars or len(final_conversational_messages) >= self.max_history_messages:
+                         break
+-                    
+-                    final_conversational_messages.insert(0, msg)
+-                    current_length += msg_len
+-                    
+-                    # Si el mensaje actual es un ToolMessage, asegurarnos de que su AIMessage esté presente
+-                    if msg.get('role') == 'tool':
+-                        tool_call_id = msg.get('tool_call_id')
+-                        found_ai_message = False
+-                        for prev_msg in final_conversational_messages[:-1]: # Buscar en los ya añadidos
+-                            if prev_msg.get('role') == 'assistant' and prev_msg.get('tool_calls'):
+-                                for tc in prev_msg['tool_calls']:
+-                                     if tc.get('id') == tool_call_id:
+-                                         found_ai_message = True
+-                                         break
+-                             if found_ai_message:
+-                                 break
+-                        
+-                        if not found_ai_message:
+-                            # Si el AIMessage no está, buscarlo en el historial original y añadirlo
+-                            for original_msg in reversed_temp_filtered_conversation_messages:
+-                                if original_msg.get('role') == 'assistant' and original_msg.get('tool_calls'):
+-                                     for tc in original_msg['tool_calls']:
+-                                         if tc.get('id') == tool_call_id:
+-                                             final_conversational_messages.insert(0, original_msg)
+-                                             current_length += len(json.dumps(original_msg, ensure_ascii=False))
+-                                             break
+-                                     break
+-                
+-                new_conversation_history_litellm.extend(final_conversational_messages)
++
++                    # Insertar el par al principio de la lista para mantener el orden
++                    final_conversational_messages = pair_to_add + final_conversational_messages
++                    current_length += pair_length
++
++                new_conversation_history_litellm.extend(final_conversational_messages)
+ 
+                 # Actualizar `litellm_messages` con los system messages iniciales y el nuevo historial resumido
+                 litellm_messages = all_initial_system_messages_for_llm + new_conversation_history_litellm
+@@ -632,7 +599,7 @@
+                 # Esto es crucial para futuras llamadas a summarize_conversation_history
+                 # Solo guardamos el historial de conversación real, no los mensajes de contexto dinámicos.
+                 self.conversation_history = [self._from_litellm_message(msg) for msg in new_conversation_history_litellm]
+-                self._save_history(self.history_file_path, self.conversation_history) # Guardar el historial de conversación resumido
++                LLMService._save_history(self.history_file_path, self.conversation_history) # Guardar el historial de conversación resumido
+                 if self.console:
+                     self.console.print("[green]Historial resumido y actualizado.[/green]")
+             else:
