@@ -77,19 +77,11 @@ class CommandExecutor:
                         try:
                             output = os.read(master_fd, 1024).decode(errors='replace')
                             if output:
-                                if len(output_buffer) + len(output) > MAX_OUTPUT_LENGTH:
-                                    remaining_space = MAX_OUTPUT_LENGTH - len(output_buffer)
-                                    output_buffer += output[:remaining_space]
-                                    output_buffer += f"\n... (Salida truncada a {MAX_OUTPUT_LENGTH} caracteres. Longitud original excedida) ...\n"
-                                    yield output_buffer
-                                    output_buffer = "" # Limpiar el buffer después de ceder la salida truncada
-                                    self.terminate() # Terminar el proceso si se trunca
-                                    break # Salir del bucle
-                                else:
-                                    output_buffer += output
-                                    sys.stdout.write(output) # Imprimir directamente en sys.stdout
-                                    sys.stdout.flush() # Asegurar que se imprime inmediatamente
-                                    yield output # Ceder la salida en tiempo real
+                                # Sin límite de longitud - mostrar toda la salida
+                                output_buffer += output
+                                sys.stdout.write(output) # Imprimir para interactividad en tiempo real
+                                sys.stdout.flush() # Asegurar que se imprime inmediatamente
+                                yield output # Ceder la salida para acumular en full_command_output
                             else:
                                 # Si no hay salida, y el proceso sigue vivo, esperamos un poco
                                 time.sleep(0.01) # Pequeño retardo para evitar bucle busy-wait

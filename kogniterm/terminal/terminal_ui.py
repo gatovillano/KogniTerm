@@ -13,6 +13,24 @@ from rich.padding import Padding
 from rich.panel import Panel
 from rich.text import Text # Importar Text
 from rich.syntax import Syntax # Importar Syntax
+from rich.status import Status
+from rich.align import Align
+
+# Importar módulos de temas y componentes visuales
+from .themes import ColorPalette, Icons, Gradients, TextStyles, get_kogniterm_theme
+from .visual_components import (
+    create_gradient_text,
+    create_welcome_banner,
+    create_info_panel,
+    create_success_box,
+    create_error_box,
+    create_warning_box,
+    create_status_message,
+    create_separator,
+    get_random_motivational_message,
+    format_command,
+    format_file_path
+)
 
 """
 This module contains the TerminalUI class, responsible for handling all user interface
@@ -103,18 +121,23 @@ class TerminalUI:
             self.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
             return {"tool_message_content": f"Error inesperado: {e}", "approved": False}
 
-    def print_message(self, message: str, style: str = "", is_user_message: bool = False):
+    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None):
         """
         Prints a message to the console with optional styling.
         If is_user_message is True, the message will be enclosed in a Panel.
+        If status is provided, adds contextual icon and color.
         """
         if is_user_message:
             self.console.print(Padding(Panel(
                 Markdown(message),
-                title="[bold dim]Tu Mensaje[/bold dim]",
-                border_style="dim",
+                title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.SPEECH} Tu Mensaje[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                border_style=ColorPalette.PRIMARY,
                 expand=False
             ), (1, 2)))
+        elif status:
+            # Usar el componente de mensaje de estado
+            status_msg = create_status_message(message, status)
+            self.console.print(status_msg)
         else:
             self.console.print(message, style=style)
 
@@ -123,24 +146,75 @@ class TerminalUI:
 
     def print_confirmation_panel(self, content, title, border_style):
         """
-        Imprime un panel de confirmación estandarizado.
+        Imprime un panel de confirmación estandarizado con mejor estilo.
         """
         self.console.print(
             Padding(
                 Panel(
                     content,
                     border_style=border_style,
-                    title=title,
+                    title=f"{Icons.WARNING} {title}",
                     width=min(self.console.width, 100),  # Limitar el ancho del panel
                     expand=False
                 ),
                 (1, 2)
             )
         )
+    
+    def print_status(self, message: str, spinner_style: str = "dots"):
+        """
+        Muestra un mensaje de estado con un spinner.
+        Útil para operaciones que toman tiempo.
+        
+        Args:
+            message: Mensaje a mostrar
+            spinner_style: Estilo del spinner
+            
+        Returns:
+            Status: Objeto Status que puede ser usado con 'with' statement
+        """
+        return Status(
+            f"{Icons.PROCESSING} {message}...",
+            spinner=spinner_style,
+            spinner_style=ColorPalette.SECONDARY
+        )
+    
+    def print_success_box(self, message: str, title: str = "Éxito"):
+        """
+        Imprime un panel de éxito con estilo consistente.
+        
+        Args:
+            message: Mensaje de éxito
+            title: Título del panel
+        """
+        success_panel = create_success_box(message, title)
+        self.console.print(success_panel)
+    
+    def print_error_box(self, message: str, title: str = "Error"):
+        """
+        Imprime un panel de error con estilo consistente.
+        
+        Args:
+            message: Mensaje de error
+            title: Título del panel
+        """
+        error_panel = create_error_box(message, title)
+        self.console.print(error_panel)
+    
+    def print_warning_box(self, message: str, title: str = "Advertencia"):
+        """
+        Imprime un panel de advertencia con estilo consistente.
+        
+        Args:
+            message: Mensaje de advertencia
+            title: Título del panel
+        """
+        warning_panel = create_warning_box(message, title)
+        self.console.print(warning_panel)
 
     def print_welcome_banner(self):
         """
-        Prints the welcome banner for KogniTerm.
+        Prints the welcome banner for KogniTerm with improved gradient and motivational message.
         """
         banner_text = """
 ██╗  ██╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗███████╗██████╗ ███╗   ███╗
@@ -150,25 +224,23 @@ class TerminalUI:
 ██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║
 ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
 """
-        self.console.print() # Margen superior
-        # Paleta de lilas y morados para un degradado más suave
-        colors = [
-            "#d1c4e9", # Light Lilac
-            "#c5b7e0",
-            "#b9aad7",
-            "#ad9dce",
-            "#a190c5",
-            "#9583bc",
-        ]
+        # Usar el componente de banner con gradiente mejorado
+        banner = create_welcome_banner(
+            banner_text,
+            subtitle=get_random_motivational_message(),
+            gradient=Gradients.PRIMARY
+        )
+        self.console.print(banner)
         
-        lines = banner_text.strip().split('\n')
-        num_lines = len(lines)
-        
-        for i, line in enumerate(lines):
-            # Interpolar colores para un degradado más suave
-            self.console.print(f"[{colors[i % len(colors)]}]{line}[/]", justify="center")
-        
-        self.console.print(Panel(f"""Escribe '[green]%salir[/green]' para terminar o '[green]%help[/green]' para ver los comandos.""", title="[bold green]Bienvenido[/bold green]", expand=False), justify="center")
+        # Panel de bienvenida con mejor estilo
+        welcome_panel = Panel(
+            f"""Escribe '[{ColorPalette.SUCCESS}]%salir[/{ColorPalette.SUCCESS}]' para terminar o '[{ColorPalette.SUCCESS}]%help[/{ColorPalette.SUCCESS}]' para ver los comandos.""",
+            title=f"[bold {ColorPalette.SUCCESS}]{Icons.SPARKLES} Bienvenido[/bold {ColorPalette.SUCCESS}]",
+            border_style=ColorPalette.SUCCESS,
+            expand=False
+        )
+        self.console.print(Align.center(welcome_panel))
+        self.console.print()  # Margen inferior
 
 
 """

@@ -570,27 +570,9 @@ class LLMService:
         #             self.console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento.[/red]")
  
         # Post-procesamiento del historial para eliminar ToolMessages huérfanos
-        # Esto se aplica a `litellm_messages` después del resumen/truncamiento.
-        processed_litellm_messages = []
-        tool_call_ids_in_aimessages = set()
-        
-        # Primero, identificar todos los tool_call_ids válidos de AIMessages
-        for msg in litellm_messages:
-            if msg.get('role') == 'assistant' and msg.get('tool_calls'):
-                for tc in msg['tool_calls']:
-                    if 'id' in tc:
-                        tool_call_ids_in_aimessages.add(tc['id'])
-        
-        # Luego, reconstruir la lista filtrando ToolMessages huérfanos
-        for msg in litellm_messages:
-            if msg.get('role') == 'tool':
-                tool_call_id = msg.get('tool_call_id')
-                # Solo eliminar si el tool_call_id existe y no está en los AIMessages válidos
-                if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
-                    continue # Eliminar ToolMessage huérfano
-            processed_litellm_messages.append(msg)
-        
-        litellm_messages = processed_litellm_messages
+        # ELIMINADO: Esta lógica ahora es manejada por history_manager.get_processed_history_for_llm()
+        # Mantener litellm_messages tal cual viene del history_manager
+        pass
 
         # NOTA: El siguiente truncamiento estándar también está COMENTADO porque es redundante.
         # El processed_history ya fue truncado por history_manager.get_processed_history_for_llm()
@@ -755,26 +737,10 @@ class LLMService:
         # Convertir el historial a mensajes de LiteLLM para aplicar la lógica de filtrado
         litellm_history_for_summary = [self._to_litellm_message(msg) for msg in history_source]
 
-        # Aplicar la lógica de post-procesamiento para eliminar ToolMessages huérfanos
-        processed_litellm_history = []
-        tool_call_ids_in_aimessages = set()
-        
-        for msg in litellm_history_for_summary:
-            if msg.get('role') == 'assistant' and msg.get('tool_calls'):
-                for tc in msg['tool_calls']:
-                    if 'id' in tc:
-                        tool_call_ids_in_aimessages.add(tc['id'])
-        
-        for msg in litellm_history_for_summary:
-            if msg.get('role') == 'tool':
-                tool_call_id = msg.get('tool_call_id')
-                # Solo eliminar si el tool_call_id existe y no está en los AIMessages válidos
-                if tool_call_id and tool_call_id not in tool_call_ids_in_aimessages:
-                    continue
-            processed_litellm_history.append(msg)
-        
         # Convertir de nuevo a mensajes de LangChain para añadir el summarize_prompt
-        langchain_processed_history = [self._from_litellm_message(msg) for msg in processed_litellm_history]
+        # ELIMINADO: La lógica de filtrado de huérfanos redundante.
+        # Confiamos en que history_source ya viene limpio o que el modelo manejará el resumen.
+        langchain_processed_history = [self._from_litellm_message(msg) for msg in litellm_history_for_summary]
 
         summarize_prompt = HumanMessage(content="Genera un resumen EXTENSO y DETALLADO de la conversación anterior. Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad y cualquier información relevante que ayude a retomar la conversación sin perder el hilo. Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica.")
         

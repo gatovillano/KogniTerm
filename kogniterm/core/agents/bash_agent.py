@@ -169,10 +169,17 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
     final_ai_message_from_llm = None
     text_streamed = False # Bandera para saber si hubo contenido de texto transmitido
 
-    # Inicializar el spinner
-    from rich.spinner import Spinner
-    from rich.text import Text
-    spinner = Spinner("dots", text=Text("🤖 Procesando...", style="cyan"))
+    # Importar componentes visuales
+    try:
+        from kogniterm.terminal.visual_components import create_processing_spinner
+        from kogniterm.terminal.themes import ColorPalette
+        # Crear spinner mejorado usando componentes visuales
+        spinner = create_processing_spinner()
+    except ImportError:
+        # Fallback al spinner original si hay problemas de importación
+        from rich.spinner import Spinner
+        from rich.text import Text
+        spinner = Spinner("dots", text=Text("🤖 Procesando...", style="cyan"))
 
     # Usar Live para actualizar el contenido en tiempo real
     # Iniciamos con el spinner
@@ -187,7 +194,9 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
                 full_response_content += part
                 text_streamed = True # Hubo streaming de texto
                 # Actualizar el contenido de Live con el Markdown acumulado, reemplazando el spinner
-                live.update(Padding(Markdown(full_response_content), (1, 4)))
+                # Usar padding mejorado para mejor presentación
+                live.update(Padding(Markdown(full_response_content), (0, 4)))
+
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
 
@@ -221,6 +230,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
             "tool_call_id_to_confirm": tool_call_id # Devolver el tool_call_id asociado
         }
     
+    
     elif final_ai_message_from_llm: # Si es solo un AIMessage de texto (sin tool_calls)
         # El AIMessage final para el historial debe contener el contenido completo.
         ai_message_for_history = AIMessage(content=full_response_content)
@@ -228,6 +238,10 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
         state.messages.append(ai_message_for_history)
         # Guardar historial explícitamente
         llm_service._save_history(state.messages)
+        
+        # Añadir separación visual después de la respuesta del LLM
+        console.print()  # Línea en blanco para separación
+        
         return {"messages": state.messages}
     else:
         # Fallback si por alguna razón no se obtuvo un AIMessage (poco probable con llm_service.py)
@@ -251,8 +265,9 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
         tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
 
         for chunk in tool_output_generator:
-            if tool_name == "execute_command":
-                terminal_ui.print_stream(str(chunk))
+            # NO imprimir aquí - el output ya se muestra en command_approval_handler.py
+            # if tool_name == "execute_command":
+            #     terminal_ui.print_stream(str(chunk))
             full_tool_output += str(chunk)
 
         processed_tool_output = full_tool_output
@@ -327,7 +342,13 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             executor.shutdown(wait=False)
             return state
 
-        console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
+        # Mejorar el mensaje de ejecución de herramienta con iconos y colores temáticos
+        try:
+            from kogniterm.terminal.themes import Icons, ColorPalette
+            console.print(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+        except ImportError:
+            # Fallback al mensaje original
+            console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
         futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
 
     for future in as_completed(futures):

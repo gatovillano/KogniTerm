@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
@@ -40,6 +41,13 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
 from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
 from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+
+# Importar temas para estilos mejorados
+try:
+    from kogniterm.terminal.themes import ColorPalette, Icons
+    THEMES_AVAILABLE = True
+except ImportError:
+    THEMES_AVAILABLE = False
 
 load_dotenv()
 
@@ -202,13 +210,22 @@ class KogniTermApp:
         # Instanciar AdvancedFileEditorTool
         advanced_file_editor_tool = AdvancedFileEditorTool()
 
-        # Definir un estilo para el prompt
-        custom_style = Style.from_dict({
-            'prompt': '#aaaaaa',
-            'rprompt': '#aaaaaa',
-            'output': 'grey',
-            'text': '#808080',
-        })
+        # Definir un estilo mejorado para el prompt usando temas
+        if THEMES_AVAILABLE:
+            custom_style = Style.from_dict({
+                'prompt': ColorPalette.PRIMARY_LIGHT,
+                'rprompt': ColorPalette.TEXT_SECONDARY,
+                'output': ColorPalette.TEXT_PRIMARY,
+                'text': ColorPalette.TEXT_SECONDARY,
+            })
+        else:
+            # Fallback al estilo original
+            custom_style = Style.from_dict({
+                'prompt': '#aaaaaa',
+                'rprompt': '#aaaaaa',
+                'output': 'grey',
+                'text': '#808080',
+            })
 
         kb_enter = KeyBindings()
         @kb_enter.add('enter', eager=True)
@@ -250,6 +267,37 @@ class KogniTermApp:
             file_operations_tool # Pasar la instancia de file_operations_tool
         )
 
+    def _process_file_tags(self, text: str) -> str:
+        """
+        Detecta etiquetas @archivo en el texto y reemplaza la etiqueta con el contenido del archivo.
+        Esto permite al usuario referenciar archivos rápidamente para que el LLM los lea.
+        """
+        # Patrón para capturar @ruta/al/archivo
+        # Se detiene ante espacios o fin de cadena.
+        pattern = r'@(?P<path>[^\s]+)'
+        
+        # Función de reemplazo para re.sub
+        def replace_match(match):
+            file_path = match.group('path')
+            # Resolver ruta relativa al CWD actual
+            full_path = os.path.abspath(os.path.join(os.getcwd(), file_path))
+            
+            if os.path.isfile(full_path):
+                try:
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    self.terminal_ui.print_message(f"  📄 Inyectando contenido de: {file_path}", style="dim")
+                    # Formatear el contenido para que el LLM lo entienda claramente
+                    return f"\n\n--- CONTENIDO DEL ARCHIVO: {file_path} ---\n{content}\n--- FIN DEL ARCHIVO ---\n\n"
+                except Exception as e:
+                    self.terminal_ui.print_message(f"  ⚠️ Error al leer '{file_path}': {e}", style="red")
+                    return match.group(0)
+            else:
+                return match.group(0)
+
+        return re.sub(pattern, replace_match, text)
+
     async def run(self): # Make run() async
         """Runs the main loop of the KogniTerm application."""
         self.terminal_ui.print_welcome_banner()
@@ -264,14 +312,21 @@ class KogniTermApp:
             # o se deberá manejar explícitamente el cambio de directorio en una futura mejora.
             while True:
                 cwd = os.getcwd() # Obtener el CWD actual para el prompt
-                prompt_text = f"({os.path.basename(cwd)}) > " # Eliminado el indicador de modo de agente
+                # Crear el prompt usando HTML de prompt_toolkit (no Rich markup)
+                # prompt_toolkit usa HTML-like tags, no Rich markup
+                from prompt_toolkit import HTML
+                if THEMES_AVAILABLE:
+                    # Usar HTML de prompt_toolkit con colores hexadecimales (sin emoji de robot)
+                    prompt_text = HTML(f'<style fg="{ColorPalette.SECONDARY}">({os.path.basename(cwd)})</style> <style fg="{ColorPalette.PRIMARY}">›</style> ')
+                else:
+                    prompt_text = f"({os.path.basename(cwd)}) › "
                 user_input = await self.prompt_session.prompt_async(prompt_text) # Use prompt_async
 
                 if user_input is None:
                     if not self.terminal_ui.get_interrupt_queue().empty():
                         while not self.terminal_ui.get_interrupt_queue().empty():
                             self.terminal_ui.get_interrupt_queue().get_nowait() # Vaciar la cola
-                        self.terminal_ui.print_message("Generación de respuesta cancelada por el usuario. 🛑", style="yellow")
+                        self.terminal_ui.print_message("Generación de respuesta cancelada por el usuario", style="yellow", status="warning")
                         self.llm_service.stop_generation_flag = False # Resetear la bandera
                         continue # Continuar el bucle para un nuevo prompt
                     else:
@@ -296,12 +351,15 @@ class KogniTermApp:
                 if self.meta_command_processor.process_meta_command(user_input):
                     continue
 
+                # Procesar etiquetas @archivo para inyectar contenido
+                enhanced_user_input = self._process_file_tags(user_input)
+
                 # Añadir el mensaje del usuario al historial del agente
-                user_human_message = HumanMessage(content=user_input)
+                user_human_message = HumanMessage(content=enhanced_user_input)
                 self.agent_state.messages.append(user_human_message)
                 self.llm_service.conversation_history.append(user_human_message)
 
-                final_state_dict = self.agent_interaction_manager.invoke_agent(user_input)
+                final_state_dict = self.agent_interaction_manager.invoke_agent(enhanced_user_input)
                 
                 # Actualizar el estado del agente con lo que devuelve el manager
                 self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
@@ -366,7 +424,7 @@ class KogniTermApp:
                     tool_message_content = approval_result['tool_message_content']
 
                     # Re-invocar al agente para procesar la salida de la herramienta
-                    self.terminal_ui.print_message("Procesando salida del comando...", style="cyan")
+                    self.terminal_ui.print_message("Procesando salida del comando...", style="cyan", status="info")
                     
                     # Asegurar que tool_call_id_to_confirm siempre tenga un valor
                     if self.agent_state.tool_call_id_to_confirm is None:

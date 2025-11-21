@@ -22,6 +22,14 @@ from rich.console import Group # ¡Nueva importación!
 
 import uuid # Importar uuid
 
+# Importar temas para mejorar visuales
+try:
+    from kogniterm.terminal.themes import ColorPalette, Icons
+    from kogniterm.terminal.visual_components import create_separator, format_command
+    THEMES_AVAILABLE = True
+except ImportError:
+    THEMES_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 """
@@ -264,44 +272,39 @@ class CommandApprovalHandler:
             else:
                 full_command_output = ""
                 try:
-                    # Separador visual antes del comando
-                    separator = "━" * 80
-                    self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
-                    self.terminal_ui.console.print(f"[bold cyan]🔧 Ejecutando:[/bold cyan] [yellow]{command_to_execute}[/yellow]")
-                    self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
+                    # Separador visual antes del comando con temas
+                    if THEMES_AVAILABLE:
+                        separator_line = create_separator()
+                        self.terminal_ui.console.print(separator_line)
+                        self.terminal_ui.console.print(f"[bold {ColorPalette.SECONDARY}]{Icons.GEAR} Ejecutando:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{command_to_execute}[/{ColorPalette.SECONDARY_LIGHT}]")
+                        self.terminal_ui.console.print(separator_line)
+                    else:
+                        # Fallback al separador original
+                        separator = "━" * 80
+                        self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
+                        self.terminal_ui.console.print(f"[bold cyan]🔧 Ejecutando:[/bold cyan] [yellow]{command_to_execute}[/yellow]")
+                        self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
 
                     for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
-                        # Aquí es donde la salida del comando se imprime en tiempo real
-                        self.terminal_ui.print_stream(output_chunk)
+                        # NO imprimir aquí - command_executor ya imprime a stdout para interactividad
+                        # self.terminal_ui.print_stream(output_chunk)
                         full_command_output += output_chunk
                     
-                    # Separador visual después del comando
-                    self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
-                    self.terminal_ui.console.print(f"[bold green]✓ Comando completado[/bold green]")
-                    self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
-                    
-                    # Truncamiento inteligente de la salida para el historial
-                    MAX_COMMAND_OUTPUT_LENGTH = 10000
-                    if len(full_command_output) > MAX_COMMAND_OUTPUT_LENGTH:
-                        lines = full_command_output.split('\n')
-                        total_lines = len(lines)
-                        
-                        if total_lines > 100:
-                            first_lines = '\n'.join(lines[:50])
-                            last_lines = '\n'.join(lines[-50:])
-                            truncated_lines_count = total_lines - 100
-                            
-                            tool_message_content = (
-                                f"{first_lines}\n\n"
-                                f"... [Truncado: {truncated_lines_count} líneas intermedias omitidas] ...\n\n"
-                                f"{last_lines}\n\n"
-                                f"📊 Resumen: Salida total de {total_lines} líneas, {len(full_command_output)} caracteres. "
-                                f"Se muestran las primeras y últimas 50 líneas para contexto."
-                            )
-                        else:
-                            tool_message_content = full_command_output[:MAX_COMMAND_OUTPUT_LENGTH] + "\n... [Salida truncada]"
+                    # Separador visual después del comando con temas
+                    if THEMES_AVAILABLE:
+                        separator_line = create_separator()
+                        self.terminal_ui.console.print(separator_line)
+                        self.terminal_ui.console.print(f"[bold {ColorPalette.SUCCESS}]{Icons.SUCCESS} Comando completado[/bold {ColorPalette.SUCCESS}]")
+                        self.terminal_ui.console.print(separator_line)
                     else:
-                        tool_message_content = full_command_output if full_command_output.strip() else "El comando se ejecutó correctamente y no produjo ninguna salida."
+                        # Fallback al separador original
+                        self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
+                        self.terminal_ui.console.print(f"[bold green]✓ Comando completado[/bold green]")
+                        self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
+                    
+                    
+                    # Truncamiento desactivado - mostrar salida completa
+                    tool_message_content = full_command_output if full_command_output.strip() else "El comando se ejecutó correctamente y no produjo ninguna salida."
 
                 except KeyboardInterrupt:
                     self.command_executor.terminate()
