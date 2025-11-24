@@ -1,4 +1,6 @@
 python-dotenv
+langchain
+langchain-core
 langgraph
 prompt_toolkit
 langchain_mcp_adapters
@@ -14,7 +16,10 @@ colorama
 gitignore-parser
 watchdog
 litellm
+playwright
 
 GitPython
 pydantic
 pydantic-settings
+chromadb
+urllib3<2

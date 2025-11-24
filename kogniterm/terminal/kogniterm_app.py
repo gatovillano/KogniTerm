@@ -210,6 +210,31 @@ class KogniTermApp:
         # Instanciar AdvancedFileEditorTool
         advanced_file_editor_tool = AdvancedFileEditorTool()
 
+        # Inicializar herramientas RAG
+        from kogniterm.core.tools.codebase_search_tool import CodebaseSearchTool
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+        from kogniterm.core.embeddings_service import EmbeddingsService
+        
+        # Solo inicializar si estamos en un workspace válido (aunque VectorDBManager lo maneja)
+        # Usamos el workspace_directory actual
+        if self.workspace_directory:
+            try:
+                # Inicializar servicios
+                embeddings_service = EmbeddingsService()
+                vector_db_manager = VectorDBManager(self.workspace_directory)
+                
+                # Crear herramienta
+                codebase_search_tool = CodebaseSearchTool(
+                    vector_db_manager=vector_db_manager,
+                    embeddings_service=embeddings_service
+                )
+                
+                # Registrar herramienta en LLMService
+                self.llm_service.register_tool(codebase_search_tool)
+                # logger.info("CodebaseSearchTool registered successfully.")
+            except Exception as e:
+                logger.warning(f"Failed to initialize RAG tools: {e}")
+
         # Definir un estilo mejorado para el prompt usando temas
         if THEMES_AVAILABLE:
             custom_style = Style.from_dict({

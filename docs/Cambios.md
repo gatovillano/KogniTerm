@@ -96,4 +96,23 @@ Se ha solucionado el problema del parpadeo constante del spinner de carga del ag
 Se ha aumentado el límite de recursión para la ejecución del agente y se ha simplificado la interfaz eliminando el spinner de carga.
 
 - **Punto 1**: Se aumentó el `recursion_limit` a 100 en la invocación del grafo del agente en `kogniterm/terminal/agent_interaction_manager.py` para prevenir el error "Recursion limit of 25 reached".
-- **Punto 2**: Se eliminó el código relacionado con el spinner de carga en `kogniterm/terminal/agent_interaction_manager.py` para limpiar la salida y evitar posibles conflictos de hilos.
+
+---
+
+## 23-11-2025 Implementación del Sistema RAG de Codebase
+
+Se ha implementado el sistema RAG (Retrieval-Augmented Generation) para permitir al agente indexar y buscar en el código base del proyecto.
+
+- **Punto 1**: Creación de `kogniterm/terminal/config_manager.py` para gestionar configuraciones globales y por proyecto.
+- **Punto 2**: Implementación de comandos CLI `config` para establecer y obtener configuraciones.
+- **Punto 3**: Creación de `kogniterm/core/embeddings_service.py` con soporte para proveedores Gemini y OpenAI.
+- **Punto 4**: Desarrollo de `kogniterm/core/context/codebase_indexer.py` para dividir archivos de código en chunks y generar embeddings.
+- **Punto 5**: Implementación de `kogniterm/core/context/vector_db_manager.py` utilizando ChromaDB para almacenamiento persistente de vectores.
+- **Punto 6**: Creación de la herramienta `CodebaseSearchTool` en `kogniterm/core/tools/codebase_search_tool.py` para permitir al agente buscar en el código.
+- **Punto 7**: Integración del comando CLI `kogniterm index refresh` en `terminal.py` para indexar el proyecto manualmente.
+- **Punto 8**: Registro de `CodebaseSearchTool` en `kogniterm/terminal/kogniterm_app.py` para que esté disponible para el agente.
+- **Punto 9**: Adición de `chromadb` a `requirements.txt`.
+
+- **Punto 10**: Implementación de soporte para **Ollama** como proveedor de embeddings en `EmbeddingsService`.
+- **Punto 11**: Se fijó la versión de `urllib3<2` en `requirements.txt` para evitar conflictos de dependencia con `requests` que causaban un `ImportError`.
+- **Punto 12**: Se actualizó `pyproject.toml` para incluir todas las dependencias faltantes (incluyendo `chromadb`, `urllib3<2`, `google-generativeai`, etc.) asegurando que `pipx` las instale correctamente.

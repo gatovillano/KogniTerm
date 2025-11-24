@@ -5,3 +5,17 @@ langchain_community
 bs4
 PyGithub
 rich
+python-dotenv
+matplotlib
+google-generativeai
+jupyter_client
+loguru
+colorama
+gitignore-parser
+watchdog
+litellm
+GitPython
+pydantic
+pydantic-settings
+chromadb
+urllib3<2

@@ -6,13 +6,30 @@ authors = [
     { name = "Gato Villano", email = "gato@example.com" } # Puedes cambiar esto
 ]
 dependencies = [
+    "python-dotenv",
+    "langchain",
+    "langchain-core",
     "langgraph",
     "prompt_toolkit",
     "langchain_mcp_adapters",
     "langchain_community",
     "bs4",
     "PyGithub",
-    "rich", # Añadido si lo usas para la UI
+    "rich",
+    "matplotlib",
+    "google-generativeai",
+    "jupyter_client",
+    "loguru",
+    "colorama",
+    "gitignore-parser",
+    "watchdog",
+    "litellm",
+    "playwright",
+    "GitPython",
+    "pydantic",
+    "pydantic-settings",
+    "chromadb",
+    "urllib3<2", # Añadido si lo usas para la UI
 ]
 readme = "README.md"
 requires-python = ">=3.9"

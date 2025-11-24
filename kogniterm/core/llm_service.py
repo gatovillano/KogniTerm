@@ -318,6 +318,15 @@ class LLMService:
     def get_tools(self) -> List[BaseTool]:
         return self.tool_manager.get_tools()
 
+    def register_tool(self, tool_instance: BaseTool):
+        """Registra una herramienta dinámicamente y actualiza las estructuras internas."""
+        self.tool_manager.register_tool(tool_instance)
+        # Actualizar las estructuras internas de LLMService
+        self.tool_map[tool_instance.name] = tool_instance
+        self.tool_names.append(tool_instance.name)
+        self.litellm_tools.append(_convert_langchain_tool_to_litellm(tool_instance))
+
+
     def _initialize_memory(self):
         """Inicializa la memoria si no existe."""
         memory_init_tool = self.get_tool("memory_init")

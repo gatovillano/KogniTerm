@@ -214,6 +214,99 @@ def main():
 
     logging.getLogger('kogniterm.terminal.kogniterm_app').setLevel(logging.WARNING)
     
+    # Handle config commands
+    if len(sys.argv) > 1 and sys.argv[1] == 'config':
+        from kogniterm.terminal.config_manager import ConfigManager
+        config_manager = ConfigManager()
+        
+        if len(sys.argv) < 3:
+            print("Usage: kogniterm config [project] set <key> <value> | get <key> | list")
+            return
+
+        command = sys.argv[2]
+        
+        if command == 'set':
+            if len(sys.argv) != 5:
+                print("Usage: kogniterm config set <key> <value>")
+                return
+            key = sys.argv[3]
+            value = sys.argv[4]
+            config_manager.set_global_config(key, value)
+            print(f"Global config '{key}' set to '{value}'")
+            
+        elif command == 'project':
+            if len(sys.argv) < 4:
+                print("Usage: kogniterm config project set <key> <value>")
+                return
+            subcommand = sys.argv[3]
+            if subcommand == 'set':
+                if len(sys.argv) != 6:
+                    print("Usage: kogniterm config project set <key> <value>")
+                    return
+                key = sys.argv[4]
+                value = sys.argv[5]
+                config_manager.set_project_config(key, value)
+                print(f"Project config '{key}' set to '{value}'")
+            else:
+                print(f"Unknown project subcommand: {subcommand}")
+
+        elif command == 'get':
+             if len(sys.argv) != 4:
+                print("Usage: kogniterm config get <key>")
+                return
+             key = sys.argv[3]
+             value = config_manager.get_config(key)
+             print(f"{key}: {value}")
+
+        elif command == 'list':
+            import json
+            print(json.dumps(config_manager.get_all_config(), indent=4))
+            
+        else:
+            print(f"Unknown config command: {command}")
+            
+        return
+
+    # Handle index commands
+    if len(sys.argv) > 1 and sys.argv[1] == 'index':
+        if len(sys.argv) < 3:
+            print("Usage: kogniterm index refresh")
+            return
+        
+        command = sys.argv[2]
+        
+        if command == 'refresh':
+            from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+            from kogniterm.core.context.vector_db_manager import VectorDBManager
+            
+            workspace_directory = os.getcwd()
+            print(f"Indexing codebase in {workspace_directory}...")
+            
+            try:
+                indexer = CodebaseIndexer(workspace_directory)
+                vector_db = VectorDBManager(workspace_directory)
+                
+                # Run async indexing
+                chunks = asyncio.run(indexer.index_project(workspace_directory))
+                
+                if chunks:
+                    print(f"Generated {len(chunks)} chunks. Storing in Vector DB...")
+                    vector_db.clear_collection() # Clear existing before adding new
+                    vector_db.add_chunks(chunks)
+                    print("Indexing complete!")
+                else:
+                    print("No code files found or no chunks generated.")
+                    
+            except Exception as e:
+                print(f"Error during indexing: {e}")
+                import traceback
+                traceback.print_exc()
+                
+        else:
+            print(f"Unknown index command: {command}")
+            
+        return
+
     asyncio.run(_main_async())
 
 if __name__ == "__main__":

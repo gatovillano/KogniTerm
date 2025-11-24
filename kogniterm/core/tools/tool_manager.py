@@ -66,6 +66,12 @@ class ToolManager:
             self.tools.append(tool_instance)
             self.tool_map[tool_instance.name] = tool_instance
 
+    def register_tool(self, tool_instance):
+        """Registra una herramienta dinámicamente después de la inicialización."""
+        if tool_instance.name not in self.tool_map:
+            self.tools.append(tool_instance)
+            self.tool_map[tool_instance.name] = tool_instance
+
     def get_tools(self):
         return self.tools
 
