@@ -1,8 +1,8 @@
 from typing import Optional, Type, Dict, Any, List
 from pydantic import BaseModel, Field
 from langchain.tools import BaseTool
-# from kogniterm.core.llm_service import LLMService # Eliminar esta línea
 import json
+from langchain_core.messages import HumanMessage
 
 class PlanCreationToolSchema(BaseModel):
     """Schema for PlanCreationTool."""
@@ -16,19 +16,22 @@ class PlanCreationTool(BaseTool):
         "Use this tool when a user's request involves multiple steps or requires a strategic approach."
     )
     args_schema: Type[BaseModel] = PlanCreationToolSchema
-    llm_service: Optional[Any] = None # Cambiar el tipo a Any para evitar la importación circular
+    llm_service: Optional[Any] = None
 
-    def __init__(self, llm_service: Any, **kwargs): # Cambiar el tipo a Any
+    def __init__(self, llm_service: Any = None, **kwargs):
         super().__init__(**kwargs)
         self.llm_service = llm_service
 
-    def _run(self, task_description: str) -> Dict[str, Any]:
+    def _run(self, task_description: str) -> str:
         """
         Generates a plan for a given task description using the LLM.
-        The plan is then formatted for user confirmation.
+        Returns a JSON string with status "requires_confirmation" for the approval handler.
         """
         if not self.llm_service:
-            return {"status": "error", "message": "LLMService not initialized for PlanCreationTool."}
+            return json.dumps({
+                "status": "error", 
+                "message": "LLMService not initialized for PlanCreationTool."
+            })
 
         # Prompt the LLM to generate a plan
         prompt = (
@@ -44,4 +47,58 @@ class PlanCreationTool(BaseTool):
             f'    {{"step": 2, "description": "Descripción del paso 2"}}\n'
             f'  ]\n'
             f"}}\n"
+            f"Responde SOLO con el JSON válido."
         )
+
+        try:
+            messages = [HumanMessage(content=prompt)]
+            # Use invoke with save_history=False to avoid polluting the main conversation history
+            response_generator = self.llm_service.invoke(messages, save_history=False)
+            
+            full_content = ""
+            for chunk in response_generator:
+                if isinstance(chunk, str):
+                    full_content += chunk
+                elif hasattr(chunk, 'content'):
+                    full_content += chunk.content
+            
+            # Parse JSON
+            json_str = full_content.strip()
+            if json_str.startswith("```json"):
+                json_str = json_str[7:]
+            elif json_str.startswith("```"):
+                json_str = json_str[3:]
+            
+            if json_str.endswith("```"):
+                json_str = json_str[:-3]
+            
+            json_str = json_str.strip()
+            
+            try:
+                plan_data = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Fallback if JSON parsing fails
+                return json.dumps({
+                    "status": "error", 
+                    "message": f"Failed to parse plan JSON: {full_content}"
+                })
+            
+            # Extract plan details
+            title = plan_data.get("plan_title", "Plan Propuesto")
+            steps = plan_data.get("steps", [])
+            
+            # Return in the format expected by CommandApprovalHandler
+            return json.dumps({
+                "status": "requires_confirmation",
+                "operation": "plan_creation",
+                "plan_title": title,
+                "plan_steps": steps,
+                "message": f"Se ha generado un plan para: {task_description}",
+                "task_description": task_description
+            })
+
+        except Exception as e:
+            return json.dumps({
+                "status": "error", 
+                "message": f"Error generating plan: {e}"
+            })

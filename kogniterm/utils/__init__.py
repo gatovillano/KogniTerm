@@ -1,1 +1,2 @@
 from .playwright_browser_manager import PlaywrightBrowserManager
+from .diff_renderer import DiffRenderer

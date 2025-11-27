@@ -322,6 +322,8 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
         return tool_id, processed_tool_output, None
     except UserConfirmationRequired as e:
         return tool_id, json.dumps(e.raw_tool_output), e
+    except InterruptedError:
+        return tool_id, f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.", InterruptedError("Interrumpido por el usuario.")
     except Exception as e:
         return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
 
@@ -395,12 +397,12 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     confirmation_data = None
                     if isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output):
                         for item in json_output:
-                            if item.get("status") == "requires_confirmation" and tool_name in ["file_update_tool", "advanced_file_editor"]:
+                            if item.get("status") == "requires_confirmation":
                                 should_confirm = True
                                 confirmation_data = item
                                 break
                     elif isinstance(json_output, dict):
-                        if json_output.get("status") == "requires_confirmation" and tool_name in ["file_update_tool", "advanced_file_editor"]:
+                        if json_output.get("status") == "requires_confirmation":
                             should_confirm = True
                             confirmation_data = json_output
                     if should_confirm and confirmation_data:

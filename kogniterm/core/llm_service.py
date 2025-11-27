@@ -818,7 +818,7 @@ class LLMService:
         """Encuentra y devuelve una herramienta de LangChain por su nombre."""
         return self.tool_manager.get_tool(tool_name)
 
-    def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Any:
+    def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Generator[Any, None, None]:
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
         def _tool_target():
             try:

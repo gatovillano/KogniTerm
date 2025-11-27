@@ -248,7 +248,7 @@ class HistoryManager:
                     # Si el ID no coincide con ninguno conocido, es un huérfano definitivo.
                     # La heurística anterior de "si el anterior es AIMessage" es peligrosa porque
                     # permite pasar ToolMessages con IDs incorrectos que hacen fallar a LiteLLM.
-                    print(f"DEBUG: Eliminando ToolMessage huérfano. ID: {msg.tool_call_id}, IDs válidos: {valid_tool_call_ids}", file=sys.stderr)
+                    # print(f"DEBUG: Eliminando ToolMessage huérfano. ID: {msg.tool_call_id}, IDs válidos: {valid_tool_call_ids}", file=sys.stderr)
                     continue
             filtered_history.append(msg)
         

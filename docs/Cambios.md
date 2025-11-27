@@ -116,3 +116,80 @@ Se ha implementado el sistema RAG (Retrieval-Augmented Generation) para permitir
 - **Punto 10**: Implementación de soporte para **Ollama** como proveedor de embeddings en `EmbeddingsService`.
 - **Punto 11**: Se fijó la versión de `urllib3<2` en `requirements.txt` para evitar conflictos de dependencia con `requests` que causaban un `ImportError`.
 - **Punto 12**: Se actualizó `pyproject.toml` para incluir todas las dependencias faltantes (incluyendo `chromadb`, `urllib3<2`, `google-generativeai`, etc.) asegurando que `pipx` las instale correctamente.
+
+---
+
+## 24-11-2025 Corrección de `CodebaseSearchTool` y Prompt de Indexación al Inicio
+
+Se ha corregido un error de ejecución asíncrona en `CodebaseSearchTool` y se ha mejorado la experiencia de usuario al iniciar KogniTerm.
+
+- **Punto 1**: Se implementó el método síncrono `_run` en `kogniterm/core/tools/codebase_search_tool.py` y se actualizó `_arun` para envolverlo en un hilo, solucionando el error `CodebaseSearchTool is an async tool, use _arun instead`.
+- **Punto 2**: Se modificó `kogniterm/terminal/kogniterm_app.py` para preguntar al usuario al inicio si desea indexar el contenido del directorio actual.
+- **Punto 3**: Se integró el proceso de indexación con una barra de progreso visual en el inicio de la aplicación si el usuario confirma la acción.
+
+---
+
+## 24-11-2025 Indexación de Codebase en Segundo Plano
+
+Se ha optimizado el proceso de indexación inicial del codebase para que se ejecute en segundo plano, permitiendo al usuario utilizar la aplicación inmediatamente sin bloqueos.
+
+- **Punto 1**: Se modificó `CodebaseIndexer.index_project` en `kogniterm/core/context/codebase_indexer.py` para aceptar un parámetro `show_progress`, permitiendo la ejecución silenciosa sin barra de progreso visual.
+- **Punto 2**: Se actualizó `KogniTermApp` en `kogniterm/terminal/kogniterm_app.py` para ejecutar la indexación como una tarea asíncrona en segundo plano (`asyncio.create_task`) tras la confirmación del usuario.
+- **Punto 3**: Se implementó la ejecución de operaciones pesadas de base de datos vectorial (`vector_db.add_chunks`) en un hilo separado (`asyncio.to_thread`) para evitar bloquear el bucle de eventos principal durante la indexación en segundo plano.
+
+---
+
+## 24-11-2025 Corrección de CodebaseSearchTool y Mejoras de UI en Indexación
+
+Se han realizado correcciones y mejoras en la experiencia de indexación y búsqueda de código.
+
+- **Punto 1**: Se eliminó el método `_arun` de `CodebaseSearchTool` en `kogniterm/core/tools/codebase_search_tool.py` para definirla explícitamente como una herramienta síncrona, resolviendo el error "CodebaseSearchTool is an async tool, use _arun instead".
+- **Punto 2**: Se implementó una barra de progreso en la parte inferior de la terminal (`bottom_toolbar`) en `KogniTermApp` para mostrar el estado de la indexación en segundo plano sin interferir con el prompt del usuario.
+- **Punto 3**: Se añadió una verificación al inicio (`VectorDBManager.is_indexed`) para detectar si el proyecto ya está indexado y preguntar al usuario si desea "RE-INDEXAR" en lugar de indexar desde cero.
+
+---
+
+## 24-11-2025 Implementación de Ideas "Kilo Code" (Fase 1)
+
+Se han incorporado mejoras significativas en la indexación y búsqueda semántica, inspiradas en Kilo Code.
+
+- **Punto 1**: Se enriqueció `CodebaseIndexer` para inferir y almacenar el lenguaje de programación (`language`) y el tipo de bloque (`type`) en los metadatos de cada chunk.
+- **Punto 2**: Se actualizó `VectorDBManager.search` para soportar filtros opcionales por ruta de archivo (`file_path_filter`) y lenguaje (`language_filter`).
+- **Punto 3**: Se modificó `CodebaseSearchTool` para exponer estos nuevos filtros como argumentos, permitiendo al agente realizar búsquedas más precisas (ej: "buscar función X en archivos python").
+- **Corrección**: Se solucionó un error `NameError: name 'HTML' is not defined` en `KogniTermApp` importando la clase necesaria.
+
+---
+
+## 24-11-2025 Soporte para .gitignore y .kognitermignore
+
+Se ha mejorado el mecanismo de indexación para respetar los archivos de ignorado estándar.
+
+- **Punto 1**: `CodebaseIndexer` ahora lee automáticamente los patrones de `.gitignore` y `.kognitermignore` en la raíz del proyecto.
+- **Punto 2**: Los archivos y directorios que coincidan con estos patrones (como `venv`, `.git`, `__pycache__`) serán ignorados durante la indexación, mejorando la eficiencia y relevancia de la búsqueda.
+- **Corrección**: Se implementó un filtrado en `CodebaseIndexer` para descartar chunks que no hayan generado embeddings válidos, evitando errores de "empty embedding" en ChromaDB.
+- **Corrección**: Se actualizó `VectorDBManager.add_chunks` para guardar correctamente los metadatos `language` y `type`, permitiendo que los filtros de búsqueda funcionen correctamente.
+
+---
+
+## 26-11-2025 Corrección de NameError: name 'Optional' is not defined en CodebaseSearchTool
+
+Se ha corregido un `NameError` en `kogniterm/core/tools/codebase_search_tool.py` que ocurría porque `Optional` no estaba importado explícitamente desde el módulo `typing`.
+
+- **Punto 1**: Se añadió `from typing import Optional` a las importaciones en `kogniterm/core/tools/codebase_search_tool.py` para asegurar que `Optional` esté definido y disponible para su uso en las anotaciones de tipo de Pydantic.
+
+---
+
+## 26-11-2025 Corrección de Unexpected Indent en CodebaseIndexer
+
+Se ha corregido un `unexpected indent` en `kogniterm/core/context/codebase_indexer.py` en la línea 199. El error se debía a una indentación incorrecta de un bloque de código dentro de la función `index_project`.
+
+- **Punto 1**: Se ajustó la indentación del bloque de código que maneja la generación de embeddings dentro del `if show_progress:` para que estuviera al nivel correcto, resolviendo el `SyntaxError`.
+
+---
+
+## 26-11-2025 Actualización de README y eliminación de referencias al orquestador
+
+Se actualizó el archivo README.md para eliminar referencias obsoletas al "orquestador" y al comando mágico `%agentmode`, reflejando que ahora se utiliza un único agente inteligente.
+
+- **Punto 1**: Se eliminó la mención a `%agentmode` en la lista de comandos mágicos en `README.md`.
+- **Punto 2**: Se actualizó la descripción de "Agentes Inteligentes" a "Agente Inteligente" en `README.md`, eliminando la distinción entre modos `bash` y `orchestrator`.

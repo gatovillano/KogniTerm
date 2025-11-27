@@ -22,6 +22,9 @@ from rich.console import Group # ¡Nueva importación!
 
 import uuid # Importar uuid
 
+# Importar DiffRenderer para visualización mejorada de diffs
+from kogniterm.utils.diff_renderer import DiffRenderer
+
 # Importar temas para mejorar visuales
 try:
     from kogniterm.terminal.themes import ColorPalette, Icons
@@ -50,6 +53,20 @@ class CommandApprovalHandler:
         self.file_update_tool = file_update_tool
         self.advanced_file_editor_tool = advanced_file_editor_tool
         self.file_operations_tool = file_operations_tool
+        
+        # Inicializar DiffRenderer con colores del tema si están disponibles
+        if THEMES_AVAILABLE:
+            theme_colors = {
+                'diff_add_color': ColorPalette.SUCCESS,
+                'diff_delete_color': ColorPalette.ERROR,
+                'diff_context_color': ColorPalette.TEXT_SECONDARY,
+                'diff_hunk_header_color': ColorPalette.SECONDARY,
+                'line_number_color': f'dim {ColorPalette.PRIMARY_LIGHT}'
+            }
+        else:
+            theme_colors = None
+        
+        self.diff_renderer = DiffRenderer(theme_colors=theme_colors)
 
     async def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
@@ -115,36 +132,41 @@ class CommandApprovalHandler:
             )
         elif is_file_update_confirmation:
             logger.debug("DEBUG: is_file_update_confirmation es True. Preparando panel de diff.")
-            panel_title = f'Confirmación de Actualización: {file_path}'
+            panel_title = f'[bold]Confirmación de Actualización:[/bold] [cyan]{file_path}[/cyan]'
             if tool_name == "file_operations" and original_tool_args and original_tool_args.get("operation") == "delete_file":
                 # Si es una operación de eliminación, mostrar solo la ruta del archivo
                 panel_content_markdown = Markdown(
                     f"""**Eliminación de Archivo Requerida:**\n{message}\n\n**Archivo a eliminar:**\n```\n{file_path}\n```\n"""
                 )
+                self.terminal_ui.console.print(
+                    Panel(
+                        panel_content_markdown,
+                        border_style='yellow',
+                        title=panel_title
+                    ),
+                    soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
+                )
             else:
-                # Si es una actualización o cualquier otra operación con diff, usar Syntax para resaltado
-                diff_syntax = Syntax(diff_content, "diff", theme="monokai", line_numbers=False, word_wrap=True)
+                # Usar DiffRenderer para visualización mejorada
+                diff_table = self.diff_renderer.render_diff_from_string(diff_content, file_path)
                 
-                # Construir el contenido del panel con el mensaje y el diff formateado
+                # Construir el contenido del panel con el mensaje y el diff renderizado
+                # Usar Markdown para el mensaje para que se renderice correctamente (**texto**)
                 panel_content = Group(
-                    Text.from_markup(f"**Actualización de Archivo Requerida:**\n{message}\n\n"),
-                    diff_syntax # Usar Syntax para el diff
+                    Markdown(f"**Actualización de Archivo Requerida:**\n{message}\n"),
+                    diff_table
                 )
                 
                 self.terminal_ui.console.print(
                     Panel(
-                        panel_content, # Usar el Group directamente
+                        panel_content,
                         border_style='yellow',
                         title=panel_title
                     ),
-                    soft_wrap=False, # Desactivar soft_wrap para el panel
-                    overflow="fold", # Cambiar overflow a fold para mejor ajuste
+                    soft_wrap=False,
+                    overflow="fold",
                     highlight=False, markup=True, end="\n"
                 )
-                
-                # El diccionario de confirmación se procesará más adelante en este mismo método
-                # para mostrar el panel y solicitar la aprobación del usuario.
-                pass # Continuar el flujo de ejecución
         elif is_user_confirmation and confirmation_prompt:
             explanation_text = confirmation_prompt
             panel_title = 'Confirmación de Usuario Requerida'

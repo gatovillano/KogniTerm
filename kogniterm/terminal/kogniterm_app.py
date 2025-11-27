@@ -2,7 +2,7 @@ import os
 import sys
 import re
 from dotenv import load_dotenv
-from prompt_toolkit import PromptSession
+from prompt_toolkit import PromptSession, HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.styles import Style
@@ -206,6 +206,10 @@ class KogniTermApp:
         # Inicializar FileCompleter con el workspace_directory
         file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
         self.completer = FileCompleter(file_operations_tool=file_operations_tool, workspace_directory=self.workspace_directory, show_indicator=False)
+        
+        # Estado de indexación para la barra de progreso
+        self.indexing_status = None
+
 
         # Instanciar AdvancedFileEditorTool
         advanced_file_editor_tool = AdvancedFileEditorTool()
@@ -278,7 +282,9 @@ class KogniTermApp:
             history=FileHistory('.gemini_interpreter_history'),
             completer=self.completer,
             style=custom_style,
-            key_bindings=combined_key_bindings
+            key_bindings=combined_key_bindings,
+            bottom_toolbar=self._get_bottom_toolbar, # Añadir bottom_toolbar
+            refresh_interval=0.5 # Refrescar la UI cada 0.5s para actualizar la barra
         )
 
         self.command_approval_handler = CommandApprovalHandler(
@@ -291,6 +297,18 @@ class KogniTermApp:
             advanced_file_editor_tool, # Pasar la instancia de advanced_file_editor_tool
             file_operations_tool # Pasar la instancia de file_operations_tool
         )
+
+    def _get_bottom_toolbar(self):
+        """Genera el contenido de la barra inferior (toolbar)."""
+        if self.indexing_status:
+            return HTML(f'<style bg="ansiblue" fg="white"> <b>Indexando:</b> {self.indexing_status} </style>')
+        return None
+
+    def _update_indexing_progress(self, current, total, description):
+        """Callback para actualizar el estado de la indexación."""
+        percentage = int((current / total) * 100) if total > 0 else 0
+        self.indexing_status = f"{description} ({percentage}%)"
+        # Forzar redibujado de la aplicación si es posible (prompt_toolkit lo hace con refresh_interval)
 
     def _process_file_tags(self, text: str) -> str:
         """
@@ -323,6 +341,40 @@ class KogniTermApp:
 
         return re.sub(pattern, replace_match, text)
 
+    async def _run_background_indexing(self):
+        """Runs the codebase indexing in the background."""
+        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+        
+        self.terminal_ui.print_message("Iniciando indexación del codebase en segundo plano... 🚀", style="cyan")
+        
+        try:
+            indexer = CodebaseIndexer(self.workspace_directory)
+            vector_db = VectorDBManager(self.workspace_directory)
+            
+            # Run async indexing silently but with callback
+            chunks = await indexer.index_project(
+                self.workspace_directory, 
+                show_progress=False,
+                progress_callback=self._update_indexing_progress
+            )
+            
+            if chunks:
+                self.indexing_status = "Guardando en DB..."
+                # Run vector db update in a thread to avoid blocking
+                await asyncio.to_thread(vector_db.clear_collection)
+                await asyncio.to_thread(vector_db.add_chunks, chunks)
+                
+                self.terminal_ui.print_message("¡Indexación en segundo plano completada con éxito! 🧠✨", style="green")
+            else:
+                self.terminal_ui.print_message("Indexación finalizada: No se encontraron archivos relevantes.", style="dim")
+                
+        except Exception as e:
+            self.terminal_ui.print_message(f"Error durante la indexación en segundo plano: {e}", style="red")
+        finally:
+            self.indexing_status = None # Limpiar estado al finalizar
+
+
     async def run(self): # Make run() async
         """Runs the main loop of the KogniTerm application."""
         self.terminal_ui.print_welcome_banner()
@@ -330,6 +382,27 @@ class KogniTermApp:
         if self.auto_approve:
             self.terminal_ui.print_message("Modo de auto-aprobación activado.", style="yellow")
         
+        # --- Prompt for Codebase Indexing ---
+        if self.workspace_directory:
+            try:
+                from kogniterm.core.context.vector_db_manager import VectorDBManager
+                vector_db_check = VectorDBManager(self.workspace_directory)
+                is_indexed = vector_db_check.is_indexed()
+                
+                prompt_msg = "¿Desea indexar el contenido de este directorio para búsquedas inteligentes? (s/n): "
+                if is_indexed:
+                    prompt_msg = "El directorio ya parece estar indexado. ¿Desea RE-INDEXAR? (s/n): "
+
+                should_index = await self.prompt_session.prompt_async(prompt_msg)
+                
+                if should_index.lower().strip() == 's':
+                    # Start background task
+                    asyncio.create_task(self._run_background_indexing())
+                    self.terminal_ui.print_message("La indexación se ejecutará en segundo plano. Ver barra inferior.", style="dim")
+            except Exception as e:
+                self.terminal_ui.print_message(f"Error al iniciar la indexación: {e}", style="red")
+        # ------------------------------------
+
         try: # Mover el try para que englobe todo el bucle principal
             # No es necesario detectar cambios de directorio en el bucle si el historial es por directorio.
             # El historial se carga una vez al inicio del KogniTermApp para el CWD.
@@ -494,9 +567,6 @@ class KogniTermApp:
                 elif isinstance(final_response_message, ToolMessage): # Para cualquier otra ToolMessage
                     self.terminal_ui.print_message(f"Herramienta '{final_response_message.tool_call_id}' ejecutada.", style="green")
                     continue
-
-        except KeyboardInterrupt:
-            self.terminal_ui.print_message("\nSaliendo...", style="yellow")
         except Exception as e:
             self.terminal_ui.print_message(f"Ocurrió un error inesperado: {e}", style="red")
             import traceback
@@ -508,3 +578,5 @@ class KogniTermApp:
             # Asegurarse de que el FileCompleter se limpie al salir
             if self.completer:
                 self.completer.dispose()
+
+        
