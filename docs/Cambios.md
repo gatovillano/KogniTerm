@@ -193,3 +193,22 @@ Se actualizó el archivo README.md para eliminar referencias obsoletas al "orque
 
 - **Punto 1**: Se eliminó la mención a `%agentmode` en la lista de comandos mágicos en `README.md`.
 - **Punto 2**: Se actualizó la descripción de "Agentes Inteligentes" a "Agente Inteligente" en `README.md`, eliminando la distinción entre modos `bash` y `orchestrator`.
+
+---
+
+## 28-11-2025 Corrección de Duplicación en Explicación de Comandos
+
+Se ha corregido un problema donde la explicación de los comandos aparecía duplicada (una vez en el panel de UI y otra en el texto del agente). También se eliminó código duplicado en `terminal_ui.py`.
+
+- **Punto 1**: Se eliminó la definición duplicada de la clase `CommandApprovalHandler` al final del archivo `kogniterm/terminal/terminal_ui.py`. Esta clase ya estaba correctamente definida en `kogniterm/terminal/command_approval_handler.py`.
+- **Punto 2**: Se actualizó el prompt del sistema del agente en `kogniterm/core/agents/bash_agent.py` para instruir explícitamente al agente que NO explique los comandos en su respuesta de texto, ya que la interfaz de usuario ya proporciona una explicación visual en el panel de confirmación.
+
+---
+
+## 28-11-2025 Refuerzo de Prompt para Evitar Duplicidad de Explicaciones
+
+Se ha reforzado la instrucción en el prompt del sistema para evitar que el agente explique los comandos de terminal en su respuesta de texto, eliminando así la duplicidad con el panel de confirmación.
+
+- **Punto 1**: Se modificó la instrucción en `kogniterm/core/agents/bash_agent.py` para ser mucho más estricta y explícita ("NO expliques comandos de terminal... Esto es CRÍTICO"), indicando al agente que solo mencione la acción general y deje la explicación técnica al sistema automático.
+
+- **Punto 2**: Se corrigió un error lógico en `CommandApprovalHandler.py` que causaba la duplicación exacta del texto de la explicación. El problema era que el bucle acumulaba tanto los fragmentos de texto transmitidos (streaming) como el mensaje final completo (`AIMessage`) que `llm_service` emite al final. Se añadió una condición para ignorar el contenido del `AIMessage` final si ya se había acumulado texto mediante streaming.

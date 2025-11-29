@@ -188,13 +188,17 @@ class CommandApprovalHandler:
                 # Asegurarse de que explanation_response_generator es un async generator
                 for chunk in explanation_response_generator: # Siempre iterar sobre el generador
                     if isinstance(chunk, AIMessage):
-                        content_part = chunk.content if chunk.content else ""
-                        full_response_content += content_part
+                        # Si recibimos un AIMessage, solo usamos su contenido si no hemos acumulado nada vía streaming
+                        # Esto evita duplicar el texto, ya que llm_service emite chunks de texto Y un AIMessage final con todo el contenido.
+                        if not full_response_content and chunk.content:
+                             full_response_content = chunk.content
                     elif isinstance(chunk, str):
                         full_response_content += chunk
                     else:
                         content_part = str(chunk)
-                        full_response_content += content_part
+                        # Evitar duplicación si el objeto convertido a string es igual a lo que ya tenemos (heurística simple)
+                        if content_part not in full_response_content:
+                            full_response_content += content_part
 
                 explanation_text = full_response_content.strip() if full_response_content.strip() else "No se pudo generar una explicación concisa." # Manejo de respuesta vacía
                 logger.debug(f"DEBUG: Longitud de explanation_text: {len(explanation_text)}") # Nuevo log

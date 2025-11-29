@@ -131,10 +131,25 @@ gemini_model = os.getenv("GEMINI_MODEL")
 
 if openrouter_api_key and litellm_model:
     # Usar OpenRouter
-    os.environ["LITELLM_MODEL"] = litellm_model
+    # Si el modelo no tiene el prefijo openrouter/, añadirlo
+    # Esto maneja nombres de modelo directos de la web de OpenRouter como "kwaipilot/kat-coder-pro:free"
+    if "/" in litellm_model and not litellm_model.startswith("openrouter/"):
+        # El modelo ya tiene un proveedor en su nombre (ej: "kwaipilot/kat-coder-pro:free")
+        # LiteLLM necesita "openrouter/" + el nombre completo
+        os.environ["LITELLM_MODEL"] = f"openrouter/{litellm_model}"
+        model_display = f"openrouter/{litellm_model}"
+    elif not litellm_model.startswith("openrouter/"):
+        # Modelo simple sin proveedor
+        os.environ["LITELLM_MODEL"] = f"openrouter/{litellm_model}"
+        model_display = f"openrouter/{litellm_model}"
+    else:
+        # Ya tiene el prefijo correcto
+        os.environ["LITELLM_MODEL"] = litellm_model
+        model_display = litellm_model
+    
     os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
     litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
-    print(f"🤖 Configuración activa: OpenRouter ({litellm_model})")
+    print(f"🤖 Configuración activa: OpenRouter ({model_display})")
 elif google_api_key and gemini_model:
     # Usar Google AI Studio
     os.environ["LITELLM_MODEL"] = f"gemini/{gemini_model}" # Asegurarse de que sea gemini/gemini-1.5-flash
