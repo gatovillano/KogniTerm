@@ -5,6 +5,9 @@ from langchain_core.tools import BaseTool
 from kogniterm.core.embeddings_service import EmbeddingsService
 from kogniterm.core.context.vector_db_manager import VectorDBManager
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CodebaseSearchToolArgs(BaseModel):
     query: str = Field(..., description="The search query to find relevant code snippets.")

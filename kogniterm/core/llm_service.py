@@ -428,13 +428,12 @@ class LLMService:
 
         # Instrucción para el LLM sobre cómo manejar las confirmaciones de herramientas
         tool_confirmation_instruction = (
-            "Cuando recibas un ToolMessage con un 'status: \"requires_confirmation\"', "
-            "analiza cuidadosamente el 'diff' y la 'action_description'. "
-            "Si la acción es segura y deseada, responde con un ToolMessage que contenga "
-            "el 'tool_name' y los 'args' originales de la herramienta, pero con 'confirm: True'. "
-            "Si la acción no es segura o no es deseada, responde con un mensaje de texto explicando por qué la deniegas. "
-            "Siempre prioriza la seguridad y la intención del usuario. "
-            "**IMPORTANTE:** Si un ToolMessage indica que una herramienta se ejecutó con éxito, considera esa acción como completada y no la anuncies ni la propongas de nuevo en tu siguiente respuesta. Continúa con el siguiente paso de la tarea."
+            "**INSTRUCCIÓN CRÍTICA PARA HERRAMIENTAS Y CONFIRMACIÓN:**\n"
+            "1.  Cuando recibas un ToolMessage con un `status: \"requires_confirmation\"`, esto significa que la herramienta está PENDIENTE de aprobación del usuario. En este estado, DEBES ESPERAR la respuesta del usuario. NO debes generar nuevas tool_calls, NO debes re-proponer la misma herramienta, y NO debes generar texto adicional (como explicaciones o planes) hasta que el usuario haya respondido a la solicitud de confirmación.\n"
+            "2.  Si la acción es segura y deseada, el usuario te proporcionará la confirmación. Cuando esto ocurra, responde con un ToolMessage que contenga el `tool_name` y los `args` originales de la herramienta, pero con `confirm: True`.\n"
+            "3.  Si la acción no es segura o no es deseada, el usuario la denegará. En ese caso, responde con un mensaje de texto explicando por qué la deniegas.\n"
+            "4.  Siempre prioriza la seguridad y la intención del usuario.\n"
+            "5.  Si un ToolMessage indica que una herramienta se ejecutó con éxito, considera esa acción como COMPLETADA y NO la anuncies ni la propongas de nuevo en tu siguiente respuesta. Continúa con el siguiente paso de la tarea."
         )
 
         if all_initial_system_messages_for_llm and all_initial_system_messages_for_llm[0]["role"] == "system":
@@ -465,6 +464,25 @@ class LLMService:
         
         # 4. Combinar todos los mensajes para el LLM
         litellm_messages = all_initial_system_messages_for_llm + filtered_conversation_messages
+
+        # Añadir un mensaje de sistema de "bloqueo" si hay una confirmación de herramienta pendiente
+        if (
+            filtered_conversation_messages and
+            filtered_conversation_messages[-1].get("role") == "tool"
+        ):
+            last_tool_message_content = filtered_conversation_messages[-1].get("content")
+            try:
+                tool_output = json.loads(last_tool_message_content)
+                if isinstance(tool_output, dict) and tool_output.get("status") == "requires_confirmation":
+                    confirmation_blocking_message = (
+                        "ATENCIÓN CRÍTICA: Se ha solicitado la confirmación del usuario para una acción de herramienta. "
+                        "DEBES ESPERAR la respuesta del usuario. NO propongas ninguna nueva herramienta, "
+                        "NO re-proponas la misma herramienta, y NO generes texto adicional hasta que el usuario haya respondido a la solicitud de confirmación. "
+                        "Tu próxima respuesta DEBE ser el resultado de la confirmación del usuario (un ToolMessage con 'confirm: True' o un mensaje de denegación)."
+                    )
+                    litellm_messages.append({"role": "system", "content": confirmation_blocking_message})
+            except json.JSONDecodeError:
+                pass # No es un JSON, no es una confirmación estructurada
 
         # NOTA: La siguiente lógica de truncamiento y resumen está COMENTADA porque ahora usamos
         # processed_history que ya fue procesado por history_manager.get_processed_history_for_llm()
@@ -699,6 +717,9 @@ class LLMService:
                 if not delta:
                     continue
                 
+                # Log the raw delta for debugging
+                logger.debug(f"DEBUG: LiteLLM Delta recibido: {delta}")
+
                 if getattr(delta, 'content', None) is not None:
                     full_response_content += str(delta.content)
                     yield str(delta.content)

@@ -28,6 +28,7 @@ class FileUpdateTool(BaseTool):
         try:
             if not os.access(path, os.W_OK):
                 raise PermissionError(f"No se tienen permisos de escritura en el archivo '{path}'.")
+            print(f"🔄 Actualizando archivo: {path}")
             with open(path, 'w') as f:
                 f.write(content)
             return json.dumps({"status": "success", "path": path, "message": f"Archivo '{path}' actualizado exitosamente."})

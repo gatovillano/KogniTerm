@@ -27,6 +27,7 @@ class FileDeleteTool(BaseTool):
             return f"Previsualización de la eliminación del archivo '{path}'. Contenido actual:\n```\n{self._get_file_content_for_preview(path)}\n```\n(El archivo no ha sido eliminado. Para eliminarlo, llama a la herramienta sin 'preview=True' o con 'preview=False')."
 
         try:
+            print(f"🗑️ Eliminando archivo: {path}")
             os.remove(path)
             return f"Archivo '{path}' eliminado exitosamente."
         except FileNotFoundError:

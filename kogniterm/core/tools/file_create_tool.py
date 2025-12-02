@@ -37,6 +37,7 @@ class FileCreateTool(BaseTool):
                 raise PermissionError(f"No se tienen permisos de escritura en el directorio '{dir_name}'.")
 
             logger.debug(f"FileCreateTool - Abriendo archivo '{path}' en modo escritura.")
+            print(f"📝 Creando archivo: {path}")
             with open(path, 'w') as f:
                 f.write(content_to_write)
             logger.info(f"FileCreateTool - Contenido escrito en '{path}':\n{content_to_write[:200]}...") # Log parcial para evitar saturación

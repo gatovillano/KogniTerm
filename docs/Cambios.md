@@ -212,3 +212,20 @@ Se ha reforzado la instrucción en el prompt del sistema para evitar que el agen
 - **Punto 1**: Se modificó la instrucción en `kogniterm/core/agents/bash_agent.py` para ser mucho más estricta y explícita ("NO expliques comandos de terminal... Esto es CRÍTICO"), indicando al agente que solo mencione la acción general y deje la explicación técnica al sistema automático.
 
 - **Punto 2**: Se corrigió un error lógico en `CommandApprovalHandler.py` que causaba la duplicación exacta del texto de la explicación. El problema era que el bucle acumulaba tanto los fragmentos de texto transmitidos (streaming) como el mensaje final completo (`AIMessage`) que `llm_service` emite al final. Se añadió una condición para ignorar el contenido del `AIMessage` final si ya se había acumulado texto mediante streaming.
+
+---
+
+## 30-11-2025 Mejora en el Manejo de Confirmaciones de Herramientas para Modelos No Gemini
+
+Se han implementado mejoras en la lógica de `LLMService` para que los modelos no Gemini manejen de manera más robusta las confirmaciones de herramientas, evitando bucles y esperas innecesarias.
+
+- **Punto 1**: Se reforzó la `tool_confirmation_instruction` en el mensaje de sistema global de `LLMService` para ser más explícita y enfática sobre la necesidad de esperar la confirmación del usuario antes de generar nuevas acciones o texto.
+- **Punto 2**: Se añadió un mensaje de sistema de "bloqueo" dinámico en `LLMService.invoke`. Este mensaje se inyecta en el prompt del LLM cuando se detecta que hay una confirmación de herramienta pendiente (`status: "requires_confirmation"` en el último `ToolMessage`), instruyendo al modelo a pausar su generación y esperar la respuesta del usuario.
+
+---
+
+## 30-11-2025 Añadido de Logging de Depuración para LiteLLM
+
+Se ha añadido un log de depuración en `kogniterm/core/llm_service.py` para capturar los `delta` recibidos de LiteLLM durante la generación de respuestas. Esto ayudará a diagnosticar errores relacionados con el formato de las respuestas del modelo, especialmente en llamadas a herramientas.
+
+- **Punto 1**: Se añadió la línea `logger.debug(f"DEBUG: LiteLLM Delta recibido: {delta}")` dentro del bucle de procesamiento de chunks en el método `invoke` de `LLMService` en `kogniterm/core/llm_service.py`.
