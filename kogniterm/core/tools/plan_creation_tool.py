@@ -73,14 +73,24 @@ class PlanCreationTool(BaseTool):
                 json_str = json_str[:-3]
             
             json_str = json_str.strip()
+
+            # Normalizar el contenido JSON: reemplazar saltos de línea y múltiples espacios con un solo espacio
+            # Esto ayuda a manejar el formato inconsistente del LLM que puede generar JSON con saltos de línea
+            # y espacios extras dentro de las cadenas de texto, lo que rompe json.loads.
+            # Se usa re.sub para reemplazar \n, \t y múltiples espacios por un solo espacio.
+            # Luego, se asegura de que no haya espacios antes/después de ':' y ',' para JSON válido.
+            import re
+            normalized_json_str = re.sub(r'\s+', ' ', json_str)
+            normalized_json_str = re.sub(r':\s*', ':', normalized_json_str)
+            normalized_json_str = re.sub(r',\s*', ',', normalized_json_str)
             
             try:
-                plan_data = json.loads(json_str)
-            except json.JSONDecodeError:
+                plan_data = json.loads(normalized_json_str)
+            except json.JSONDecodeError as e:
                 # Fallback if JSON parsing fails
                 return json.dumps({
-                    "status": "error", 
-                    "message": f"Failed to parse plan JSON: {full_content}"
+                    "status": "error",
+                    "message": f"Failed to parse plan JSON: {e}. Original content: {full_content}"
                 })
             
             # Extract plan details
