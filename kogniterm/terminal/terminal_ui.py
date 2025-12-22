@@ -51,7 +51,16 @@ class TerminalUI:
 
     def refresh_theme(self):
         """Recarga el tema de la consola."""
+        # Creamos una nueva consola con el tema actualizado
         self.console = Console(theme=get_kogniterm_theme())
+        # Actualizamos también los estilos de texto que dependen de ColorPalette
+        from .themes import TextStyles
+        # Nota: TextStyles en Python no se actualiza automáticamente si sus atributos
+        # fueron asignados por valor. Pero en themes.py, TextStyles usa ColorPalette.ATRIBUTO.
+        # Al ser una clase con atributos de clase, deberíamos asegurar que se refresquen
+        # si es necesario, aunque en la implementación actual de themes.py, 
+        # TextStyles se define una sola vez al importar. 
+        pass
 
 
     def print_stream(self, text: str):

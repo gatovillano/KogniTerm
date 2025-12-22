@@ -46,6 +46,7 @@ kogniterm/core/tools/memory_summarize_tool.py
 kogniterm/core/tools/pc_interaction_tool.py
 kogniterm/core/tools/plan_creation_tool.py
 kogniterm/core/tools/playwright_browser_manager.py
+kogniterm/core/tools/pylint_tool.py
 kogniterm/core/tools/python_executor.py
 kogniterm/core/tools/search_memory_tool.py
 kogniterm/core/tools/set_llm_instructions_tool.py

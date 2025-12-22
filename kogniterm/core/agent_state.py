@@ -3,7 +3,8 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
-from kogniterm.core.llm_service import LLMService # Importar LLMService para los métodos estáticos de historial
+# No necesitamos importar LLMService aquí para los métodos estáticos de historial
+# from kogniterm.core.llm_service import LLMService
 
 @dataclass
 class AgentState:
@@ -20,7 +21,7 @@ class AgentState:
     tool_code_to_confirm: Optional[str] = None # Nuevo campo para el código (diff) a confirmar
     tool_code_tool_name: Optional[str] = None # Nuevo campo para el nombre de la herramienta que generó el código
     tool_code_tool_args: Optional[Dict[str, Any]] = None # Nuevo campo para los args originales de la herramienta
-    file_update_diff_pending_confirmation: Optional[str] = None # Nuevo campo para el diff de file_update_tool
+    file_update_diff_pending_confirmation: Optional[Union[str, Dict[str, Any]]] = None # Nuevo campo para el diff de file_update_tool
     search_memory: List[Dict[str, Any]] = field(default_factory=list) # ¡Nuevo campo para la memoria de búsqueda!
 
     # Añadir un campo para la ruta del archivo de historial
@@ -54,9 +55,9 @@ class AgentState:
         if self.history_for_api is not None and not self.messages:
             self.messages = self.history_for_api
 
-    def load_history(self, system_message: SystemMessage):
+    def load_history(self, system_message: SystemMessage, llm_service: Any): # Añadir llm_service como parámetro
         """Carga el historial de conversación desde el archivo especificado y asegura el SYSTEM_MESSAGE."""
-        loaded_messages = LLMService._load_history(self.history_file_path)
+        loaded_messages = llm_service.history_manager._load_history() # Usar la instancia de history_manager
 
         # Asegurarse de que el SYSTEM_MESSAGE esté al principio
         if not loaded_messages or not (isinstance(loaded_messages[0], SystemMessage) and loaded_messages[0].content == system_message.content):
@@ -96,6 +97,6 @@ class AgentState:
         for i in sorted(indices_to_remove, reverse=True):
             self.messages.pop(i)
 
-    def save_history(self):
+    def save_history(self, llm_service: Any): # Añadir llm_service como parámetro
         """Guarda el historial de conversación actual en el archivo especificado."""
-        LLMService._save_history(self.history_file_path, self.messages)
+        llm_service.history_manager._save_history(self.messages) # Usar la instancia de history_manager

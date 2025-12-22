@@ -157,6 +157,19 @@ class FileCompleter(Completer):
 
 async def _main_async():
     """Función principal asíncrona para iniciar la terminal de KogniTerm."""
+    from kogniterm.terminal.config_manager import ConfigManager
+    from kogniterm.terminal.themes import set_kogniterm_theme
+    
+    # Cargar configuración y aplicar tema guardado antes de iniciar nada
+    config_manager = ConfigManager()
+    saved_theme = config_manager.get_config("theme")
+    if saved_theme:
+        try:
+            set_kogniterm_theme(saved_theme)
+        except ValueError:
+            # Si el tema guardado ya no es válido, se mantiene el default
+            pass
+
     auto_approve = '-y' in sys.argv or '--yes' in sys.argv
     
     # Obtener el directorio de trabajo actual

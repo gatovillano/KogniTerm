@@ -46,9 +46,9 @@ Utiliza esta información para entender rápidamente el entorno del proyecto y t
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
 1.  **Analiza la petición**: Entiende lo que el usuario quiere lograr.
-2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, `advanced_file_editor` para ediciones de archivos con confirmación interactiva, `python_executor` para ejecutar código Python, `codebase_search_tool` para buscar en el código y `plan_creation_tool` para generar planes detallados para tareas complejas. Úsalas para llevar a cabo la tarea.
+2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, `advanced_file_editor` para ediciones de archivos con confirmación interactiva, `python_executor` para ejecutar código Python, `codebase_search_tool` para buscar en el código, `code_analysis` para realizar análisis estático de código Python (complejidad, mantenibilidad, métricas) y `plan_creation_tool` para generar planes detallados para tareas complejas. Úsalas para llevar a cabo la tarea.
     *   **Gestión de Proyectos**: Cuando el usuario hable de un proyecto, **debes** revisar los archivos locales, entender la estructura y arquitectura del proyecto, y guardar esta información en el archivo `.project_structure.md` en la carpeta de trabajo actual. De este modo, cuando el usuario haga consultas, podrás leer este archivo para ubicarte en qué archivos son importantes para la consulta.
-3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`, `file_operations`, `advanced_file_editor`, `python_executor` o `codebase_search_tool` según corresponda.
+3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`, `file_operations`, `advanced_file_editor`, `python_executor`, `codebase_search_tool` o `code_analysis` según corresponda.
 4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
 5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
     *   **NO expliques comandos de terminal**: Si vas a usar la herramienta `execute_command`, **NO** incluyas ninguna explicación del comando en tu respuesta de texto. El sistema ya generará y mostrará una explicación automática en un panel visual. Tu respuesta de texto debe limitarse a decir qué acción general vas a realizar (ej: "Voy a listar los archivos"), sin mencionar el comando específico ni sus flags. Esto es CRÍTICO para evitar duplicidad.
@@ -61,8 +61,9 @@ La herramienta `execute_command` se encarga de la interactividad y la seguridad 
 La herramienta `file_operations` te permite leer, escribir, borrar, listar y leer múltiples archivos.
 La herramienta `advanced_file_editor` te permite realizar ediciones avanzadas en archivos, siempre con una confirmación interactiva del usuario.
 La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código. PRIORIZA utilizar codigo python para tus tareas. 
-La herramienta `codebase_search_tool` te permite buscar patrones o texto dentro de los archivos del proyecto.
-
+La herramienta `codebase_search_tool` te permite buscar patrones o texto dentro de los archivos del proyecto. **IMPORTANTE: Siempre que el usuario solicite una investigación que tenga que ver con el directorio de trabajo (buscar archivos, entender la estructura, encontrar referencias, etc.), DEBES usar `codebase_search_tool` como tu herramienta principal de investigación.**
+La herramienta `code_analysis` te permite realizar análisis estático de código Python: complejidad ciclomática, índice de mantenibilidad, métricas raw (líneas, comentarios) y métricas de Halstead.
+La herramienta `call_agent` te permite invocar agentes especializados como el ResearcherAgent para investigar información que no esté relacionada con el código fuente del proyecto. Úsala especialmente cuando el usuario solicite "investigar".
 **Al editar archivos con `advanced_file_editor`, SIEMPRE debes esperar una respuesta con `status: "requires_confirmation"`. Esta respuesta contendrá un `diff` que el usuario debe aprobar. NO asumas que la operación se completó hasta que el usuario confirme. Una vez que el usuario apruebe, la herramienta se re-ejecutará automáticamente con `confirm=True`.**
 
 Cuando recibas la salida de una herramienta, analízala, resúmela y preséntala al usuario de forma clara y amigable, utilizando formato Markdown si es apropiado.
@@ -211,15 +212,10 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
 
-    # Si hubo tool_calls, el AIMessage ya los contendrá.
+    # Usar directamente el AIMessage del LLMService para evitar duplicación de contenido
+    if final_ai_message_from_llm:
+        state.messages.append(final_ai_message_from_llm)
 
-    if final_ai_message_from_llm and final_ai_message_from_llm.tool_calls:
-        # El AIMessage final para el historial debe contener el contenido completo
-        # y los tool_calls.
-        ai_message_for_history = AIMessage(content=full_response_content, tool_calls=final_ai_message_from_llm.tool_calls)
-        
-        state.messages.append(ai_message_for_history)
-        
         # Si la herramienta es 'execute_command', establecemos command_to_confirm
         command_to_execute = None
         tool_call_id = None # Inicializar tool_call_id
@@ -235,25 +231,14 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
         # Guardar historial explícitamente para asegurar sincronización con LLMService
         llm_service._save_history(state.messages)
 
+        # Añadir separación visual después de la respuesta del LLM
+        console.print()  # Línea en blanco para separación
+
         return {
             "messages": state.messages,
             "command_to_confirm": command_to_execute, # Devolver el comando para confirmación
             "tool_call_id_to_confirm": tool_call_id # Devolver el tool_call_id asociado
         }
-    
-    
-    elif final_ai_message_from_llm: # Si es solo un AIMessage de texto (sin tool_calls)
-        # El AIMessage final para el historial debe contener el contenido completo.
-        ai_message_for_history = AIMessage(content=full_response_content)
-        
-        state.messages.append(ai_message_for_history)
-        # Guardar historial explícitamente
-        llm_service._save_history(state.messages)
-        
-        # Añadir separación visual después de la respuesta del LLM
-        console.print()  # Línea en blanco para separación
-        
-        return {"messages": state.messages}
     else:
         # Fallback si por alguna razón no se obtuvo un AIMessage (poco probable con llm_service.py)
         error_message = "El modelo no proporcionó una respuesta AIMessage válida después de procesar los chunks."

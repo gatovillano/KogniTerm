@@ -61,7 +61,7 @@ class AgentInteractionManager:
         sys.stderr.flush()
         
         # Ejecutar invoke sin timeout
-        final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 100})
+        final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 200})
 
         sys.stderr.flush()
         

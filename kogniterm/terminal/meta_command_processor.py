@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage
 from rich.panel import Panel
 from rich.markdown import Markdown
 from kogniterm.terminal.themes import set_kogniterm_theme, get_available_themes
+from kogniterm.terminal.config_manager import ConfigManager
 
 
 """
@@ -81,7 +82,11 @@ class MetaCommandProcessor:
                     if hasattr(self.terminal_ui, 'refresh_theme'):
                          self.terminal_ui.refresh_theme()
                     
-                    self.terminal_ui.print_message(f"Tema cambiado a '{theme_name}'. ✨", style="green")
+                    # Persistir el tema globalmente
+                    config_manager = ConfigManager()
+                    config_manager.set_global_config("theme", theme_name)
+                    
+                    self.terminal_ui.print_message(f"Tema cambiado a '{theme_name}' y guardado como preferencia global. ✨", style="green")
                     # Reprint banner to show off new colors
                     self.terminal_ui.print_welcome_banner()
                 except ValueError:

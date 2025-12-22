@@ -338,8 +338,6 @@ class LLMService:
                 content = "Operación completada (sin salida)."
             
             tc_id = getattr(message, 'tool_call_id', '')
-            if tc_id and len(tc_id) > 9 and not tc_id.isalnum():
-                tc_id = tc_id[:9]
             return {"role": "tool", "content": content, "tool_call_id": tc_id}
         elif isinstance(message, SystemMessage):
             return {"role": "system", "content": message.content}
@@ -427,6 +425,11 @@ class LLMService:
         if not any(tool_confirmation_instruction in sc for sc in system_contents):
             system_contents.append(tool_confirmation_instruction)
 
+        # Añadir el mensaje de contexto del espacio de trabajo si está inicializado
+        workspace_context_message = self._build_llm_context_message()
+        if workspace_context_message:
+            system_contents.append(workspace_context_message.content)
+
         # Unificar todos los mensajes de sistema al principio (Requerido por muchos proveedores)
         if system_contents:
             litellm_messages.append({"role": "system", "content": "\n\n".join(system_contents)})
@@ -490,7 +493,8 @@ class LLMService:
                 last_user_content = None
             elif role == "tool":
                 # Solo añadir si el ID es conocido (evitar huérfanos)
-                if msg.get("tool_call_id") in known_tool_call_ids:
+                tool_id = msg.get("tool_call_id")
+                if tool_id and (tool_id in known_tool_call_ids or any(tool_id == known_id[:len(tool_id)] for known_id in known_tool_call_ids if len(tool_id) <= len(known_id))):
                     litellm_messages.append(msg)
                 last_user_content = None
 
@@ -540,6 +544,7 @@ class LLMService:
         # Validación estricta de secuencia para Mistral/OpenRouter
         validated_messages = []
         last_user_content = None # INICIALIZACIÓN CORREGIDA
+        in_tool_sequence = False # Bandera para asegurar que tool messages siguen inmediatamente a assistant con tool_calls
         
         # Filtrar y validar secuencia
         for i, msg in enumerate(raw_conv_messages):
@@ -549,14 +554,16 @@ class LLMService:
                 if msg["content"] != last_user_content:
                     validated_messages.append(msg)
                     last_user_content = msg["content"]
+                in_tool_sequence = False
             
             elif role == "assistant":
                 if msg.get("tool_calls"):
                     # Verificar si el SIGUIENTE mensaje es una herramienta
                     has_next_tool = (i + 1 < len(raw_conv_messages) and raw_conv_messages[i+1]["role"] == "tool")
-                    
+
                     if has_next_tool:
                         validated_messages.append(msg)
+                        in_tool_sequence = True
                     else:
                         # Si no hay herramienta después, "neutralizamos" el mensaje quitando tool_calls
                         # Esto evita el error 400 de Mistral
@@ -565,15 +572,17 @@ class LLMService:
                         if not msg_copy.get("content"):
                             msg_copy["content"] = "Procesando..." # No puede estar vacío
                         validated_messages.append(msg_copy)
+                        in_tool_sequence = False
                 else:
                     if not msg.get("content"):
                         msg["content"] = "..." # Evitar asistentes vacíos
                     validated_messages.append(msg)
+                    in_tool_sequence = False
                 last_user_content = None
             
             elif role == "tool":
-                # Solo añadir si el ID existe (evitar huérfanos)
-                if msg.get("tool_call_id"):
+                # Solo añadir si el ID existe y está en secuencia de herramientas (evitar huérfanos)
+                if msg.get("tool_call_id") and in_tool_sequence:
                     validated_messages.append(msg)
                 last_user_content = None
 
@@ -680,7 +689,25 @@ class LLMService:
             error_msg = str(e)
             
             # Identificar errores comunes de proveedores (OpenRouter, Google, etc.)
-            if "OpenrouterException" in error_msg or "Upstream error" in error_msg:
+            if "Missing corresponding tool call for tool response message" in error_msg:
+                friendly_message = "¡Ups! 🔧 Se detectó un problema con la secuencia de herramientas en el historial. Estoy limpiando el historial para continuar. Por favor, repite tu última solicitud si es necesario."
+                # Limpiar el historial removiendo tool messages huérfanos
+                cleaned_history = []
+                in_sequence = False
+                for msg in self.conversation_history:
+                    if isinstance(msg, AIMessage) and msg.tool_calls:
+                        cleaned_history.append(msg)
+                        in_sequence = True
+                    elif isinstance(msg, ToolMessage):
+                        if in_sequence:
+                            cleaned_history.append(msg)
+                        # else skip tool message huérfano
+                    else:
+                        cleaned_history.append(msg)
+                        in_sequence = False
+                self.conversation_history = cleaned_history
+                self._save_history(self.conversation_history)
+            elif "OpenrouterException" in error_msg or "Upstream error" in error_msg:
                 friendly_message = f"¡Ups! 🌐 El proveedor del modelo (OpenRouter) está experimentando problemas técnicos temporales: '{error_msg}'. Por favor, intenta de nuevo en unos momentos."
             elif "RateLimitError" in error_type or "429" in error_msg:
                 friendly_message = "¡Vaya! 🚦 Hemos alcanzado el límite de velocidad del modelo. Esperemos un momento antes de intentarlo de nuevo."

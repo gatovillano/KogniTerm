@@ -30,6 +30,7 @@ Requires-Dist: pydantic-settings
 Requires-Dist: chromadb
 Requires-Dist: urllib3<2
 Requires-Dist: radon
+Requires-Dist: pylint
 
 # 🤖 KogniTerm
 

@@ -135,9 +135,9 @@ class FileOperationsTool(BaseTool):
             return f"Error en la operación '{operation}': {e}"
 
 
-    MAX_FILE_CONTENT_LENGTH: ClassVar[int] = 10000 # Limite de caracteres para el contenido del archivo
 
     def _read_file(self, path: str) -> Dict[str, Any]:
+        print(f"📖 KogniTerm: Leyendo archivo 📄: {path}")
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de lectura de archivo interrumpida por el usuario.")
@@ -146,9 +146,6 @@ class FileOperationsTool(BaseTool):
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
-            if len(content) > self.MAX_FILE_CONTENT_LENGTH:
-                content = content[:self.MAX_FILE_CONTENT_LENGTH] + f"\n... [Contenido truncado a {self.MAX_FILE_CONTENT_LENGTH} caracteres] ..."
             
             return {"file_path": path, "content": content}
         except FileNotFoundError:
@@ -311,7 +308,7 @@ class FileOperationsTool(BaseTool):
             self.interrupt_queue.get()
             raise InterruptedError("Operación de creación de directorio interrumpida por el usuario.")
 
-        print(f"➕ KogniTerm: Creando directorio 📁: {path}")
+        print(f"📁 KogniTerm: Creando directorio ➕: {path}")
         path = path.strip().replace('@', '')
         try:
             os.makedirs(path, exist_ok=True)

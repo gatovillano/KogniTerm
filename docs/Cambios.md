@@ -332,3 +332,64 @@ Se ha implementado una nueva herramienta, `CodeAnalysisTool`, que permite realiz
 - **Punto 2**: Se creó el archivo `kogniterm/core/tools/code_analysis_tool.py` con la implementación de la herramienta.
 - **Punto 3**: Se registró `CodeAnalysisTool` en `kogniterm/core/tools/tool_manager.py` para que esté disponible para el agente.
 - **Punto 4**: Se realizaron ajustes en `kogniterm/core/llm_service.py` para resolver errores de Pylance relacionados con la gestión de `tool_calls` y la redefinición de métodos, asegurando la correcta integración de la nueva herramienta.
+
+---
+
+## 21-12-25 Implementación Completa y Corrección de Errores en CodeAgent
+
+Se completó la implementación del `CodeAgent` en `kogniterm/core/agents/code_agent.py`, asegurando la funcionalidad de streaming y resolviendo varios errores de Pylance relacionados con la tipificación y el manejo del historial.
+
+- **Adaptación de `handle_tool_confirmation`**: Se adaptó la función `handle_tool_confirmation` para el `CodeAgent`, alineándola con la lógica robusta de confirmación y re-ejecución de herramientas del `BashAgent`.
+- **Corrección de Pylance en `AgentState`**: Se modificó `kogniterm/core/agent_state.py` para cambiar el tipo de `file_update_diff_pending_confirmation` a `Optional[Union[str, Dict[str, Any]]]` y se ajustaron las llamadas a `load_history` y `save_history` para que recibieran una instancia de `LLMService`.
+- **Corrección de Pylance en `CodeAgent`**: Se resolvieron los errores de Pylance en `kogniterm/core/agents/code_agent.py` relacionados con el manejo de `tool_args` como `Optional[Dict[str, Any]]` y se aseguró el uso correcto de `state.save_history(llm_service)`.
+- **Actualización de `call_model_node`**: Se revisó `call_model_node` para asegurar que el streaming y la interacción con `llm_service.invoke` fueran correctos, incluyendo el manejo de `AIMessage` y el guardado del historial.
+- **Actualización de `execute_single_tool` y `execute_tool_node`**: Se corrigió la llamada a `execute_single_tool` en `execute_tool_node` para incluir el parámetro `terminal_ui` y se mejoró el manejo de excepciones (`UserConfirmationRequired`, `InterruptedError`).
+- **Ajuste de `should_continue`**: Se ajustó la lógica de `should_continue` para considerar `state.command_to_confirm` y `state.file_update_diff_pending_confirmation`.
+- **Imports y Grafo**: Se verificaron y añadieron los imports necesarios, y se confirmó que la construcción del grafo en `create_code_agent` era correcta.
+
+---
+
+## 21-12-2025 Eliminación de Truncamiento de Salida en `file_operations_tool.py`
+
+Se eliminó la limitación de truncamiento de la salida en la función `_read_file` del archivo `kogniterm/core/tools/file_operations_tool.py`, lo que permite que el contenido completo de los archivos leídos sea enviado al LLM.
+
+- **Punto 1**: Se eliminó la línea de código que truncaba el contenido del archivo a un número máximo de caracteres en la función `_read_file`.
+- **Punto 2**: Se eliminó la constante `MAX_FILE_CONTENT_LENGTH` que definía el límite de truncamiento, ya que no es necesaria.
+
+---
+
+## 22-12-2025 Corrección de Duplicidad de Streaming entre Nodo del Grafo y LLMService
+
+Se observó que tanto el nodo del grafo como el `LLMService` manejan lógica de streaming, lo que requiere un filtrado cuidadoso de `AIMessage` para no duplicar contenido en el historial. Se modificó `call_model_node` para usar directamente el `AIMessage` del `LLMService` en lugar de crear uno nuevo.
+
+- **Modificación de call_model_node**: Se cambió la lógica en `kogniterm/core/agents/bash_agent.py` para append directamente el `AIMessage` recibido del `LLMService` en lugar de crear uno nuevo con contenido duplicado.
+- **Eliminación de creación redundante**: Se eliminó la creación de `ai_message_for_history` para evitar duplicación de contenido en el historial, ya que el `AIMessage` del `LLMService` ya contiene el contenido completo acumulado durante el streaming.
+
+---
+
+## 22-12-2025 Mejora en la Validación de Secuencia de Mensajes para Evitar Tool Messages Huérfanos
+
+Se implementó una validación más estricta en `LLMService.invoke` para filtrar mensajes de herramienta huérfanos que no siguen inmediatamente a un mensaje de asistente con `tool_calls`, corrigiendo el error "Missing corresponding tool call for tool response message" en Gemini y otros proveedores.
+
+- **Adición de bandera in_tool_sequence**: Se introdujo una bandera `in_tool_sequence` para rastrear si los mensajes de herramienta están en una secuencia válida después de un asistente con `tool_calls`.
+- **Modificación de la lógica de validación**: Se actualizó la validación de secuencia para solo incluir `tool` messages si `in_tool_sequence` es `True`, y resetear la bandera en mensajes de usuario o asistentes sin `tool_calls`.
+- **Prevención de errores de API**: Esta mejora evita que secuencias inválidas como `assistant` (sin `tool_calls`) -> `tool` sean enviadas a los proveedores de LLM, que las rechazan.
+
+---
+
+## 22-12-2025 Manejo de Error de Secuencia de Herramientas para Recuperación de Conversación
+
+Se agregó un manejo específico para el error "Missing corresponding tool call for tool response message" en `LLMService.invoke`, permitiendo limpiar el historial de mensajes de herramienta huérfanos y continuar la conversación sin perder el proceso.
+
+- **Detección del error específico**: Se identifica el error de secuencia de herramientas en el bloque de manejo de excepciones.
+- **Limpieza automática del historial**: Al detectar el error, se limpia el historial removiendo `ToolMessage`s huérfanos que no siguen a un `AIMessage` con `tool_calls`, preservando la conversación válida.
+- **Mensaje informativo al usuario**: Se proporciona un mensaje amigable explicando la limpieza y sugiriendo repetir la solicitud si es necesario, permitiendo continuar sin interrupción.
+
+---
+
+## 22-12-2025 Corrección de Error de Tool Call ID Mismatch en Gemini
+
+Se ha corregido un error crítico en el manejo de IDs de llamadas a herramientas para el modelo Gemini, donde el truncamiento del tool_call_id causaba un desajuste entre la solicitud y la respuesta, resultando en una excepción de LiteLLM.
+
+- **Punto 1**: Se eliminó el truncamiento del tool_call_id en la conversión de ToolMessage a formato LiteLLM en `kogniterm/core/llm_service.py`, permitiendo que IDs largos generados por Gemini se mantengan consistentes.
+- **Punto 2**: Se mejoró la lógica de validación de secuencia para incluir tool messages con IDs que coincidan parcialmente con los conocidos, manejando casos donde los IDs fueron truncados en sesiones anteriores.
