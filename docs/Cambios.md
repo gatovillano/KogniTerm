@@ -393,3 +393,50 @@ Se ha corregido un error crítico en el manejo de IDs de llamadas a herramientas
 
 - **Punto 1**: Se eliminó el truncamiento del tool_call_id en la conversión de ToolMessage a formato LiteLLM en `kogniterm/core/llm_service.py`, permitiendo que IDs largos generados por Gemini se mantengan consistentes.
 - **Punto 2**: Se mejoró la lógica de validación de secuencia para incluir tool messages con IDs que coincidan parcialmente con los conocidos, manejando casos donde los IDs fueron truncados en sesiones anteriores.
+
+---
+
+## 22-12-25 Corrección del método get_history en task_complete_tool
+ El error era que task_complete_tool llamaba a llm_service.get_history() que no existe. Se cambió a usar llm_service.conversation_history.
+
+  - **Cambio en task_complete_tool.py**: Reemplazado self.llm_service.get_history() por self.llm_service.conversation_history
+
+---
+
+## 22-12-25 Corrección de error en LLMService para proveedor SiliconFlow
+
+El usuario reportó un error "Input should be 'function'" al usar el proveedor SiliconFlow via OpenRouter. Se ajustó el formato de herramientas y el contenido de mensajes para compatibilidad.
+
+ - **Ajuste del formato de herramientas**: Para modelos SiliconFlow, se usa la API 'functions' en lugar de 'tools' para compatibilidad con proveedores que requieren el formato antiguo.
+ - **Modificación del contenido de mensajes**: Cuando hay tool_calls, el contenido se establece como cadena vacía para evitar errores en proveedores estrictos.
+ - **Actualización de lógica de selección de herramientas**: Se agregó condición para SiliconFlow en la preparación de herramientas, enviando el dict de función directamente para 'functions'.
+
+---
+
+## 22-12-2025 Refuerzo de Casos de Uso del ResearcherAgent en BashAgent
+
+Se agregó una sección en el prompt del sistema del BashAgent para reforzar los casos de uso del ResearcherAgent, permitiendo al LLM conocer mejor cuándo y cómo invocar al agente investigador.
+
+- **Adición de sección "Casos de Uso del ResearcherAgent"**: Se incluyó una nueva sección en el SYSTEM_MESSAGE del bash_agent.py que detalla los principales casos de uso del ResearcherAgent, como comprensión profunda del código, mapeo de arquitectura, diagnóstico de problemas y búsqueda exhaustiva.
+- **Mejora en la instrucción de call_agent**: Se expandió la descripción de la herramienta call_agent para incluir ejemplos específicos de cuándo usar el ResearcherAgent, facilitando su invocación por parte del LLM.
+
+---
+
+## 22-12-2025 Implementación de Parser para Llamadas a Herramientas en Texto de Modelos No Compatibles
+
+Se implementó un parser en LLMService para detectar y convertir llamadas a herramientas expresadas en formato de texto plano (como "tool_name(arg=value)") a llamadas estructuradas, permitiendo que modelos como DeepSeek funcionen correctamente con el sistema de herramientas.
+
+- **Adición de import re**: Se importó el módulo re para expresiones regulares en kogniterm/core/llm_service.py.
+- **Implementación del parser**: Se agregó lógica después del procesamiento de chunks en el método invoke para parsear el contenido de respuesta acumulado y detectar patrones de llamadas a herramientas usando expresiones regulares.
+- **Conversión a tool_calls**: Las llamadas detectadas se convierten a la estructura estándar de tool_calls con id generado, name y args parseados.
+- **Compatibilidad con herramientas existentes**: Solo se convierten llamadas a herramientas registradas en tool_map, asegurando seguridad y validez.
+
+---
+
+## 22-12-2025 Corrección de Envío de Herramientas al LLM
+
+Se corrigieron errores críticos que impedían el envío de herramientas al modelo LLM, causando que las herramientas no se activaran en las primeras interacciones.
+
+- **Eliminación de condición restrictiva**: Se removió la heurística que solo enviaba herramientas cuando había interacciones previas (assistant o tool messages), permitiendo que las herramientas estén disponibles desde la primera consulta del usuario.
+- **Adición de tool_choice para Gemini**: Se incluyó "tool_choice": "auto" para modelos Gemini, además de GPT/OpenAI, asegurando que el modelo use herramientas cuando sea apropiado.
+- **Corrección de filtro de herramientas**: Se cambió la condición de filtrado de herramientas de verificar "function" a verificar "name", ya que las herramientas se convierten con clave "name" en lugar de "function".

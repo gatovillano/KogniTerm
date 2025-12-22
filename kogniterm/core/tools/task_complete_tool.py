@@ -35,7 +35,7 @@ class TaskCompleteTool(BaseTool):
         if not self.llm_service:
             return {"status": "error", "message": "LLMService not initialized for TaskCompleteTool."}
 
-        history = self.llm_service.get_history()
+        history = self.llm_service.conversation_history
         summary_lines = []
         tool_calls_count = 0
         ai_messages_count = 0

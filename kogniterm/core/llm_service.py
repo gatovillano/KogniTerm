@@ -12,6 +12,7 @@ import uuid
 import random
 import string
 import traceback
+import re
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
@@ -101,12 +102,9 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
         }
 
     return {
-        "type": "function",
-        "function": {
-            "name": tool.name,
-            "description": tool.description[:1024], # Límite de descripción para algunos proveedores
-            "parameters": cleaned_schema,
-        },
+        "name": tool.name,
+        "description": tool.description[:1024], # Límite de descripción para algunos proveedores
+        "parameters": cleaned_schema,
     }
 
 import logging
@@ -519,26 +517,21 @@ class LLMService:
             "api_key": self.api_key,
             "temperature": self.generation_params.get("temperature", 0.7),
             "max_tokens": 4096,
-            "num_retries": 0, # Según el ejemplo del usuario
+            "num_retries": 3, # Aumentado para manejar errores temporales
             "timeout": 120,    # Según el ejemplo del usuario
         }
-        
-        # Solo enviar herramientas si el historial tiene más de un mensaje de usuario
-        # o si el modelo realmente necesita herramientas (heurística simple)
-        has_previous_interactions = len([m for m in litellm_messages if m["role"] in ["assistant", "tool"]]) > 0
         
         # --- Lógica de Selección de Herramientas y Validación de Secuencia ---
         final_tools = []
         if self.litellm_tools:
             for t in self.litellm_tools:
-                if isinstance(t, dict) and "function" in t:
+                if isinstance(t, dict) and "name" in t:
                     final_tools.append(t)
-        
+
         if final_tools:
             completion_kwargs["tools"] = final_tools
-            # No forzamos tool_choice="auto" a menos que sea necesario, 
-            # siguiendo el ejemplo del usuario.
-            if "gpt" in self.model_name.lower() or "openai" in self.model_name.lower():
+            # Forzar tool_choice="auto" para modelos que lo soporten
+            if "gpt" in self.model_name.lower() or "openai" in self.model_name.lower() or "gemini" in self.model_name.lower():
                 completion_kwargs["tool_choice"] = "auto"
 
         # Validación estricta de secuencia para Mistral/OpenRouter
@@ -646,7 +639,7 @@ class LLMService:
                         if getattr(tc, 'id', None) is not None:
                             tool_calls[tc.index]["id"] = tc.id
                         elif not tool_calls[tc.index]["id"]:
-                             tool_calls[tc.index]["id"] = self._generate_short_id()
+                            tool_calls[tc.index]["id"] = self._generate_short_id()
                         
                         # Actualizar el nombre de la función si está presente
                         if getattr(tc.function, 'name', None) is not None:
@@ -654,7 +647,8 @@ class LLMService:
                             # Acumular los argumentos
                             if getattr(tc.function, 'arguments', None) is not None:
                                 tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
-            
+
+
             if self.stop_generation_flag:
                 # Si se interrumpe, el AIMessage final se construye con el mensaje de interrupción
                 yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")

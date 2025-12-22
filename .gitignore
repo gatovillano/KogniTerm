@@ -18,3 +18,12 @@ GEMINI.md
 .kogniterm/folder_structure_cache/structure.json
 .kogniterm/history.json
 informe_kilo_code.md
+.kogniterm/vector_db/chroma.sqlite3
+.kogniterm/vector_db/chroma.sqlite3
+.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/data_level0.bin
+.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/header.bin
+.kogniterm/vector_db/chroma.sqlite3
+.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/index_metadata.pickle
+.kogniterm/
+.kogniterm/vector_db/chroma.sqlite3
+.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/
