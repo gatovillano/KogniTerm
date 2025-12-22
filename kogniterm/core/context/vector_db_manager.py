@@ -9,14 +9,23 @@ logger = logging.getLogger(__name__)
 
 class VectorDBManager:
     def __init__(self, project_path: str):
+        # print(f"DEBUG: VectorDBManager path: {project_path}")
         self.project_path = project_path
         self.db_path = os.path.join(project_path, ".kogniterm", "vector_db")
+        # print(f"DEBUG: Asegurando directorio DB en {self.db_path}...")
         self._ensure_db_dir()
         
         try:
-            self.client = chromadb.PersistentClient(path=self.db_path)
+            # print("DEBUG: Creando PersistentClient de ChromaDB (sin telemetría)...")
+            self.client = chromadb.PersistentClient(
+                path=self.db_path,
+                settings=Settings(anonymized_telemetry=False)
+            )
+            # print("DEBUG: Obteniendo o creando colección 'codebase_chunks'...")
             self.collection = self.client.get_or_create_collection(name="codebase_chunks")
+            # print("DEBUG: ChromaDB inicializado correctamente.")
         except Exception as e:
+            # print(f"DEBUG: ERROR en ChromaDB: {e}")
             logger.error(f"Failed to initialize ChromaDB at {self.db_path}: {e}")
             raise e
 
@@ -32,32 +41,36 @@ class VectorDBManager:
         if not chunks:
             return
 
-        ids = [str(uuid.uuid4()) for _ in chunks]
-        documents = [chunk['content'] for chunk in chunks]
-        embeddings = [chunk['embedding'] for chunk in chunks]
-        
-        metadatas = []
-        for chunk in chunks:
-            meta = {
-                "file_path": chunk['file_path'],
-                "start_line": chunk['start_line'],
-                "end_line": chunk['end_line'],
-                "language": chunk.get('language', 'unknown'),
-                "type": chunk.get('type', 'code_block')
-            }
-            metadatas.append(meta)
+        batch_size = 5000
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            
+            ids = [str(uuid.uuid4()) for _ in batch]
+            documents = [chunk['content'] for chunk in batch]
+            embeddings = [chunk['embedding'] for chunk in batch]
+            
+            metadatas = []
+            for chunk in batch:
+                meta = {
+                    "file_path": chunk['file_path'],
+                    "start_line": chunk['start_line'],
+                    "end_line": chunk['end_line'],
+                    "language": chunk.get('language', 'unknown'),
+                    "type": chunk.get('type', 'code_block')
+                }
+                metadatas.append(meta)
 
-        try:
-            self.collection.add(
-                documents=documents,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                ids=ids
-            )
-            logger.info(f"Added {len(chunks)} chunks to ChromaDB.")
-        except Exception as e:
-            logger.error(f"Error adding chunks to ChromaDB: {e}")
-            raise e
+            try:
+                self.collection.add(
+                    documents=documents,
+                    embeddings=embeddings,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+                logger.info(f"Added {len(batch)} chunks to ChromaDB (Batch {i//batch_size + 1}).")
+            except Exception as e:
+                logger.error(f"Error adding chunks to ChromaDB at batch {i//batch_size + 1}: {e}")
+                raise e
 
     def search(self, query_embedding: List[float], k: int = 5, file_path_filter: Optional[str] = None, language_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """Searches for similar chunks in the vector database with optional filters."""

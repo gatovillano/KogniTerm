@@ -1,6 +1,6 @@
+MANIFEST.in
 README.md
 pyproject.toml
-setup.py
 kogniterm/__init__.py
 kogniterm/main.py
 kogniterm/requirements.txt
@@ -19,6 +19,10 @@ kogniterm/core/exceptions.py
 kogniterm/core/history_manager.py
 kogniterm/core/llm_service.py
 kogniterm/core/progress_manager.py
+kogniterm/core/agents/__init__.py
+kogniterm/core/agents/bash_agent.py
+kogniterm/core/agents/code_agent.py
+kogniterm/core/agents/researcher_agent.py
 kogniterm/core/context/__init__.py
 kogniterm/core/context/codebase_indexer.py
 kogniterm/core/context/vector_db_manager.py
@@ -26,14 +30,12 @@ kogniterm/core/context/workspace_context.py
 kogniterm/core/tools/__init__.py
 kogniterm/core/tools/advanced_file_editor_tool.py
 kogniterm/core/tools/brave_search_tool.py
+kogniterm/core/tools/call_agent_tool.py
+kogniterm/core/tools/code_analysis_tool.py
 kogniterm/core/tools/codebase_search_tool.py
 kogniterm/core/tools/execute_command_tool.py
-kogniterm/core/tools/file_create_tool.py
-kogniterm/core/tools/file_delete_tool.py
 kogniterm/core/tools/file_operations_tool.py
 kogniterm/core/tools/file_read_directory_tool.py
-kogniterm/core/tools/file_read_recursive_directory_tool.py
-kogniterm/core/tools/file_read_tool.py
 kogniterm/core/tools/file_search_tool.py
 kogniterm/core/tools/file_update_tool.py
 kogniterm/core/tools/github_tool.py
@@ -51,6 +53,8 @@ kogniterm/core/tools/task_complete_tool.py
 kogniterm/core/tools/tool_manager.py
 kogniterm/core/tools/web_fetch_tool.py
 kogniterm/core/tools/web_scraping_tool.py
+kogniterm/core/utils/__init__.py
+kogniterm/core/utils/tool_utils.py
 kogniterm/terminal/__init__.py
 kogniterm/terminal/agent_interaction_manager.py
 kogniterm/terminal/command_approval_handler.py
@@ -62,5 +66,6 @@ kogniterm/terminal/terminal_ui.py
 kogniterm/terminal/themes.py
 kogniterm/terminal/visual_components.py
 kogniterm/utils/__init__.py
+kogniterm/utils/diff_renderer.py
 kogniterm/utils/playwright_browser_manager.py
 tests/test_tool_message_preservation.py

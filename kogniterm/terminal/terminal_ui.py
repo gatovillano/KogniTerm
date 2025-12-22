@@ -39,7 +39,7 @@ related interactions in the KogniTerm application.
 
 class TerminalUI:
     def __init__(self, console: Console | None = None):
-        self.console = console if console else Console()
+        self.console = console if console else Console(theme=get_kogniterm_theme())
         self.interrupt_queue = queue.Queue()
         self.kb = KeyBindings()
         self.prompt_session = PromptSession(key_bindings=self.kb) # Inicializar prompt_session aquí
@@ -48,6 +48,11 @@ class TerminalUI:
         def _(event):
             self.interrupt_queue.put("interrupt")
             event.app.current_buffer.cancel_completion() # Limpiar el prompt
+
+    def refresh_theme(self):
+        """Recarga el tema de la consola."""
+        self.console = Console(theme=get_kogniterm_theme())
+
 
     def print_stream(self, text: str):
         """

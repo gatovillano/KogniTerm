@@ -10,15 +10,21 @@ from .memory_summarize_tool import MemorySummarizeTool
 from .python_executor import PythonTool
 from .file_search_tool import FileSearchTool
 from .file_operations_tool import FileOperationsTool
-from .file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
 from .advanced_file_editor_tool import AdvancedFileEditorTool
 from .pc_interaction_tool import PCInteractionTool
 from .plan_creation_tool import PlanCreationTool
-from .task_complete_tool import TaskCompleteTool # Nueva importación
+from .task_complete_tool import TaskCompleteTool
+from .call_agent_tool import CallAgentTool
+from .codebase_search_tool import CodebaseSearchTool
+from .file_update_tool import FileUpdateTool
+from .file_read_directory_tool import FileReadDirectoryTool
+from .search_memory_tool import SearchMemoryTool
+from .set_llm_instructions_tool import SetLLMInstructionsTool
+from .code_analysis_tool import CodeAnalysisTool
 
-# You can also define a list of all tools here for easy access
-# Las herramientas que necesitan la instancia de LLMService se inicializarán en LLMService
+# Lista de todas las clases de herramientas para fácil acceso
 ALL_TOOLS_CLASSES = [
+    CodeAnalysisTool,
     BraveSearchTool,
     WebFetchTool,
     WebScrapingTool,
@@ -31,22 +37,29 @@ ALL_TOOLS_CLASSES = [
     PythonTool,
     FileSearchTool,
     FileOperationsTool,
-    FileReadRecursiveDirectoryTool,
     AdvancedFileEditorTool,
     PCInteractionTool,
     PlanCreationTool,
-    TaskCompleteTool # Añadir la nueva herramienta aquí
+    TaskCompleteTool,
+    CallAgentTool,
+    CodebaseSearchTool,
+    FileUpdateTool,
+    FileReadDirectoryTool,
+    SearchMemoryTool,
+    SetLLMInstructionsTool
 ]
 
 import queue
 from typing import Optional
-
-from pydantic import BaseModel # Importar BaseModel
+from pydantic import BaseModel
 
 class ToolManager:
-    def __init__(self, llm_service=None, interrupt_queue: Optional[queue.Queue] = None):
+    def __init__(self, llm_service=None, interrupt_queue: Optional[queue.Queue] = None, terminal_ui=None, embeddings_service=None, vector_db_manager=None):
         self.llm_service = llm_service
         self.interrupt_queue = interrupt_queue
+        self.terminal_ui = terminal_ui
+        self.embeddings_service = embeddings_service
+        self.vector_db_manager = vector_db_manager
         self.tools = []
         self.tool_map = {}
 
@@ -54,23 +67,64 @@ class ToolManager:
         for ToolClass in ALL_TOOLS_CLASSES:
             tool_kwargs = {}
             if hasattr(ToolClass, '__init__'):
-                init_signature = ToolClass.__init__.__code__.co_varnames
-                if 'llm_service' in init_signature:
+                # Obtener la firma del __init__ de manera segura
+                import inspect
+                try:
+                    init_params = inspect.signature(ToolClass.__init__).parameters
+                except ValueError:
+                    init_params = {}
+                
+                if 'llm_service' in init_params or 'llm_service' in getattr(ToolClass, 'model_fields', {}):
                     tool_kwargs['llm_service'] = self.llm_service
-                if 'llm_service_instance' in init_signature:
+                if 'llm_service_instance' in init_params or 'llm_service_instance' in getattr(ToolClass, 'model_fields', {}):
                     tool_kwargs['llm_service_instance'] = self.llm_service
-                if 'interrupt_queue' in init_signature:
+                if 'interrupt_queue' in init_params or 'interrupt_queue' in getattr(ToolClass, 'model_fields', {}):
                     tool_kwargs['interrupt_queue'] = self.interrupt_queue
+                if 'terminal_ui' in init_params or 'terminal_ui' in getattr(ToolClass, 'model_fields', {}):
+                    tool_kwargs['terminal_ui'] = self.terminal_ui
+                if 'embeddings_service' in init_params or 'embeddings_service' in getattr(ToolClass, 'model_fields', {}):
+                    tool_kwargs['embeddings_service'] = self.embeddings_service
+                if 'vector_db_manager' in init_params or 'vector_db_manager' in getattr(ToolClass, 'model_fields', {}):
+                    tool_kwargs['vector_db_manager'] = self.vector_db_manager
             
-            tool_instance = ToolClass(**tool_kwargs)
-            self.tools.append(tool_instance)
-            self.tool_map[tool_instance.name] = tool_instance
+            try:
+                tool_instance = ToolClass(**tool_kwargs)
+                # Ensure unique tool name to avoid duplicate function declarations in LLM metadata
+                base_name = getattr(tool_instance, 'name', ToolClass.__name__)
+                unique_name = base_name
+                suffix = 1
+                while unique_name in self.tool_map:
+                    unique_name = f"{base_name}_{suffix}"
+                    suffix += 1
+                if unique_name != base_name:
+                    try:
+                        setattr(tool_instance, 'name', unique_name)
+                    except Exception:
+                        # If the tool does not allow renaming, still avoid overwriting the map by using unique key
+                        pass
+                    print(f"Warning: duplicate tool name '{base_name}' renamed to '{unique_name}'")
+                self.tools.append(tool_instance)
+                self.tool_map[unique_name] = tool_instance
+            except Exception as e:
+                print(f"Error al instanciar herramienta {ToolClass.__name__}: {e}")
 
     def register_tool(self, tool_instance):
         """Registra una herramienta dinámicamente después de la inicialización."""
-        if tool_instance.name not in self.tool_map:
+        base_name = getattr(tool_instance, 'name', None) or tool_instance.__class__.__name__
+        unique_name = base_name
+        suffix = 1
+        while unique_name in self.tool_map:
+            unique_name = f"{base_name}_{suffix}"
+            suffix += 1
+        if unique_name != base_name:
+            try:
+                setattr(tool_instance, 'name', unique_name)
+            except Exception:
+                pass
+            print(f"Warning: duplicate tool name '{base_name}' renamed to '{unique_name}'")
+        if unique_name not in self.tool_map:
             self.tools.append(tool_instance)
-            self.tool_map[tool_instance.name] = tool_instance
+            self.tool_map[unique_name] = tool_instance
 
     def get_tools(self):
         return self.tools
@@ -78,30 +132,8 @@ class ToolManager:
     def get_tool(self, tool_name: str):
         return self.tool_map.get(tool_name)
 
-# Eliminar la función get_callable_tools ya que su lógica se moverá a ToolManager
-# def get_callable_tools(llm_service_instance=None, interrupt_queue: Optional[queue.Queue] = None, workspace_context=None):
-#     # Instanciar las herramientas, pasando llm_service_instance si es necesario
-#     tools = []
-#     for ToolClass in ALL_TOOLS_CLASSES:
-#         tool_kwargs = {}
-#         if hasattr(ToolClass, '__init__'):
-#             init_signature = ToolClass.__init__.__code__.co_varnames
-#             if 'llm_service' in init_signature:
-#                 tool_kwargs['llm_service'] = llm_service_instance
-#             if 'llm_service_instance' in init_signature:
-#                 tool_kwargs['llm_service_instance'] = llm_service_instance
-#             if 'interrupt_queue' in init_signature: # Pasar interrupt_queue si la herramienta lo acepta
-#                 tool_kwargs['interrupt_queue'] = interrupt_queue
-        
-#         # Nueva lógica para manejar campos Pydantic como workspace_context
-#         # Verificar si la clase de la herramienta es una subclase de BaseModel
-#         # y si 'workspace_context' es un campo definido en ella.
-#         if issubclass(ToolClass, BaseModel) and 'workspace_context' in ToolClass.model_fields: # Usar model_fields para Pydantic v2
-#             # Solo pasar workspace_context si no es None
-#             if workspace_context is not None:
-#                 tool_kwargs['workspace_context'] = workspace_context
-#             # else:
-#                 # Si workspace_context es None, no lo pasamos para evitar el error de validación
-#                 # La herramienta deberá manejar la ausencia de workspace_context si es opcional
-#         tools.append(ToolClass(**tool_kwargs))
-#     return tools
+    def set_agent_state(self, agent_state):
+        """Actualiza la referencia al estado del agente en todas las herramientas que lo necesiten."""
+        for tool in self.tools:
+            if hasattr(tool, 'agent_state'):
+                tool.agent_state = agent_state

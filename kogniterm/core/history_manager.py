@@ -129,6 +129,9 @@ class HistoryManager:
         if not self.history_file_path:
             return
 
+        if self.conversation_history is None:
+            self.conversation_history = []
+
         if self.conversation_history is not history:
             self.conversation_history[:] = history # <<--- MODIFICADO: Actualizar in-place para mantener referencias
 

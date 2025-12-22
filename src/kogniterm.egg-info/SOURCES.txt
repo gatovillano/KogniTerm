@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-src/kogniterm.egg-info/PKG-INFO
-src/kogniterm.egg-info/SOURCES.txt
-src/kogniterm.egg-info/dependency_links.txt
-src/kogniterm.egg-info/entry_points.txt
-src/kogniterm.egg-info/requires.txt
-src/kogniterm.egg-info/top_level.txt

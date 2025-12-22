@@ -17,14 +17,60 @@ class WorkspaceContext:
             '*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.svg', '*.ico', # Image files
             '*.pdf', '*.zip', '*.tar', '*.gz', '*.rar', # Archives and PDFs
         ]
+        # Cargar patrones adicionales desde .gitignore
+        self.git_ignore_patterns = self._load_ignore_patterns()
 
-    def _should_ignore(self, item_name: str, is_dir: bool) -> bool:
+    def _load_ignore_patterns(self) -> List[str]:
+        """Loads ignore patterns from .gitignore and .kognitermignore."""
+        patterns = []
+        for filename in ['.gitignore', '.kognitermignore']:
+            file_path = os.path.join(self.root_dir, filename)
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                patterns.append(line)
+                except Exception:
+                    pass
+        return patterns
+
+    def _matches_git_ignore(self, item_name: str, rel_path: str, is_dir: bool) -> bool:
+        """Checks if a path matches any of the git ignore patterns."""
+        # Normalizar la ruta para comparaciones consistentes
+        rel_path = rel_path.replace(os.sep, '/')
+        
+        for pattern in self.git_ignore_patterns:
+            pattern = pattern.replace(os.sep, '/')
+            if not pattern or pattern.startswith('#'):
+                continue
+            
+            is_dir_only_pattern = pattern.endswith('/')
+            if is_dir_only_pattern:
+                pattern = pattern.rstrip('/')
+
+            if fnmatch.fnmatch(item_name, pattern) or \
+               fnmatch.fnmatch(rel_path, pattern) or \
+               rel_path.startswith(pattern + '/') or \
+               any(fnmatch.fnmatch(part, pattern) for part in rel_path.split('/')):
+                return True
+        return False
+
+    def _should_ignore(self, item_name: str, is_dir: bool, path: Optional[str] = None) -> bool:
+        # 1. Verificar patrones fijos
         for pattern in self.ignore_patterns:
             if pattern.startswith('.') and item_name.startswith('.') and item_name == pattern:
                 return True
             if pattern.endswith('/') and is_dir and item_name == pattern.rstrip('/'):
                 return True
             if fnmatch.fnmatch(item_name, pattern):
+                return True
+        
+        # 2. Verificar patrones de .gitignore si tenemos la ruta relativa
+        if path:
+            rel_path = os.path.relpath(path, self.root_dir)
+            if self._matches_git_ignore(item_name, rel_path, is_dir):
                 return True
         return False
 
@@ -38,7 +84,7 @@ class WorkspaceContext:
             item_path = os.path.join(path, item)
             is_dir = os.path.isdir(item_path)
 
-            if self._should_ignore(item, is_dir):
+            if self._should_ignore(item, is_dir, item_path):
                 continue
 
             if is_dir:

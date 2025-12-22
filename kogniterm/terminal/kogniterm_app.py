@@ -214,31 +214,6 @@ class KogniTermApp:
         # Instanciar AdvancedFileEditorTool
         advanced_file_editor_tool = AdvancedFileEditorTool()
 
-        # Inicializar herramientas RAG
-        from kogniterm.core.tools.codebase_search_tool import CodebaseSearchTool
-        from kogniterm.core.context.vector_db_manager import VectorDBManager
-        from kogniterm.core.embeddings_service import EmbeddingsService
-        
-        # Solo inicializar si estamos en un workspace válido (aunque VectorDBManager lo maneja)
-        # Usamos el workspace_directory actual
-        if self.workspace_directory:
-            try:
-                # Inicializar servicios
-                embeddings_service = EmbeddingsService()
-                vector_db_manager = VectorDBManager(self.workspace_directory)
-                
-                # Crear herramienta
-                codebase_search_tool = CodebaseSearchTool(
-                    vector_db_manager=vector_db_manager,
-                    embeddings_service=embeddings_service
-                )
-                
-                # Registrar herramienta en LLMService
-                self.llm_service.register_tool(codebase_search_tool)
-                # logger.info("CodebaseSearchTool registered successfully.")
-            except Exception as e:
-                logger.warning(f"Failed to initialize RAG tools: {e}")
-
         # Definir un estilo mejorado para el prompt usando temas
         if THEMES_AVAILABLE:
             custom_style = Style.from_dict({
@@ -455,12 +430,11 @@ class KogniTermApp:
                 # Añadir el mensaje del usuario al historial del agente
                 user_human_message = HumanMessage(content=enhanced_user_input)
                 self.agent_state.messages.append(user_human_message)
-                self.llm_service.conversation_history.append(user_human_message)
 
                 final_state_dict = self.agent_interaction_manager.invoke_agent(enhanced_user_input)
                 
                 # Actualizar el estado del agente con lo que devuelve el manager
-                self.agent_state.messages = self.llm_service.conversation_history # Asegurarse de que siempre apunte al historial del LLMService
+                self.agent_state.messages = final_state_dict.get('messages', self.agent_state.messages)
                 self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
                 self.agent_state.tool_call_id_to_confirm = final_state_dict.get('tool_call_id_to_confirm') # <<--- FIX: Propagar el ID del tool call
 

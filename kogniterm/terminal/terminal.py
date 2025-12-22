@@ -60,7 +60,6 @@ from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor # Importar CommandExecutor
 from kogniterm.core.agent_state import AgentState # Importar AgentState
 from kogniterm.core.tools.file_read_directory_tool import FileReadDirectoryTool
-from kogniterm.core.tools.file_read_recursive_directory_tool import FileReadRecursiveDirectoryTool
 from prompt_toolkit.completion import Completer, Completion
 import os
 from rich.text import Text
@@ -86,9 +85,8 @@ from .terminal_ui import TerminalUI
 console = Console()
 
 class FileCompleter(Completer):
-    def __init__(self, *, file_read_directory_tool: FileReadDirectoryTool, file_read_recursive_directory_tool: FileReadRecursiveDirectoryTool, workspace_directory: str, show_indicator: bool = True):
+    def __init__(self, *, file_read_directory_tool: FileReadDirectoryTool, workspace_directory: str, show_indicator: bool = True):
         self.file_read_directory_tool = file_read_directory_tool
-        self.file_read_recursive_directory_tool = file_read_recursive_directory_tool
         self.show_indicator = show_indicator
         self.workspace_directory = workspace_directory
         self._cached_files = None  # Caché para almacenar la lista de archivos
@@ -99,35 +97,20 @@ class FileCompleter(Completer):
         with self._cache_lock:
             self._cached_files = None
 
-    def _load_files_into_cache():
+    def _load_files_into_cache(self):
         """Carga todos los archivos y directorios relativos al workspace_directory en la caché."""
         with self._cache_lock:
             if self._cached_files is not None:
                 return self._cached_files
 
-
-            raw_output = self.file_read_recursive_directory_tool._run(path=self.workspace_directory)
-            
-            # Asegurarse de que raw_output sea una cadena antes de intentar split
-            # Esta lógica ya estaba, pero la haremos más robusta forzando la conversión a str
-            # Asegurarse de que raw_output sea una cadena antes de intentar split
-            # Esta lógica ya estaba, pero la haremos más robusta forzando la conversión a str
-            all_relative_items_str = ""
-            if isinstance(raw_output, list):
-                all_relative_items_str = '\n'.join(raw_output)
-            elif raw_output is not None:
-                all_relative_items_str = str(raw_output)
-            else: # Asegurarse de que siempre sea una cadena, incluso si raw_output es None
-                all_relative_items_str = ""
-            
             all_relative_items = []
-            for line in all_relative_items_str.split('\n'): # Aquí ya es seguro llamar a split
-                line = line.strip()
-                if line.startswith('- Archivo: '):
-                    all_relative_items.append(line[len('- Archivo: '):])
-                elif line.startswith('- Directorio: '):
-                    all_relative_items.append(line[len('- Directorio: '):].rstrip('/'))
-            
+            for root, dirs, files in os.walk(self.workspace_directory):
+                for file in files:
+                    rel_path = os.path.relpath(os.path.join(root, file), self.workspace_directory)
+                    all_relative_items.append(rel_path)
+                for dir in dirs:
+                    rel_path = os.path.relpath(os.path.join(root, dir), self.workspace_directory)
+                    all_relative_items.append(rel_path + '/')
             self._cached_files = all_relative_items
             return self._cached_files
 
@@ -166,8 +149,7 @@ class FileCompleter(Completer):
 
     def dispose(self):
         """Detiene el FileSystemWatcher cuando la aplicación se cierra."""
-        if self._watcher:
-            self._watcher.stop()
+        pass
 
 
 
@@ -183,6 +165,7 @@ async def _main_async():
     llm_service_instance = LLMService() # Usar el project_context inicializado
     command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
     agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
+    llm_service_instance.tool_manager.set_agent_state(agent_state_instance) # Vincular estado del agente a las herramientas
 
     app = KogniTermApp(
         llm_service=llm_service_instance,

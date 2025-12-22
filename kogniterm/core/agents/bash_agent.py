@@ -174,7 +174,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     return state
 def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
-    history = state.history_for_api
+    history = state.history_for_api if state.history_for_api is not None else state.messages
     
     full_response_content = ""
     final_ai_message_from_llm = None

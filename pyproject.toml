@@ -30,6 +30,7 @@ dependencies = [
     "pydantic-settings",
     "chromadb",
     "urllib3<2", # Añadido si lo usas para la UI
+    "radon",
 ]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,3 +41,7 @@ kogniterm = "kogniterm.terminal.terminal:main"
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kogniterm*"]

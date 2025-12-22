@@ -2,11 +2,12 @@ Metadata-Version: 2.4
 Name: kogniterm
 Version: 0.1.0
 Summary: Un asistente de IA experto en terminal.
-Home-page: https://github.com/tu_usuario/kogniterm
-Author: Tu Nombre/Organización
 Author-email: Gato Villano <gato@example.com>
 Requires-Python: >=3.9
 Description-Content-Type: text/markdown
+Requires-Dist: python-dotenv
+Requires-Dist: langchain
+Requires-Dist: langchain-core
 Requires-Dist: langgraph
 Requires-Dist: prompt_toolkit
 Requires-Dist: langchain_mcp_adapters
@@ -14,7 +15,6 @@ Requires-Dist: langchain_community
 Requires-Dist: bs4
 Requires-Dist: PyGithub
 Requires-Dist: rich
-Requires-Dist: python-dotenv
 Requires-Dist: matplotlib
 Requires-Dist: google-generativeai
 Requires-Dist: jupyter_client
@@ -23,60 +23,66 @@ Requires-Dist: colorama
 Requires-Dist: gitignore-parser
 Requires-Dist: watchdog
 Requires-Dist: litellm
+Requires-Dist: playwright
 Requires-Dist: GitPython
 Requires-Dist: pydantic
 Requires-Dist: pydantic-settings
 Requires-Dist: chromadb
 Requires-Dist: urllib3<2
-Dynamic: author
-Dynamic: home-page
-Dynamic: requires-python
+Requires-Dist: radon
 
 # 🤖 KogniTerm
+
 ![alt text](image.png)
 Un asistente de terminal interactivo impulsado por IA que permite a los modelos de lenguaje (LLMs) ejecutar comandos de terminal y código Python en tu sistema, proporcionando una interfaz conversacional y asistida.
 
-> **Inspiración:** Este proyecto está inspirado en [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter). Nace de la necesidad de una integración más robusta y funcional con modelos de Google Gemini, ya que la compatibilidad directa de Open Interpreter con Gemini no siempre es óptima.
-
 ## ✨ Características
 
-*   **Interacción Conversacional:** Comunícate con el intérprete en lenguaje natural. 💬
-*   **Ejecución de Comandos y Código Python:** El LLM puede generar y ejecutar comandos de terminal y bloques de código Python en tu sistema. 💻🐍
-*   **Confirmación de Comandos y Código:** Siempre se te pedirá confirmación antes de ejecutar cualquier comando de terminal o bloque de código Python (a menos que uses el modo de auto-aprobación). ✅
-*   **Manejo Interactivo:** Soporte para comandos y scripts Python que requieren interacción del usuario (ej. contraseñas, confirmaciones `[Y/n]`). 🤝
-*   **Cancelación de Comandos:** Cancela comandos en ejecución con `Ctrl+C` sin salir de la aplicación. 🛑
-*   **Comandos Mágicos:**
-    *   `%help`: Muestra los comandos disponibles. ❓
-    *   `%reset`: Reinicia la conversación. 🔄
-    *   `%undo`: Deshace la última interacción (tu mensaje y la respuesta del LLM). ↩️
-    *   `%agentmode`: Cambia entre el modo `bash` (para comandos directos) y `orchestrator` (para tareas complejas y planificación). 🧠
-*   **Modo de Auto-Aprobación:** Inicia el intérprete con la bandera `-y` para ejecutar comandos y código automáticamente sin confirmación. 🚀
-*   **Interfaz de Usuario Mejorada:** Salida de terminal formateada con Markdown y colores gracias a la librería `rich`. ✨
-*   **Agentes Inteligentes**: Alterna entre el modo `bash` para ejecución directa de comandos y el modo `orchestrator` para planificación y ejecución de tareas complejas. 🤖
-*   **Herramientas Integradas**: Accede a funcionalidades avanzadas como búsqueda web (`brave_search`), obtención de contenido web (`web_fetch`, `web_scraping`), una potente herramienta unificada de GitHub (`github_tool`) para listar, leer archivos y directorios, y un `python_executor` con un kernel de Jupyter persistente para ejecutar y depurar código Python de forma interactiva y con estado. 🌐🐙🐍
+* **Interacción Conversacional:** Comunícate con el intérprete en lenguaje natural. 💬
+* **Ejecución de Comandos y Código Python:** El LLM puede generar y ejecutar comandos de terminal y bloques de código Python en tu sistema. 💻🐍
+* **Confirmación de Comandos y Código:** Siempre se te pedirá confirmación antes de ejecutar cualquier comando de terminal o bloque de código Python (a menos que uses el modo de auto‑aprobación). ✅
+* **Manejo Interactivo:** Soporte para comandos y scripts Python que requieren interacción del usuario (ej. contraseñas, confirmaciones `[Y/n]`). 🤝
+* **Cancelación de Comandos:** Cancela comandos en ejecución con `Ctrl+C` sin salir de la aplicación. 🛑
+* **Comandos Mágicos:** `%help`, `%reset`, `%compress` y más. ✨
+* **Modo de Auto‑Aprobación:** Ejecuta comandos y código automáticamente sin confirmación usando la bandera `-y`. 🚀
+* **Interfaz Mejorada con Rich:** Salida de terminal formateada con Markdown y colores. 🎨
+* **Agente Inteligente:** Un agente avanzado capaz de razonar y ejecutar tareas complejas en tu sistema. 🤖
+* **Herramientas Integradas:** Búsqueda web, extracción de contenido, herramienta unificada de GitHub y un ejecutor Python con kernel Jupyter persistente. 🌐🐙
+* **Visualización de Diffs:** Renderizado de diferencias de código con colores y resaltado de sintaxis. 📊
+* **Creación de Planes:** Herramienta para generar y presentar planes de acción detallados antes de ejecutar tareas complejas. 📋
+* **Prompt de Indexado al Inicio:** Pregunta al usuario si desea indexar el código al iniciar KogniTerm. 📂
+* **Interrupción con ESC:** Permite detener la generación del agente usando la tecla Escape. ⏹️
+
 
 ## 🚀 Instalación
 
-1.  **Clonar el repositorio:**
+1. **Clonar el repositorio:**
+
     ```bash
     git clone <URL_DEL_REPOSITORIO_KOGNITOINTERPRETER>
     cd KogniTerm
     ```
-2.  **Instalar KogniTerm:**
+
+2. **Instalar KogniTerm:**
     Puedes instalar KogniTerm directamente usando `pip`.
-    *   **Instalación estándar:**
+    * **Instalación estándar:**
+
         ```bash
         pip install .
         ```
-    *   **Instalación en modo editable (para desarrollo):**
+
+    * **Instalación en modo editable (para desarrollo):**
         Si deseas que los cambios en el código fuente se reflejen sin reinstalar, usa:
+
         ```bash
         pip install -e .
         ```
+
     Esto instalará KogniTerm y sus dependencias, y el comando `kogniterm` estará disponible en tu entorno virtual.
 
-3.  **Configurar la API Key de Google Gemini:**
+3. **Configurar la API Key de Google Gemini:**
     Asegúrate de tener tu clave de API de Google Gemini configurada como una variable de entorno:
+
     ```bash
     export GOOGLE_API_KEY="TU_CLAVE_API_AQUI"
     ```

@@ -12,6 +12,7 @@ class AgentState:
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
     tool_call_id_to_confirm: Optional[str] = None # Nuevo campo para el tool_call_id asociado al comando
     current_agent_mode: str = "bash" # Añadido para el modo del agente
+    history_for_api: Optional[List[BaseMessage]] = field(default=None, repr=False, compare=False) # Campo temporal para compatibilidad
 
     # Nuevos campos para manejar la confirmación de herramientas
     tool_pending_confirmation: Optional[str] = None
@@ -48,10 +49,10 @@ class AgentState:
         self.reset_tool_confirmation()
 
 
-    @property
-    def history_for_api(self) -> list[BaseMessage]:
-        """Devuelve el historial de mensajes de LangChain directamente."""
-        return self.messages
+    def __post_init__(self):
+        # Si se pasó history_for_api pero no messages, sincronizar
+        if self.history_for_api is not None and not self.messages:
+            self.messages = self.history_for_api
 
     def load_history(self, system_message: SystemMessage):
         """Carga el historial de conversación desde el archivo especificado y asegura el SYSTEM_MESSAGE."""

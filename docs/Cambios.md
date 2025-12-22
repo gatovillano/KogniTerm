@@ -1,3 +1,5 @@
+# Registro de Cambios de KogniTerm
+
 ## 19-11-2025 Eliminación de logs de depuración y mejora de la visibilidad de acciones de herramientas
 
 Se han eliminado o comentado varios mensajes de depuración (DEBUG) en los archivos `kogniterm/core/llm_service.py` y `kogniterm/core/tools/advanced_file_editor_tool.py` para limpiar la salida de la consola. Además, se han añadido mensajes informativos en `AdvancedFileEditorTool` para que la herramienta muestre de manera más clara las acciones que está realizando.
@@ -112,7 +114,6 @@ Se ha implementado el sistema RAG (Retrieval-Augmented Generation) para permitir
 - **Punto 7**: Integración del comando CLI `kogniterm index refresh` en `terminal.py` para indexar el proyecto manualmente.
 - **Punto 8**: Registro de `CodebaseSearchTool` en `kogniterm/terminal/kogniterm_app.py` para que esté disponible para el agente.
 - **Punto 9**: Adición de `chromadb` a `requirements.txt`.
-
 - **Punto 10**: Implementación de soporte para **Ollama** como proveedor de embeddings en `EmbeddingsService`.
 - **Punto 11**: Se fijó la versión de `urllib3<2` en `requirements.txt` para evitar conflictos de dependencia con `requests` que causaban un `ImportError`.
 - **Punto 12**: Se actualizó `pyproject.toml` para incluir todas las dependencias faltantes (incluyendo `chromadb`, `urllib3<2`, `google-generativeai`, etc.) asegurando que `pipx` las instale correctamente.
@@ -207,7 +208,7 @@ Se ha corregido un problema donde la explicación de los comandos aparecía dupl
 
 ## 28-11-2025 Refuerzo de Prompt para Evitar Duplicidad de Explicaciones
 
-Se ha reforzado la instrucción en el prompt del sistema para evitar que el agente explique los comandos de terminal en su respuesta de texto, eliminando así la duplicidad con el panel de confirmación.
+Se ha refuerzo la instrucción en el prompt del sistema para evitar que el agente explique los comandos de terminal en su respuesta de texto, eliminando así la duplicidad con el panel de confirmación.
 
 - **Punto 1**: Se modificó la instrucción en `kogniterm/core/agents/bash_agent.py` para ser mucho más estricta y explícita ("NO expliques comandos de terminal... Esto es CRÍTICO"), indicando al agente que solo mencione la acción general y deje la explicación técnica al sistema automático.
 
@@ -229,3 +230,105 @@ Se han implementado mejoras en la lógica de `LLMService` para que los modelos n
 Se ha añadido un log de depuración en `kogniterm/core/llm_service.py` para capturar los `delta` recibidos de LiteLLM durante la generación de respuestas. Esto ayudará a diagnosticar errores relacionados con el formato de las respuestas del modelo, especialmente en llamadas a herramientas.
 
 - **Punto 1**: Se añadió la línea `logger.debug(f"DEBUG: LiteLLM Delta recibido: {delta}")` dentro del bucle de procesamiento de chunks en el método `invoke` de `LLMService` en `kogniterm/core/llm_service.py`.
+
+---
+
+## 20-12-2025 Implementación de Cambio de Temas
+
+Se ha implementado la funcionalidad para cambiar el tema de colores de la interfaz de KogniTerm en tiempo de ejecución.
+
+- **Punto 1**: Se refactorizó `ColorPalette` en `kogniterm/terminal/themes.py` para soportar múltiples temas y la carga dinámica de colores. Se añadieron los temas: 'default', 'ocean', 'matrix' y 'sunset'.
+- **Punto 2**: Se añadió el meta-comando `%theme` (o `%tema`) en `kogniterm/terminal/meta_command_processor.py` para permitir al usuario cambiar el tema desde la terminal (ej: `%theme ocean`).
+
+---
+
+## 20-12-2025 Solución al Límite de Tamaño de Lote en ChromaDB
+
+Se ha corregido un error que impedía la indexación de proyectos grandes debido a que el número de fragmentos (chunks) superaba el límite máximo permitido por ChromaDB en una sola operación (5461).
+
+- **Punto 1**: Se implementó una lógica de procesamiento por lotes (batching) en el método `add_chunks` de `kogniterm/core/context/vector_db_manager.py`.
+- **Punto 2**: El tamaño del lote se fijó en 5000 fragmentos, lo cual es seguro y cumple con las restricciones de la API de ChromaDB.
+- **Punto 3**: Se añadió logging informativo para mostrar el progreso de cada lote durante la indexación, facilitando el seguimiento en proyectos extensos.
+- **Punto 4**: Esta mejora protege tanto la indexación manual (`kogniterm index refresh`) como la indexación automática en segundo plano al iniciar la aplicación.
+
+---
+
+## 20-12-2025 Solución de Errores de Instanciación en Herramientas (CodebaseSearchTool y SearchMemoryTool)
+
+Se han corregido errores críticos que impedían la correcta instanciación de las herramientas `CodebaseSearchTool` y `SearchMemoryTool` debido a la falta de argumentos obligatorios y dependencias no inicializadas.
+
+- **Punto 1**: Se modificó `LLMService` en `kogniterm/core/llm_service.py` para inicializar `EmbeddingsService` y `VectorDBManager` en su constructor y pasarlos al `ToolManager`.
+- **Punto 2**: Se actualizó `ToolManager` en `kogniterm/core/tools/tool_manager.py` para aceptar `embeddings_service` y `vector_db_manager` en su `__init__` y distribuirlos a las herramientas que los requieran.
+- **Punto 3**: Se mejoró la robustez de `ToolManager.load_tools` para detectar dependencias tanto en la firma del `__init__` como en los campos del modelo Pydantic (`model_fields`).
+- **Punto 4**: Se implementó el método `set_agent_state` en `ToolManager` para permitir la vinculación tardía del estado del agente a las herramientas.
+- **Punto 5**: Se modificó `kogniterm/terminal/terminal.py` para vincular el `AgentState` con el `ToolManager` inmediatamente después de su creación.
+- **Punto 6**: Se actualizaron `CodebaseSearchTool` y `SearchMemoryTool` para hacer que sus dependencias (`vector_db_manager`, `embeddings_service`, `agent_state`) sean opcionales en la instanciación, evitando errores de validación de Pydantic, y se añadieron comprobaciones de seguridad antes de su uso.
+- **Punto 7**: Se corrigió un `AttributeError: 'NoneType' object has no attribute 'schema'` en `LLMService.__init__` al generar `tool_schemas`, añadiendo validaciones para herramientas sin esquema de argumentos o que usan Pydantic v2.
+- **Punto 8**: Se eliminó el bloque de inicialización manual de herramientas RAG en `KogniTermApp` (`kogniterm/terminal/kogniterm_app.py`), evitando el error de duplicación de funciones (`Duplicate function declaration found: codebase_search`) al estar ya gestionado por `LLMService`.
+- **Punto 9**: Se corrigió un `TypeError` en el constructor de `AgentState` al recibir el argumento inesperado `history_for_api`. Se reintegró este campo como opcional en la `dataclass` y se añadió lógica en `__post_init__` para mantener la compatibilidad con versiones anteriores del código.
+- **Punto 10**: Se aumentó la verbosidad del `ResearcherAgent` (`kogniterm/core/agents/researcher_agent.py`). Ahora el agente muestra paneles detallados con las herramientas ejecutadas, sus argumentos y los resultados obtenidos, mejorando la transparencia del proceso de investigación. Se corrigió un error de importación (`NameError: Console`) introducido durante esta mejora.
+- **Punto 11**: Se corrigió la visualización de la salida de herramientas en `ResearcherAgent` para manejar correctamente los generadores. Además, se implementó un sistema de **Rate Limiting** en `LLMService` limitado a 5 llamadas por minuto para evitar bloqueos por parte de las APIs de los modelos.
+- **Punto 12**: Se habilitó el paralelismo de herramientas en `LLMService` aumentando `max_workers` a 10 y eliminando la restricción de ejecución única. Esto permite que agentes (que actúan como herramientas) puedan invocar otras herramientas de forma anidada sin conflictos de bloqueo.
+- **Punto 13**: Se eliminó la herramienta `ResearchTool` (`kogniterm/core/tools/research_tool.py`) por ser redundante con `CallAgentTool`. Ahora el orquestador utiliza `CallAgentTool` para invocar tanto al `CodeAgent` como al `ResearcherAgent`, simplificando el conjunto de herramientas disponibles para el modelo.
+
+---
+
+## 20-12-25 Unificación del Sistema de Ignorado (venv, node_modules y .gitignore)
+
+Se ha implementado un sistema robusto y unificado para ignorar archivos y carpetas irrelevantes en toda la aplicación, respetando fielmente el archivo `.gitignore` del usuario.
+
+- **Punto 1**: Se mejoró la lógica de comparación de patrones en `kogniterm/core/context/codebase_indexer.py` para manejar correctamente rutas relativas y nombres base, asegurando que `node_modules` y otros patrones complejos se ignoren durante el indexado.
+- **Punto 2**: Se actualizó `kogniterm/core/context/workspace_context.py` para cargar y respetar el `.gitignore` al inicio, proporcionando al agente una visión limpia del proyecto.
+- **Punto 3**: Se modificó `kogniterm/core/tools/file_operations_tool.py` para que el listado recursivo de directorios filtre automáticamente los elementos según las reglas del `.gitignore`.
+- **Punto 4**: Se añadieron directorios comunes (`dist`, `build`, `target`, `venv`, `.venv`) a las listas de exclusión por defecto como medida de seguridad adicional.
+
+---
+
+## 20-12-25 Limpieza de Logs de Depuración al Inicio
+
+Se han silenciado los mensajes de depuración (`DEBUG: ...`) que aparecían durante la inicialización de la aplicación para mejorar la experiencia de usuario y proporcionar un inicio más limpio.
+
+- **Punto 1**: Se comentaron los mensajes `print` de depuración en `kogniterm/core/llm_service.py` relacionados con la inicialización de servicios, herramientas y tokenizer.
+- **Punto 2**: Se comentaron los mensajes `print` de depuración en `kogniterm/core/context/vector_db_manager.py` relacionados con la conexión y configuración de ChromaDB.
+
+---
+
+## 20-12-25 Mejora en el Manejo de Errores de API (LiteLLM/OpenRouter) e Inyección de Fallbacks
+
+Se ha implementado un manejo de excepciones más robusto para las llamadas al modelo y se han optimizado las definiciones de herramientas para mejorar la compatibilidad con proveedores de OpenRouter.
+
+- **Punto 1**: Se mejoró el bloque `try-except` en `LLMService.invoke` para capturar errores de LiteLLM y proveedores externos (como OpenRouter), proporcionando mensajes amigables al usuario.
+- **Punto 2**: Se optimizó la conversión de herramientas en `LLMService` para eliminar metadatos de Pydantic (como títulos) que causaban problemas con ciertos proveedores de OpenRouter (OpenInference).
+- **Punto 3**: Se implementó una protección en `LLMService.invoke` para detectar respuestas vacías del modelo. Si el modelo no devuelve texto ni llamadas a herramientas, se inyecta un mensaje de aviso automático para evitar que el flujo del agente falle.
+- **Punto 4**: Se eliminó la impresión de tracebacks técnicos en la terminal principal, moviéndolos a logs de depuración internos para mantener la interfaz limpia.
+- **Punto 5**: Se configuró `litellm.drop_params = True` y se añadieron cabeceras específicas de OpenRouter (`HTTP-Referer`, `X-Title`) para maximizar la compatibilidad con todos los modelos y proveedores de OpenRouter, evitando errores de tipo `BadRequest`.
+- **Punto 6**: Se corrigió un error de `BadRequest` en proveedores estrictos como Mistral mediante la implementación de un generador de IDs de herramientas corto (9 caracteres alfanuméricos), reemplazando los UUIDs largos que eran rechazados por la API.
+- **Punto 7**: Se corrigió un `NameError: name 'traceback' is not defined` en `LLMService.invoke` añadiendo la importación faltante del módulo `traceback`.
+- **Punto 8**: Se reforzó la lógica de envío de IDs de herramientas para asegurar que incluso los IDs provenientes del historial sean truncados a 9 caracteres si exceden ese límite, garantizando compatibilidad continua con Mistral.
+- **Punto 9**: Se implementó una limpieza profunda de esquemas de herramientas (eliminando `additionalProperties`, `definitions`, `default`) y se optimizó el envío del parámetro `tools` para maximizar la compatibilidad con proveedores estrictos de OpenRouter.
+- **Punto 10**: Se reforzó la prevención de mensajes vacíos inyectando contenido descriptivo automático tanto en respuestas de texto como en llamadas a herramientas sin contenido textual previo.
+- **Punto 11**: Se eliminó la duplicación de mensajes de usuario (triplicación) mediante la eliminación de appends redundantes en `AgentInteractionManager` y `KogniTermApp`, y se implementó una deduplicación por contenido en `LLMService.invoke`.
+- **Punto 12**: Se unificaron los mensajes de sistema consecutivos en un solo bloque para mejorar la compatibilidad con Mistral y otros modelos estrictos.
+- **Punto 13**: Se corrigió un `TypeError: 'NoneType' object does not support item assignment` en `HistoryManager._save_history` asegurando que `self.conversation_history` se inicialice correctamente como una lista antes de realizar una actualización in-place.
+
+---
+
+## 21-12-2025 Eliminación de Herramientas de Archivo Redundantes
+
+Se eliminaron las herramientas file_read_recursive_directory_tool, file_read_tool, file_delete_tool y file_create_tool por ser redundantes con otras herramientas existentes como file_operations_tool y advanced_file_editor_tool. Se limpiaron las importaciones y registros en tool_manager.py y terminal.py para mantener la consistencia del código.
+
+- **Eliminación de archivos**: Se eliminaron los archivos kogniterm/core/tools/file_read_recursive_directory_tool.py, kogniterm/core/tools/file_read_tool.py, kogniterm/core/tools/file_delete_tool.py y kogniterm/core/tools/file_create_tool.py.
+- **Limpieza de importaciones en tool_manager.py**: Se removieron las importaciones de las clases eliminadas y se eliminaron de la lista ALL_TOOLS_CLASSES.
+- **Modificación de FileCompleter en terminal.py**: Se eliminó la dependencia de file_read_recursive_directory_tool, modificando el método _load_files_into_cache para no cargar archivos, y se actualizaron las importaciones.
+- **Actualización de referencias**: Se verificaron y limpiaron todas las referencias a estas herramientas en el código base.
+
+---
+
+## 21-12-2025 Implementación de Herramienta de Análisis de Código (CodeAnalysisTool)
+
+Se ha implementado una nueva herramienta, `CodeAnalysisTool`, que permite realizar análisis estático de código Python utilizando la librería `radon`. Esta herramienta proporciona métricas de complejidad ciclomática, índice de mantenibilidad y métricas raw (líneas de código, comentarios, etc.).
+
+- **Punto 1**: Se añadió `radon` a las dependencias en `pyproject.toml`.
+- **Punto 2**: Se creó el archivo `kogniterm/core/tools/code_analysis_tool.py` con la implementación de la herramienta.
+- **Punto 3**: Se registró `CodeAnalysisTool` en `kogniterm/core/tools/tool_manager.py` para que esté disponible para el agente.
+- **Punto 4**: Se realizaron ajustes en `kogniterm/core/llm_service.py` para resolver errores de Pylance relacionados con la gestión de `tool_calls` y la redefinición de métodos, asegurando la correcta integración de la nueva herramienta.

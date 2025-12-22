@@ -52,11 +52,9 @@ class AgentInteractionManager:
     def invoke_agent(self, user_input: Optional[str]) -> Dict[str, Any]:
 
         
-        if user_input is not None:
-            processed_input = user_input.strip()
-            if processed_input.startswith('@'):
-                processed_input = processed_input[1:]
-            self.agent_state.messages.append(HumanMessage(content=processed_input))
+        # El mensaje ya fue añadido al historial por KogniTermApp antes de llamar a este método.
+        # No lo añadimos de nuevo para evitar duplicación.
+        pass
         
         
 

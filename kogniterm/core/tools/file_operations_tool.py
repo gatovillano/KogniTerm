@@ -20,11 +20,60 @@ class FileOperationsTool(BaseTool):
     llm_service: Any
     interrupt_queue: Optional[queue.Queue] = None
     workspace_context: Any = Field(default=None, description="Contexto del espacio de trabajo actual.") # ¡Nuevo!
+    _git_ignore_patterns: List[str] = [] # Atributo privado para evitar errores de Pydantic
 
     def __init__(self, llm_service: Any, workspace_context: Any = None, **kwargs): # ¡Modificado!
         super().__init__(llm_service=llm_service, **kwargs)
         self.llm_service = llm_service
         self.workspace_context = workspace_context # ¡Nuevo!
+        self._git_ignore_patterns = self._load_ignore_patterns()
+
+    def _load_ignore_patterns(self) -> List[str]:
+        """Loads ignore patterns from .gitignore and .kognitermignore."""
+        patterns = []
+        # Intentar obtener el directorio raíz del workspace_context o usar el CWD
+        root_dir = os.getcwd()
+        if self.workspace_context and hasattr(self.workspace_context, 'root_dir'):
+            root_dir = self.workspace_context.root_dir
+            
+        for filename in ['.gitignore', '.kognitermignore']:
+            file_path = os.path.join(root_dir, filename)
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                patterns.append(line)
+                except Exception:
+                    pass
+        return patterns
+
+    def _matches_ignore_patterns(self, item_name: str, rel_path: str, is_dir: bool) -> bool:
+        """Checks if a path matches any of the ignore patterns."""
+        import fnmatch
+        # Normalizar la ruta para comparaciones consistentes
+        rel_path = rel_path.replace(os.sep, '/')
+        
+        # 1. Verificar patrones fijos (ignored_directories)
+        if is_dir and item_name in self.ignored_directories:
+            return True
+            
+        # 2. Verificar patrones de .gitignore
+        for pattern in self._git_ignore_patterns:
+            pattern = pattern.replace(os.sep, '/')
+            if not pattern: continue
+            
+            if pattern.endswith('/'):
+                if not is_dir: continue
+                pattern = pattern.rstrip('/')
+
+            if fnmatch.fnmatch(item_name, pattern) or \
+               fnmatch.fnmatch(rel_path, pattern) or \
+               rel_path.startswith(pattern + '/') or \
+               any(fnmatch.fnmatch(part, pattern) for part in rel_path.split('/')):
+                return True
+        return False
 
     # --- Sub-clases para los esquemas de argumentos de cada operación ---
 
@@ -204,14 +253,18 @@ class FileOperationsTool(BaseTool):
                         self.interrupt_queue.get()
                         raise InterruptedError("Operación de listado de directorio interrumpida por el usuario.")
 
-                    if not include_hidden:
-                        dirs[:] = [d for d in dirs if not d.startswith('.')]
-                        files[:] = [f for f in files if not f.startswith('.')]
-
                     relative_root = os.path.relpath(root, path)
                     if relative_root == ".":
                         relative_root = ""
+                    
+                    if not include_hidden:
+                        dirs[:] = [d for d in dirs if not d.startswith('.') and not self._matches_ignore_patterns(d, os.path.join(relative_root, d), True)]
+                        files[:] = [f for f in files if not f.startswith('.') and not self._matches_ignore_patterns(f, os.path.join(relative_root, f), False)]
                     else:
+                        dirs[:] = [d for d in dirs if not self._matches_ignore_patterns(d, os.path.join(relative_root, d), True)]
+                        files[:] = [f for f in files if not self._matches_ignore_patterns(f, os.path.join(relative_root, f), False)]
+
+                    if relative_root != "":
                         relative_root += os.sep
 
                     for d in dirs:

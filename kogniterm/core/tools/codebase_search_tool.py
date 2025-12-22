@@ -22,11 +22,11 @@ class CodebaseSearchTool(BaseTool):
     description: str = "Searches for relevant code snippets in the project's vector database."
     args_schema: Type[BaseModel] = CodebaseSearchToolArgs
 
-    vector_db_manager: VectorDBManager
-    embeddings_service: EmbeddingsService
+    vector_db_manager: Optional[VectorDBManager] = None
+    embeddings_service: Optional[EmbeddingsService] = None
 
-    def __init__(self, vector_db_manager: VectorDBManager, embeddings_service: EmbeddingsService):
-        super().__init__(vector_db_manager=vector_db_manager, embeddings_service=embeddings_service)
+    def __init__(self, vector_db_manager: Optional[VectorDBManager] = None, embeddings_service: Optional[EmbeddingsService] = None, **kwargs):
+        super().__init__(vector_db_manager=vector_db_manager, embeddings_service=embeddings_service, **kwargs)
         self.vector_db_manager = vector_db_manager
         self.embeddings_service = embeddings_service
 

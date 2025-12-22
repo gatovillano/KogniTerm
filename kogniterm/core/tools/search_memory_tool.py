@@ -1,5 +1,5 @@
 import logging
-from typing import Type, List, Dict, Any
+from typing import Type, List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 from ..agent_state import AgentState # Importar AgentState
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class SearchMemoryTool(BaseTool):
     name: str = "search_memory_tool"
     description: str = "Permite al agente guardar y consultar resultados de búsqueda para evitar búsquedas redundantes."
-    agent_state: AgentState = Field(exclude=True) # Referencia al estado del agente
+    agent_state: Optional[AgentState] = Field(None, exclude=True) # Referencia al estado del agente
 
     class AddSearchResultInput(BaseModel):
         query: str = Field(description="La consulta de búsqueda original.")
@@ -27,6 +27,8 @@ class SearchMemoryTool(BaseTool):
             return "Error: Se requiere 'query' y 'result' para añadir, o solo 'query' para obtener resultados."
 
     def _add_search_result(self, query: str, result: str) -> str:
+        if not self.agent_state:
+            return "Error: El estado del agente no está vinculado a la herramienta de memoria."
         # Limitar el tamaño de la memoria para evitar que crezca indefinidamente
         if len(self.agent_state.search_memory) >= 10: # Mantener un máximo de 10 resultados en memoria
             self.agent_state.search_memory.pop(0) # Eliminar el más antiguo
@@ -36,6 +38,8 @@ class SearchMemoryTool(BaseTool):
         return f"Resultado de búsqueda guardado en memoria para la consulta: '{query}'."
 
     def _get_relevant_search_results(self, query: str) -> str:
+        if not self.agent_state:
+            return "Error: El estado del agente no está vinculado a la herramienta de memoria."
         relevant_results = []
         for item in self.agent_state.search_memory:
             # Una lógica simple para determinar la relevancia: si la consulta está contenida en la consulta guardada

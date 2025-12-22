@@ -8,6 +8,8 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage
 from rich.panel import Panel
 from rich.markdown import Markdown
+from kogniterm.terminal.themes import set_kogniterm_theme, get_available_themes
+
 
 """
 This module contains the MetaCommandProcessor class, responsible for handling
@@ -69,6 +71,26 @@ class MetaCommandProcessor:
                 self.terminal_ui.print_message(f"Error al inicializar el contexto del espacio de trabajo: {e} ❌", style="red")
             return True
 
+        if user_input.lower().strip().startswith('%theme') or user_input.lower().strip().startswith('%tema'):
+            parts = user_input.strip().split()
+            if len(parts) > 1:
+                theme_name = parts[1].lower()
+                try:
+                    set_kogniterm_theme(theme_name)
+                    # Update console theme if necessary
+                    if hasattr(self.terminal_ui, 'refresh_theme'):
+                         self.terminal_ui.refresh_theme()
+                    
+                    self.terminal_ui.print_message(f"Tema cambiado a '{theme_name}'. ✨", style="green")
+                    # Reprint banner to show off new colors
+                    self.terminal_ui.print_welcome_banner()
+                except ValueError:
+                     self.terminal_ui.print_message(f"Tema '{theme_name}' no encontrado. Temas disponibles: {', '.join(get_available_themes())}", style="red")
+            else:
+                self.terminal_ui.print_message(f"Temas disponibles: {', '.join(get_available_themes())}", style="blue")
+            return True
+
+
         if user_input.lower().strip() == '%help':
             self.terminal_ui.print_message("""
 Comandos disponibles:
@@ -77,6 +99,7 @@ Comandos disponibles:
   %reset        Reinicia la conversación del modo actual.
   %undo         Deshace la última interacción.
   %compress     Resume el historial de conversación actual.
+  %theme [nombre] Cambia el tema de colores (ej: %theme ocean).
   %salir        Sale del intérprete.
 """, style="blue")
             return True
