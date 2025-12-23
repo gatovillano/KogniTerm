@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 from typing import Union # ¡Nueva importación para Union!
 
-def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
+def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
     args_schema = {"type": "object", "properties": {}}
 
@@ -66,7 +66,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
                                 "description": getattr(field_info, 'description', "") or f"Parámetro {field_name}"
                             }
                     args_schema = {
-                        "type": "object", 
+                        "type": "object",
                         "properties": properties,
                         "required": [name for name, info in tool.args_schema.model_fields.items() if info.is_required() and name in properties]
                     }
@@ -92,7 +92,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
         return s
 
     cleaned_schema = clean_schema(args_schema)
-    
+
     # Asegurarse de que el esquema sea válido para proveedores estrictos
     if not cleaned_schema.get("properties"):
         cleaned_schema = {
@@ -101,11 +101,38 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool) -> dict:
             "required": []
         }
 
-    return {
+    # Formato estándar compatible con la mayoría de proveedores
+    tool_definition = {
         "name": tool.name,
         "description": tool.description[:1024], # Límite de descripción para algunos proveedores
         "parameters": cleaned_schema,
     }
+
+    # Para SiliconFlow/OpenRouter, algunos proveedores requieren el formato de "function"
+    # Verificar si estamos usando un modelo que requiere este formato específico
+    # SiliconFlow models are often routed through OpenRouter with names like "nex-agi" or "deepseek"
+    requires_function_format = ("siliconflow" in model_name.lower() or
+                               "openrouter" in model_name.lower() or
+                               "nex-agi" in model_name.lower() or
+                               "deepseek" in model_name.lower())
+
+    logger.info(f"🤖 Modelo: {model_name}, Requiere formato function: {requires_function_format}")
+
+    if requires_function_format:
+        # SiliconFlow requiere el formato "function" en lugar de "parameters"
+        logger.info(f"🔧 Usando formato function para herramienta: {tool.name}")
+        tool_definition = {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description[:1024],
+                "parameters": cleaned_schema,
+            }
+        }
+    else:
+        logger.info(f"📋 Usando formato estándar para herramienta: {tool.name}")
+
+    return tool_definition
 
 import logging
 
@@ -142,13 +169,15 @@ if openrouter_api_key and litellm_model:
     os.environ["LITELLM_MODEL"] = model_name
     os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
     
-    # Cabeceras requeridas/recomendadas por OpenRouter
+    # Cabeceras básicas para OpenRouter
     litellm.headers = {
         "HTTP-Referer": "https://github.com/gatovillano/KogniTerm",
-        "X-Title": "KogniTerm",
+        "X-Title": "KogniTerm"
     }
     
+    # Configuración específica para OpenRouter
     litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
+    
     print(f"🤖 Configuración activa: OpenRouter ({model_name})")
 elif google_api_key and gemini_model:
     # Usar Google AI Studio
@@ -203,7 +232,8 @@ class LLMService:
                     schema = tool.args_schema.model_json_schema()
             self.tool_schemas.append(schema)
         self.tool_map = {tool.name: tool for tool in self.tool_manager.get_tools()}
-        self.litellm_tools = [_convert_langchain_tool_to_litellm(tool) for tool in self.tool_manager.get_tools()]
+        # Tools will be converted at runtime based on the actual model being used
+        self.litellm_tools = None
         self.max_conversation_tokens = 128000 # Gemini 1.5 Flash context window
         self.max_tool_output_tokens = 100000 # Max tokens for tool output
         self.MAX_TOOL_MESSAGE_CONTENT_LENGTH = 100000 # Nuevo: Límite de caracteres para el contenido de ToolMessage
@@ -247,6 +277,337 @@ class LLMService:
         """Genera un ID alfanumérico corto compatible con proveedores estrictos como Mistral."""
         chars = string.ascii_letters + string.digits
         return ''.join(random.choice(chars) for _ in range(length))
+
+    def _parse_tool_calls_from_text(self, text: str) -> List[Dict[str, Any]]:
+        """
+        Parsea llamadas a herramientas desde texto plano para compatibilidad con modelos que no usan tool_calls nativos.
+        Implementa un modo de parseo amplio y permisivo que detecta múltiples formatos de tool calls.
+        
+        Patrones soportados:
+        - tool_call: nombre({args})
+        - Llamar/ejecutar/usar herramienta nombre con args
+        - Function calls: nombre({args})
+        - Tool invocation: [TOOL_CALL] nombre args
+        - JSON estructurado: {"tool_call": {...}}
+        - YAML-like: nombre: {args}
+        - XML-like: <tool_call name="nombre"><args>...</args> </tool_call>
+        - Natural language: I need to call/using tool nombre with args
+        - Code-like: nombre({args})
+        - Model-specific formats for OpenAI, Anthropic, etc.
+        """
+        tool_calls = []
+        import re
+        
+        # Normalizar texto: reemplazar múltiples espacios y normalizar caracteres
+        normalized_text = re.sub(r'\s+', ' ', text.strip())
+        
+        # Función auxiliar para extraer argumentos de manera permisiva
+        def extract_args(args_str):
+            if not args_str:
+                return {}
+            
+            # Intentar JSON primero
+            try:
+                return json.loads(args_str)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            
+            # Intentar argumentos key=value
+            kv_pattern = r'(\w+)\s*[:=]\s*([\w"\'\[\{].*?)(?:[,}]|$)'
+            kv_matches = re.findall(kv_pattern, args_str)
+            if kv_matches:
+                result = {}
+                for key, value in kv_matches:
+                    try:
+                        # Intentar convertir a número
+                        if value.isdigit():
+                            result[key] = int(value)
+                        elif value.replace('.', '').isdigit():
+                            result[key] = float(value)
+                        elif value.lower() in ['true', 'false']:
+                            result[key] = value.lower() == 'true'
+                        elif value.startswith('[') and value.endswith(']'):
+                            # Lista simple
+                            result[key] = [v.strip().strip('"\'\'') for v in value[1:-1].split(',')]
+                        else:
+                            # Cadena
+                            result[key] = value.strip('"\'\'')
+                    except:
+                        result[key] = value.strip('"\'\'')
+                return result
+            
+            # Fallback: argumentos vacíos
+            return {}
+        
+        # PATRÓN 1: tool_call: nombre({args})
+        pattern1 = r'tool_call\s*:\s*(\w+)\s*\(\s*([^)]*?)\s*\)'
+        matches1 = re.findall(pattern1, normalized_text, re.IGNORECASE | re.DOTALL)
+        for name, args_str in matches1:
+            args = extract_args(args_str)
+            tool_calls.append({
+                "id": self._generate_short_id(),
+                "name": name,
+                "args": args
+            })
+
+        # PATRÓN 2: llamar/ejecutar/usar herramienta nombre con args
+        pattern2 = r'(?:llamar|ejecutar|usar|invoke|call)\s+(?:a\s+)?(?:la\s+)?(?:herramienta|tool)\s+(\w+)\s*(?:con\s+args?|con\s+argumentos?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|.*?)$'
+        matches2 = re.findall(pattern2, normalized_text, re.IGNORECASE | re.DOTALL)
+        for name, args_str in matches2:
+            # Limpiar la cadena de argumentos
+            args_str = args_str.strip().strip('{}()')
+            args = extract_args(args_str)
+            tool_calls.append({
+                "id": self._generate_short_id(),
+                "name": name,
+                "args": args
+            })
+
+        # PATRÓN 3: Function calls estilo código - nombre({args})
+        pattern3 = r'\b(\w+)\s*\(\s*([^)]*?)\s*\)'
+        matches3 = re.findall(pattern3, normalized_text)
+        for name, args_str in matches3:
+            # Filtrar funciones comunes que no son herramientas
+            if name.lower() in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple', 'range', 'type', 'isinstance', 'hasattr', 'getattr', 'open', 'input', 'print', 'exec', 'eval']:
+                continue
+            
+            args = extract_args(args_str)
+            if args or args_str.strip():  # Solo agregar si hay argumentos o si es una llamada clara
+                tool_calls.append({
+                    "id": self._generate_short_id(),
+                    "name": name,
+                    "args": args
+                })
+
+        # PATRÓN 3.1: Python function calls con parámetros específicos (ej: call_agent)
+        # Buscar patrones como call_agent(agent_name="researcher_agent", task="...")
+        # Usar un enfoque que maneja correctamente los paréntesis anidados
+        python_func_patterns = [
+            r'\b(call_agent|invoke_agent|execute_agent|run_agent)\s*\(',
+            r'\b(llamar_agent|ejecutar_funcion|usar_funcion)\s*\('
+        ]
+        
+        for pattern in python_func_patterns:
+            matches = re.findall(pattern, normalized_text, re.IGNORECASE)
+            for func_name in matches:
+                # Encontrar la posición del match
+                start_pos = normalized_text.lower().find(func_name.lower())
+                if start_pos == -1:
+                    continue
+                    
+                # Buscar el paréntesis de apertura
+                paren_start = normalized_text.find('(', start_pos)
+                if paren_start == -1:
+                    continue
+                    
+                # Extraer el contenido entre paréntesis balanceados
+                args_str = self._extract_balanced_content(normalized_text, paren_start)
+                # Extraer argumentos específicos de funciones de agentes
+                agent_args = {}
+                
+                # Buscar agent_name o agent
+                agent_match = re.search(r'(?:agent_name|agent)\s*=\s*["\']([^"\']+)["\']', args_str)
+                if agent_match:
+                    agent_args['agent_name'] = agent_match.group(1)
+                
+                # Buscar task (el parámetro correcto del call_agent tool) - enfoque más simple y robusto
+                # Buscar desde task= hasta el final del string o hasta el siguiente parámetro
+                task_pattern = r'(?:task)\s*=\s*["\'](.*?)(?:["\']\s*(?:,|\)|$))'
+                task_match = re.search(task_pattern, args_str, re.DOTALL)
+                if not task_match:
+                    # Fallback: también buscar task_description para compatibilidad
+                    task_pattern = r'(?:task_description)\s*=\s*["\'](.*?)(?:["\']\s*(?:,|\)|$))'
+                    task_match = re.search(task_pattern, args_str, re.DOTALL)
+                if task_match:
+                    agent_args['task'] = task_match.group(1)  # Usar 'task' no 'task_description'
+                
+                # Buscar context o parameters
+                context_match = re.search(r'(?:context|parameters)\s*=\s*(\{[^}]*\})', args_str)
+                if context_match:
+                    try:
+                        agent_args['context'] = json.loads(context_match.group(1))
+                    except:
+                        agent_args['context'] = context_match.group(1)
+                
+                # Si no se encontraron argumentos específicos, usar el parser general
+                if not agent_args:
+                    agent_args = extract_args(args_str)
+                
+                tool_calls.append({
+                    "id": self._generate_short_id(),
+                    "name": func_name,
+                    "args": agent_args
+                })
+
+        # PATRÓN 4: [TOOL_CALL] formato
+        pattern4 = r'\[TOOL_CALL\]\s*(\w+)\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\n]+)'
+        matches4 = re.findall(pattern4, normalized_text, re.IGNORECASE)
+        for name, args_str in matches4:
+            args_str = args_str.strip().strip('{}()')
+            args = extract_args(args_str)
+            tool_calls.append({
+                "id": self._generate_short_id(),
+                "name": name,
+                "args": args
+            })
+
+        # PATRÓN 5: JSON estructurado expandido
+        # Buscar cualquier objeto JSON que contenga información de herramientas
+        json_patterns = [
+            r'\{[^}]*"(?:tool_call|function_call|action|operation)"\s*:\s*\{[^}]*"(?:name|tool|function)"\s*:\s*["\']([^"\']+)["\'][^}]*"(?:args|arguments|parameters)"\s*:\s*(\{[^}]*\})[^}]*\}',
+            r'\{[^}]*"(?:name|tool|function)"\s*:\s*["\']([^"\']+)["\'][^}]*"(?:args|arguments|parameters)"\s*:\s*(\{[^}]*\})[^}]*\}',
+            r'\{[^}]*"(\w+)"\s*:\s*(\{[^}]*\})[^}]*"(?:tool|function|operation)"\s*:\s*true[^}]*\}',
+        ]
+        
+        for pattern in json_patterns:
+            matches = re.findall(pattern, normalized_text, re.DOTALL)
+            for name, args_str in matches:
+                try:
+                    args = json.loads(args_str)
+                    tool_calls.append({
+                        "id": self._generate_short_id(),
+                        "name": name,
+                        "args": args
+                    })
+                except (json.JSONDecodeError, ValueError):
+                    args = extract_args(args_str)
+                    tool_calls.append({
+                        "id": self._generate_short_id(),
+                        "name": name,
+                        "args": args
+                    })
+
+        # PATRÓN 6: YAML-like formato
+        pattern6 = r'^(\w+)\s*:\s*(\{[^}]*\}|\([^)]*\)|[^\n]+)$'
+        matches6 = re.findall(pattern6, normalized_text, re.MULTILINE)
+        for name, args_str in matches6:
+            args_str = args_str.strip().strip('{}()')
+            args = extract_args(args_str)
+            tool_calls.append({
+                "id": self._generate_short_id(),
+                "name": name,
+                "args": args
+            })
+
+        # PATRÓN 7: XML-like formato
+        pattern7 = r'<(?:tool_call|function|action)\s+(?:name|id)\s*=\s*["\']([^"\']+)["\'][^>]*>(?:<args[^>]*>)?([^<]*?)(?:</args>)?</(?:tool_call|function|action)>'
+        matches7 = re.findall(pattern7, normalized_text, re.IGNORECASE | re.DOTALL)
+        for name, args_str in matches7:
+            args = extract_args(args_str)
+            tool_calls.append({
+                "id": self._generate_short_id(),
+                "name": name,
+                "args": args
+            })
+
+        # PATRÓN 8: Lenguaje natural expandido
+        natural_patterns = [
+            r'(?:i\s+need\s+to|i\s+want\s+to|i\s+should|i\s+must)\s+(?:call|use|execute|invoke|run)\s+(?:the\s+)?(?:tool|function|action)\s+(\w+)\s*(?:with\s+args?|with\s+arguments?|with\s+parameters?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\.]+)',
+            r'(?:let\s+me\s+|please\s+)?(?:call|use|execute|invoke|run)\s+(?:the\s+)?(?:tool|function|action)\s+(\w+)\s*(?:with\s+args?|with\s+arguments?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\.]+)',
+            r'(?:we\s+need\s+to|we\s+should|we\s+can)\s+(?:call|use|execute|invoke|run)\s+(?:the\s+)?(?:tool|function|action)\s+(\w+)\s*(?:with\s+args?|with\s+arguments?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\.]+)'
+        ]
+        
+        for pattern in natural_patterns:
+            matches = re.findall(pattern, normalized_text, re.IGNORECASE | re.DOTALL)
+            for name, args_str in matches:
+                args_str = args_str.strip().strip('{}()')
+                args = extract_args(args_str)
+                tool_calls.append({
+                    "id": self._generate_short_id(),
+                    "name": name,
+                    "args": args
+                })
+
+        # PATRÓN 9: Formatos específicos de proveedores
+        # OpenAI function calling format
+        openai_pattern = r'"name"\s*:\s*["\']([^"\']+)["\'][^}]*"arguments"\s*:\s*(\{[^}]*\})'
+        openai_matches = re.findall(openai_pattern, normalized_text)
+        for name, args_str in openai_matches:
+            try:
+                args = json.loads(args_str)
+                tool_calls.append({
+                    "id": self._generate_short_id(),
+                    "name": name,
+                    "args": args
+                })
+            except (json.JSONDecodeError, ValueError):
+                args = extract_args(args_str)
+                tool_calls.append({
+                    "id": self._generate_short_id(),
+                    "name": name,
+                    "args": args
+                })
+
+        # PATRÓN 10: Formato de lista/bloque
+        list_pattern = r'^(?:\d+\.\s*|-\s*|\*\s*)?(\w+)\s*[:\-]\s*(\{[^}]*\}|\([^)]*\)|[^\n]+)$'
+        list_matches = re.findall(list_pattern, normalized_text, re.MULTILINE)
+        for name, args_str in list_matches:
+            # Filtrar elementos que claramente no son herramientas
+            if name.lower() in ['step', 'note', 'important', 'warning', 'error', 'info', 'debug']:
+                continue
+            
+            args_str = args_str.strip().strip('{}()')
+            args = extract_args(args_str)
+            tool_calls.append({
+                "id": self._generate_short_id(),
+                "name": name,
+                "args": args
+            })
+
+        # Eliminar duplicados basados en nombre
+        seen = set()
+        unique_tool_calls = []
+        for tc in tool_calls:
+            if tc['name'] not in seen:
+                seen.add(tc['name'])
+                unique_tool_calls.append(tc)
+        
+        return unique_tool_calls
+
+    def _extract_balanced_content(self, text: str, start_pos: int) -> str:
+        """
+        Extrae contenido balanceado entre paréntesis desde una posición dada.
+        Maneja paréntesis anidados correctamente.
+        """
+        if start_pos >= len(text) or text[start_pos] != '(':
+            return ''
+        
+        depth = 0
+        content = ''
+        in_string = False
+        string_char = None
+        i = start_pos
+        
+        while i < len(text):
+            char = text[i]
+            
+            # Manejar strings
+            if char in ['"', "'"]:
+                if not in_string:
+                    in_string = True
+                    string_char = char
+                elif char == string_char and (i == 0 or text[i-1] != '\\'):
+                    in_string = False
+                    string_char = None
+            
+            # Solo contar paréntesis fuera de strings
+            if not in_string:
+                if char == '(':
+                    depth += 1
+                elif char == ')':
+                    depth -= 1
+                    if depth == 0:
+                        # Paréntesis de cierre encontrado, terminar
+                        break
+            
+            content += char
+            i += 1
+        
+        # Remover el paréntesis de apertura y cierre
+        if content.startswith('(') and content.endswith(')'):
+            content = content[1:-1]
+        
+        return content.strip()
 
     def _from_litellm_message(self, message):
         """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
@@ -366,7 +727,20 @@ class LLMService:
         # Actualizar las estructuras internas de LLMService
         self.tool_map[tool_instance.name] = tool_instance
         self.tool_names.append(tool_instance.name)
-        self.litellm_tools.append(_convert_langchain_tool_to_litellm(tool_instance))
+        # Tools will be converted at runtime, so no need to update litellm_tools here
+
+    def _get_litellm_tools(self) -> List[dict]:
+        """Convierte las herramientas al formato LiteLLM apropiado para el modelo actual."""
+        if self.litellm_tools is None:
+            logger.info(f"🔧 Convirtiendo herramientas para modelo: {self.model_name}")
+            converted_tools = []
+            for tool in self.tool_manager.get_tools():
+                converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
+                logger.info(f"✅ Herramienta convertida: {tool.name} -> {converted.get('type', 'standard')}")
+                converted_tools.append(converted)
+            self.litellm_tools = converted_tools
+            logger.info(f"📋 Total herramientas convertidas: {len(converted_tools)}")
+        return self.litellm_tools
 
     def _initialize_memory(self):
         """Inicializa la memoria si no existe."""
@@ -521,12 +895,39 @@ class LLMService:
             "timeout": 120,    # Según el ejemplo del usuario
         }
         
+        # Configuración específica para OpenRouter/SiliconFlow con campos adicionales
+        if "openrouter" in self.model_name.lower():
+            # Asegurar formato correcto del modelo
+            if not completion_kwargs["model"].startswith("openrouter/"):
+                completion_kwargs["model"] = f"openrouter/{self.model_name}"
+            
+            # Para modelos específicos como Nex-AGI, usar configuración más simple
+            if "nex-agi" in self.model_name.lower() or "deepseek" in self.model_name.lower():
+                # Configuración minimalista para Nex-AGI/DeepSeek
+                completion_kwargs["user"] = f"user_{self._generate_short_id(12)}"
+                # NO enviar campos adicionales que puedan causar problemas
+                logger.debug(f"Configuración minimalista para Nex-AGI/DeepSeek: {completion_kwargs['model']}")
+            else:
+                # Configuración estándar para otros modelos
+                completion_kwargs["user"] = f"user_{self._generate_short_id(12)}"
+                completion_kwargs["metadata"] = {
+                    "user_id": completion_kwargs["user"],
+                    "application_name": "KogniTerm"
+                }
+            
+            # Logging para debug
+            logger.debug(f"OpenRouter configuration: model={completion_kwargs['model']}, user={completion_kwargs.get('user', 'N/A')}")
+        
         # --- Lógica de Selección de Herramientas y Validación de Secuencia ---
         final_tools = []
-        if self.litellm_tools:
-            for t in self.litellm_tools:
-                if isinstance(t, dict) and "name" in t:
-                    final_tools.append(t)
+        litellm_tools = self._get_litellm_tools()
+        if litellm_tools:
+            for t in litellm_tools:
+                if isinstance(t, dict):
+                    # Handle both standard format {"name": "...", "description": "...", "parameters": {...}}
+                    # and SiliconFlow/OpenRouter format {"type": "function", "function": {...}}
+                    if "name" in t or ("type" in t and t.get("type") == "function"):
+                        final_tools.append(t)
 
         if final_tools:
             completion_kwargs["tools"] = final_tools
@@ -586,18 +987,21 @@ class LLMService:
         final_messages.extend(validated_messages)
 
         completion_kwargs["messages"] = final_messages
-    
+        
         try:
             sys.stderr.flush()
             start_time = time.perf_counter()
+            
+            # Variables para todos los niveles de fallback
+            full_response_content = ""
+            tool_calls = []
+            
+            # Intentar llamada principal
             response_generator = completion(
                 **completion_kwargs
             )
             end_time = time.perf_counter()
             self.call_timestamps.append(time.time())
-            
-            full_response_content = ""
-            tool_calls = []
             for chunk in response_generator:
                 # Verificar la cola de interrupción
                 if interrupt_queue and not interrupt_queue.empty():
@@ -671,16 +1075,234 @@ class LLMService:
                     full_response_content = "Ejecutando herramientas..." 
                 yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
             else:
-                # El AIMessage final incluye solo el contenido acumulado
-                # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
-                if not full_response_content.strip():
-                    full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
-                yield AIMessage(content=full_response_content)
+                # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
+                enhanced_tool_calls = []
+                if full_response_content and full_response_content.strip():
+                    enhanced_tool_calls = self._parse_tool_calls_from_text(full_response_content)
+                
+                if enhanced_tool_calls:
+                    # Si encontramos tool calls en el texto, crear AIMessage con ellos
+                    # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
+                    if not full_response_content.strip():
+                        full_response_content = "Ejecutando herramientas..."
+                    yield AIMessage(content=full_response_content, tool_calls=enhanced_tool_calls)
+                else:
+                    # El AIMessage final incluye solo el contenido acumulado
+                    # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
+                    if not full_response_content.strip():
+                        full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
+                    yield AIMessage(content=full_response_content)
 
         except Exception as e:
             # Manejo de errores más amigable para el usuario
             error_type = type(e).__name__
             error_msg = str(e)
+            
+            # Si es un error 20015 de SiliconFlow (requiere formato 'function'), intentar con configuración alternativa
+            if ("20015" in error_msg and "Input should be 'function'" in error_msg) or ("20015" in error_msg and "Field required" in error_msg and "openrouter" in self.model_name.lower()):
+                logger.info("Intentando configuración alternativa para SiliconFlow (formato 'function')...")
+                try:
+                    # Crear configuración alternativa más específica
+                    alt_kwargs = {
+                        "model": completion_kwargs["model"],
+                        "messages": completion_kwargs["messages"],
+                        "stream": True,
+                        "api_key": completion_kwargs["api_key"],
+                        "temperature": completion_kwargs.get("temperature", 0.7),
+                        "max_tokens": completion_kwargs.get("max_tokens", 4096),
+                        "user": f"user_{self._generate_short_id(12)}",
+                        "num_retries": 1,  # Reducir reintentos en fallback
+                        "timeout": 60     # Timeout más corto en fallback
+                    }
+                    
+                    # Solo agregar parámetros adicionales si el modelo no es Nex-AGI/DeepSeek
+                    if not ("nex-agi" in self.model_name.lower() or "deepseek" in self.model_name.lower()):
+                        alt_kwargs["top_k"] = self.generation_params.get("top_k", 40)
+                        alt_kwargs["top_p"] = self.generation_params.get("top_p", 0.95)
+                    
+                    logger.debug(f"Configuración alternativa: {list(alt_kwargs.keys())}")
+                    
+                    # Intentar llamada alternativa
+                    response_generator = completion(**alt_kwargs)
+                    
+                    # Si llegamos aquí, el fallback funcionó, procesar respuesta normalmente
+                    for chunk in response_generator:
+                        if interrupt_queue and not interrupt_queue.empty():
+                            while not interrupt_queue.empty():
+                                interrupt_queue.get_nowait()
+                            self.stop_generation_flag = True
+                            break
+
+                        if self.stop_generation_flag:
+                            break
+
+                        choices = getattr(chunk, 'choices', None)
+                        if not choices or not isinstance(choices, list) or not choices[0]:
+                            continue
+                        
+                        choice = choices[0]
+                        delta = getattr(choice, 'delta', None)
+                        if not delta:
+                            continue
+                        
+                        if getattr(delta, 'content', None) is not None:
+                            full_response_content += str(delta.content)
+                            yield str(delta.content)
+                        
+                        tool_calls_from_delta = getattr(delta, 'tool_calls', None)
+                        if tool_calls_from_delta is not None:
+                            # Acumular tool_calls
+                            for tc in tool_calls_from_delta:
+                                while tc.index >= len(tool_calls):
+                                    tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
+                                
+                                if getattr(tc, 'id', None) is not None:
+                                    tool_calls[tc.index]["id"] = tc.id
+                                elif not tool_calls[tc.index]["id"]:
+                                    tool_calls[tc.index]["id"] = self._generate_short_id()
+                                
+                                if getattr(tc.function, 'name', None) is not None:
+                                    tool_calls[tc.index]["function"]["name"] = tc.function.name
+                                    if getattr(tc.function, 'arguments', None) is not None:
+                                        tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                    
+                    # Procesar respuesta final del fallback
+                    if self.stop_generation_flag:
+                        yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
+                    elif tool_calls:
+                        formatted_tool_calls = []
+                        for tc in tool_calls:
+                            try:
+                                args = json.loads(tc["function"]["arguments"])
+                            except json.JSONDecodeError:
+                                args = {}
+                            formatted_tool_calls.append({
+                                "id": tc["id"],
+                                "name": tc["function"]["name"],
+                                "args": args
+                            })
+                        if not full_response_content or not full_response_content.strip():
+                            full_response_content = "Ejecutando herramientas..."
+                        yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
+                    else:
+                        # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
+                        enhanced_tool_calls = []
+                        if full_response_content and full_response_content.strip():
+                            enhanced_tool_calls = self._parse_tool_calls_from_text(full_response_content)
+                        
+                        if enhanced_tool_calls:
+                            # Si encontramos tool calls en el texto, crear AIMessage con ellos
+                            if not full_response_content.strip():
+                                full_response_content = "Ejecutando herramientas..."
+                            yield AIMessage(content=full_response_content, tool_calls=enhanced_tool_calls)
+                        else:
+                            if not full_response_content.strip():
+                                full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
+                            yield AIMessage(content=full_response_content)
+                    
+                    # Si llegamos aquí, el fallback funcionó, retornar
+                    return
+                    
+                except Exception as fallback_error:
+                    logger.warning(f"Fallback también falló: {fallback_error}")
+                    
+                    # Intentar configuración ultra-minimalista para modelos muy específicos
+                    if "nex-agi" in self.model_name.lower() or "deepseek" in self.model_name.lower():
+                        logger.info("Intentando configuración ultra-minimalista para Nex-AGI/DeepSeek...")
+                        try:
+                            ultra_kwargs = {
+                                "model": completion_kwargs["model"],
+                                "messages": completion_kwargs["messages"],
+                                "stream": True,
+                                "api_key": completion_kwargs["api_key"],
+                                "user": f"user_{self._generate_short_id(8)}"  # ID más corto
+                            }
+                            
+                            logger.debug(f"Configuración ultra-minimalista: {list(ultra_kwargs.keys())}")
+                            response_generator = completion(**ultra_kwargs)
+                            
+                            # Procesar respuesta con configuración ultra-minimalista
+                            for chunk in response_generator:
+                                if interrupt_queue and not interrupt_queue.empty():
+                                    while not interrupt_queue.empty():
+                                        interrupt_queue.get_nowait()
+                                    self.stop_generation_flag = True
+                                    break
+
+                                if self.stop_generation_flag:
+                                    break
+
+                                choices = getattr(chunk, 'choices', None)
+                                if not choices or not isinstance(choices, list) or not choices[0]:
+                                    continue
+                                
+                                choice = choices[0]
+                                delta = getattr(choice, 'delta', None)
+                                if not delta:
+                                    continue
+                                
+                                if getattr(delta, 'content', None) is not None:
+                                    full_response_content += str(delta.content)
+                                    yield str(delta.content)
+                                
+                                tool_calls_from_delta = getattr(delta, 'tool_calls', None)
+                                if tool_calls_from_delta is not None:
+                                    for tc in tool_calls_from_delta:
+                                        while tc.index >= len(tool_calls):
+                                            tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
+                                        
+                                        if getattr(tc, 'id', None) is not None:
+                                            tool_calls[tc.index]["id"] = tc.id
+                                        elif not tool_calls[tc.index]["id"]:
+                                            tool_calls[tc.index]["id"] = self._generate_short_id()
+                                        
+                                        if getattr(tc.function, 'name', None) is not None:
+                                            tool_calls[tc.index]["function"]["name"] = tc.function.name
+                                            if getattr(tc.function, 'arguments', None) is not None:
+                                                tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                            
+                            # Procesar respuesta final del fallback ultra-minimalista
+                            if self.stop_generation_flag:
+                                yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
+                            elif tool_calls:
+                                formatted_tool_calls = []
+                                for tc in tool_calls:
+                                    try:
+                                        args = json.loads(tc["function"]["arguments"])
+                                    except json.JSONDecodeError:
+                                        args = {}
+                                    formatted_tool_calls.append({
+                                        "id": tc["id"],
+                                        "name": tc["function"]["name"],
+                                        "args": args
+                                    })
+                                if not full_response_content or not full_response_content.strip():
+                                    full_response_content = "Ejecutando herramientas..."
+                                yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
+                            else:
+                                # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
+                                enhanced_tool_calls = []
+                                if full_response_content and full_response_content.strip():
+                                    enhanced_tool_calls = self._parse_tool_calls_from_text(full_response_content)
+                                
+                                if enhanced_tool_calls:
+                                    # Si encontramos tool calls en el texto, crear AIMessage con ellos
+                                    if not full_response_content.strip():
+                                        full_response_content = "Ejecutando herramientas..."
+                                    yield AIMessage(content=full_response_content, tool_calls=enhanced_tool_calls)
+                                else:
+                                    if not full_response_content.strip():
+                                        full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
+                                    yield AIMessage(content=full_response_content)
+                            
+                            # Si llegamos aquí, el fallback ultra-minimalista funcionó
+                            return
+                            
+                        except Exception as ultra_fallback_error:
+                            logger.warning(f"Fallback ultra-minimalista también falló: {ultra_fallback_error}")
+                    
+                    # Continuar con el manejo de errores original
+                    error_msg = str(fallback_error)
             
             # Identificar errores comunes de proveedores (OpenRouter, Google, etc.)
             if "Missing corresponding tool call for tool response message" in error_msg:
@@ -702,7 +1324,10 @@ class LLMService:
                 self.conversation_history = cleaned_history
                 self._save_history(self.conversation_history)
             elif "OpenrouterException" in error_msg or "Upstream error" in error_msg:
-                friendly_message = f"¡Ups! 🌐 El proveedor del modelo (OpenRouter) está experimentando problemas técnicos temporales: '{error_msg}'. Por favor, intenta de nuevo en unos momentos."
+                if "No endpoints found" in error_msg:
+                    friendly_message = "⚠️ El modelo solicitado no está disponible con los parámetros actuales. Verifica que el nombre del modelo sea correcto y que esté disponible en OpenRouter."
+                else:
+                    friendly_message = f"¡Ups! 🌐 El proveedor del modelo (OpenRouter) está experimentando problemas técnicos temporales: '{error_msg}'. Por favor, intenta de nuevo en unos momentos."
             elif "RateLimitError" in error_type or "429" in error_msg:
                 friendly_message = "¡Vaya! 🚦 Hemos alcanzado el límite de velocidad del modelo. Esperemos un momento antes de intentarlo de nuevo."
             elif "APIConnectionError" in error_type:
@@ -712,6 +1337,13 @@ class LLMService:
 
             # Loguear el error completo para depuración interna, pero no ensuciar la terminal del usuario
             logger.error(f"Error detallado en LLMService.invoke: {error_msg}")
+            
+            # Logging adicional para errores de OpenRouter
+            if "OpenrouterException" in error_msg or "20015" in error_msg:
+                logger.error(f"Configuración del modelo: {self.model_name}")
+                logger.error(f"API Key presente: {'Sí' if self.api_key else 'No'}")
+                logger.error(f"Headers configurados: {litellm.headers}")
+            
             if not any(x in error_msg for x in ["Upstream error", "RateLimitError"]):
                  logger.debug(traceback.format_exc())
             

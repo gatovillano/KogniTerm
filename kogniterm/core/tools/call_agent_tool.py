@@ -16,7 +16,7 @@ class CallAgentInput(BaseModel):
 
 class CallAgentTool(BaseTool):
     name: str = "call_agent"
-    description: str = "Invoca a un agente especializado (CodeAgent o ResearcherAgent) para realizar una tarea compleja."
+    description: str = "Invoca a un agente especializado para realizar tareas complejas. Agentes disponibles: 'code_agent' (para tareas de código y edición), 'researcher_agent' (para investigación y análisis de código)."
     args_schema: Type[BaseModel] = CallAgentInput
     
     llm_service: Any = None
