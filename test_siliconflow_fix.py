@@ -25,23 +25,27 @@ def test_tool_conversion():
     # Create a test tool
     tool = TestTool()
 
-    # Test with standard model (should use standard format)
+    # Test with standard model (now uses function format)
     standard_format = _convert_langchain_tool_to_litellm(tool, "gpt-4")
     print(f"Standard format: {standard_format}")
 
-    # Test with OpenRouter/SiliconFlow model (should use function format)
+    # Test with OpenRouter/SiliconFlow model (also uses function format)
     siliconflow_format = _convert_langchain_tool_to_litellm(tool, "openrouter/siliconflow-model")
     print(f"SiliconFlow format: {siliconflow_format}")
 
-    # Verify the formats
-    assert "name" in standard_format
-    assert "description" in standard_format
-    assert "parameters" in standard_format
+    # Verify both formats are now the same (standard OpenAI function format)
+    assert "type" in standard_format
+    assert standard_format["type"] == "function"
+    assert "function" in standard_format
+    assert standard_format["function"]["name"] == "test_tool"
 
     assert "type" in siliconflow_format
     assert siliconflow_format["type"] == "function"
     assert "function" in siliconflow_format
     assert siliconflow_format["function"]["name"] == "test_tool"
+
+    # Verify both formats are identical
+    assert standard_format == siliconflow_format
 
     print("✅ All tests passed! SiliconFlow tool format fix is working correctly.")
 

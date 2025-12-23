@@ -101,36 +101,17 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> 
             "required": []
         }
 
-    # Formato estándar compatible con la mayoría de proveedores
+    # Usar el formato estándar de OpenAI "tools" (type: function) por defecto
+    # Esto es compatible con la mayoría de proveedores modernos y requerido por SiliconFlow
+    logger.info(f"🔧 Generando definición de herramienta para: {tool.name}")
     tool_definition = {
-        "name": tool.name,
-        "description": tool.description[:1024], # Límite de descripción para algunos proveedores
-        "parameters": cleaned_schema,
-    }
-
-    # Para SiliconFlow/OpenRouter, algunos proveedores requieren el formato de "function"
-    # Verificar si estamos usando un modelo que requiere este formato específico
-    # SiliconFlow models are often routed through OpenRouter with names like "nex-agi" or "deepseek"
-    requires_function_format = ("siliconflow" in model_name.lower() or
-                               "openrouter" in model_name.lower() or
-                               "nex-agi" in model_name.lower() or
-                               "deepseek" in model_name.lower())
-
-    logger.info(f"🤖 Modelo: {model_name}, Requiere formato function: {requires_function_format}")
-
-    if requires_function_format:
-        # SiliconFlow requiere el formato "function" en lugar de "parameters"
-        logger.info(f"🔧 Usando formato function para herramienta: {tool.name}")
-        tool_definition = {
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description[:1024],
-                "parameters": cleaned_schema,
-            }
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description[:1024],
+            "parameters": cleaned_schema,
         }
-    else:
-        logger.info(f"📋 Usando formato estándar para herramienta: {tool.name}")
+    }
 
     return tool_definition
 
@@ -165,19 +146,20 @@ if openrouter_api_key and litellm_model:
         model_name = f"openrouter/{litellm_model}"
     else:
         model_name = litellm_model
-    
+
+    # Actualizar el environment
     os.environ["LITELLM_MODEL"] = model_name
     os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
-    
+
     # Cabeceras básicas para OpenRouter
     litellm.headers = {
         "HTTP-Referer": "https://github.com/gatovillano/KogniTerm",
         "X-Title": "KogniTerm"
     }
-    
+
     # Configuración específica para OpenRouter
     litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
-    
+
     print(f"🤖 Configuración activa: OpenRouter ({model_name})")
 elif google_api_key and gemini_model:
     # Usar Google AI Studio
@@ -681,6 +663,7 @@ class LLMService:
                     tc_args = tc.get("args", {})
                     serialized_tool_calls.append({
                         "id": tc_id,
+                        "type": "function",
                         "function": {"name": tc_name, "arguments": json.dumps(tc_args)},
                     })
                 
@@ -988,13 +971,13 @@ class LLMService:
 
         completion_kwargs["messages"] = final_messages
         
+        # Variables para todos los niveles de fallback (inicializadas fuera del try para evitar UnboundError)
+        full_response_content = ""
+        tool_calls = []
+
         try:
             sys.stderr.flush()
             start_time = time.perf_counter()
-            
-            # Variables para todos los niveles de fallback
-            full_response_content = ""
-            tool_calls = []
             
             # Intentar llamada principal
             response_generator = completion(
