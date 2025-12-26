@@ -1,69 +1,134 @@
 # 🤖 KogniTerm
 
-![alt text](image.png)
-Un asistente de terminal interactivo impulsado por IA que permite a los modelos de lenguaje (LLMs) ejecutar comandos de terminal y código Python en tu sistema, proporcionando una interfaz conversacional y asistida.
+![KogniTerm Banner](image.png)
 
-## ✨ Características
+**KogniTerm** es un asistente de terminal agéntico avanzado que revoluciona la forma en que interactúas con tu sistema. No es solo un intérprete de comandos; es un ecosistema de **Agentes de IA Especializados** capaces de razonar, investigar, codificar y ejecutar tareas complejas directamente en tu entorno local.
 
-* **Interacción Conversacional:** Comunícate con el intérprete en lenguaje natural. 💬
-* **Ejecución de Comandos y Código Python:** El LLM puede generar y ejecutar comandos de terminal y bloques de código Python en tu sistema. 💻🐍
-* **Confirmación de Comandos y Código:** Siempre se te pedirá confirmación antes de ejecutar cualquier comando de terminal o bloque de código Python (a menos que uses el modo de auto‑aprobación). ✅
-* **Manejo Interactivo:** Soporte para comandos y scripts Python que requieren interacción del usuario (ej. contraseñas, confirmaciones `[Y/n]`). 🤝
-* **Cancelación de Comandos:** Cancela comandos en ejecución con `Ctrl+C` sin salir de la aplicación. 🛑
-* **Comandos Mágicos:** `%help`, `%reset`, `%compress` y más. ✨
-* **Modo de Auto‑Aprobación:** Ejecuta comandos y código automáticamente sin confirmación usando la bandera `-y`. 🚀
-* **Interfaz Mejorada con Rich:** Salida de terminal formateada con Markdown y colores. 🎨
-* **Agente Inteligente:** Un agente avanzado capaz de razonar y ejecutar tareas complejas en tu sistema. 🤖
-* **Herramientas Integradas:** Búsqueda web, extracción de contenido, herramienta unificada de GitHub y un ejecutor Python con kernel Jupyter persistente. 🌐🐙
-* **Visualización de Diffs:** Renderizado de diferencias de código con colores y resaltado de sintaxis. 📊
-* **Creación de Planes:** Herramienta para generar y presentar planes de acción detallados antes de ejecutar tareas complejas. 📋
-* **Prompt de Indexado al Inicio:** Pregunta al usuario si desea indexar el código al iniciar KogniTerm. 📂
-* **Interrupción con ESC:** Permite detener la generación del agente usando la tecla Escape. ⏹️
+Diseñado para ser **universalmente compatible**, KogniTerm funciona con una amplia gama de modelos de lenguaje (OpenAI, Anthropic, Google Gemini, DeepSeek, OpenRouter, etc.), gracias a su robusto sistema de parseo de herramientas.
 
+## ✨ Características Principales
+
+### 🧠 Arquitectura Multi-Agente
+
+KogniTerm no es un solo bot, es un equipo de especialistas:
+
+* **BashAgent (El Operador)**: Tu interfaz principal. Maneja la terminal, ejecuta comandos y orquesta la delegación de tareas.
+* **ResearcherAgent (El Detective)**: Especialista en lectura y comprensión. Analiza tu base de código, busca en la web y genera explicaciones detalladas sin modificar tus archivos.
+* **CodeAgent (El Desarrollador)**: Ingeniero de software experto. Se encarga de escribir, refactorizar y aplicar parches a tu código siguiendo principios de calidad y seguridad.
+
+### 🌐 Compatibilidad Universal de LLMs
+
+Olvídate de las restricciones de proveedores. KogniTerm implementa un **Sistema de Parseo Universal** que permite usar modelos que no tienen soporte nativo para "Tool Calling".
+
+* Soporta **OpenAI, Anthropic, Google Gemini**.
+* Compatible con **DeepSeek, Llama 3, Mistral** y modelos vía **OpenRouter**.
+* Detecta y ejecuta comandos incluso si el modelo los "alucina" en texto plano.
+
+### 🛠 Herramientas Potentes
+
+* **Gestión de Archivos y Directorios**: Lectura recursiva, búsqueda inteligente y edición segura.
+* **Indexado de Código (RAG)**: Indexa tu proyecto localmente para que la IA entienda todo el contexto de tu repositorio.
+* **Búsqueda Web Integrada**: Para obtener información actualizada durante las sesiones.
+* **Ejecución de Python**: Un entorno REPL persistente para cálculos y scripts complejos.
+
+### 🛡 Seguridad y Control
+
+* **Human-in-the-loop**: Por defecto, KogniTerm pide confirmación antes de ejecutar cualquier comando de shell o editar archivos.
+* **Modo Auto-Aprobación (`-y`)**: Para flujos de trabajo rápidos y desatendidos.
+* **Visualización de Diffs**: Revisa los cambios de código con resaltado de sintaxis antes de aplicarlos.
 
 ## 🚀 Instalación
 
-1. **Clonar el repositorio:**
+```bash
+# Instalar con pipx (recomendado para aislar dependencias)
+pipx install kogniterm
 
-    ```bash
-    git clone <URL_DEL_REPOSITORIO_KOGNITOINTERPRETER>
-    cd KogniTerm
-    ```
+# O con pip
+pip install kogniterm
+```
 
-2. **Instalar KogniTerm:**
-    Puedes instalar KogniTerm directamente usando `pip`.
-    * **Instalación estándar:**
+## ⚙️ Configuración y Gestión de Modelos (CLI)
 
-        ```bash
-        pip install .
-        ```
+KogniTerm incluye una potente CLI para gestionar tus modelos y claves de API sin tocar archivos de configuración manualmente.
 
-    * **Instalación en modo editable (para desarrollo):**
-        Si deseas que los cambios en el código fuente se reflejen sin reinstalar, usa:
+### 🔑 Gestión de API Keys
 
-        ```bash
-        pip install -e .
-        ```
+Configura tus proveedores de IA favoritos de forma segura:
 
-    Esto instalará KogniTerm y sus dependencias, y el comando `kogniterm` estará disponible en tu entorno virtual.
+```bash
+# Configurar OpenRouter (Recomendado para acceder a todos los modelos)
+kogniterm keys set openrouter sk-or-v1-...
 
-3. **Configurar la API Key de Google Gemini:**
-    Asegúrate de tener tu clave de API de Google Gemini configurada como una variable de entorno:
+# Configurar Google Gemini
+kogniterm keys set google AIzaSy...
 
-    ```bash
-    export GOOGLE_API_KEY="TU_CLAVE_API_AQUI"
-    ```
+# Configurar OpenAI
+kogniterm keys set openai sk-...
 
-## 💻 Uso
+# Configurar Anthropic
+kogniterm keys set anthropic sk-ant-...
 
-Para iniciar KogniTerm:
+# Listar las llaves configuradas (se muestran enmascaradas)
+kogniterm keys list
+```
+
+### 🧠 Gestión de Modelos
+
+Define qué "cerebro" utilizará KogniTerm por defecto:
+
+```bash
+# Establecer un modelo por defecto (ejemplo con OpenRouter)
+kogniterm models use openrouter/google/gemini-2.0-flash-exp:free
+
+# Usar un modelo directo de Google
+kogniterm models use gemini/gemini-1.5-pro
+
+# Ver el modelo actual configurado
+kogniterm models current
+```
+
+> **Nota:** La configuración se guarda globalmente en `~/.kogniterm/config.json`. KogniTerm priorizará las variables de entorno explícitas si las hubiera.
+
+## 🎮 Uso Interactivo
+
+Una vez configurado, inicia tu asistente:
 
 ```bash
 kogniterm
 ```
 
-Para iniciar en modo de auto-aprobación (ejecuta comandos y código sin pedir confirmación):
+### Comandos Mágicos y Menús Interactivos
+
+Dentro de la aplicación, tienes control total con una experiencia de usuario mejorada:
+
+* **`%models`**: Abre un **menú interactivo** para cambiar de modelo en caliente sin reiniciar.
+* **`%help`**: Despliega un menú de ayuda navegable donde puedes ejecutar comandos directamente.
+* **`%reset`**: Reinicia la conversación y limpia la memoria de corto plazo.
+* **`%undo`**: Deshace la última interacción (útil si el modelo se equivocó).
+* **`%compress`**: Resume el historial actual para ahorrar tokens y mantener el contexto relevante.
+* **Autocompletado Inteligente**: Escribe `%` para ver y seleccionar todos los comandos disponibles.
+* **Barra de Estado**: La barra inferior muestra siempre el modelo activo (ej: `🤖 OR/gemini-2.0-flash`) y el estado de indexación.
+
+### Referencia de Archivos (@)
+
+Puedes "inyectar" el contenido de cualquier archivo en tu prompt usando `@`:
+
+```text
+(kogniterm) › Analiza el código de @src/main.py y sugiere mejoras.
+```
+
+El sistema autocompletará las rutas de tus archivos mientras escribes después de `@`.
+
+## 🧠 Indexado de Código (RAG)
+
+Para que KogniTerm entienda tu proyecto completo:
 
 ```bash
-kogniterm -y
+# Indexar el directorio actual antes de iniciar
+kogniterm index .
 ```
+
+O simplemente inicia `kogniterm` y responde "Sí" cuando te pregunte si deseas indexar el directorio actual. Esto permite realizar preguntas complejas sobre la arquitectura de tu código.
+
+---
+*Desarrollado con ❤️ por el equipo de KogniTerm.*

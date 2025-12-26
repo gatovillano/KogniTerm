@@ -175,6 +175,34 @@ async def _main_async():
     # Obtener el directorio de trabajo actual
     workspace_directory = os.getcwd()
 
+    # --- INYECCIÓN DE CONFIGURACIÓN DE MODELO ---
+    # Leer el modelo configurado por el usuario y establecerlo en las variables de entorno
+    # ANTES de importar LLMService, ya que este lee os.environ al nivel de módulo.
+    default_model = config_manager.get_config("default_model")
+    if default_model:
+        # Solo sobrescribir si no se pasó explícitamente por variable de entorno en esta ejecución
+        # Esto permite overrides temporales: LITELLM_MODEL=foo kogniterm
+        if "LITELLM_MODEL" not in os.environ:
+            os.environ["LITELLM_MODEL"] = default_model
+            # print(f"ℹ️  Using configured model: {default_model}")
+
+    # --- INYECCIÓN DE API KEYS ---
+    # Mapeo de proveedores a variables de entorno
+    api_key_mapping = {
+        "openrouter": "OPENROUTER_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "litellm": "LITELLM_API_KEY"
+    }
+    
+    for provider, env_var in api_key_mapping.items():
+        # Solo inyectar si no existe ya en el entorno (prioridad a variables explícitas)
+        if env_var not in os.environ:
+            saved_key = config_manager.get_config(f"api_key_{provider}")
+            if saved_key:
+                os.environ[env_var] = saved_key
+
     llm_service_instance = LLMService() # Usar el project_context inicializado
     command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
     agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
@@ -327,6 +355,81 @@ def main():
                 
         else:
             print(f"Unknown index command: {command}")
+            
+        return
+
+    # Handle models commands
+    if len(sys.argv) > 1 and sys.argv[1] == 'models':
+        from kogniterm.terminal.config_manager import ConfigManager
+        config_manager = ConfigManager()
+
+        if len(sys.argv) < 3:
+            print("Usage: kogniterm models [use|current] ...")
+            return
+
+        command = sys.argv[2]
+
+        if command == 'use':
+            if len(sys.argv) != 4:
+                print("Usage: kogniterm models use <model_name>")
+                print("Example: kogniterm models use openrouter/google/gemini-2.0-flash-exp:free")
+                return
+            model_name = sys.argv[3]
+            config_manager.set_global_config("default_model", model_name)
+            print(f"✅ Default model set to: {model_name}")
+            print("Restart KogniTerm to apply changes.")
+
+        elif command == 'current':
+            model = config_manager.get_config("default_model")
+            if model:
+                print(f"🤖 Current configured model: {model}")
+            else:
+                print("🤖 No default model configured (using system environment variables).")
+        
+        else:
+            print(f"Unknown models command: {command}")
+        
+        return
+
+    # Handle keys commands
+    if len(sys.argv) > 1 and sys.argv[1] == 'keys':
+        from kogniterm.terminal.config_manager import ConfigManager
+        config_manager = ConfigManager()
+        
+        if len(sys.argv) < 3:
+            print("Usage: kogniterm keys [set|list] ...")
+            return
+            
+        command = sys.argv[2]
+        
+        valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm"]
+        
+        if command == 'set':
+            if len(sys.argv) != 5:
+                print(f"Usage: kogniterm keys set <provider> <key>")
+                print(f"Providers: {', '.join(valid_providers)}")
+                return
+            
+            provider = sys.argv[3].lower()
+            key_value = sys.argv[4]
+            
+            if provider not in valid_providers:
+                print(f"Invalid provider. Choose from: {', '.join(valid_providers)}")
+                return
+                
+            config_manager.set_global_config(f"api_key_{provider}", key_value)
+            print(f"✅ API Key for '{provider}' saved successfully.")
+            
+        elif command == 'list':
+            print("🔑 Configured API Keys:")
+            for provider in valid_providers:
+                key = config_manager.get_config(f"api_key_{provider}")
+                status = "✅ Set" if key else "❌ Not set"
+                masked_key = f"{key[:4]}...{key[-4:]}" if key and len(key) > 8 else ""
+                print(f"  - {provider.ljust(12)}: {status} {masked_key}")
+                
+        else:
+            print(f"Unknown keys command: {command}")
             
         return
 

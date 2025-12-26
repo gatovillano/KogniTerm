@@ -135,46 +135,68 @@ class FileCompleter(Completer):
                 self._cached_files = []
             return []
 
+    MAGIC_COMMANDS = [
+        ("%help", "Mostrar menú de ayuda interactivo"),
+        ("%models", "Cambiar modelo de IA"),
+        ("%reset", "Reiniciar conversación"),
+        ("%undo", "Deshacer última acción"),
+        ("%compress", "Resumir historial"),
+        ("%theme", "Cambiar tema de colores"),
+        ("%init", "Inicializar contexto"),
+        ("%keys", "Gestionar API Keys"),
+        ("%salir", "Salir de KogniTerm")
+    ]
+
     def get_completions(self, document, complete_event):
         text_before_cursor = document.text_before_cursor
+        word_before_cursor = document.get_word_before_cursor(WORD=True)
         
-        if '@' not in text_before_cursor:
-            return # No estamos en modo de autocompletado de archivos
+        # 1. Autocompletado de Comandos Mágicos (%)
+        if text_before_cursor.lstrip().startswith('%') or word_before_cursor.startswith('%'):
+            # Determinar qué parte está escribiendo el usuario
+            if ' ' not in text_before_cursor.lstrip(): # Solo si es la primera palabra
+                current_input = text_before_cursor.lstrip()
+                for cmd, desc in self.MAGIC_COMMANDS:
+                    if cmd.startswith(current_input):
+                        yield Completion(cmd, start_position=-len(current_input), display_meta=desc)
+                return # Si estamos completando un comando, no buscamos archivos
 
-        current_input_part = text_before_cursor.split('@')[-1]
-        
-        # Intentar obtener los archivos de la caché
-        with self.cache_lock:
-            cached_files = self._cached_files
-        
-        if cached_files is None:
-            # Si la caché está vacía, iniciar la carga en segundo plano si no está ya en progreso
-            if self._loading_future is None or self._loading_future.done():
-                self._start_background_load_files()
+        # 2. Autocompletado de Archivos (@)
+        if '@' in text_before_cursor:
+            current_input_part = text_before_cursor.split('@')[-1]
             
-            # Mientras se carga, podemos ofrecer una sugerencia básica o ninguna
-            if self.show_indicator:
-                yield Completion("(Cargando archivos...)", start_position=-len(current_input_part))
-            return
-
-        suggestions = []
-        for relative_item_path in cached_files:
-            # Construir la ruta absoluta para verificar si es un directorio
-            absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
+            # Intentar obtener los archivos de la caché
+            with self.cache_lock:
+                cached_files = self._cached_files
             
-            display_item = relative_item_path
-            # Solo añadir '/' si es un directorio real y no un patrón excluido que podría parecer un directorio
-            if os.path.isdir(absolute_item_path) and not display_item.endswith('/'):
-                 display_item += '/'
+            if cached_files is None:
+                # Si la caché está vacía, iniciar la carga en segundo plano si no está ya en progreso
+                if self._loading_future is None or self._loading_future.done():
+                    self._start_background_load_files()
+                
+                # Mientras se carga, podemos ofrecer una sugerencia básica o ninguna
+                if self.show_indicator:
+                    yield Completion("(Cargando archivos...)", start_position=-len(current_input_part))
+                return
 
-            if current_input_part.lower() in display_item.lower():
-                suggestions.append(display_item)
-        
-        suggestions.sort()
+            suggestions = []
+            for relative_item_path in cached_files:
+                # Construir la ruta absoluta para verificar si es un directorio
+                absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
+                
+                display_item = relative_item_path
+                # Solo añadir '/' si es un directorio real y no un patrón excluido que podría parecer un directorio
+                if os.path.isdir(absolute_item_path) and not display_item.endswith('/'):
+                     display_item += '/'
 
-        for suggestion in suggestions:
-            start_position = -len(current_input_part)
-            yield Completion(suggestion, start_position=start_position)
+                if current_input_part.lower() in display_item.lower():
+                    suggestions.append(display_item)
+            
+            suggestions.sort()
+
+            for suggestion in suggestions:
+                start_position = -len(current_input_part)
+                yield Completion(suggestion, start_position=start_position)
 
     def dispose(self):
         """Detiene el FileSystemWatcher y el ThreadPoolExecutor cuando la aplicación se cierra."""
@@ -275,9 +297,19 @@ class KogniTermApp:
 
     def _get_bottom_toolbar(self):
         """Genera el contenido de la barra inferior (toolbar)."""
+        model_name = self.llm_service.model_name
+        # Limpiar el nombre del modelo para que se vea mejor (quitar prefijos largos si es necesario)
+        display_model = model_name.replace("openrouter/", "OR/").replace("google/", "G/").replace("openai/", "OAI/").replace("anthropic/", "ANT/")
+        
+        toolbar_content = [
+            ('class:bottom-toolbar', f' 🤖 {display_model} '),
+        ]
+
         if self.indexing_status:
-            return HTML(f'<style bg="ansiblue" fg="white"> <b>Indexando:</b> {self.indexing_status} </style>')
-        return None
+            toolbar_content.append(('class:bottom-toolbar.key', ' | '))
+            toolbar_content.append(('class:bottom-toolbar', f' Indexando: {self.indexing_status} '))
+            
+        return HTML(f'<style bg="#333333" fg="#ffffff">{"".join([t[1] for t in toolbar_content])}</style>')
 
     def _update_indexing_progress(self, current, total, description):
         """Callback para actualizar el estado de la indexación."""
@@ -424,7 +456,7 @@ class KogniTermApp:
                 self.prompt_session.app.current_buffer.text = ""
                 self.prompt_session.app.current_buffer.cursor_position = 0
 
-                if self.meta_command_processor.process_meta_command(user_input):
+                if await self.meta_command_processor.process_meta_command(user_input):
                     continue
 
                 # Procesar etiquetas @archivo para inyectar contenido

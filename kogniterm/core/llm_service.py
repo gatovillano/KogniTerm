@@ -787,6 +787,27 @@ class LLMService:
             logger.info(f"📋 Total herramientas convertidas: {len(converted_tools)}")
         return self.litellm_tools
 
+    def set_model(self, model_name: str):
+        """Cambia el modelo actual en tiempo de ejecución."""
+        self.model_name = model_name
+        os.environ["LITELLM_MODEL"] = model_name
+        
+        # Invalidar caché de herramientas para que se regeneren con el formato correcto para el nuevo modelo
+        self.litellm_tools = None
+        
+        # Actualizar configuración de LiteLLM si es necesario (ej: OpenRouter)
+        if model_name.startswith("openrouter/"):
+            litellm_model = model_name
+            # Asegurarse de que la API Key de OpenRouter esté configurada si cambiamos a un modelo OpenRouter
+            if not os.environ.get("OPENROUTER_API_KEY"):
+                logger.warning("Cambiando a modelo OpenRouter pero OPENROUTER_API_KEY no está definida.")
+        elif model_name.startswith("gemini/"):
+             # Asegurarse de que la API Key de Google esté configurada
+            if not os.environ.get("GOOGLE_API_KEY"):
+                 logger.warning("Cambiando a modelo Gemini pero GOOGLE_API_KEY no está definida.")
+
+        logger.info(f"🔄 Modelo cambiado dinámicamente a: {model_name}")
+
     def _initialize_memory(self):
         """Inicializa la memoria si no existe."""
         memory_init_tool = self.get_tool("memory_init")
