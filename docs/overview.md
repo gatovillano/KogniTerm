@@ -1,40 +1,77 @@
 # Visión General del Proyecto KogniTerm
 
-## Propósito
+## 🎯 Propósito y Filosofía
 
-**KogniTerm** es un intérprete de línea de comandos interactivo diseñado para permitir que los modelos de lenguaje (LLMs) interactúen directamente con el sistema operativo del usuario. Su objetivo principal es proporcionar una interfaz conversacional y asistida para la ejecución de comandos y la orquestación de tareas complejas a través del lenguaje natural.
+**KogniTerm** redefine la interacción entre desarrolladores y sistemas operativos. No es simplemente un "chat con la terminal", sino un **Entorno de Desarrollo Agéntico (ADE)** que vive en tu CLI.
 
-Este proyecto busca ofrecer una integración robusta y funcional con modelos de Google Gemini, superando las limitaciones de compatibilidad de otras herramientas.
+Su filosofía se basa en tres pilares:
 
-## Arquitectura General
+1. **Especialización**: Un solo agente no puede hacerlo todo bien. KogniTerm orquesta un equipo de especialistas (Investigador, Desarrollador, Operador).
+2. **Universalidad**: No atarse a un solo proveedor de IA. Gracias a su motor de parseo híbrido, KogniTerm otorga capacidades de uso de herramientas a modelos que nativamente no las tienen.
+3. **Transparencia y Control**: El usuario siempre tiene la última palabra. Nada se ejecuta sin supervisión (a menos que tú lo decidas).
 
-La arquitectura de KogniTerm se basa en un diseño modular y en el uso de **LangGraph** para la gestión del flujo de los agentes:
+## 🏗 Arquitectura del Sistema
 
-1.  **Interfaz de Terminal (`terminal.py`):** Actúa como el punto de entrada y salida para el usuario. Maneja la entrada de comandos, la visualización de las respuestas del LLM y la salida de los comandos ejecutados. Incorpora mejoras de UI/UX con la librería `rich` y permite alternar entre diferentes modos de agente.
+La arquitectura de KogniTerm es modular, extensible y está diseñada sobre **LangGraph** para gestionar flujos de trabajo complejos y con estado.
 
-2.  **Servicio LLM (`llm_service.py`):** Es el componente central para la interacción con el modelo de lenguaje (LLM) de Google Gemini. Se encarga de configurar la API, convertir las herramientas al formato de Gemini e invocar el modelo. También provee un método para buscar herramientas por nombre.
+### 1. El Núcleo Multi-Agente (`core/agents/`)
 
-3.  **Ejecutor de Comandos (`command_executor.py`):** Responsable de ejecutar comandos de shell en el sistema. Está diseñado para manejar sesiones interactivas (usando pseudo-terminales), permitiendo la entrada de usuario (como contraseñas o confirmaciones `[Y/n]`) y la captura de salida en tiempo real.
+El "cerebro" de KogniTerm no es monolítico. Se divide en roles especializados:
 
-4.  **Agentes LangGraph (`core/agents/`):** Son el cerebro de la aplicación, implementados como grafos de LangGraph. Deciden qué acciones tomar, cómo usar las herramientas y cómo interactuar con el usuario. Actualmente, existen dos modos principales:
-    *   **Agente Bash (`bash_agent.py`):** Para la ejecución directa de comandos y herramientas, proporcionando explicaciones claras antes de la confirmación.
-    *   **Agente Orquestador (`orchestrator_agent.py`):** Para tareas complejas que requieren planificación, aprobación del usuario y ejecución secuencial de múltiples pasos.
+* **🤖 BashAgent (El Orquestador)**:
+  * Es el punto de entrada.
+  * Maneja la interacción directa con el usuario.
+  * Decide si una tarea es simple (ejecutar un comando) o requiere delegación.
+  * *Responsabilidad*: Operación del sistema y gestión del flujo.
 
-## Flujo de Interacción Básico
+* **🕵️ ResearcherAgent (El Detective)**:
+  * Especialista en lectura y análisis.
+  * Tiene herramientas de "solo lectura" (read_file, search, grep).
+  * Genera reportes en Markdown y explicaciones detalladas.
+  * *Responsabilidad*: Comprensión profunda sin riesgo de efectos secundarios.
 
-1.  El usuario introduce una consulta en la terminal.
-2.  La interfaz de terminal (`terminal.py`) añade la consulta al historial del agente activo (Bash o Orquestador).
-3.  El agente activo (`bash_agent.py` o `orchestrator_agent.py`) invoca al Servicio LLM (`llm_service.py`) con el historial de la conversación.
-4.  El LLM genera una respuesta que puede ser texto conversacional o una llamada a una herramienta.
-5.  Si el LLM propone ejecutar un comando (`execute_command`):
-    *   El agente genera una explicación en lenguaje natural sobre lo que hará el comando.
-    *   La terminal (`terminal.py`) intercepta esta propuesta, muestra la explicación y pide confirmación al usuario.
-    *   Si el usuario aprueba (o si el modo de auto-aprobación está activo), la terminal utiliza el `command_executor.py` para ejecutar el comando.
-    *   La salida del comando se captura y se envía de vuelta al agente como una respuesta de herramienta.
-6.  Si el LLM propone usar otra herramienta (ej. `github_tool`, `brave_search`):
-    *   El agente ejecuta la herramienta directamente (sin confirmación adicional, ya que no modifican el sistema de archivos directamente).
-    *   La salida de la herramienta se envía de vuelta al agente.
-7.  El agente procesa la salida de la herramienta o el comando, y genera una respuesta conversacional para el usuario.
-8.  La respuesta final del agente se muestra en la terminal.
+* **👨‍💻 CodeAgent (El Desarrollador)**:
+  * Especialista en modificación de código.
+  * Sigue principios de ingeniería de software (validación, atomicidad).
+  * Utiliza herramientas de edición precisa y verificación de sintaxis.
+  * *Responsabilidad*: Escritura de código segura y de alta calidad.
 
-En el modo Orquestador, este flujo se extiende para incluir la generación de un plan de múltiples pasos, su presentación al usuario para aprobación, y la ejecución secuencial de cada paso del plan.
+### 2. Motor de Parseo Universal (`llm_service.py`)
+
+Este componente es lo que hace a KogniTerm único. Actúa como un "traductor universal" entre la intención del LLM y la ejecución de código.
+
+* **Soporte Nativo**: Para modelos con API de `tool_calls` (OpenAI, Gemini, Anthropic).
+* **Text-to-Tool Parsing**: Para modelos que solo generan texto (DeepSeek, Llama, modelos locales). Detecta patrones (JSON, XML, llamadas tipo función) dentro del texto libre y los convierte en ejecuciones estructuradas.
+* **Normalización**: Unifica las respuestas de diferentes proveedores en un formato estándar para los agentes.
+
+### 3. Capa de Ejecución (`terminal/`)
+
+* **Terminal Interactiva (`terminal.py`)**: Interfaz rica (UI) construida con `prompt_toolkit` y `rich`. Maneja autocompletado, historial y renderizado de Markdown.
+* **Ejecutor Seguro (`command_executor.py`)**: Sandbox para la ejecución de comandos de shell. Captura stdout/stderr en tiempo real y maneja interacciones (inputs de usuario, contraseñas).
+
+### 4. Sistema RAG Local (`core/context/`)
+
+KogniTerm indexa tu base de código localmente usando embeddings (ChromaDB). Esto permite a los agentes realizar búsquedas semánticas ("¿Dónde se maneja la autenticación?") en lugar de solo búsquedas por nombre de archivo, proporcionando un contexto mucho más rico.
+
+## 🔄 Flujo de Trabajo Típico
+
+1. **Entrada**: El usuario escribe: *"Analiza por qué falla el login y arréglalo"*.
+2. **Orquestación (BashAgent)**:
+    * Detecta que es una tarea compleja.
+    * Invoca a **ResearcherAgent**: *"Investiga el flujo de login y busca errores"*.
+3. **Investigación (ResearcherAgent)**:
+    * Lee archivos, busca en logs, entiende el problema.
+    * Devuelve un reporte: *"El error está en `auth.py`, línea 45. Falta un manejo de excepción"*.
+4. **Desarrollo (CodeAgent)**:
+    * BashAgent recibe el reporte y delega a **CodeAgent**: *"Aplica el fix sugerido en `auth.py`"*.
+    * CodeAgent lee el archivo, aplica el parche y verifica la sintaxis.
+5. **Confirmación**:
+    * El sistema muestra el `diff` al usuario.
+    * El usuario aprueba.
+6. **Ejecución**: Se aplican los cambios.
+
+## 🛡 Seguridad
+
+* **Human-in-the-Loop**: Confirmación obligatoria para herramientas con efectos secundarios (escritura, ejecución).
+* **Validación de Herramientas**: Cada herramienta tiene esquemas estrictos (Pydantic) para validar argumentos antes de la ejecución.
+* **Aislamiento**: Las dependencias se gestionan preferiblemente vía `pipx` para no contaminar el sistema global.

@@ -45,7 +45,7 @@ class AdvancedFileEditorTool(BaseTool):
     args_schema: Type[BaseModel] = AdvancedFileEditorInput
 
     def _run(self, path: str, action: str, content: Optional[str] = None, line_number: Optional[int] = None, regex_pattern: Optional[str] = None, replacement_content: Optional[str] = None, confirm: bool = False) -> Dict[str, Any]:
-        logger.info(f"Invocando AdvancedFileEditorTool para editar el archivo: '{path}' con la acción: '{action}'.")
+        logger.debug(f"Invocando AdvancedFileEditorTool para editar el archivo: '{path}' con la acción: '{action}'.")
         logger.debug(f"AdvancedFileEditorTool._run - Valor de confirm: {confirm}")
         # print(f"*** DEBUG PRINT: AdvancedFileEditorTool._run - Valor de confirm: {confirm} ***")
         try:
@@ -59,12 +59,12 @@ class AdvancedFileEditorTool(BaseTool):
             new_content = "" # Inicializar new_content aquí
 
             if action == 'insert_line':
-                logger.info(f"Insertando contenido en la línea {line_number} del archivo '{path}'.")
+                logger.debug(f"Insertando contenido en la línea {line_number} del archivo '{path}'.")
                 if not isinstance(line_number, int) or line_number < 1:
                     return {"error": "line_number debe ser un entero positivo (basado en 1) para 'insert_line'."}
                 if content is None:
                     return {"error": "El 'content' no puede ser None para 'insert_line'."}
-                
+
                 insert_idx = line_number - 1
                 insert_content = content if content.endswith('\n') else content + '\n'
 
@@ -74,22 +74,22 @@ class AdvancedFileEditorTool(BaseTool):
                     modified_lines.insert(insert_idx, insert_content)
 
             elif action == 'replace_regex':
-                logger.info(f"Reemplazando contenido en el archivo '{path}' usando el patrón regex '{regex_pattern}'.")
+                logger.debug(f"Reemplazando contenido en el archivo '{path}' usando el patrón regex '{regex_pattern}'.")
                 if not regex_pattern or replacement_content is None:
                     return {"error": "Se requieren 'regex_pattern' y 'replacement_content' para 'replace_regex'."}
-                
+
                 modified_content_str = re.sub(regex_pattern, replacement_content, original_content)
                 modified_lines = modified_content_str.splitlines(keepends=True)
 
             elif action == 'prepend_content':
-                logger.info(f"Añadiendo contenido al principio del archivo '{path}'.")
+                logger.debug(f"Añadiendo contenido al principio del archivo '{path}'.")
                 if content is None:
                     return {"error": "El 'content' no puede ser None para 'prepend_content'."}
                 prepend_content = content if content.endswith('\n') else content + '\n'
                 modified_lines.insert(0, prepend_content)
 
             elif action == 'append_content':
-                logger.info(f"Añadiendo contenido al final del archivo '{path}'.")
+                logger.debug(f"Añadiendo contenido al final del archivo '{path}'.")
                 if content is None:
                     return {"error": "El 'content' no puede ser None para 'append_content'."}
                 append_content = content if content.endswith('\n') else content + '\n'
@@ -101,7 +101,7 @@ class AdvancedFileEditorTool(BaseTool):
             new_content = "".join(modified_lines)
 
             if confirm:
-                logger.info(f"Aplicando la actualización al archivo '{path}'.")
+                logger.debug(f"Aplicando la actualización al archivo '{path}'.")
                 logger.debug("DEBUG: AdvancedFileEditorTool._run - Ejecutando _apply_advanced_update (confirm=True).")
                 # print("*** DEBUG PRINT: AdvancedFileEditorTool._run - Ejecutando _apply_advanced_update (confirm=True). ***")
                 return _apply_advanced_update(path, new_content)
@@ -116,7 +116,7 @@ class AdvancedFileEditorTool(BaseTool):
             ))
 
             if not diff:
-                logger.info(f"No se requieren cambios en el archivo '{path}' para la acción '{action}'.")
+                logger.debug(f"No se requieren cambios en el archivo '{path}' para la acción '{action}'.")
                 logger.debug(f"DEBUG: AdvancedFileEditorTool._run - No se requieren cambios para la acción '{action}'.")
                 # print(f"*** DEBUG PRINT: AdvancedFileEditorTool._run - No se requieren cambios para la acción '{action}'. ***")
                 return {"status": "success", "message": f"El archivo '{path}' no requirió cambios para la acción '{action}'."}

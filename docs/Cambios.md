@@ -595,3 +595,97 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 
 ✅ **Accesibilidad**: Facilita el descubrimiento de la documentación técnica y de procesos.
 ✅ **Navegación**: Mejora la experiencia del usuario al centralizar los recursos de información.
+
+---
+
+## 26-12-2025 Actualización de Visión General (Overview)
+
+**Descripción**: Se ha reescrito completamente el archivo `docs/overview.md` para reflejar con precisión la arquitectura actual del sistema, incluyendo los agentes especializados y el motor de parseo universal.
+
+### Cambios Realizados
+
+#### **📄 Archivo Modificado**: `docs/overview.md`
+
+- **Nueva Estructura**: Organizado por "Propósito y Filosofía", "Arquitectura del Sistema", "Flujo de Trabajo" y "Seguridad".
+- **Agentes Especializados**: Se documentaron los roles de `BashAgent`, `ResearcherAgent` y `CodeAgent`.
+- **Motor Universal**: Se explicó el funcionamiento del parseo híbrido (Text-to-Tool) para compatibilidad con cualquier LLM.
+- **RAG Local**: Se añadió una sección sobre el sistema de indexado de código.
+
+### **🎯 Beneficios**
+
+✅ **Precisión**: La documentación ahora coincide con la realidad del código.
+✅ **Claridad**: Explica *por qué* KogniTerm es diferente (especialización + universalidad).
+✅ **Onboarding**: Facilita que nuevos usuarios entiendan rápidamente cómo funciona el sistema por dentro.
+
+---
+
+## 26-12-25 Reducción de logs INFO en AdvancedFileEditorTool
+
+**Descripción**: Se cambió el nivel de logging de INFO a DEBUG para los mensajes de la herramienta AdvancedFileEditorTool, reduciendo el ruido en la salida de la consola durante las confirmaciones de edición de archivos.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/tools/advanced_file_editor_tool.py`
+
+**Cambios Realizados**:
+
+- **Cambio de nivel de logging**: Se modificaron todos los `logger.info()` a `logger.debug()` en las operaciones de edición
+- **Mensajes afectados**: Invocación de herramienta, inserción de contenido, reemplazo con regex, adición de contenido, aplicación de actualizaciones
+- **Preservación de funcionalidad**: Los logs siguen disponibles en nivel DEBUG para depuración
+
+#### **📋 Mensajes Convertidos**
+
+1. **Invocación de herramienta**: "Invocando AdvancedFileEditorTool..."
+2. **Operaciones específicas**: "Insertando contenido...", "Reemplazando contenido...", etc.
+3. **Aplicación de cambios**: "Aplicando la actualización al archivo..."
+4. **Mensajes informativos**: "No se requieren cambios..."
+
+#### **🎯 Beneficios de la Reducción**
+
+✅ **Menos ruido en consola**: Elimina logs innecesarios durante el flujo normal de confirmaciones
+✅ **Mejor experiencia de usuario**: La salida se centra en la información relevante
+✅ **Logs disponibles para debug**: Los mensajes siguen accesibles cuando se necesita depuración
+✅ **Consistencia**: Reduce la verbosidad en operaciones interactivas
+
+#### **🔍 Impacto en el Sistema**
+
+- **AdvancedFileEditorTool**: Ahora opera de forma más silenciosa
+- **Flujo de confirmaciones**: Más limpio y enfocado en la interacción del usuario
+- **Depuración**: Los desarrolladores pueden activar DEBUG cuando necesiten detalles
+
+---
+
+## 26-12-25 Integración de herramienta GitHub en ResearcherAgent
+
+**Descripción**: Se integró la herramienta github_tool en el agente investigador para permitir investigación de repositorios GitHub, respondiendo a la solicitud del usuario de que el researcher_agent maneje esta herramienta para investigar repositorios.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/agents/researcher_agent.py`
+
+**Sección Actualizada**: Mensaje de Sistema (SYSTEM_MESSAGE)
+
+**Cambios Realizados**:
+
+- **Adición de herramienta github_tool**: Se incluyó `github_tool` en la lista de herramientas disponibles para el agente investigador
+- **Descripción de funcionalidad**: Se agregó descripción detallada de las capacidades de la herramienta (obtener info de repo, listar contenidos, leer archivos y directorios)
+- **Integración en flujo de trabajo**: La herramienta está ahora disponible para ser utilizada por el LLM durante las investigaciones
+
+#### **📋 Funcionalidades Habilitadas**
+
+1. **Investigación de Repositorios**: El agente puede ahora acceder a repositorios públicos de GitHub
+2. **Análisis de Código Externo**: Permite examinar código de otros proyectos para comparación o aprendizaje
+3. **Búsqueda Exhaustiva**: Amplía las capacidades de investigación más allá del codebase local
+
+#### **🎯 Beneficios de la Integración**
+
+✅ **Capacidades Expandidas**: El agente investigador ahora puede investigar fuentes externas de código
+✅ **Investigación Completa**: Permite análisis comparativo entre el proyecto local y repositorios externos
+✅ **Flexibilidad**: Añade una nueva dimensión a las investigaciones del agente
+✅ **Sin Cambios Disruptivos**: La integración es transparente y no afecta otras funcionalidades
+
+#### **🔍 Impacto en el Sistema**
+
+- **ResearcherAgent**: Ahora tiene acceso a herramientas para investigar repositorios GitHub
+- **Flujo de Investigación**: Se enriquece con la posibilidad de consultar código externo
+- **Compatibilidad**: La herramienta ya estaba implementada y registrada, solo faltaba la integración en el agente
