@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
-import google.generativeai as genai
+import google.genai as genai
 from rich.console import Console
 import functools
 from langchain_core.runnables import RunnableConfig # Nueva importación

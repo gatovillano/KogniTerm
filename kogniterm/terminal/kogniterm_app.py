@@ -323,13 +323,14 @@ class KogniTermApp:
         
         self.terminal_ui.print_message("Iniciando indexación del codebase en segundo plano... 🚀", style="cyan")
         
+        vector_db = None
         try:
             indexer = CodebaseIndexer(self.workspace_directory)
             vector_db = VectorDBManager(self.workspace_directory)
             
             # Run async indexing silently but with callback
             chunks = await indexer.index_project(
-                self.workspace_directory, 
+                self.workspace_directory,
                 show_progress=False,
                 progress_callback=self._update_indexing_progress
             )
@@ -347,6 +348,8 @@ class KogniTermApp:
         except Exception as e:
             self.terminal_ui.print_message(f"Error durante la indexación en segundo plano: {e}", style="red")
         finally:
+            if vector_db:
+                vector_db.close()
             self.indexing_status = None # Limpiar estado al finalizar
 
 

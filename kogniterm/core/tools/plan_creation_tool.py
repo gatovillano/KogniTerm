@@ -63,34 +63,34 @@ class PlanCreationTool(BaseTool):
                     full_content += chunk.content
             
             # Parse JSON
-            json_str = full_content.strip()
-            if json_str.startswith("```json"):
-                json_str = json_str[7:]
-            elif json_str.startswith("```"):
-                json_str = json_str[3:]
-            
-            if json_str.endswith("```"):
-                json_str = json_str[:-3]
-            
-            json_str = json_str.strip()
-
-            # Normalizar el contenido JSON: reemplazar saltos de línea y múltiples espacios con un solo espacio
-            # Esto ayuda a manejar el formato inconsistente del LLM que puede generar JSON con saltos de línea
-            # y espacios extras dentro de las cadenas de texto, lo que rompe json.loads.
-            # Se usa re.sub para reemplazar \n, \t y múltiples espacios por un solo espacio.
-            # Luego, se asegura de que no haya espacios antes/después de ':' y ',' para JSON válido.
             import re
-            normalized_json_str = re.sub(r'\s+', ' ', json_str)
-            normalized_json_str = re.sub(r':\s*', ':', normalized_json_str)
-            normalized_json_str = re.sub(r',\s*', ',', normalized_json_str)
+            # Try to find a JSON block enclosed in ```json ... ``` or ``` ... ```
+            json_match = re.search(r"```json\s*(.*?)\s*```", full_content, re.DOTALL)
+            if not json_match:
+                json_match = re.search(r"```\s*(.*?)\s*```", full_content, re.DOTALL)
             
+            json_str_to_parse = ""
+            if json_match:
+                json_str_to_parse = json_match.group(1).strip()
+            else:
+                # Fallback: try to find the first { and last }
+                start_idx = full_content.find('{')
+                end_idx = full_content.rfind('}')
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    json_str_to_parse = full_content[start_idx : end_idx + 1].strip()
+                else:
+                    # If no JSON structure is found, raise an error
+                    return json.dumps({
+                        "status": "error",
+                        "message": f"No JSON content found in LLM response. Original content: {full_content}"
+                    })
+
             try:
-                plan_data = json.loads(normalized_json_str)
+                plan_data = json.loads(json_str_to_parse)
             except json.JSONDecodeError as e:
-                # Fallback if JSON parsing fails
                 return json.dumps({
                     "status": "error",
-                    "message": f"Failed to parse plan JSON: {e}. Original content: {full_content}"
+                    "message": f"Failed to parse plan JSON: {e}. Content attempted to parse: {json_str_to_parse}. Original content: {full_content}"
                 })
             
             # Extract plan details

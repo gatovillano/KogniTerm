@@ -160,3 +160,14 @@ class VectorDBManager:
             return self.collection.count() > 0
         except Exception:
             return False
+
+    def close(self):
+        """Closes the ChromaDB client connection."""
+        try:
+            if hasattr(self, 'client'):
+                # In recent versions of ChromaDB, there isn't a dedicated close()
+                # but removing the reference helps the GC and SQLite to close.
+                self.client = None
+                logger.info("ChromaDB connection closed.")
+        except Exception as e:
+            logger.error(f"Error closing ChromaDB: {e}")

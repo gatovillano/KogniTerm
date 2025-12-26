@@ -190,6 +190,10 @@ async def _main_async():
     try:
         await app.run()
     finally:
+        # Cerrar el servicio LLM y liberar recursos (como ChromaDB)
+        if hasattr(app, 'llm_service') and app.llm_service:
+            app.llm_service.close()
+            
         # Asegurarse de que el FileCompleter se limpie al salir
         if app.prompt_session.completer and hasattr(app.prompt_session.completer, 'dispose'):
             app.prompt_session.completer.dispose()
@@ -266,7 +270,7 @@ def main():
     # Handle index commands
     if len(sys.argv) > 1 and sys.argv[1] == 'index':
         if len(sys.argv) < 3:
-            print("Usage: kogniterm index refresh")
+            print("Usage: kogniterm index [refresh|clean-db]")
             return
         
         command = sys.argv[2]
@@ -278,6 +282,7 @@ def main():
             workspace_directory = os.getcwd()
             print(f"Indexing codebase in {workspace_directory}...")
             
+            vector_db = None
             try:
                 indexer = CodebaseIndexer(workspace_directory)
                 vector_db = VectorDBManager(workspace_directory)
@@ -297,6 +302,28 @@ def main():
                 print(f"Error during indexing: {e}")
                 import traceback
                 traceback.print_exc()
+            finally:
+                if vector_db:
+                    vector_db.close()
+
+        elif command == 'clean-db':
+            import shutil
+            workspace_directory = os.getcwd()
+            db_path = os.path.join(workspace_directory, ".kogniterm", "vector_db")
+            
+            print(f"Cleaning Vector Database at {db_path}...")
+            try:
+                if os.path.exists(db_path):
+                    shutil.rmtree(db_path)
+                    print("Vector Database directory removed successfully.")
+                else:
+                    print("Vector Database directory does not exist.")
+                
+                # Re-create the directory structure
+                os.makedirs(db_path, exist_ok=True)
+                print("Clean Vector Database directory created.")
+            except Exception as e:
+                print(f"Error cleaning database: {e}")
                 
         else:
             print(f"Unknown index command: {command}")

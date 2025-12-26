@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List
-import google.generativeai as genai
+import google.genai as genai
 from kogniterm.terminal.config_manager import ConfigManager
 import os
 import logging

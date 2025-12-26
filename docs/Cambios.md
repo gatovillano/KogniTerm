@@ -420,3 +420,86 @@ Se actualizó y ejecutó el test (`test_siliconflow_fix.py`) que valida:
 - **Experiencia Usuario**: Funciona sin configuración adicional para cualquier modelo
 
 Esta unificación simplifica significativamente el código mientras mejora la compatibilidad universal con proveedores de LLM, resolviendo los problemas de formato que afectaban a SiliconFlow y otros proveedores.
+
+---
+
+## 24-12-2025 Mejora en el Manejo de Argumentos de Tool Calls de Modelos LLM
+**Descripción**: Se mejoró la robustez en el procesamiento de argumentos de tool calls, especialmente para modelos como DeepSeek que pueden enviar argumentos de forma incompleta o mal formada durante la generación en streaming.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/llm_service.py`
+
+**Métodos Actualizados**:
+- `_to_litellm_message(self, message: BaseMessage) -> Dict[str, Any]`
+- `invoke(self, history: Optional[List[BaseMessage]] = None, ...)`
+
+#### **📋 Cambios Específicos**:
+
+1.  **Normalización de Argumentos en `_to_litellm_message`**:
+    - Se aseguró que `tc_args` siempre se serialice como una cadena JSON válida, incluso si está vacío, mediante `json.dumps(tc_args or {})`. Esto garantiza que el formato de los argumentos sea consistente antes de ser enviado al LLM.
+
+2.  **Manejo Robusto de `json.loads` en `invoke`**:
+    - Se implementaron bloques `try-except` alrededor de `json.loads(tc["function"]["arguments"])` en dos secciones clave del método `invoke` (la principal y la de fallback).
+    - Si `json.JSONDecodeError` ocurre, se asigna un diccionario vacío `{}` a los argumentos, y se registra una advertencia (`logger.warning`) para depuración. Esto evita que el sistema falle si el modelo devuelve JSON incompleto o mal formado.
+    - Se añadió una verificación `isinstance(tc["function"]["arguments"], str)` antes de intentar `json.loads` para asegurar que solo se intente decodificar JSON de cadenas.
+
+#### **🎯 Beneficios de la Mejora**:
+
+✅ **Mayor Robustez**: El sistema ahora es más tolerante a argumentos de tool calls parciales o mal formados.
+✅ **Compatibilidad Mejorada**: Facilita la integración con modelos LLM que pueden tener un comportamiento menos consistente en la salida de tool calls.
+✅ **Prevención de Errores**: Reduce la probabilidad de `json.JSONDecodeError` durante el procesamiento en streaming.
+✅ **Depuración Simplificada**: Los mensajes de advertencia proporcionan información útil en caso de problemas con los argumentos.
+
+#### **🔍 Problemas Resueltos**:
+
+- **Argumentos de Tool Calls Incompletos/Mal Formados**: Modelos como DeepSeek ahora son manejados con mayor gracia, evitando fallos.
+- **Errores de Deserialización JSON**: Reducidos significativamente al proporcionar fallbacks seguros.
+
+### **📈 Impacto en el Sistema**:
+
+- **Estabilidad**: Aumenta la estabilidad general de la interacción con LLMs diversos.
+- **Flexibilidad**: Permite el uso de una gama más amplia de modelos sin necesidad de ajustes manuales.
+- **Experiencia de Usuario**: Mensajes de error más claros y menos interrupciones inesperadas.
+
+Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salida de tool calls de diferentes modelos LLM, asegurando un procesamiento más fluido y confiable.
+
+---
+
+## 24-12-2025 Mejora en el Parseo de JSON para la Herramienta de Creación de Planes
+**Descripción**: Se ha mejorado la robustez del parseo de JSON en la herramienta `plan_creation_tool.py` para manejar de manera más flexible las respuestas de los modelos de lenguaje, incluyendo casos donde el JSON puede estar incompleto o mal formado, o envuelto en bloques de código Markdown.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: [`kogniterm/core/tools/plan_creation_tool.py`](kogniterm/core/tools/plan_creation_tool.py)
+
+**Método Actualizado**: [`_run(self, task_description: str)`](kogniterm/core/tools/plan_creation_tool.py:25)
+
+#### **📋 Cambios Específicos**:
+
+1.  **Extracción de JSON Mejorada**:
+    - Se implementó una lógica de extracción que busca bloques JSON envueltos en ````json ... ```` o ```` ... ```` (bloques de código Markdown).
+    - Si no se encuentran bloques de código, se realiza un fallback para buscar la primera `{` y la última `}` para extraer el contenido JSON.
+    - Esto permite parsear respuestas de LLMs que pueden no adherirse estrictamente al formato JSON puro.
+
+2.  **Manejo Robusto de `json.loads`**:
+    - Se añadió un bloque `try-except` alrededor de `json.loads()` para capturar `json.JSONDecodeError`.
+    - En caso de error de parseo, se devuelve un mensaje de error detallado que incluye la excepción y el contenido original de la respuesta del LLM, facilitando la depuración.
+
+#### **🎯 Beneficios de la Mejora**:
+
+✅ **Mayor Robustez**: La herramienta es ahora más tolerante a las variaciones en el formato de salida JSON de los LLMs.
+✅ **Compatibilidad Mejorada**: Soporta respuestas de modelos que envuelven JSON en bloques de código Markdown o que pueden enviar JSON con formato inconsistente.
+✅ **Prevención de Errores**: Reduce la probabilidad de fallos debido a `json.JSONDecodeError` al intentar parsear la respuesta del LLM.
+✅ **Depuración Simplificada**: Los mensajes de error detallados proporcionan información crucial para identificar y corregir problemas en las respuestas del LLM.
+
+#### **🔍 Problemas Resueltos**:
+
+- **Errores de Parseo JSON**: Se evitan fallos cuando el LLM no produce un JSON perfectamente formateado o lo envuelve en texto adicional.
+- **Formato Inconsistente de LLMs**: La herramienta ahora puede extraer el JSON de una variedad más amplia de formatos de respuesta.
+
+### **📈 Impacto en el Sistema**:
+
+- **Estabilidad**: Aumenta la estabilidad y confiabilidad de la herramienta de creación de planes.
+- **Flexibilidad**: Permite el uso de una gama más amplia de modelos LLM para generar planes sin problemas de parseo.
+- **Experiencia de Usuario**: Menos interrupciones y errores al usar la herramienta de creación de planes.

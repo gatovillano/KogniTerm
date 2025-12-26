@@ -17,7 +17,7 @@ dependencies = [
     "PyGithub",
     "rich",
     "matplotlib",
-    "google-generativeai",
+    "google-genai",
     "jupyter_client",
     "loguru",
     "colorama",
@@ -32,6 +32,8 @@ dependencies = [
     "urllib3<2", # Añadido si lo usas para la UI
     "radon",
     "pylint",
+    "pyautogui",
+    "pywinctl",
 ]
 readme = "README.md"
 requires-python = ">=3.9"

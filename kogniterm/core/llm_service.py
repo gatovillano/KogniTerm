@@ -536,15 +536,52 @@ class LLMService:
                 "args": args
             })
 
-        # Eliminar duplicados basados en nombre
-        seen = set()
-        unique_tool_calls = []
-        for tc in tool_calls:
-            if tc['name'] not in seen:
-                seen.add(tc['name'])
-                unique_tool_calls.append(tc)
+        # Filtrar y validar llamadas a herramientas
+        valid_tool_calls = []
+        seen_names = set()
         
-        return unique_tool_calls
+        for tc in tool_calls:
+            name = tc['name']
+            
+            # 1. Validar que el nombre de la herramienta exista en el tool_map
+            if name not in self.tool_map:
+                # Intentar búsqueda insensible a mayúsculas/minúsculas si no se encuentra exacto
+                found_match = False
+                for registered_name in self.tool_map.keys():
+                    if name.lower() == registered_name.lower():
+                        tc['name'] = registered_name
+                        name = registered_name
+                        found_match = True
+                        break
+                
+                if not found_match:
+                    logger.debug(f"Ignorando supuesta llamada a herramienta inexistente: {name}")
+                    continue
+            
+            # 2. Evitar duplicados en la misma respuesta
+            if name in seen_names:
+                continue
+                
+            # 3. Validación de calidad mínima de argumentos
+            # Si la herramienta requiere argumentos pero están vacíos, podría ser un falso positivo
+            # a menos que sea una llamada muy explícita (ej: PATRÓN 1 o PATRÓN 4)
+            tool_instance = self.tool_map[name]
+            requires_args = False
+            if hasattr(tool_instance, 'args_schema') and tool_instance.args_schema:
+                # Verificar si tiene campos requeridos
+                if hasattr(tool_instance.args_schema, 'model_fields'):
+                    requires_args = any(f.is_required() for f in tool_instance.args_schema.model_fields.values())
+            
+            if requires_args and not tc.get('args'):
+                # Si requiere argumentos y no los tiene, es sospechoso
+                # Pero si el patrón era muy específico (como tool_call:), lo mantenemos
+                # Aquí podríamos añadir lógica más compleja, por ahora solo logueamos
+                logger.debug(f"Herramienta {name} detectada sin argumentos pero los requiere.")
+            
+            seen_names.add(name)
+            valid_tool_calls.append(tc)
+        
+        return valid_tool_calls
 
     def _extract_balanced_content(self, text: str, start_pos: int) -> str:
         """
@@ -645,7 +682,30 @@ class LLMService:
 {tool_output}
 ```"""
 
-    def _to_litellm_message(self, message: BaseMessage) -> Dict[str, Any]:
+    def _to_litellm_message(self, message: BaseMessage, id_map: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Convierte un mensaje de LangChain a un formato compatible con LiteLLM, con soporte para mapeo de IDs."""
+        is_mistral = "mistral" in self.model_name.lower()
+        
+        def get_compliant_id(original_id):
+            if not is_mistral:
+                return original_id or self._generate_short_id()
+            
+            # Para Mistral, el ID debe ser alfanumérico de 9 caracteres
+            if original_id and len(original_id) == 9 and original_id.isalnum():
+                return original_id
+            
+            if not original_id:
+                return self._generate_short_id()
+            
+            # Si tenemos un mapa, intentar recuperar o crear un nuevo ID mapeado
+            if id_map is not None:
+                if original_id not in id_map:
+                    id_map[original_id] = self._generate_short_id()
+                return id_map[original_id]
+            
+            # Fallback: generar uno nuevo si no hay mapa
+            return self._generate_short_id()
+
         if isinstance(message, HumanMessage):
             return {"role": "user", "content": message.content}
         elif isinstance(message, AIMessage):
@@ -658,13 +718,15 @@ class LLMService:
             if tool_calls:
                 serialized_tool_calls = []
                 for tc in tool_calls:
-                    tc_id = tc.get("id") or self._generate_short_id()
+                    tc_id = get_compliant_id(tc.get("id"))
                     tc_name = tc.get("name", "")
                     tc_args = tc.get("args", {})
+                    # Asegurarse de que los argumentos sean siempre una cadena JSON válida.
+                    # Si tc_args está vacío, se serializa a "{}"
                     serialized_tool_calls.append({
                         "id": tc_id,
                         "type": "function",
-                        "function": {"name": tc_name, "arguments": json.dumps(tc_args)},
+                        "function": {"name": tc_name, "arguments": json.dumps(tc_args or {})},
                     })
                 
                 if not content or not str(content).strip():
@@ -679,7 +741,7 @@ class LLMService:
             if not content or not str(content).strip():
                 content = "Operación completada (sin salida)."
             
-            tc_id = getattr(message, 'tool_call_id', '')
+            tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
             return {"role": "tool", "content": content, "tool_call_id": tc_id}
         elif isinstance(message, SystemMessage):
             return {"role": "system", "content": message.content}
@@ -792,6 +854,7 @@ class LLMService:
         # Añadir el resto de mensajes (user, assistant, tool)
         last_user_content = None
         known_tool_call_ids = set()
+        id_map = {} # Mapa para normalizar IDs (especialmente para Mistral)
         
         # Primero convertimos y filtramos mensajes de asistente vacíos
         raw_conv_messages = []
@@ -799,7 +862,7 @@ class LLMService:
             if isinstance(msg, SystemMessage):
                 continue
             
-            litellm_msg = self._to_litellm_message(msg)
+            litellm_msg = self._to_litellm_message(msg, id_map=id_map)
             
             # Filtrar asistentes vacíos sin tool_calls
             if litellm_msg["role"] == "assistant":
@@ -849,7 +912,7 @@ class LLMService:
             elif role == "tool":
                 # Solo añadir si el ID es conocido (evitar huérfanos)
                 tool_id = msg.get("tool_call_id")
-                if tool_id and (tool_id in known_tool_call_ids or any(tool_id == known_id[:len(tool_id)] for known_id in known_tool_call_ids if len(tool_id) <= len(known_id))):
+                if tool_id and tool_id in known_tool_call_ids:
                     litellm_messages.append(msg)
                 last_user_content = None
 
@@ -920,8 +983,8 @@ class LLMService:
 
         # Validación estricta de secuencia para Mistral/OpenRouter
         validated_messages = []
-        last_user_content = None # INICIALIZACIÓN CORREGIDA
-        in_tool_sequence = False # Bandera para asegurar que tool messages siguen inmediatamente a assistant con tool_calls
+        last_user_content = None
+        in_tool_sequence = False
         
         # Filtrar y validar secuencia
         for i, msg in enumerate(raw_conv_messages):
@@ -936,7 +999,13 @@ class LLMService:
             elif role == "assistant":
                 if msg.get("tool_calls"):
                     # Verificar si el SIGUIENTE mensaje es una herramienta
-                    has_next_tool = (i + 1 < len(raw_conv_messages) and raw_conv_messages[i+1]["role"] == "tool")
+                    has_next_tool = False
+                    for j in range(i + 1, len(raw_conv_messages)):
+                        if raw_conv_messages[j]["role"] == "tool":
+                            has_next_tool = True
+                            break
+                        if raw_conv_messages[j]["role"] in ["user", "assistant"]:
+                            break
 
                     if has_next_tool:
                         validated_messages.append(msg)
@@ -959,6 +1028,7 @@ class LLMService:
             
             elif role == "tool":
                 # Solo añadir si el ID existe y está en secuencia de herramientas (evitar huérfanos)
+                # El ID ya fue normalizado en el paso anterior mediante id_map
                 if msg.get("tool_call_id") and in_tool_sequence:
                     validated_messages.append(msg)
                 last_user_content = None
@@ -1042,9 +1112,12 @@ class LLMService:
             elif tool_calls:
                 formatted_tool_calls = []
                 for tc in tool_calls:
+                    # Asegurarse de que 'arguments' sea una cadena antes de intentar json.loads
+                    args_str = tc["function"]["arguments"] if isinstance(tc["function"]["arguments"], str) else ""
                     try:
-                        args = json.loads(tc["function"]["arguments"])
-                    except json.JSONDecodeError:
+                        args = json.loads(args_str)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Error al decodificar argumentos de herramienta para '{tc['function']['name']}': {e}. Argumentos recibidos: '{args_str}'. Usando argumentos vacíos.")
                         args = {}
                     formatted_tool_calls.append({
                         "id": tc["id"],
@@ -1055,7 +1128,7 @@ class LLMService:
                 # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
                 if not full_response_content or not full_response_content.strip():
                     # Si hay tool_calls pero no hay texto, algunos proveedores fallan si el content es ""
-                    full_response_content = "Ejecutando herramientas..." 
+                    full_response_content = "Ejecutando herramientas..."
                 yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
             else:
                 # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
@@ -1155,9 +1228,12 @@ class LLMService:
                     elif tool_calls:
                         formatted_tool_calls = []
                         for tc in tool_calls:
+                            # Asegurarse de que 'arguments' sea una cadena antes de intentar json.loads
+                            args_str = tc["function"]["arguments"] if isinstance(tc["function"]["arguments"], str) else ""
                             try:
-                                args = json.loads(tc["function"]["arguments"])
-                            except json.JSONDecodeError:
+                                args = json.loads(args_str)
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Error al decodificar argumentos de herramienta para '{tc['function']['name']}' en fallback: {e}. Argumentos recibidos: '{args_str}'. Usando argumentos vacíos.")
                                 args = {}
                             formatted_tool_calls.append({
                                 "id": tc["id"],
@@ -1430,6 +1506,19 @@ class LLMService:
         """Encuentra y devuelve una herramienta de LangChain por su nombre."""
         tool = self.tool_manager.get_tool(tool_name)
         return tool if isinstance(tool, BaseTool) else None
+
+    def close(self):
+        """Libera recursos y cierra conexiones de servicios internos."""
+        try:
+            if hasattr(self, 'vector_db_manager') and self.vector_db_manager:
+                self.vector_db_manager.close()
+                logger.info("LLMService: VectorDBManager cerrado.")
+            
+            if hasattr(self, 'tool_executor') and self.tool_executor:
+                self.tool_executor.shutdown(wait=False)
+                logger.info("LLMService: Executor de herramientas detenido.")
+        except Exception as e:
+            logger.error(f"Error al cerrar LLMService: {e}")
 
     def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Generator[Any, None, None]:
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
