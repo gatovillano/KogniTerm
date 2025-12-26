@@ -2,40 +2,51 @@
 
 ![KogniTerm Banner](image.png)
 
-**KogniTerm** es un asistente de terminal agéntico avanzado que revoluciona la forma en que interactúas con tu sistema. No es solo un intérprete de comandos; es un ecosistema de **Agentes de IA Especializados** capaces de razonar, investigar, codificar y ejecutar tareas complejas directamente en tu entorno local.
+**KogniTerm** es un asistente de terminal agéntico de última generación. Transforma tu línea de comandos en un entorno de desarrollo colaborativo donde **Agentes de IA Especializados** trabajan contigo para razonar, investigar, codificar y ejecutar tareas complejas.
 
-Diseñado para ser **universalmente compatible**, KogniTerm funciona con una amplia gama de modelos de lenguaje (OpenAI, Anthropic, Google Gemini, DeepSeek, OpenRouter, etc.), gracias a su robusto sistema de parseo de herramientas.
+A diferencia de otros asistentes, KogniTerm no depende de las capacidades nativas de "Tool Calling" de los modelos. Gracias a su **Motor de Parseo Universal**, es capaz de otorgar capacidades agénticas a prácticamente cualquier LLM (DeepSeek, Llama 3, Mistral, etc.), interpretando sus intenciones directamente desde el lenguaje natural.
 
 ## ✨ Características Principales
 
-### 🧠 Arquitectura Multi-Agente
+### 🧠 Arquitectura Multi-Agente Especializada
 
-KogniTerm no es un solo bot, es un equipo de especialistas:
+KogniTerm orquesta un equipo de expertos digitales, cada uno con un rol y personalidad definidos:
 
-* **BashAgent (El Operador)**: Tu interfaz principal. Maneja la terminal, ejecuta comandos y orquesta la delegación de tareas.
-* **ResearcherAgent (El Detective)**: Especialista en lectura y comprensión. Analiza tu base de código, busca en la web y genera explicaciones detalladas sin modificar tus archivos.
-* **CodeAgent (El Desarrollador)**: Ingeniero de software experto. Se encarga de escribir, refactorizar y aplicar parches a tu código siguiendo principios de calidad y seguridad.
+* **🕵️ ResearcherAgent (El Detective)**:
+  * **Rol**: Experto en comprensión y análisis.
+  * **Misión**: Lee tu código, investiga documentación y explica sistemas complejos sin riesgo de romper nada.
+  * **Cuándo usarlo**: "Explícame cómo funciona X", "Analiza este error", "Investiga la arquitectura".
 
-### 🌐 Compatibilidad Universal de LLMs
+* **👨‍💻 CodeAgent (El Desarrollador Senior)**:
+  * **Rol**: Ingeniero de software enfocado en calidad.
+  * **Principios**: Calidad sobre velocidad, verificación constante y seguridad.
+  * **Misión**: Escribe, refactoriza y parchea código. Siempre verifica el contenido antes de editar y busca minimizar errores.
+  * **Cuándo usarlo**: "Refactoriza esta función", "Crea un script para...", "Arregla el bug en main.py".
 
-Olvídate de las restricciones de proveedores. KogniTerm implementa un **Sistema de Parseo Universal** que permite usar modelos que no tienen soporte nativo para "Tool Calling".
+* **🤖 BashAgent (El Operador)**:
+  * **Rol**: Tu interfaz principal y orquestador.
+  * **Misión**: Maneja la terminal, ejecuta comandos del sistema y sabe exactamente a qué especialista delegar cada tarea.
 
-* Soporta **OpenAI, Anthropic, Google Gemini**.
-* Compatible con **DeepSeek, Llama 3, Mistral** y modelos vía **OpenRouter**.
-* Detecta y ejecuta comandos incluso si el modelo los "alucina" en texto plano.
+### 🌐 Compatibilidad Universal (The "Any-Model" Engine)
 
-### 🛠 Herramientas Potentes
+KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herramientas Híbrido** permite:
 
-* **Gestión de Archivos y Directorios**: Lectura recursiva, búsqueda inteligente y edición segura.
-* **Indexado de Código (RAG)**: Indexa tu proyecto localmente para que la IA entienda todo el contexto de tu repositorio.
-* **Búsqueda Web Integrada**: Para obtener información actualizada durante las sesiones.
-* **Ejecución de Python**: Un entorno REPL persistente para cálculos y scripts complejos.
+* **Soporte Nativo**: OpenAI, Anthropic, Google Gemini.
+* **Soporte Extendido**: **DeepSeek**, **SiliconFlow**, **Nex-AGI**, y modelos locales (Ollama).
+* **Text-to-Tool**: Si un modelo no soporta llamadas a funciones, KogniTerm detecta patrones en su texto (JSON, XML, YAML, o lenguaje natural) y ejecuta las herramientas correspondientes. ¡Haz agéntico a cualquier modelo!
+
+### 🛠 Herramientas de Potencia Industrial
+
+* **Sistema de Archivos Seguro**: Lectura recursiva inteligente, búsquedas con `grep` y edición atómica.
+* **RAG Local (Indexado de Código)**: Convierte tu base de código en una base de conocimiento consultable.
+* **Búsqueda Web**: Acceso a internet para documentación actualizada y resolución de errores en tiempo real.
+* **Intérprete Python Persistente**: Un entorno REPL para cálculos, procesamiento de datos y lógica compleja.
 
 ### 🛡 Seguridad y Control
 
-* **Human-in-the-loop**: Por defecto, KogniTerm pide confirmación antes de ejecutar cualquier comando de shell o editar archivos.
-* **Modo Auto-Aprobación (`-y`)**: Para flujos de trabajo rápidos y desatendidos.
-* **Visualización de Diffs**: Revisa los cambios de código con resaltado de sintaxis antes de aplicarlos.
+* **Human-in-the-loop**: Confirmación explícita antes de comandos destructivos o ediciones de archivos.
+* **Modo Auto-Aprobación (`-y`)**: Para automatización supervisada.
+* **Visualización de Diffs**: Revisa exactamente qué cambiará en tu código antes de aplicarlo.
 
 ## 🚀 Instalación
 
@@ -47,16 +58,14 @@ pipx install kogniterm
 pip install kogniterm
 ```
 
-## ⚙️ Configuración y Gestión de Modelos (CLI)
+## ⚙️ Configuración y Gestión (CLI)
 
-KogniTerm incluye una potente CLI para gestionar tus modelos y claves de API sin tocar archivos de configuración manualmente.
+KogniTerm incluye una CLI dedicada para gestionar tus llaves y modelos sin editar archivos de configuración manualmente.
 
 ### 🔑 Gestión de API Keys
 
-Configura tus proveedores de IA favoritos de forma segura:
-
 ```bash
-# Configurar OpenRouter (Recomendado para acceder a todos los modelos)
+# Configurar OpenRouter (Acceso a DeepSeek, Llama, etc.)
 kogniterm keys set openrouter sk-or-v1-...
 
 # Configurar Google Gemini
@@ -65,70 +74,91 @@ kogniterm keys set google AIzaSy...
 # Configurar OpenAI
 kogniterm keys set openai sk-...
 
-# Configurar Anthropic
-kogniterm keys set anthropic sk-ant-...
-
-# Listar las llaves configuradas (se muestran enmascaradas)
+# Ver estado de las llaves
 kogniterm keys list
 ```
 
-### 🧠 Gestión de Modelos
+### 🧠 Selección de Modelos
 
-Define qué "cerebro" utilizará KogniTerm por defecto:
+Cambia el "cerebro" de KogniTerm al instante:
 
 ```bash
-# Establecer un modelo por defecto (ejemplo con OpenRouter)
-kogniterm models use openrouter/google/gemini-2.0-flash-exp:free
+# Usar DeepSeek vía OpenRouter (Ejemplo)
+kogniterm models use openrouter/deepseek/deepseek-chat
 
-# Usar un modelo directo de Google
-kogniterm models use gemini/gemini-1.5-pro
+# Usar Gemini 2.0 Flash
+kogniterm models use google/gemini-2.0-flash-exp
 
-# Ver el modelo actual configurado
+# Ver modelo activo
 kogniterm models current
 ```
 
-> **Nota:** La configuración se guarda globalmente en `~/.kogniterm/config.json`. KogniTerm priorizará las variables de entorno explícitas si las hubiera.
+## 🎮 Experiencia Interactiva
 
-## 🎮 Uso Interactivo
+Una vez dentro de `kogniterm`, tienes superpoderes:
 
-Una vez configurado, inicia tu asistente:
+### Comandos Mágicos (`%`)
 
-```bash
-kogniterm
-```
+* **`%models`**: Abre un **menú interactivo** para cambiar de modelo en caliente sin reiniciar la sesión.
+* **`%help`**: Panel de ayuda navegable.
+* **`%reset`**: Limpia el contexto y comienza de cero.
+* **`%undo`**: ¿El modelo se equivocó? Deshaz la última acción.
+* **`%compress`**: Resume el historial para ahorrar tokens manteniendo lo importante.
 
-### Comandos Mágicos y Menús Interactivos
+### Referencias Inteligentes (`@`)
 
-Dentro de la aplicación, tienes control total con una experiencia de usuario mejorada:
-
-* **`%models`**: Abre un **menú interactivo** para cambiar de modelo en caliente sin reiniciar.
-* **`%help`**: Despliega un menú de ayuda navegable donde puedes ejecutar comandos directamente.
-* **`%reset`**: Reinicia la conversación y limpia la memoria de corto plazo.
-* **`%undo`**: Deshace la última interacción (útil si el modelo se equivocó).
-* **`%compress`**: Resume el historial actual para ahorrar tokens y mantener el contexto relevante.
-* **Autocompletado Inteligente**: Escribe `%` para ver y seleccionar todos los comandos disponibles.
-* **Barra de Estado**: La barra inferior muestra siempre el modelo activo (ej: `🤖 OR/gemini-2.0-flash`) y el estado de indexación.
-
-### Referencia de Archivos (@)
-
-Puedes "inyectar" el contenido de cualquier archivo en tu prompt usando `@`:
+Inyecta contexto de archivos directamente en tu prompt:
 
 ```text
-(kogniterm) › Analiza el código de @src/main.py y sugiere mejoras.
+(kogniterm) › ¿Qué hace la función process en @core/logic.py?
 ```
 
-El sistema autocompletará las rutas de tus archivos mientras escribes después de `@`.
+El autocompletado te ayudará a encontrar tus archivos al instante.
 
 ## 🧠 Indexado de Código (RAG)
 
-Para que KogniTerm entienda tu proyecto completo:
+Para preguntas sobre la arquitectura global de tu proyecto:
 
 ```bash
-# Indexar el directorio actual antes de iniciar
+# Indexar el directorio actual
 kogniterm index .
 ```
 
-O simplemente inicia `kogniterm` y responde "Sí" cuando te pregunte si deseas indexar el directorio actual. Esto permite realizar preguntas complejas sobre la arquitectura de tu código.
+Esto permite a los agentes entender relaciones entre archivos que no han leído explícitamente.
+
+## 📚 Documentación
+
+Explora la documentación detallada para entender a fondo KogniTerm:
+
+### 🤝 Colaboración
+
+* [Guía de Contribución](CONTRIBUTING.md)
+* [Código de Conducta](CODE_OF_CONDUCT.md)
+
+### 🏗 Arquitectura y Diseño
+
+* [Visión General](docs/overview.md)
+* [Arquitectura del Sistema](docs/arquitectura_documentacion.md)
+* [Módulos del Sistema](docs/modules.md)
+* [Diagrama de Flujo](docs/flow_diagram.md)
+
+### 🧩 Componentes y Herramientas
+
+* [Gestor de Historial](docs/history_manager_documentation.md)
+* [Herramienta de Creación de Planes](docs/plan_creation_tool.md)
+* [Archivos CLI de Gemini](docs/gemini_cli_files.md)
+
+### 🧠 Sistema RAG (Indexado)
+
+* [Propuesta de RAG](docs/rag_codebase_proposal.md)
+* [Plan de Implementación](docs/rag_implementation_plan.md)
+* [Estado de Implementación](docs/rag_implementation_status.md)
+
+### 📝 Registros
+
+* [Registro de Cambios](docs/Cambios.md)
+* [Registro de Errores y Soluciones](docs/registro_errores_soluciones.md)
+* [Log de Desarrollo](docs/development_log.md)
 
 ---
-*Desarrollado con ❤️ por el equipo de KogniTerm.*
+*Desarrollado por Gatovillano*

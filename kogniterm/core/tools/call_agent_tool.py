@@ -2,6 +2,7 @@ from typing import Type, Optional, Dict, Any
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 from rich.console import Console
+import os
 
 from kogniterm.core.agents.code_agent import create_code_agent
 from kogniterm.core.agents.researcher_agent import create_researcher_agent
@@ -9,6 +10,10 @@ from kogniterm.core.agent_state import AgentState
 from langchain_core.messages import HumanMessage
 
 console = Console()
+
+# Límite de recursión configurable para el research agent
+# Puedes ajustarlo mediante la variable de entorno RESEARCHER_RECURSION_LIMIT
+RESEARCHER_RECURSION_LIMIT = int(os.getenv("RESEARCHER_RECURSION_LIMIT", "100"))
 
 class CallAgentInput(BaseModel):
     agent_name: str = Field(..., description="El nombre del agente a invocar: 'code_agent' o 'researcher_agent'.")
@@ -50,9 +55,14 @@ class CallAgentTool(BaseTool):
         )
 
         try:
-            # Ejecutar el grafo del agente
-            # Nota: invoke devuelve el estado final
-            final_state = agent_graph.invoke(initial_state)
+            # Ejecutar el grafo del agente con límite de recursión configurable
+            # Para research_agent usamos el límite configurable, para code_agent usamos el default
+            config = {}
+            if agent_name == "researcher_agent":
+                config = {"recursion_limit": RESEARCHER_RECURSION_LIMIT}
+                console.print(f"[dim]ℹ️  Límite de recursión: {RESEARCHER_RECURSION_LIMIT} iteraciones[/dim]")
+            
+            final_state = agent_graph.invoke(initial_state, config=config)
             
             # Extraer la última respuesta del agente
             last_message = final_state["messages"][-1]
