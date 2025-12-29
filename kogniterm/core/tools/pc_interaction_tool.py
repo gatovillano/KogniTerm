@@ -31,6 +31,20 @@ class PCInteractionTool(BaseTool):
 
     args_schema: Type[BaseModel] = PCInteractionInput
 
+    def get_action_description(self, **kwargs) -> str:
+        action = kwargs.get("action")
+        if action == "open_url":
+            return f"Abriendo URL: {kwargs.get('url')}"
+        elif action == "type_text":
+            return f"Escribiendo texto: {kwargs.get('text')}"
+        elif action == "click":
+            return f"Haciendo clic en ({kwargs.get('x')}, {kwargs.get('y')})"
+        elif action == "move_mouse":
+            return f"Moviendo ratón a ({kwargs.get('x')}, {kwargs.get('y')})"
+        elif action == "screenshot":
+            return "Tomando captura de pantalla"
+        return f"Interactuando con PC: {action}"
+
     def _check_x11_dependencies(self) -> bool:
         """Verifica si las dependencias de X11 están instaladas."""
         try:

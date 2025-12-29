@@ -24,6 +24,12 @@ class CallAgentTool(BaseTool):
     description: str = "Invoca a un agente especializado para realizar tareas complejas. Agentes disponibles: 'code_agent' (para tareas de código y edición), 'researcher_agent' (para investigación y análisis de código)."
     args_schema: Type[BaseModel] = CallAgentInput
     
+    def get_action_description(self, **kwargs) -> str:
+        agent_name = kwargs.get("agent_name")
+        task = kwargs.get("task", "")
+        agent_display = "Researcher Agent" if agent_name == "researcher_agent" else "Code Agent"
+        return f"Delegando tarea al {agent_display}: {task}"
+    
     llm_service: Any = None
     terminal_ui: Any = None
     interrupt_queue: Any = None

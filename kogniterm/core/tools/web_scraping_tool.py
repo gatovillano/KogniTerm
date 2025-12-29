@@ -16,6 +16,10 @@ class WebScrapingTool(BaseTool):
 
     args_schema: Type[BaseModel] = WebScrapingInput
 
+    def get_action_description(self, **kwargs) -> str:
+        selector = kwargs.get("selector", "")
+        return f"Extrayendo datos con selector: {selector}"
+
     def _run(self, html_content: str, selector: str) -> str:
         try:
             soup = BeautifulSoup(html_content, 'lxml')

@@ -18,6 +18,10 @@ class MemoryReadTool(BaseTool):
 
     args_schema: Type[BaseModel] = MemoryReadInput
 
+    def get_action_description(self, **kwargs) -> str:
+        file_path = kwargs.get("file_path", "llm_context.md")
+        return f"Leyendo memoria contextual: {file_path}"
+
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
 

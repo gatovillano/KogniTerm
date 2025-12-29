@@ -4,7 +4,8 @@ from typing import List, Optional, Dict, Any
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 import google.genai as genai
-from rich.console import Console
+from rich.console import Console, Group
+from rich.panel import Panel
 import functools
 from langchain_core.runnables import RunnableConfig # Nueva importación
 from rich.markup import escape # Nueva importación
@@ -46,7 +47,7 @@ Utiliza esta información para entender rápidamente el entorno del proyecto y t
 Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 
 1.  **Analiza la petición**: Entiende lo que el usuario quiere lograr.
-2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, `advanced_file_editor` para ediciones de archivos con confirmación interactiva, `python_executor` para ejecutar código Python, `codebase_search_tool` para buscar en el código, `code_analysis` para realizar análisis estático de código Python (complejidad, mantenibilidad, métricas) y `plan_creation_tool` para generar planes detallados para tareas complejas. Úsalas para llevar a cabo la tarea.
+2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, `advanced_file_editor` para ediciones de archivos con confirmación interactiva, `python_executor` para ejecutar código Python, `codebase_search_tool` para buscar en el código, `code_analysis` para realizar análisis estático y validación de código (Python/JS) y `plan_creation_tool` para generar planes detallados para tareas complejas. Úsalas para llevar a cabo la tarea.
     *   **Gestión de Proyectos**: Cuando el usuario hable de un proyecto, **debes** revisar los archivos locales, entender la estructura y arquitectura del proyecto, y guardar esta información en el archivo `.project_structure.md` en la carpeta de trabajo actual. De este modo, cuando el usuario haga consultas, podrás leer este archivo para ubicarte en qué archivos son importantes para la consulta.
 3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`, `file_operations`, `advanced_file_editor`, `python_executor`, `codebase_search_tool` o `code_analysis` según corresponda.
 4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
@@ -62,7 +63,7 @@ La herramienta `file_operations` te permite leer, escribir, borrar, listar y lee
 La herramienta `advanced_file_editor` te permite realizar ediciones avanzadas en archivos, siempre con una confirmación interactiva del usuario.
 La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código. PRIORIZA utilizar codigo python para tus tareas. 
 La herramienta `codebase_search_tool` te permite buscar patrones o texto dentro de los archivos del proyecto. **IMPORTANTE: Siempre que el usuario solicite una investigación que tenga que ver con el directorio de trabajo (buscar archivos, entender la estructura, encontrar referencias, etc.), DEBES usar `codebase_search_tool` como tu herramienta principal de investigación.**
-La herramienta `code_analysis` te permite realizar análisis estático de código Python: complejidad ciclomática, índice de mantenibilidad, métricas raw (líneas, comentarios) y métricas de Halstead.
+La herramienta `code_analysis` te permite realizar análisis estático y validación de código: linting (Pylint/ESLint), complejidad ciclomática, índice de mantenibilidad y métricas raw.
 La herramienta `call_agent` te permite invocar agentes especializados como el ResearcherAgent y CodeAgent para tareas específicas. Úsala especialmente cuando el usuario solicite "investigar" o "desarrollar".
 
 **🤖 AGENTES ESPECIALIZADOS DE KOGNITERM:**
@@ -82,7 +83,7 @@ La herramienta `call_agent` te permite invocar agentes especializados como el Re
 - `codebase_search_tool`: Búsqueda semántica y conceptual (SU HERRAMIENTA ESTRELLA)
 - `file_search_tool`: Búsquedas exactas (grep)
 - `file_operations`: Exploración de directorios
-- `code_analysis_tool`: Análisis de complejidad y métricas
+- `code_analysis_tool`: Análisis de complejidad, métricas y validación (linting)
 
 ## 💻 **CodeAgent** - El Desarrollador Senior y Arquitecto de Software
 **Rol**: EDITAR y GENERAR código de alta calidad
@@ -106,7 +107,8 @@ La herramienta `call_agent` te permite invocar agentes especializados como el Re
 - `advanced_file_editor`: Edición precisa con confirmaciones
 - `python_executor`: Validación de lógica y scripts de prueba
 - `codebase_search_tool`: Encontrar referencias y ejemplos
-- `execute_command`: Linters, tests, comandos de build
+- `code_analysis_tool`: Validación de código (Linting) y análisis de calidad
+- `execute_command`: Tests, comandos de build
 
 **🎯 ESTRATEGIA DE DELEGACIÓN:**
 - **Tareas de Terminal/Exploración**: Tú las manejas directamente
@@ -240,13 +242,37 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
     """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
     history = state.history_for_api if state.history_for_api is not None else state.messages
     
+    # --- Lógica de Detección de Bucles ---
+    loop_detected = False
+    if len(state.tool_call_history) >= 3: # Necesitamos al menos 3 llamadas para detectar un patrón de 3
+        last_three_calls = list(state.tool_call_history)[-3:]
+        # Convertir a tuplas para que sean hasheables y comparables
+        pattern = tuple((tc['name'], tc['args_hash']) for tc in last_three_calls)
+        
+        # Contar cuántas veces aparece este patrón en el historial completo
+        # Buscamos si el patrón se repite al menos una vez antes de las últimas 3 llamadas
+        history_list = list(state.tool_call_history)
+        count = 0
+        for i in range(len(history_list) - 3):
+            current_pattern = tuple((tc['name'], tc['args_hash']) for tc in history_list[i:i+3])
+            if current_pattern == pattern:
+                count += 1
+        
+        if count >= 1: # Si el patrón de las últimas 3 llamadas se ha repetido al menos una vez antes
+            loop_detected = True
+            console.print("[bold red]🚨 ¡BUCLE DETECTADO! El agente parece estar repitiendo las mismas acciones.[/bold red]")
+            # Inyectar un mensaje de advertencia al LLM
+            loop_warning_message = SystemMessage(content="¡ADVERTENCIA! Se ha detectado que estás en un bucle, repitiendo las mismas llamadas a herramientas. Por favor, analiza tu historial, identifica la causa de la repetición y cambia tu estrategia para evitar este bucle. No repitas las acciones anteriores.")
+            history = [loop_warning_message] + history # Añadir al principio del historial
+            
     full_response_content = ""
+    full_thinking_content = ""
     final_ai_message_from_llm = None
     text_streamed = False # Bandera para saber si hubo contenido de texto transmitido
 
     # Importar componentes visuales
     try:
-        from kogniterm.terminal.visual_components import create_processing_spinner
+        from kogniterm.terminal.visual_components import create_processing_spinner, create_thinking_spinner
         from kogniterm.terminal.themes import ColorPalette
         # Crear spinner mejorado usando componentes visuales
         spinner = create_processing_spinner()
@@ -262,15 +288,39 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
         for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
             if isinstance(part, AIMessage):
                 final_ai_message_from_llm = part
-                # No acumulamos el contenido aquí si ya lo hemos hecho con los chunks de str
-                # El full_response_content ya debería estar completo por los chunks de str
-            elif isinstance(part, str): # Asegurarse de que 'part' es una cadena antes de concatenar
-                # Este 'part' es un chunk de texto (str)
-                full_response_content += part
-                text_streamed = True # Hubo streaming de texto
-                # Actualizar el contenido de Live con el Markdown acumulado, reemplazando el spinner
-                # Usar padding mejorado para mejor presentación
-                live.update(Padding(Markdown(full_response_content), (0, 4)))
+            elif isinstance(part, str):
+                if part.startswith("__THINKING__:"):
+                    # Es contenido de razonamiento (Thinking)
+                    thinking_chunk = part[len("__THINKING__:"):]
+                    full_thinking_content += thinking_chunk
+                    
+                    # Mostrar el thinking en un panel especial o estilo diferente
+                    thinking_panel = Panel(
+                        Markdown(full_thinking_content),
+                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                        border_style=ColorPalette.PRIMARY_LIGHT,
+                        padding=(0, 1),
+                        dim=True
+                    )
+                    live.update(Padding(thinking_panel, (0, 4)))
+                else:
+                    # Es contenido normal de la respuesta
+                    full_response_content += part
+                    text_streamed = True
+                    
+                    # Si ya tenemos contenido de respuesta, mostramos el thinking (si existe) y la respuesta
+                    renderables = []
+                    if full_thinking_content:
+                        renderables.append(Panel(
+                            Markdown(full_thinking_content),
+                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Pensamiento finalizado[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                            border_style=ColorPalette.GRAY_600,
+                            padding=(0, 1),
+                            dim=True
+                        ))
+                    
+                    renderables.append(Markdown(full_response_content))
+                    live.update(Padding(Group(*renderables), (0, 4)))
 
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
@@ -329,53 +379,8 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
             #     terminal_ui.print_stream(str(chunk))
             full_tool_output += str(chunk)
 
+        # Sin truncamiento - devolver la salida completa tal cual
         processed_tool_output = full_tool_output
-        try:
-            json_output = json.loads(full_tool_output)
-            if isinstance(json_output, dict) and "content" in json_output and "file_path" in json_output:
-                MAX_TOOL_OUTPUT_CONTENT_LENGTH = 2000
-                if len(json_output["content"]) > MAX_TOOL_OUTPUT_CONTENT_LENGTH:
-                    json_output["content"] = json_output["content"][:MAX_TOOL_OUTPUT_CONTENT_LENGTH] + "\n... [Contenido truncado]"
-                processed_tool_output = json.dumps(json_output, ensure_ascii=False)
-            elif isinstance(json_output, list):
-                processed_list = []
-                for item in json_output:
-                    if isinstance(item, dict) and "content" in item and "file_path" in item:
-                        MAX_TOOL_OUTPUT_CONTENT_LENGTH = 500
-                        if len(item["content"]) > MAX_TOOL_OUTPUT_CONTENT_LENGTH:
-                            item["content"] = item["content"][:MAX_TOOL_OUTPUT_CONTENT_LENGTH] + "\n... [Contenido truncado]"
-                    processed_list.append(item)
-                processed_tool_output = json.dumps(processed_list, ensure_ascii=False)
-            else:
-                MAX_GENERIC_JSON_LENGTH = 2000
-                str_json_output = json.dumps(json_output, ensure_ascii=False)
-                if len(str_json_output) > MAX_GENERIC_JSON_LENGTH:
-                    processed_tool_output = str_json_output[:MAX_GENERIC_JSON_LENGTH] + "\n... [Salida JSON truncada]"
-                else:
-                    processed_tool_output = str_json_output
-        except json.JSONDecodeError:
-            # Truncamiento inteligente que preserva contexto
-            MAX_GENERIC_OUTPUT_LENGTH = 10000  # Aumentado de 2000 para dar más espacio
-            if len(full_tool_output) > MAX_GENERIC_OUTPUT_LENGTH:
-                lines = full_tool_output.split('\n')
-                total_lines = len(lines)
-                
-                # Preservar primeras 50 y últimas 50 líneas para contexto
-                if total_lines > 100:
-                    first_lines = '\n'.join(lines[:50])
-                    last_lines = '\n'.join(lines[-50:])
-                    truncated_lines_count = total_lines - 100
-                    
-                    processed_tool_output = (
-                        f"{first_lines}\n\n"
-                        f"... [Truncado: {truncated_lines_count} líneas intermedias omitidas] ...\n\n"
-                        f"{last_lines}\n\n"
-                        f"📊 Resumen: Salida total de {total_lines} líneas, {len(full_tool_output)} caracteres. "
-                        f"Se muestran las primeras y últimas 50 líneas para contexto."
-                    )
-                else:
-                    # Si tiene menos de 100 líneas pero excede caracteres, truncar normalmente
-                    processed_tool_output = full_tool_output[:MAX_GENERIC_OUTPUT_LENGTH] + "\n... [Salida truncada]"
 
         return tool_id, processed_tool_output, None
     except UserConfirmationRequired as e:
@@ -395,6 +400,18 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
     executor = ThreadPoolExecutor(max_workers=min(len(last_message.tool_calls), 5))
     futures = []
     for tool_call in last_message.tool_calls:
+        # Registrar la llamada a la herramienta en el historial para detección de bucles
+        tool_name = tool_call['name']
+        tool_args = tool_call['args']
+        
+        # Generar un hash consistente de los argumentos
+        try:
+            args_hash = json.dumps(tool_args, sort_keys=True)
+        except TypeError:
+            args_hash = str(tool_args) # Fallback si los argumentos no son serializables
+        
+        state.tool_call_history.append({"name": tool_name, "args_hash": args_hash})
+
         # Verificar si hay una señal de interrupción antes de enviar
         if interrupt_queue and not interrupt_queue.empty():
             interrupt_queue.get()
@@ -403,13 +420,26 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             executor.shutdown(wait=False)
             return state
 
+        # Obtener la instancia de la herramienta para buscar la descripción de la acción
+        tool = llm_service.get_tool(tool_call['name'])
+        bajada = ""
+        if tool and hasattr(tool, 'get_action_description'):
+            try:
+                bajada = tool.get_action_description(**tool_call['args'])
+            except Exception as e:
+                logger.warning(f"Error al obtener descripción de acción para {tool_call['name']}: {e}")
+
         # Mejorar el mensaje de ejecución de herramienta con iconos y colores temáticos
         try:
             from kogniterm.terminal.themes import Icons, ColorPalette
             console.print(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+            if bajada:
+                console.print(f"[italic {ColorPalette.TEXT_SECONDARY}]   └─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]")
         except ImportError:
             # Fallback al mensaje original
             console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
+            if bajada:
+                console.print(f"[italic grey]   └─ {bajada}[/italic grey]")
         futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
 
     for future in as_completed(futures):

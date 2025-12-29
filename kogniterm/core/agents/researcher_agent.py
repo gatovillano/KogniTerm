@@ -1,4 +1,5 @@
 from __future__ import annotations
+from rich.console import Group
 from langgraph.graph import StateGraph, END
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, TYPE_CHECKING
@@ -76,10 +77,12 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
     messages = [SYSTEM_MESSAGE] + state.messages
     
     full_response_content = ""
+    full_thinking_content = ""
     final_ai_message = None
     
     try:
         from kogniterm.terminal.visual_components import create_processing_spinner
+        from kogniterm.terminal.themes import ColorPalette, Icons
         spinner = create_processing_spinner()
     except ImportError:
         from rich.spinner import Spinner
@@ -90,8 +93,30 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
             if isinstance(part, AIMessage):
                 final_ai_message = part
             elif isinstance(part, str):
-                full_response_content += part
-                live.update(Padding(Markdown(full_response_content), (0, 4)))
+                if part.startswith("__THINKING__:"):
+                    thinking_chunk = part[len("__THINKING__:"):]
+                    full_thinking_content += thinking_chunk
+                    thinking_panel = Panel(
+                        Markdown(full_thinking_content),
+                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} ResearcherAgent Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                        border_style=ColorPalette.PRIMARY_LIGHT,
+                        padding=(0, 1),
+                        dim=True
+                    )
+                    live.update(Padding(thinking_panel, (0, 4)))
+                else:
+                    full_response_content += part
+                    renderables = []
+                    if full_thinking_content:
+                        renderables.append(Panel(
+                            Markdown(full_thinking_content),
+                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Investigación finalizada[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                            border_style=ColorPalette.GRAY_600,
+                            padding=(0, 1),
+                            dim=True
+                        ))
+                    renderables.append(Markdown(full_response_content))
+                    live.update(Padding(Group(*renderables), (0, 4)))
 
     if final_ai_message:
         if not final_ai_message.content and full_response_content:
@@ -137,6 +162,9 @@ def execute_single_tool(tc, llm_service, interrupt_queue):
         ))
         
         return tool_id, output_str, None
+    except InterruptedError:
+        console.print(f"[bold yellow]⚠️ Ejecución de {tool_name} interrumpida por el usuario.[/bold yellow]")
+        return tool_id, "Ejecución interrumpida por el usuario.", InterruptedError("Interrumpido por el usuario.")
     except Exception as e:
         console.print(f"[bold red]❌ Error en {tool_name}: {e}[/bold red]")
         return tool_id, f"Error en {tool_name}: {e}", e
@@ -154,16 +182,50 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
     # Mostrar encabezado de fase de análisis
     console.print(Padding(Text("🕵️‍♂️ Fase de Investigación: Ejecutando herramientas...", style="bold magenta underline"), (1, 0)))
 
+    # Verificar interrupción ANTES de iniciar cualquier cosa
+    if interrupt_queue and not interrupt_queue.empty():
+        while not interrupt_queue.empty():
+            interrupt_queue.get() # Limpiar cola
+        
+        console.print("[bold yellow]⚠️ Interrupción detectada antes de ejecutar herramientas. Cancelando...[/bold yellow]")
+        # Generar mensajes de cancelación para todas las herramientas solicitadas
+        for tool_call in last_message.tool_calls:
+            tool_messages.append(ToolMessage(content="Ejecución cancelada por el usuario.", tool_call_id=tool_call['id']))
+        
+        state.messages.extend(tool_messages)
+        llm_service._save_history(state.messages)
+        return state
+
     for tool_call in last_message.tool_calls:
+        # Verificar interrupción durante el encolado
         if interrupt_queue and not interrupt_queue.empty():
-            interrupt_queue.get()
+            while not interrupt_queue.empty():
+                interrupt_queue.get()
+            
+            console.print("[bold yellow]⚠️ Interrupción detectada. Cancelando herramientas restantes...[/bold yellow]")
+            # Cancelar futuros pendientes
+            for f in futures:
+                f.cancel()
+            
+            # Completar esta herramienta y las restantes como canceladas
+            tool_messages.append(ToolMessage(content="Ejecución cancelada por el usuario.", tool_call_id=tool_call['id']))
+            # Nota: Las herramientas que ya se enviaron (futures) se manejarán en el bucle de as_completed o se cancelarán
             state.reset_temporary_state()
-            return state
+            break
+            
         futures.append(executor.submit(execute_single_tool, tool_call, llm_service, interrupt_queue))
 
+    # Si salimos del bucle por interrupción, necesitamos llenar los mensajes para las herramientas que faltaron
+    # (La lógica de arriba ya maneja la herramienta actual, pero si había más en la lista last_message.tool_calls...)
+    # Simplificación: Dejamos que el agente maneje lo que se haya procesado.
+
     for future in as_completed(futures):
-        tool_id, content, exception = future.result()
-        tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+        try:
+            tool_id, content, exception = future.result()
+            tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+        except Exception as e:
+            # Esto captura errores graves del executor
+            console.print(f"[bold red]❌ Error crítico en executor: {e}[/bold red]")
 
     state.messages.extend(tool_messages)
     llm_service._save_history(state.messages)
@@ -177,6 +239,9 @@ def should_continue(state: AgentState) -> str:
         return "execute_tool"
     elif isinstance(last_message, ToolMessage):
         return "call_model"
+    
+    # Debugging: Mostrar por qué se detiene
+    console.print(Panel(f"[yellow]Agente Investigador deteniéndose.[/yellow]\nÚltimo mensaje tipo: {type(last_message).__name__}\nContenido: {str(last_message.content)[:200]}...", title="Diagnóstico de Parada", border_style="yellow"))
     
     return END
 

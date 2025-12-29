@@ -13,6 +13,10 @@ class FileSearchTool(BaseTool):
     description: str = "Busca archivos que coincidan con un patrón glob en un directorio específico o en el directorio de trabajo actual. Devuelve una lista de rutas de archivo absolutas."
     args_schema: type[BaseModel] = FileSearchInput
 
+    def get_action_description(self, **kwargs) -> str:
+        pattern = kwargs.get("pattern", "")
+        return f"Buscando archivos con patrón: {pattern}"
+
     llm_service: SkipValidation[Any] # Esto es para la instancia de LLMService, no para la clase
 
     def __init__(self, llm_service, **kwargs):

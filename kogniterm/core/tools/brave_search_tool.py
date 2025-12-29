@@ -16,6 +16,10 @@ class BraveSearchTool(BaseTool):
 
     args_schema: Type[BaseModel] = BraveSearchInput
 
+    def get_action_description(self, **kwargs) -> str:
+        query = kwargs.get("query", "")
+        return f"Buscando en la web: '{query}'"
+
     MAX_BRAVE_SEARCH_OUTPUT_LENGTH: int = 30000 # Limite de caracteres para la salida de Brave Search
 
     def _run(self, query: str) -> str:

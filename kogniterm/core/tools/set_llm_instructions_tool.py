@@ -14,6 +14,9 @@ class SetLLMInstructionsTool(BaseTool):
     )
     args_schema: type[BaseModel] = SetLLMInstructionsInput
 
+    def get_action_description(self, **kwargs) -> str:
+        return "Actualizando instrucciones del sistema"
+
     def _run(self, instructions: str) -> str:
         """Sincrónicamente establece las instrucciones del LLM."""
         return instructions

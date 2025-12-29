@@ -18,19 +18,33 @@ class GeminiAdapter(EmbeddingAdapter):
         self.model = model
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        embeddings = []
-        for text in texts:
-            try:
-                result = genai.embed_content(
-                    model=self.model,
-                    content=text,
-                    task_type="retrieval_document"
-                )
-                embeddings.append(result['embedding'])
-            except Exception as e:
-                logger.error(f"Error generating embedding for text with Gemini: {e}")
-                raise e
-        return embeddings
+        if not texts:
+            return []
+        try:
+            # Procesamiento por lotes nativo de Gemini
+            # La API de Gemini acepta una lista de strings y devuelve una lista de embeddings
+            result = genai.embed_content(
+                model=self.model,
+                content=texts,
+                task_type="retrieval_document"
+            )
+            # Si se pasa una lista, 'embedding' contiene la lista de vectores
+            return result['embedding']
+        except Exception as e:
+            logger.warning(f"Error en batch embedding de Gemini, reintentando uno por uno: {e}")
+            embeddings = []
+            for text in texts:
+                try:
+                    result = genai.embed_content(
+                        model=self.model,
+                        content=text,
+                        task_type="retrieval_document"
+                    )
+                    embeddings.append(result['embedding'])
+                except Exception as inner_e:
+                    logger.error(f"Error crítico en embedding individual de Gemini: {inner_e}")
+                    raise inner_e
+            return embeddings
 
 class OpenAIAdapter(EmbeddingAdapter):
     def __init__(self, api_key: str, model: str = "text-embedding-3-small"):
@@ -57,23 +71,39 @@ class OllamaAdapter(EmbeddingAdapter):
         self.requests = requests
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        embeddings = []
-        for text in texts:
-            try:
-                response = self.requests.post(
+        if not texts:
+            return []
+        try:
+            # Intentar el nuevo endpoint /api/embed de Ollama que soporta lotes
+            response = self.requests.post(
+                f"{self.base_url}/api/embed",
+                json={
+                    "model": self.model,
+                    "input": texts
+                },
+                timeout=60
+            )
+            
+            if response.status_code == 200:
+                return response.json().get('embeddings', [])
+            
+            # Fallback al endpoint antiguo /api/embeddings si /api/embed no está disponible
+            logger.warning(f"Ollama /api/embed no disponible (status {response.status_code}), usando fallback lento.")
+            embeddings = []
+            for text in texts:
+                resp = self.requests.post(
                     f"{self.base_url}/api/embeddings",
                     json={
                         "model": self.model,
                         "prompt": text
                     }
                 )
-                response.raise_for_status()
-                result = response.json()
-                embeddings.append(result['embedding'])
-            except Exception as e:
-                logger.error(f"Error generating embedding for text with Ollama: {e}")
-                raise e
-        return embeddings
+                resp.raise_for_status()
+                embeddings.append(resp.json()['embedding'])
+            return embeddings
+        except Exception as e:
+            logger.error(f"Error generando embeddings con Ollama: {e}")
+            raise e
 
 class EmbeddingsService:
     def __init__(self):
@@ -118,4 +148,22 @@ class EmbeddingsService:
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         if not self.adapter:
              raise ValueError("EmbeddingsService is not initialized properly.")
-        return self.adapter.embed_documents(texts)
+        
+        if not texts:
+            return []
+
+        # Implementar procesamiento por lotes para optimizar latencia y respetar límites de API
+        # Gemini tiene un límite de 100 por lote, OpenAI de 2048. Usamos 100 como valor seguro y rápido.
+        batch_size = 100
+        all_embeddings = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            try:
+                batch_embeddings = self.adapter.embed_documents(batch)
+                all_embeddings.extend(batch_embeddings)
+            except Exception as e:
+                logger.error(f"Error en el lote de embeddings {i//batch_size}: {e}")
+                raise e
+                
+        return all_embeddings

@@ -21,6 +21,9 @@ class TaskCompleteTool(BaseTool):
         "This tool should be called when the agent believes the user's request has been fully addressed."
     )
     args_schema: Type[BaseModel] = TaskCompleteToolSchema
+
+    def get_action_description(self, **kwargs) -> str:
+        return "Finalizando tarea y generando resumen"
     llm_service: Optional[Any] = None # Cambiar el tipo a Any para evitar la importación circular
 
     def __init__(self, llm_service: Any, **kwargs): # Cambiar el tipo a Any

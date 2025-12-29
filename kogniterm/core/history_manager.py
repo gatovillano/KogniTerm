@@ -176,7 +176,8 @@ class HistoryManager:
                 serializable_history.append({'type': 'system', 'content': message.content})
 
         with open(self.history_file_path, 'w', encoding='utf-8') as f:
-            json.dump(serializable_history, f, indent=4, ensure_ascii=False)
+            # Optimización: Eliminar indentación para reducir tamaño de archivo y tiempo de I/O
+            json.dump(serializable_history, f, ensure_ascii=False, separators=(',', ':'))
 
     def add_message(self, message: BaseMessage):
         """Agrega un mensaje al historial y lo guarda."""
@@ -563,93 +564,73 @@ class HistoryManager:
                                      save_history: bool = True,
                                      history: Optional[List[BaseMessage]] = None) -> List[BaseMessage]:
         """
-        Procesa el historial de conversación aplicando filtrado, resumen y truncamiento.
-        
-        Este método optimiza el historial para enviarlo al LLM, asegurando que:
-        1. No haya mensajes vacíos innecesarios
-        2. El historial no exceda los límites de mensajes y caracteres
-        3. Los pares AIMessage-ToolMessage se mantengan íntegros
-        4. Se genere un resumen cuando sea necesario
-        
-        Args:
-            llm_service_summarize_method: Método para generar resúmenes del historial
-            max_history_messages: Número máximo de mensajes conversacionales a mantener
-            max_history_chars: Número máximo de caracteres totales a mantener
-            console: Objeto console para mostrar mensajes al usuario
-            save_history: Si es True, guarda el historial procesado en disco y actualiza self.conversation_history.
-            history: Lista explícita de mensajes a procesar. Si se proporciona, se usa en lugar de self.conversation_history.
-        
-        Returns:
-            Historial procesado en formato LangChain, listo para el LLM
+        Procesa el historial de conversación aplicando filtrado, resumen y truncamiento en pasadas optimizadas.
         """
-        # Asegurar límites mínimos para preservar contexto con salidas largas
+        # Asegurar límites mínimos para preservar contexto
         self.max_history_messages = max(max_history_messages, 30)
         self.max_history_chars = max(max_history_chars, 50000)
         
         # Determinar qué historial procesar
         target_history = history if history is not None else self.conversation_history
-        
-        # Si target_history es None (caso borde), inicializarlo
-        if target_history is None:
-            target_history = []
+        if not target_history:
+            return []
             
-        # 1. Limpiar huérfanos
-        # IMPORTANTE: Si estamos procesando un historial externo, NO debemos modificar self.conversation_history
-        # a menos que sea el mismo objeto o save_history sea True (y queramos reemplazarlo).
-        # Para seguridad, operamos sobre target_history.
-        
-        # Si target_history es self.conversation_history, las operaciones in-place afectarán al estado.
-        # Si es una lista externa, afectarán a esa lista.
-        
-        # Primero, asegurarnos de que target_history sea una lista mutable
+        # Asegurarnos de que target_history sea una lista mutable
         if not isinstance(target_history, list):
             target_history = list(target_history)
 
-        # Operar in-place sobre target_history
-        target_history[:] = self._remove_orphan_tool_messages(target_history)
-        target_history[:] = self._ensure_tool_message_pairs(target_history)
-
-        # 2. Calcular longitud total
-        total_length = sum(self._get_message_length(msg) for msg in target_history)
+        # PASADA 1: Limpieza de huérfanos y validación de integridad (Unificada)
+        valid_tool_call_ids: Set[str] = {
+            tc['id'] for msg in target_history 
+            if isinstance(msg, AIMessage) and msg.tool_calls 
+            for tc in msg.tool_calls if tc.get('id')
+        }
         
-        # 3. Decidir si resumir o truncar
-        current_history_len = len(target_history)
-        current_history_chars = total_length
+        cleaned_history = []
+        for i, msg in enumerate(target_history):
+            if isinstance(msg, ToolMessage):
+                # Mantener solo si el ID es válido o si es el par inmediato del anterior
+                if msg.tool_call_id in valid_tool_call_ids:
+                    cleaned_history.append(msg)
+                elif not msg.tool_call_id and i > 0 and isinstance(target_history[i-1], AIMessage) and target_history[i-1].tool_calls:
+                    cleaned_history.append(msg)
+                continue
+            
+            # Omitir AIMessages vacíos al final
+            if i == len(target_history) - 1 and isinstance(msg, AIMessage) and not msg.content and not msg.tool_calls:
+                continue
+                
+            cleaned_history.append(msg)
 
-        should_summarize = (
-            (current_history_len > max_history_messages or current_history_chars > max_history_chars) and
-            current_history_len > self.MIN_MESSAGES_TO_KEEP
-        )
+        # PASADA 2: Cálculo de longitud y decisión de resumen/truncamiento
+        total_length = sum(self._get_message_length(msg) for msg in cleaned_history)
         
-        if should_summarize:
-            target_history[:] = self._summarize_and_compress(
-                target_history,
+        if (len(cleaned_history) > self.max_history_messages or total_length > self.max_history_chars) and \
+           len(cleaned_history) > self.MIN_MESSAGES_TO_KEEP:
+            
+            # Intentar resumir si es necesario
+            cleaned_history = self._summarize_and_compress(
+                cleaned_history,
                 llm_service_summarize_method,
                 console
             )
-        
-        # 4. Eliminar ToolMessages huérfanos (post-resumen)
-        target_history[:] = self._remove_orphan_tool_messages(target_history)
-        
-        # 5. Truncar si aún es necesario
-        target_history[:] = self._truncate_history(
-            target_history,
-            max_history_messages,
-            max_history_chars
-        )
-        
-        # 6. Asegurar integridad de pares de mensajes
-        target_history[:] = self._ensure_tool_message_pairs(target_history)
-        
-        # 7. Guardar historial procesado SOLO si se solicita y si estamos operando sobre el historial principal
-        # O si queremos forzar que el historial procesado se convierta en el historial principal.
+            
+            # Re-validar tras resumen (el resumen puede haber cortado pares)
+            cleaned_history = self._remove_orphan_tool_messages(cleaned_history)
+            cleaned_history = self._truncate_history(
+                cleaned_history,
+                self.max_history_messages,
+                self.max_history_chars
+            )
+            cleaned_history = self._ensure_tool_message_pairs(cleaned_history)
+
+        # Actualizar y guardar si se solicita
         if save_history:
-            # Si target_history es diferente de self.conversation_history, actualizamos self.conversation_history
-            if target_history is not self.conversation_history:
-                self.conversation_history[:] = target_history
+            if cleaned_history is not self.conversation_history:
+                self.conversation_history[:] = cleaned_history
             self._save_history(self.conversation_history)
         
-        return target_history
+        return cleaned_history
 
     def _to_litellm_message_for_len_calc(self, message: BaseMessage) -> Dict[str, Any]:
         """

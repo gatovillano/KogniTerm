@@ -30,6 +30,10 @@ class CodebaseSearchTool(BaseTool):
         self.vector_db_manager = vector_db_manager
         self.embeddings_service = embeddings_service
 
+    def get_action_description(self, **kwargs) -> str:
+        query = kwargs.get("query", "")
+        return f"Buscando en el codebase: '{query}'"
+
     def _run(self, query: str, k: int = 5, file_path_filter: Optional[str] = None, language_filter: Optional[str] = None) -> str:
         """
         Synchronous run method for searching the codebase.

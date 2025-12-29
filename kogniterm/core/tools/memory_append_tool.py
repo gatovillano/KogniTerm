@@ -19,6 +19,10 @@ class MemoryAppendTool(BaseTool):
 
     args_schema: Type[BaseModel] = MemoryAppendInput
 
+    def get_action_description(self, **kwargs) -> str:
+        file_path = kwargs.get("file_path", "llm_context.md")
+        return f"Añadiendo información a la memoria: {file_path}"
+
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
 

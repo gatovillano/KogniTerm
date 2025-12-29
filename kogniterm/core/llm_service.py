@@ -726,7 +726,7 @@ class LLMService:
                     serialized_tool_calls.append({
                         "id": tc_id,
                         "type": "function",
-                        "function": {"name": tc_name, "arguments": json.dumps(tc_args or {})},
+                        "function": {"name": tc_name, "arguments": tc_args or {}},
                     })
                 
                 if not content or not str(content).strip():
@@ -957,7 +957,7 @@ class LLMService:
             "stream": True,
             "api_key": self.api_key,
             "temperature": self.generation_params.get("temperature", 0.7),
-            "max_tokens": 4096,
+            "max_tokens": 8192,
             "num_retries": 3, # Aumentado para manejar errores temporales
             "timeout": 120,    # Según el ejemplo del usuario
         }
@@ -1070,10 +1070,13 @@ class LLMService:
             sys.stderr.flush()
             start_time = time.perf_counter()
             
+            logger.debug(f"DEBUG: Enviando mensajes al LLM: {json.dumps(completion_kwargs['messages'], indent=2)}")
+            logger.debug(f"DEBUG: completion_kwargs: {json.dumps(completion_kwargs, indent=2)}")
             # Intentar llamada principal
             response_generator = completion(
                 **completion_kwargs
             )
+            logger.debug("DEBUG: litellm.completion llamada exitosa, procesando chunks...")
             end_time = time.perf_counter()
             self.call_timestamps.append(time.time())
             for chunk in response_generator:
@@ -1096,10 +1099,16 @@ class LLMService:
                 choice = choices[0]
                 delta = getattr(choice, 'delta', None)
                 if not delta:
+                    logger.debug("DEBUG: Delta vacío, continuando...")
                     continue
                 
                 # Log the raw delta for debugging
                 logger.debug(f"DEBUG: LiteLLM Delta recibido: {delta}")
+
+                # Capturar contenido de razonamiento (Thinking) si está disponible
+                reasoning_delta = getattr(delta, 'reasoning_content', None)
+                if reasoning_delta is not None:
+                    yield f"__THINKING__:{reasoning_delta}"
 
                 if getattr(delta, 'content', None) is not None:
                     full_response_content += str(delta.content)
@@ -1138,7 +1147,7 @@ class LLMService:
                     try:
                         args = json.loads(args_str)
                     except json.JSONDecodeError as e:
-                        logger.warning(f"Error al decodificar argumentos de herramienta para '{tc['function']['name']}': {e}. Argumentos recibidos: '{args_str}'. Usando argumentos vacíos.")
+                        logger.error(f"JSONDecodeError al decodificar argumentos de herramienta para '{tc['function']['name']}': {e}. Argumentos recibidos (truncados a 500 chars): '{args_str[:500]}'. Longitud total: {len(args_str)}")
                         args = {}
                     formatted_tool_calls.append({
                         "id": tc["id"],
@@ -1167,6 +1176,7 @@ class LLMService:
                     # El AIMessage final incluye solo el contenido acumulado
                     # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
                     if not full_response_content.strip():
+                        logger.debug("DEBUG: full_response_content vacío al finalizar la generación.")
                         full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
                     yield AIMessage(content=full_response_content)
 
@@ -1254,7 +1264,7 @@ class LLMService:
                             try:
                                 args = json.loads(args_str)
                             except json.JSONDecodeError as e:
-                                logger.warning(f"Error al decodificar argumentos de herramienta para '{tc['function']['name']}' en fallback: {e}. Argumentos recibidos: '{args_str}'. Usando argumentos vacíos.")
+                                logger.error(f"JSONDecodeError al decodificar argumentos de herramienta para '{tc['function']['name']}' en fallback: {e}. Argumentos recibidos (truncados a 500 chars): '{args_str[:500]}'. Longitud total: {len(args_str)}")
                                 args = {}
                             formatted_tool_calls.append({
                                 "id": tc["id"],
@@ -1349,7 +1359,8 @@ class LLMService:
                                 for tc in tool_calls:
                                     try:
                                         args = json.loads(tc["function"]["arguments"])
-                                    except json.JSONDecodeError:
+                                    except json.JSONDecodeError as e:
+                                        logger.error(f"JSONDecodeError al decodificar argumentos de herramienta para '{tc['function']['name']}' en ultra-fallback: {e}. Argumentos recibidos (truncados a 500 chars): '{tc['function']['arguments'][:500]}'. Longitud total: {len(tc['function']['arguments'])}")
                                         args = {}
                                     formatted_tool_calls.append({
                                         "id": tc["id"],
@@ -1406,6 +1417,12 @@ class LLMService:
             elif "OpenrouterException" in error_msg or "Upstream error" in error_msg:
                 if "No endpoints found" in error_msg:
                     friendly_message = "⚠️ El modelo solicitado no está disponible con los parámetros actuales. Verifica que el nombre del modelo sea correcto y que esté disponible en OpenRouter."
+                elif "Function name was" in error_msg:
+                    friendly_message = "¡Ups! 🛠️ El modelo intentó usar una herramienta con un formato incorrecto. He neutralizado la llamada a la herramienta para que la conversación pueda continuar. Por favor, intenta reformular tu solicitud o sé más específico sobre cómo quieres usar la herramienta."
+                    # En este caso, no queremos que el AIMessage tenga tool_calls,
+                    # así que lo generamos directamente aquí.
+                    yield AIMessage(content=friendly_message)
+                    return # Salir de la función después de ceder el mensaje de error
                 else:
                     friendly_message = f"¡Ups! 🌐 El proveedor del modelo (OpenRouter) está experimentando problemas técnicos temporales: '{error_msg}'. Por favor, intenta de nuevo en unos momentos."
             elif "RateLimitError" in error_type or "429" in error_msg:
@@ -1435,54 +1452,95 @@ class LLMService:
         if not history_source:
             return ""
         
-        # Convertir el historial a mensajes de LiteLLM para aplicar la lógica de filtrado
-        litellm_history_for_summary = [self._to_litellm_message(msg) for msg in history_source]
+        # 1. Convertir el historial a mensajes de LiteLLM para aplicar la lógica de filtrado
+        raw_conv_messages_for_summary = []
+        for msg in history_source:
+            if isinstance(msg, SystemMessage):
+                continue
+            litellm_msg = self._to_litellm_message(msg)
+            if litellm_msg["role"] == "assistant" and not litellm_msg.get("content") and not litellm_msg.get("tool_calls"):
+                continue
+            raw_conv_messages_for_summary.append(litellm_msg)
 
-        # Convertir de nuevo a mensajes de LangChain para añadir el summarize_prompt
-        # ELIMINADO: La lógica de filtrado de huérfanos redundante.
-        # Confiamos en que history_source ya viene limpio o que el modelo manejará el resumen.
-        langchain_processed_history = [self._from_litellm_message(msg) for msg in litellm_history_for_summary]
+        # 2. Aplicar la misma lógica de validación estricta de secuencia que en `invoke`
+        validated_messages_for_summary = []
+        last_user_content_summary = None
+        in_tool_sequence_summary = False
+        known_tool_call_ids_summary = set()
 
-        summarize_prompt = HumanMessage(content="Genera un resumen EXTENSO y DETALLADO de la conversación anterior. Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad y cualquier información relevante que ayude a retomar la conversación sin perder el hilo. Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica.")
+        for i, msg in enumerate(raw_conv_messages_for_summary):
+            role = msg["role"]
+            
+            if role == "user":
+                if msg["content"] != last_user_content_summary:
+                    validated_messages_for_summary.append(msg)
+                    last_user_content_summary = msg["content"]
+                in_tool_sequence_summary = False
+            
+            elif role == "assistant":
+                if msg.get("tool_calls"):
+                    has_next_tool_summary = False
+                    for j in range(i + 1, len(raw_conv_messages_for_summary)):
+                        if raw_conv_messages_for_summary[j]["role"] == "tool":
+                            has_next_tool_summary = True
+                            break
+                        if raw_conv_messages_for_summary[j]["role"] in ["user", "assistant"]:
+                            break
+
+                    if has_next_tool_summary:
+                        validated_messages_for_summary.append(msg)
+                        in_tool_sequence_summary = True
+                        for tc in msg["tool_calls"]:
+                            known_tool_call_ids_summary.add(tc["id"])
+                    else:
+                        msg_copy = msg.copy()
+                        msg_copy.pop("tool_calls", None)
+                        if not msg_copy.get("content"):
+                            msg_copy["content"] = "Procesando..."
+                        validated_messages_for_summary.append(msg_copy)
+                        in_tool_sequence_summary = False
+                else:
+                    if not msg.get("content"):
+                        msg["content"] = "..."
+                    validated_messages_for_summary.append(msg)
+                    in_tool_sequence_summary = False
+                last_user_content_summary = None
+            
+            elif role == "tool":
+                if msg.get("tool_call_id") and msg["tool_call_id"] in known_tool_call_ids_summary and in_tool_sequence_summary:
+                    validated_messages_for_summary.append(msg)
+                last_user_content_summary = None
+
+        # 3. Añadir el prompt de resumen al final del historial validado
+        summarize_prompt = HumanMessage(content="Genera un resumen EXTENSO y DETALLADO de la conversación anterior. Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad, cualquier información relevante que ayude a retomar la conversación sin perder el hilo, y **especialmente, cualquier error de herramienta encontrado, las razones de su fallo y las acciones intentadas para resolverlos**. Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica.")
         
-        temp_history_for_summary = langchain_processed_history + [summarize_prompt]
+        # Convertir el prompt de resumen a formato LiteLLM y añadirlo
+        litellm_summarize_prompt = self._to_litellm_message(summarize_prompt)
+        validated_messages_for_summary.append(litellm_summarize_prompt)
+
+        # 4. Usar el historial validado para la llamada a LiteLLM
+        litellm_messages_for_summary = validated_messages_for_summary
+        
+        litellm_generation_params = self.generation_params
+
+        litellm_generation_params = self.generation_params
+
+        summary_completion_kwargs = {
+            "model": self.model_name,
+            "messages": litellm_messages_for_summary,
+            "api_key": self.api_key, # Pasar la API Key directamente
+            "temperature": litellm_generation_params.get("temperature", 0.7),
+            "stream": False,
+            # Añadir reintentos para errores 503 y otros errores de servidor
+            "num_retries": 3,
+            "retry_strategy": "exponential_backoff_retry",
+        }
+        if "top_p" in litellm_generation_params:
+            summary_completion_kwargs["top_p"] = litellm_generation_params["top_p"]
+        if "top_k" in litellm_generation_params:
+            summary_completion_kwargs["top_k"] = litellm_generation_params["top_k"]
 
         try:
-            # --- Lógica de Rate Limit ---
-            current_time = time.time()
-            while self.call_timestamps and self.call_timestamps[0] <= current_time - self.rate_limit_period:
-                self.call_timestamps.popleft()
-
-            if len(self.call_timestamps) >= self.rate_limit_calls:
-                time_to_wait = self.rate_limit_period - (current_time - self.call_timestamps[0])
-                if time_to_wait > 0:
-                    if self.console:
-                        self.console.print(f"[yellow]Rate limit alcanzado en resumen. Esperando {time_to_wait:.2f} segundos...[/yellow]")
-                    time.sleep(time_to_wait)
-                    current_time = time.time()
-                    while self.call_timestamps and self.call_timestamps[0] <= current_time - self.rate_limit_period:
-                        self.call_timestamps.popleft()
-            # ---------------------------
-
-            litellm_messages_for_summary = [self._to_litellm_message(msg) for msg in temp_history_for_summary]
-            
-            litellm_generation_params = self.generation_params
-
-            summary_completion_kwargs = {
-                "model": self.model_name,
-                "messages": litellm_messages_for_summary,
-                "api_key": self.api_key, # Pasar la API Key directamente
-                "temperature": litellm_generation_params.get("temperature", 0.7),
-                "stream": False,
-                # Añadir reintentos para errores 503 y otros errores de servidor
-                "num_retries": 3,
-                "retry_strategy": "exponential_backoff_retry",
-            }
-            if "top_p" in litellm_generation_params:
-                summary_completion_kwargs["top_p"] = litellm_generation_params["top_p"]
-            if "top_k" in litellm_generation_params:
-                summary_completion_kwargs["top_k"] = litellm_generation_params["top_k"]
-
             response = completion(
                 **summary_completion_kwargs
             )

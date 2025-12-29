@@ -44,10 +44,23 @@ class AdvancedFileEditorTool(BaseTool):
 
     args_schema: Type[BaseModel] = AdvancedFileEditorInput
 
+    def get_action_description(self, **kwargs) -> str:
+        action = kwargs.get("action")
+        path = kwargs.get("path", "")
+        if action == "insert_line":
+            line = kwargs.get("line_number")
+            return f"Insertando línea en {path} (línea {line})"
+        elif action == "replace_regex":
+            return f"Reemplazando contenido con regex en {path}"
+        elif action == "prepend_content":
+            return f"Añadiendo contenido al inicio de {path}"
+        elif action == "append_content":
+            return f"Añadiendo contenido al final de {path}"
+        return f"Editando archivo: {path}"
+
     def _run(self, path: str, action: str, content: Optional[str] = None, line_number: Optional[int] = None, regex_pattern: Optional[str] = None, replacement_content: Optional[str] = None, confirm: bool = False) -> Dict[str, Any]:
         logger.debug(f"Invocando AdvancedFileEditorTool para editar el archivo: '{path}' con la acción: '{action}'.")
         logger.debug(f"AdvancedFileEditorTool._run - Valor de confirm: {confirm}")
-        # print(f"*** DEBUG PRINT: AdvancedFileEditorTool._run - Valor de confirm: {confirm} ***")
         try:
             read_result = _read_file_content(path=path)
             if read_result["status"] == "error":
@@ -103,7 +116,6 @@ class AdvancedFileEditorTool(BaseTool):
             if confirm:
                 logger.debug(f"Aplicando la actualización al archivo '{path}'.")
                 logger.debug("DEBUG: AdvancedFileEditorTool._run - Ejecutando _apply_advanced_update (confirm=True).")
-                # print("*** DEBUG PRINT: AdvancedFileEditorTool._run - Ejecutando _apply_advanced_update (confirm=True). ***")
                 return _apply_advanced_update(path, new_content)
 
             # La confirmación siempre es requerida por la herramienta si hay un diff
@@ -111,18 +123,15 @@ class AdvancedFileEditorTool(BaseTool):
                 original_content.splitlines(keepends=True),
                 new_content.splitlines(keepends=True),
                 fromfile=f"a/{path}",
-                tofile=f"b/{path}",
-                lineterm=''
+                tofile=f"b/{path}"
             ))
 
             if not diff:
                 logger.debug(f"No se requieren cambios en el archivo '{path}' para la acción '{action}'.")
                 logger.debug(f"DEBUG: AdvancedFileEditorTool._run - No se requieren cambios para la acción '{action}'.")
-                # print(f"*** DEBUG PRINT: AdvancedFileEditorTool._run - No se requieren cambios para la acción '{action}'. ***")
                 return {"status": "success", "message": f"El archivo '{path}' no requirió cambios para la acción '{action}'."}
 
             logger.debug(f"DEBUG: AdvancedFileEditorTool._run - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
-            # print(f"*** DEBUG PRINT: AdvancedFileEditorTool._run - Devolviendo requires_confirmation. Diff: {diff[:200]}... ***")
             return {
                 "status": "requires_confirmation",
                 "action_description": f"aplicar edición avanzada en el archivo '{path}'",

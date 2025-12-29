@@ -24,6 +24,10 @@ class ExecuteCommandTool(BaseTool):
         if self.command_executor is None:
             self.command_executor = CommandExecutor()
 
+    def get_action_description(self, **kwargs) -> str:
+        command = kwargs.get("command", "")
+        return f"Ejecutando comando: {command}"
+
     def _run(self, command: str) -> Any:
         """Usa el CommandExecutor para ejecutar el comando."""
         logger.debug(f"ExecuteCommandTool - Recibido comando: '{command}'")

@@ -144,6 +144,7 @@ class WorkspaceContext:
         folder_structure = self._get_folder_structure(self.root_dir)
         
         context_parts = []
+        context_parts.append(f"Directorio de trabajo actual: {self.root_dir}\n")
         context_parts.append("Aquí está la estructura de carpetas del proyecto:\n")
         context_parts.append(folder_structure)
         context_parts.append("\n")

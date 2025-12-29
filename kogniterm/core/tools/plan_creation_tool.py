@@ -16,6 +16,10 @@ class PlanCreationTool(BaseTool):
         "Use this tool when a user's request involves multiple steps or requires a strategic approach."
     )
     args_schema: Type[BaseModel] = PlanCreationToolSchema
+
+    def get_action_description(self, **kwargs) -> str:
+        task_description = kwargs.get("task_description", "")
+        return f"Creando plan para: {task_description}"
     llm_service: Optional[Any] = None
 
     def __init__(self, llm_service: Any = None, **kwargs):

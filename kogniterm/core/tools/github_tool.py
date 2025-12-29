@@ -19,6 +19,23 @@ class GitHubTool(BaseTool):
 
     args_schema: Type[BaseModel] = GitHubToolInput
 
+    def get_action_description(self, **kwargs) -> str:
+        action = kwargs.get("action")
+        repo_name = kwargs.get("repo_name", "")
+        path = kwargs.get("path", "")
+        
+        if action == "get_repo_info":
+            return f"Obteniendo info del repo: {repo_name}"
+        elif action == "list_contents":
+            return f"Listando contenidos de {repo_name}/{path}"
+        elif action == "read_file":
+            return f"Leyendo archivo de GitHub: {repo_name}/{path}"
+        elif action == "read_directory":
+            return f"Leyendo directorio de GitHub: {repo_name}/{path}"
+        elif action == "read_recursive_directory":
+            return f"Leyendo recursivamente GitHub: {repo_name}/{path}"
+        return f"Interactuando con GitHub: {repo_name}"
+
     def __init__(self, **kwargs: Any):
         super().__init__(**kwargs)
 

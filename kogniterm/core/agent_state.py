@@ -1,6 +1,7 @@
 import os
 import json
 from dataclasses import dataclass, field
+from collections import deque # Importar deque
 from typing import List, Optional, Dict, Any, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 # No necesitamos importar LLMService aquí para los métodos estáticos de historial
@@ -23,6 +24,7 @@ class AgentState:
     tool_code_tool_args: Optional[Dict[str, Any]] = None # Nuevo campo para los args originales de la herramienta
     file_update_diff_pending_confirmation: Optional[Union[str, Dict[str, Any]]] = None # Nuevo campo para el diff de file_update_tool
     search_memory: List[Dict[str, Any]] = field(default_factory=list) # ¡Nuevo campo para la memoria de búsqueda!
+    tool_call_history: deque = field(default_factory=lambda: deque(maxlen=5)) # Historial de llamadas a herramientas para detección de bucles
 
     # Añadir un campo para la ruta del archivo de historial
     history_file_path: str = field(default_factory=lambda: os.path.join(os.getcwd(), ".kogniterm", "history.json"))

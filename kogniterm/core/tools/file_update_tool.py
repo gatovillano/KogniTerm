@@ -24,6 +24,10 @@ class FileUpdateTool(BaseTool):
 
     args_schema: Type[BaseModel] = FileUpdateInput
 
+    def get_action_description(self, **kwargs) -> str:
+        path = kwargs.get("path", "")
+        return f"Actualizando archivo completo: {path}"
+
     def _apply_update(self, path: str, content: str) -> str:
         try:
             if not os.access(path, os.W_OK):

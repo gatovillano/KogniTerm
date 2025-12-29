@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import subprocess
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession, HTML
 from prompt_toolkit.history import FileHistory
@@ -68,17 +69,20 @@ class FileCompleter(Completer):
         self.workspace_directory = workspace_directory
         self.show_indicator = show_indicator
         self._cached_files: Optional[List[str]] = None
+        self._cached_containers: Optional[List[str]] = None
         self.cache_lock = threading.Lock()
         self._loading_future: Optional[concurrent.futures.Future] = None
+        self._loading_containers_future: Optional[concurrent.futures.Future] = None
         try:
             self._loop = asyncio.get_event_loop()
             # logger.debug("FileCompleter: Bucle de eventos de asyncio obtenido.")
         except RuntimeError:
             logger.warning("FileCompleter: No hay un bucle de eventos de asyncio corriendo. Esto puede causar problemas.")
             self._loop = None # O manejar de otra forma si no hay loop
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) # Ejecutor para tareas de IO
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2) # Aumentado a 2 para manejar Docker
 
         self._start_background_load_files() # Iniciar la carga inicial en segundo plano
+        self._start_background_load_containers() # Iniciar la carga de contenedores
 
     def invalidate_cache(self):
         """Invalida la caché de archivos, forzando una recarga la próxima vez que se necesite."""
@@ -135,6 +139,37 @@ class FileCompleter(Completer):
                 self._cached_files = []
             return []
 
+    def _start_background_load_containers(self):
+        """Inicia la carga de contenedores Docker en un hilo secundario."""
+        with self.cache_lock:
+            if self._loading_containers_future is not None and not self._loading_containers_future.done():
+                return 
+
+            if self._loop is None:
+                return
+
+            self._loading_containers_future = self._loop.run_in_executor(
+                self._executor,
+                self._do_load_containers
+            )
+
+    def _do_load_containers(self) -> List[str]:
+        """Obtiene la lista de contenedores Docker."""
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                capture_output=True, text=True, check=True
+            )
+            containers = [c.strip() for c in result.stdout.split('\n') if c.strip()]
+            with self.cache_lock:
+                self._cached_containers = containers
+            return containers
+        except Exception as e:
+            logger.error(f"FileCompleter: Error al cargar contenedores Docker: {e}")
+            with self.cache_lock:
+                self._cached_containers = []
+            return []
+
     MAGIC_COMMANDS = [
         ("%help", "Mostrar menú de ayuda interactivo"),
         ("%models", "Cambiar modelo de IA"),
@@ -144,7 +179,16 @@ class FileCompleter(Completer):
         ("%theme", "Cambiar tema de colores"),
         ("%init", "Inicializar contexto"),
         ("%keys", "Gestionar API Keys"),
+        ("%session", "Gestión de sesiones"),
         ("%salir", "Salir de KogniTerm")
+    ]
+
+    SESSION_SUBCOMMANDS = [
+        ("list", "Listar sesiones guardadas"),
+        ("save", "Guardar sesión actual"),
+        ("load", "Cargar una sesión"),
+        ("new", "Crear nueva sesión"),
+        ("delete", "Eliminar una sesión")
     ]
 
     def get_completions(self, document, complete_event):
@@ -153,9 +197,27 @@ class FileCompleter(Completer):
         
         # 1. Autocompletado de Comandos Mágicos (%)
         if text_before_cursor.lstrip().startswith('%') or word_before_cursor.startswith('%'):
-            # Determinar qué parte está escribiendo el usuario
-            if ' ' not in text_before_cursor.lstrip(): # Solo si es la primera palabra
-                current_input = text_before_cursor.lstrip()
+            stripped_text = text_before_cursor.lstrip()
+            
+            # Caso especial para subcomandos de %session
+            if stripped_text.startswith('%session '):
+                parts = stripped_text.split()
+                # Si estamos escribiendo el subcomando (ej: "%session sa")
+                if len(parts) == 2 and not stripped_text.endswith(' '):
+                    current_subcmd = parts[1]
+                    for subcmd, desc in self.SESSION_SUBCOMMANDS:
+                        if subcmd.startswith(current_subcmd):
+                            yield Completion(subcmd, start_position=-len(current_subcmd), display_meta=desc)
+                    return
+                # Si acabamos de escribir "%session " y queremos ver opciones
+                elif len(parts) == 1 and stripped_text.endswith(' '):
+                     for subcmd, desc in self.SESSION_SUBCOMMANDS:
+                        yield Completion(subcmd, start_position=0, display_meta=desc)
+                     return
+
+            # Determinar qué parte está escribiendo el usuario (comando principal)
+            if ' ' not in stripped_text: # Solo si es la primera palabra
+                current_input = stripped_text
                 for cmd, desc in self.MAGIC_COMMANDS:
                     if cmd.startswith(current_input):
                         yield Completion(cmd, start_position=-len(current_input), display_meta=desc)
@@ -198,6 +260,27 @@ class FileCompleter(Completer):
                 start_position = -len(current_input_part)
                 yield Completion(suggestion, start_position=start_position)
 
+        # 3. Autocompletado de Docker (:)
+        if ':' in text_before_cursor:
+            # Solo si el ':' no es parte de una ruta de archivo (ej. C:\ o similar en Windows, aunque aquí es Linux)
+            # O si está al inicio de una palabra o después de un espacio
+            parts = text_before_cursor.split(':')
+            current_input_part = parts[-1]
+            
+            # Verificar si el ':' está precedido por un espacio o es el inicio
+            if len(parts) > 1 and (text_before_cursor.endswith(':' + current_input_part)):
+                with self.cache_lock:
+                    cached_containers = self._cached_containers
+                
+                if cached_containers is None:
+                    if self._loading_containers_future is None or self._loading_containers_future.done():
+                        self._start_background_load_containers()
+                    return
+
+                for container in cached_containers:
+                    if current_input_part.lower() in container.lower():
+                        yield Completion(container, start_position=-len(current_input_part), display_meta="Docker Container")
+
     def dispose(self):
         """Detiene el FileSystemWatcher y el ThreadPoolExecutor cuando la aplicación se cierra."""
         if self._executor:
@@ -224,6 +307,10 @@ class KogniTermApp:
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
         self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui, self.terminal_ui.get_interrupt_queue())
+
+        # Inicializar SessionManager
+        from kogniterm.core.session_manager import SessionManager
+        self.session_manager = SessionManager(self.workspace_directory or os.getcwd())
 
         # Inicializar FileCompleter con el workspace_directory
         file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
@@ -348,6 +435,38 @@ class KogniTermApp:
 
         return re.sub(pattern, replace_match, text)
 
+    def _process_docker_tags(self, text: str) -> str:
+        """
+        Detecta etiquetas :contenedor en el texto e inyecta información del contenedor.
+        """
+        pattern = r':(?P<container>[a-zA-Z0-9_-]+)'
+        
+        def replace_match(match):
+            container_name = match.group('container')
+            try:
+                # Obtener estado y logs básicos
+                inspect_res = subprocess.run(
+                    ["docker", "inspect", "--format", "{{.State.Status}}", container_name],
+                    capture_output=True, text=True
+                )
+                if inspect_res.returncode != 0:
+                    return match.group(0) # No es un contenedor válido o error
+                
+                status = inspect_res.stdout.strip()
+                
+                logs_res = subprocess.run(
+                    ["docker", "logs", "--tail", "20", container_name],
+                    capture_output=True, text=True
+                )
+                logs = logs_res.stdout.strip() or logs_res.stderr.strip() or "No hay logs recientes."
+                
+                self.terminal_ui.print_message(f"  🐳 Inyectando info de contenedor: {container_name}", style="blue")
+                return f"\n\n--- INFO DOCKER: {container_name} ---\nEstado: {status}\nÚltimos 20 logs:\n{logs}\n--- FIN INFO DOCKER ---\n\n"
+            except Exception as e:
+                return match.group(0)
+
+        return re.sub(pattern, replace_match, text)
+
     async def _run_background_indexing(self):
         """Runs the codebase indexing in the background."""
         from kogniterm.core.context.codebase_indexer import CodebaseIndexer
@@ -420,6 +539,10 @@ class KogniTermApp:
             # o se deberá manejar explícitamente el cambio de directorio en una futura mejora.
             while True:
                 cwd = os.getcwd() # Obtener el CWD actual para el prompt
+                
+                # Actualizar el título de la terminal
+                sys.stdout.write(f"\033]0;KogniTerm - {cwd}\007")
+                sys.stdout.flush()
                 # Crear el prompt usando HTML de prompt_toolkit (no Rich markup)
                 # prompt_toolkit usa HTML-like tags, no Rich markup
                 from prompt_toolkit import HTML
@@ -461,6 +584,8 @@ class KogniTermApp:
 
                 # Procesar etiquetas @archivo para inyectar contenido
                 enhanced_user_input = self._process_file_tags(user_input)
+                # Procesar etiquetas :contenedor para inyectar info de Docker
+                enhanced_user_input = self._process_docker_tags(enhanced_user_input)
 
                 # Añadir el mensaje del usuario al historial del agente
                 user_human_message = HumanMessage(content=enhanced_user_input)

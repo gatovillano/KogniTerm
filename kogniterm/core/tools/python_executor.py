@@ -107,6 +107,9 @@ class PythonTool(BaseTool):
     description: str = "Ejecuta código Python utilizando un kernel de Jupyter. Mantiene el estado entre ejecuciones."
     args_schema: type[BaseModel] = PythonToolArgs
     last_structured_output: dict = None
+
+    def get_action_description(self, **kwargs) -> str:
+        return "Ejecutando código Python interactivo"
     # El atributo auto_approve se eliminará de la herramienta, ya que la lógica de confirmación
     # se manejará en el grafo del agente.
 

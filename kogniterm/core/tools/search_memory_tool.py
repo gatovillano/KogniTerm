@@ -18,6 +18,13 @@ class SearchMemoryTool(BaseTool):
     class GetRelevantSearchResultsInput(BaseModel):
         query: str = Field(description="La consulta para la que se buscan resultados relevantes en la memoria.")
 
+    def get_action_description(self, **kwargs) -> str:
+        if "result" in kwargs and "query" in kwargs:
+            return f"Guardando resultado de búsqueda para: {kwargs.get('query')}"
+        elif "query" in kwargs:
+            return f"Buscando en memoria de resultados: {kwargs.get('query')}"
+        return "Interactuando con memoria de búsqueda"
+
     def _run(self, **kwargs: Any) -> str:
         if "result" in kwargs and "query" in kwargs:
             return self._add_search_result(kwargs["query"], kwargs["result"])

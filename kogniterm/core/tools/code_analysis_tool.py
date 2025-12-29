@@ -1,5 +1,7 @@
 import os
 import logging
+import subprocess
+import shutil
 from typing import Type, Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
@@ -29,11 +31,24 @@ class CodeAnalysisTool(BaseTool):
         self.llm_service = llm_service
 
     class CodeAnalysisInput(BaseModel):
-        analysis_type: str = Field(..., description="Tipo de análisis: 'complexity' (ciclomática), 'maintainability' (índice MI), 'raw' (líneas, comentarios, etc.), 'halstead' (métricas Halstead).")
+        analysis_type: str = Field(..., description="Tipo de análisis: 'lint' (pylint/eslint), 'complexity' (ciclomática), 'maintainability' (índice MI), 'raw' (líneas, comentarios, etc.), 'halstead' (métricas Halstead).")
         path: str = Field(..., description="Ruta al archivo o directorio a analizar.")
         recursive: bool = Field(default=False, description="Si es True y path es un directorio, busca archivos recursivamente.")
 
     args_schema: Type[BaseModel] = CodeAnalysisInput
+
+    def get_action_description(self, **kwargs) -> str:
+        analysis_type = kwargs.get("analysis_type")
+        path = kwargs.get("path", "")
+        type_map = {
+            'complexity': 'Complejidad Ciclomática',
+            'maintainability': 'Índice de Mantenibilidad',
+            'raw': 'Métricas Raw',
+            'halstead': 'Métricas Halstead',
+            'lint': 'Validación de Código (Linting)'
+        }
+        type_name = type_map.get(analysis_type, analysis_type)
+        return f"Analizando {type_name} en: {path}"
 
     def _run(self, analysis_type: str, path: str, recursive: bool = False) -> Union[str, Dict[str, Any]]:
         if radon_cc is None:
@@ -52,27 +67,29 @@ class CodeAnalysisTool(BaseTool):
                 return self._analyze_raw(path, recursive)
             elif analysis_type == 'halstead':
                 return self._analyze_halstead(path, recursive)
+            elif analysis_type == 'lint':
+                return self._analyze_lint(path, recursive)
             else:
                 return f"Error: Tipo de análisis '{analysis_type}' no soportado."
         except Exception as e:
             logger.error(f"Error en análisis de código: {e}")
             return f"Error durante el análisis: {str(e)}"
 
-    def _get_files(self, path: str, recursive: bool) -> List[str]:
+    def _get_files(self, path: str, recursive: bool, extensions: List[str] = ['.py']) -> List[str]:
         files_to_analyze = []
         if os.path.isfile(path):
-            if path.endswith('.py'):
+            if any(path.endswith(ext) for ext in extensions):
                 files_to_analyze.append(path)
         elif os.path.isdir(path):
             if recursive:
                 for root, _, files in os.walk(path):
                     for file in files:
-                        if file.endswith('.py'):
+                        if any(file.endswith(ext) for ext in extensions):
                             files_to_analyze.append(os.path.join(root, file))
             else:
                 for file in os.listdir(path):
                     full_path = os.path.join(path, file)
-                    if os.path.isfile(full_path) and file.endswith('.py'):
+                    if os.path.isfile(full_path) and any(file.endswith(ext) for ext in extensions):
                         files_to_analyze.append(full_path)
         return files_to_analyze
 
@@ -211,4 +228,61 @@ class CodeAnalysisTool(BaseTool):
             except Exception as e:
                 results.append(f"Archivo: {file_path} - Error: {e}")
 
+        return "\n".join(results)
+
+    def _analyze_lint(self, path: str, recursive: bool) -> str:
+        py_files = self._get_files(path, recursive, ['.py'])
+        js_files = self._get_files(path, recursive, ['.js', '.ts', '.jsx', '.tsx'])
+        
+        results = []
+        
+        # Python Linting
+        if py_files:
+            if shutil.which('pylint'):
+                results.append("--- Análisis Pylint (Python) ---")
+                for f in py_files:
+                    try:
+                        # Ejecutar pylint
+                        # --output-format=text: formato legible
+                        # --score=n: no mostrar puntuación final, solo errores
+                        # --reports=n: no mostrar reportes estadísticos
+                        cmd = ['pylint', f, '--output-format=text', '--score=n', '--reports=n']
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        
+                        output = result.stdout.strip()
+                        if output:
+                            results.append(f"Archivo: {f}\n{output}\n")
+                        elif result.stderr.strip():
+                             results.append(f"Archivo: {f} (Error ejecución): {result.stderr.strip()}\n")
+                        else:
+                             results.append(f"Archivo: {f}: ✅ Sin errores detectados.\n")
+                    except Exception as e:
+                        results.append(f"Error ejecutando pylint en {f}: {e}")
+            else:
+                results.append("⚠️ Advertencia: 'pylint' no encontrado. Instálalo con 'pip install pylint' para análisis de Python.")
+
+        # JS Linting
+        if js_files:
+             if shutil.which('eslint'):
+                results.append("--- Análisis ESLint (JavaScript/TypeScript) ---")
+                for f in js_files:
+                    try:
+                        cmd = ['eslint', f, '--format', 'stylish']
+                        result = subprocess.run(cmd, capture_output=True, text=True)
+                        
+                        output = result.stdout.strip()
+                        if output:
+                            results.append(f"Archivo: {f}\n{output}\n")
+                        elif result.stderr.strip():
+                             results.append(f"Archivo: {f} (Error ejecución): {result.stderr.strip()}\n")
+                        else:
+                             results.append(f"Archivo: {f}: ✅ Sin errores detectados.\n")
+                    except Exception as e:
+                         results.append(f"Error ejecutando eslint en {f}: {e}")
+             else:
+                results.append("⚠️ Advertencia: 'eslint' no encontrado. Instálalo con 'npm install -g eslint' para análisis de JS.")
+        
+        if not results:
+            return "No se encontraron archivos soportados (Python/JS) para analizar o herramientas de linting instaladas."
+            
         return "\n".join(results)

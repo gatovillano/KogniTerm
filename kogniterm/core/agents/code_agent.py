@@ -142,24 +142,15 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
 
 def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM (CodeAgent)."""
-    # Asegurar que el SystemMessage específico del CodeAgent esté presente
-    # Si el historial ya tiene un SystemMessage al principio, lo reemplazamos o nos aseguramos de que sea este.
-    # En la arquitectura actual, el state.history_for_api suele construir el historial.
-    # Aquí forzaremos el SYSTEM_MESSAGE del CodeAgent como el contexto principal.
-    
-    # Nota: state.history_for_api es una propiedad calculada. 
-    # Para cambiar la "persona", idealmente deberíamos inyectar este mensaje en el contexto.
-    # Por simplicidad, lo añadiremos como un SystemMessage efímero si no está, 
-    # o confiaremos en que el orquestador lo configure. 
-    # PERO, dado que este es un agente independiente, vamos a construir el historial aquí.
-    
     messages = [SYSTEM_MESSAGE] + state.messages
     
     full_response_content = ""
+    full_thinking_content = ""
     final_ai_message = None
     
     try:
         from kogniterm.terminal.visual_components import create_processing_spinner
+        from kogniterm.terminal.themes import ColorPalette, Icons
         spinner = create_processing_spinner()
     except ImportError:
         from rich.spinner import Spinner
@@ -170,8 +161,30 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
             if isinstance(part, AIMessage):
                 final_ai_message = part
             elif isinstance(part, str):
-                full_response_content += part
-                live.update(Padding(Markdown(full_response_content), (0, 4)))
+                if part.startswith("__THINKING__:"):
+                    thinking_chunk = part[len("__THINKING__:"):]
+                    full_thinking_content += thinking_chunk
+                    thinking_panel = Panel(
+                        Markdown(full_thinking_content),
+                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} CodeAgent Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                        border_style=ColorPalette.PRIMARY_LIGHT,
+                        padding=(0, 1),
+                        dim=True
+                    )
+                    live.update(Padding(thinking_panel, (0, 4)))
+                else:
+                    full_response_content += part
+                    renderables = []
+                    if full_thinking_content:
+                        renderables.append(Panel(
+                            Markdown(full_thinking_content),
+                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Razonamiento finalizado[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                            border_style=ColorPalette.GRAY_600,
+                            padding=(0, 1),
+                            dim=True
+                        ))
+                    renderables.append(Markdown(full_response_content))
+                    live.update(Padding(Group(*renderables), (0, 4)))
 
     if final_ai_message:
         if not final_ai_message.content and full_response_content:

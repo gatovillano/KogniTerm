@@ -15,6 +15,10 @@ class WebFetchTool(BaseTool):
 
     args_schema: Type[BaseModel] = WebFetchInput
 
+    def get_action_description(self, **kwargs) -> str:
+        url = kwargs.get("url", "")
+        return f"Obteniendo contenido de: {url}"
+
     def _run(self, url: str) -> str:
         requests_wrapper = RequestsWrapper()
         try:

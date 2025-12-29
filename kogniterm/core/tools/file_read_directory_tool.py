@@ -16,6 +16,10 @@ class FileReadDirectoryTool(BaseTool):
 
     args_schema: Type[BaseModel] = FileReadDirectoryInput
 
+    def get_action_description(self, **kwargs) -> str:
+        path = kwargs.get("path", "")
+        return f"Leyendo contenido del directorio: {path}"
+
     def _run(self, path: str) -> str:
         logger.debug(f"FileReadDirectoryTool - Intentando leer directorio en ruta '{path}'")
         try:

@@ -51,7 +51,7 @@
 
 ✅ **Claridad de Roles**: Cada agente tiene un propósito específico y bien definido  
 ✅ **Delegación Eficiente**: El bash agent sabe cuándo delegar y a qué agente  
-✅ **Mejor UX**: Los usuarios reciben respuestas más especializadas y precisas  
+✅ ✅ **Mejor UX**: Los usuarios reciben respuestas más especializadas y precisas  
 ✅ **Escalabilidad**: Fácil agregar nuevos agentes especializados en el futuro  
 ✅ **Documentación Integrada**: La información está directamente en el sistema  
 
@@ -130,9 +130,16 @@ Se creó un test comprehensivo (`test_parsing_only.py`) que valida:
 - **Robustez**: Menos errores por formatos incompatibles
 - **Flexibilidad**: Mejor adaptación a diferentes modelos
 
-Esta mejora hace que KogniTerm sea mucho más compatible con una amplia gama de modelos de lenguaje, incluyendo aquellos que no tienen tool calling nativo o que expresan las llamadas a herramientas de manera no estructurada.
+Esta mejora hace que KogniTerm sea mucho más compatible con una gama amplia de modelos de lenguaje, incluyendo aquellos que no tienen tool calling nativo o que expresan las llamadas a herramientas de manera no estructurada.
 
 ---
+
+## 28-12-2025 Inclusión del directorio de trabajo actual en el contexto del LLM
+
+ Se ha modificado el sistema para que el LLM sea consciente de su ubicación actual en el sistema de archivos, facilitando la navegación y ejecución de comandos.
+
+- **Mejora de contexto**: Se añadió una línea al inicio del mensaje de contexto del espacio de trabajo indicando el "Directorio de trabajo actual".
+- **Modificación en WorkspaceContext**: Se actualizó el método `initialize_context` en `kogniterm/core/context/workspace_context.py` para incluir `self.root_dir` en las partes del contexto.
 
 ## 23-12-2025 Validación y Expansión del Sistema de Parseo Universal
 
@@ -217,7 +224,7 @@ if enhanced_tool_calls:
 
 ### Estado Final
 
-🟢 **COMPLETAMENTE INTEGRADO Y FUNCIONAL** - El sistema de parseo universal está integrado en el flujo de ejecución y listo para uso en producción.
+观察 **COMPLETAMENTE INTEGRADO Y FUNCIONAL** - El sistema de parseo universal está integrado en el flujo de ejecución y listo para uso en producción.
 
 **Capacidades Confirmadas**:
 
@@ -517,7 +524,7 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 
 ✅ **Mayor Robustez**: La herramienta es ahora más tolerante a las variaciones en el formato de salida JSON de los LLMs.
 ✅ **Compatibilidad Mejorada**: Soporta respuestas de modelos que envuelven JSON en bloques de código Markdown o que pueden enviar JSON con formato inconsistente.
-✅ **Prevención de Errores**: Reduce la probabilidad de fallos debido a `json.JSONDecodeError` al intentar parsear la respuesta del LLM.
+✅ **Prevención de Errores**: Reduce la probabilidad de `json.JSONDecodeError` al intentar parsear la respuesta del LLM.
 ✅ **Depuración Simplificada**: Los mensajes de error detallados proporcionan información crucial para identificar y corregir problemas en las respuestas del LLM.
 
 #### **🔍 Problemas Resueltos**
@@ -598,27 +605,6 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 
 ---
 
-## 26-12-2025 Actualización de Visión General (Overview)
-
-**Descripción**: Se ha reescrito completamente el archivo `docs/overview.md` para reflejar con precisión la arquitectura actual del sistema, incluyendo los agentes especializados y el motor de parseo universal.
-
-### Cambios Realizados
-
-#### **📄 Archivo Modificado**: `docs/overview.md`
-
-- **Nueva Estructura**: Organizado por "Propósito y Filosofía", "Arquitectura del Sistema", "Flujo de Trabajo" y "Seguridad".
-- **Agentes Especializados**: Se documentaron los roles de `BashAgent`, `ResearcherAgent` y `CodeAgent`.
-- **Motor Universal**: Se explicó el funcionamiento del parseo híbrido (Text-to-Tool) para compatibilidad con cualquier LLM.
-- **RAG Local**: Se añadió una sección sobre el sistema de indexado de código.
-
-### **🎯 Beneficios**
-
-✅ **Precisión**: La documentación ahora coincide con la realidad del código.
-✅ **Claridad**: Explica *por qué* KogniTerm es diferente (especialización + universalidad).
-✅ **Onboarding**: Facilita que nuevos usuarios entiendan rápidamente cómo funciona el sistema por dentro.
-
----
-
 ## 26-12-25 Reducción de logs INFO en AdvancedFileEditorTool
 
 **Descripción**: Se cambió el nivel de logging de INFO a DEBUG para los mensajes de la herramienta AdvancedFileEditorTool, reduciendo el ruido en la salida de la consola durante las confirmaciones de edición de archivos.
@@ -689,3 +675,310 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 - **ResearcherAgent**: Ahora tiene acceso a herramientas para investigar repositorios GitHub
 - **Flujo de Investigación**: Se enriquece con la posibilidad de consultar código externo
 - **Compatibilidad**: La herramienta ya estaba implementada y registrada, solo faltaba la integración en el agente
+
+---
+
+## 28-12-2025 Mejora en el Manejo de Argumentos de Tool Calls y Aumento de Max Tokens
+
+**Descripción**: Se implementaron mejoras para manejar argumentos de tool calls excesivamente largos y se aumentó el límite de tokens para las respuestas del LLM, con el objetivo de resolver problemas de truncamiento y errores de parseo JSON.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/llm_service.py`
+
+**Métodos Actualizados**:
+
+- `invoke(self, history: Optional[List[BaseMessage]] = None, ...)`
+
+#### **📋 Cambios Específicos**
+
+1. **Aumento de `max_tokens` en `completion_kwargs`**:
+    - Se incrementó el valor de `max_tokens` de `4096` a `8192` en la configuración de la llamada a `litellm.completion`.
+    - **Beneficio**: Permite que el LLM genere respuestas más largas, lo que es crucial para tool calls con argumentos extensos, reduciendo la probabilidad de truncamiento.
+
+2. **Logs Detallados para `JSONDecodeError`**:
+    - Se añadieron logs de error (`logger.error`) más detallados en todos los puntos donde se realiza `json.loads()` para los argumentos de las herramientas dentro del método `invoke` (flujo principal, fallback alternativo y fallback ultra-minimalista).
+    - Estos logs ahora incluyen:
+        - El mensaje de la excepción `JSONDecodeError`.
+        - Los argumentos recibidos (truncados a 500 caracteres para evitar logs excesivamente largos).
+        - La longitud total de la cadena de argumentos.
+    - **Beneficio**: Proporciona información crucial para diagnosticar si el truncamiento ocurre en la respuesta del LLM y qué parte de la cadena se está truncando, facilitando la depuración de errores de parseo JSON.
+
+#### **🎯 Beneficios de la Mejora**
+
+✅ **Reducción de Truncamiento**: El aumento de `max_tokens` disminuye la probabilidad de que los argumentos de las herramientas sean cortados por el LLM.
+✅ **Diagnóstico Preciso**: Los logs detallados permiten identificar la causa raíz de los `JSONDecodeError` relacionados con argumentos truncados o mal formados.
+✅ **Mayor Robustez**: El sistema es más resistente a las respuestas del LLM que contienen argumentos de herramientas largos o con problemas de formato.
+✅ **Depuración Eficiente**: La información adicional en los logs acelera el proceso de identificación y resolución de problemas.
+
+#### **🔍 Problemas Resueltos**
+
+- **`Unterminated string` en argumentos de herramientas**: Se aborda la causa subyacente de este error al permitir respuestas más largas y proporcionar herramientas de diagnóstico.
+- **`JSONDecodeError` con argumentos largos**: Los logs detallados ayudan a entender y resolver estos errores.
+
+### **📈 Impacto en el Sistema**
+
+- **Estabilidad Mejorada**: El sistema es más estable al manejar interacciones complejas con herramientas que requieren argumentos extensos.
+- **Fiabilidad del LLM**: Aumenta la confianza en la capacidad del LLM para generar tool calls correctos y completos.
+- **Mantenibilidad**: Facilita el mantenimiento y la depuración del código relacionado con la invocación de herramientas.
+
+---
+
+## 28-12-2025 Manejo de Errores de Formato de Tool Calls en LiteLLM
+
+**Descripción**: Se implementó un manejo de errores específico para `litellm.BadRequestError` cuando el proveedor del modelo rechaza una llamada a herramienta debido a un formato incorrecto de los argumentos. Esto evita que la conversación se rompa y permite al usuario continuar.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/llm_service.py`
+
+**Métodos Actualizados**:
+
+- `invoke(self, history: Optional[List[BaseMessage]] = None, ...)`
+
+#### **📋 Cambios Específicos**
+
+1. **Manejo de `litellm.BadRequestError` con formato de herramienta incorrecto**:
+    - Dentro del bloque `except Exception as e:` en el método `invoke`, se añadió una condición específica para `litellm.BadRequestError`.
+    - Si el mensaje de error del proveedor contiene la frase "Function name was" (indicando que los argumentos se interpretaron como el nombre de la función), se activa una estrategia de recuperación.
+    - **Estrategia de Recuperación**: En lugar de fallar, se genera un `AIMessage` sin `tool_calls` y con un mensaje amigable para el usuario. Este mensaje explica que el modelo intentó usar una herramienta con un formato incorrecto y sugiere reformular la solicitud.
+    - **Beneficio**: Evita que la conversación se interrumpa abruptamente debido a errores de formato de tool calls por parte del proveedor, permitiendo al usuario continuar la interacción.
+
+#### **🎯 Beneficios de la Mejora**
+
+✅ **Continuidad de la Conversación**: La interacción con el agente no se detiene por errores de formato de tool calls.
+✅ **Experiencia de Usuario Mejorada**: El usuario recibe un mensaje claro sobre el problema y una sugerencia para continuar.
+✅ **Robustez del Sistema**: El sistema es más resiliente a las idiosincrasias de formato de tool calls de diferentes proveedores de LLM.
+✅ **Depuración Asistida**: Aunque el error se maneja, el mensaje al usuario y los logs internos (si se configuran) pueden ayudar a identificar patrones de errores de formato.
+
+#### **🔍 Problemas Resueltos**
+
+- **Interrupción de la conversación por `litellm.BadRequestError`**: Se evita que el agente falle y se reinicie la conversación.
+- **Errores de formato de `tool_calls` específicos del proveedor**: Se proporciona un mecanismo para manejar estos errores de forma elegante.
+
+### **📈 Impacto en el Sistema**
+
+- **Estabilidad**: Aumenta la estabilidad general de la interacción con LLMs, especialmente con proveedores estrictos en el formato de tool calls.
+- **Fiabilidad**: Mejora la fiabilidad del agente al recuperarse de errores de formato sin perder el contexto.
+- **Usabilidad**: Hace que el agente sea más fácil de usar al proporcionar retroalimentación útil en caso de problemas con las herramientas.
+
+---
+
+## 28-12-2025 Corrección de NameError para `rich.Group` y `rich.Panel`
+
+**Descripción**: Se corrigió un `NameError` causado por la falta de importación de las clases `Group` y `Panel` de la biblioteca `rich` en `kogniterm/core/agents/bash_agent.py`.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/agents/bash_agent.py`
+
+**Sección Actualizada**: Importaciones
+
+#### **📋 Cambios Específicos**
+
+1. **Importación de `Group` y `Panel`**:
+    - Se añadió `Group` a la importación existente de `rich.console`.
+    - Se añadió `Panel` a la importación existente de `rich.panel`.
+    - **Beneficio**: Resuelve el error de ejecución que impedía renderizar correctamente los paneles de pensamiento y respuesta en la terminal.
+
+---
+
+## 28-12-2025 Optimización de Latencia y Rendimiento en el Núcleo
+
+**Descripción**: Se han implementado mejoras críticas en la gestión del historial y en el servicio de embeddings para reducir la latencia de respuesta y optimizar el uso de recursos.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/history_manager.py`
+
+- **Procesamiento Unificado**: Se refactorizó `get_processed_history_for_llm` para realizar la limpieza de mensajes huérfanos y la validación de integridad en una sola pasada eficiente.
+- **I/O Optimizado**: Se eliminó la indentación en el guardado de archivos JSON (`separators=(',', ':')`), reduciendo el tamaño de los archivos de historial y acelerando las operaciones de lectura/escritura.
+- **Filtrado Inteligente**: Mejora en la detección y eliminación de mensajes de asistente vacíos al final del historial.
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/embeddings_service.py`
+
+- **Procesamiento por Lotes (Batching)**: Se implementó soporte nativo para lotes en `GeminiAdapter` y `OllamaAdapter`.
+- **Ollama Turbo**: Se actualizó el adaptador de Ollama para usar el endpoint `/api/embed` (más moderno y rápido) con soporte para múltiples entradas en una sola petición.
+- **Gestión de Lotes**: `EmbeddingsService` ahora divide automáticamente las solicitudes grandes en lotes de 100, optimizando la latencia de red y respetando los límites de las APIs.
+
+### **🎯 Beneficios**
+
+✅ **Respuesta más rápida**: Menor tiempo de procesamiento del historial antes de enviar la solicitud al LLM.  
+✅ **Búsquedas instantáneas**: La generación de embeddings por lotes reduce drásticamente el tiempo de espera en búsquedas de código.  
+✅ **Eficiencia de Disco**: Archivos de historial más compactos y rápidos de procesar.  
+✅ **Escalabilidad**: El sistema maneja ahora mucho mejor historiales extensos y grandes volúmenes de datos para indexar.
+
+---
+
+## 28-12-2025 Corrección de Bucle de Interrupción en ResearcherAgent
+
+**Descripción**: Se corrigió un problema crítico en `researcher_agent.py` donde la detección de interrupciones en la cola provocaba un bucle infinito de reintentos en lugar de detener la ejecución. También se mejoró el manejo de `InterruptedError` para proporcionar feedback claro al LLM y al usuario.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/agents/researcher_agent.py`
+
+**Métodos Actualizados**:
+
+- `execute_tool_node`
+- `execute_single_tool`
+- `should_continue`
+
+#### **📋 Cambios Específicos**
+
+1. **Manejo Correcto de Interrupciones en `execute_tool_node`**:
+    - Antes: Si la cola de interrupción no estaba vacía, se retornaba el estado actual sin cambios, lo que causaba que `should_continue` reenviara al agente al mismo nodo, creando un bucle.
+    - Ahora: Si se detecta una interrupción, se vacía la cola, se cancelan los futuros pendientes y se generan mensajes de `ToolMessage` con contenido "Ejecución cancelada por el usuario" para todas las herramientas afectadas. Esto permite que el flujo continúe hacia el modelo con la información de cancelación.
+
+2. **Manejo Explícito de `InterruptedError` en `execute_single_tool`**:
+    - Se añadió un bloque `except InterruptedError` específico.
+    - Ahora devuelve un mensaje claro "Ejecución interrumpida por el usuario" y el objeto de excepción correcto, en lugar de un error genérico.
+
+3. **Diagnóstico de Parada en `should_continue`**:
+    - Se añadió un panel de diagnóstico visual que se muestra cuando el agente decide detenerse (`END`). Esto ayuda a identificar si la parada se debe a una respuesta del modelo sin tool calls o a otra razón.
+
+#### **🎯 Beneficios de la Mejora**
+
+✅ **Prevención de Bucles Infinitos**: El agente ahora responde correctamente a la solicitud de interrupción del usuario.
+✅ **Feedback Claro**: El usuario y el LLM reciben confirmación explícita de que la acción fue cancelada.
+✅ **Mejor Diagnóstico**: Los logs visuales facilitan la depuración de paradas inesperadas del agente.
+
+#### **🔍 Problemas Resueltos**
+
+- **Agente "atascado" tras interrupción**: Se evita el comportamiento de reintento infinito.
+- **Paradas "misteriosas"**: Se visibiliza la razón por la cual el agente decide terminar su ejecución.
+
+---
+
+## 28-12-2025 Implementación de Sistema de Multisesiones
+
+**Descripción**: Se ha implementado un sistema completo de gestión de sesiones que permite guardar, cargar, listar y eliminar historiales de conversación, accesible mediante el nuevo metacomando `%session`.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+- `kogniterm/core/session_manager.py` (Nuevo)
+- `kogniterm/terminal/kogniterm_app.py`
+- `kogniterm/terminal/meta_command_processor.py`
+
+#### **📋 Funcionalidades Agregadas**
+
+1. **Gestor de Sesiones (`SessionManager`)**:
+    - Clase dedicada para manejar la persistencia de sesiones en `.kogniterm/sessions/`.
+    - Soporte para guardar y cargar historiales completos en formato JSON.
+
+2. **Metacomando `%session`**:
+    - **`%session list`**: Muestra una tabla con todas las sesiones guardadas, fecha de modificación y cantidad de mensajes.
+    - **`%session save <nombre>`**: Guarda el estado actual de la conversación.
+    - **`%session load <nombre>`**: Carga una sesión previa y restaura el contexto.
+    - **`%session new [nombre]`**: Inicia una nueva sesión limpia (opcionalmente guardándola de inmediato).
+    - **`%session delete <nombre>`**: Elimina una sesión guardada.
+
+3. **Integración en `KogniTermApp`**:
+    - Inicialización automática del gestor de sesiones.
+    - Integración fluida con el procesador de metacomandos existente.
+
+### **🎯 Beneficios**
+
+✅ **Gestión de Contexto**: Permite cambiar entre diferentes tareas o hilos de investigación sin perder el progreso.
+✅ **Persistencia**: Los usuarios pueden guardar estados importantes y retomarlos después.
+✅ **Organización**: Facilita mantener el trabajo organizado en sesiones lógicas.
+
+---
+
+## 28-12-2025 Actualización de Ayuda para Gestión de Sesiones
+
+**Descripción**: Se ha mejorado la experiencia de usuario en el menú de ayuda (`%help`) para el comando `%session`. Ahora muestra una guía detallada de uso y subcomandos en lugar de ejecutar una acción por defecto.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/meta_command_processor.py`
+
+**Mejora en Menú de Ayuda**:
+
+- Al seleccionar `%session` desde el menú interactivo `%help`, ahora se imprime una guía formateada con:
+  - Lista de subcomandos disponibles (`list`, `save`, `load`, `new`, `delete`).
+  - Descripción breve de cada subcomando.
+  - Ejemplos de uso.
+
+### **🎯 Beneficios**
+
+✅ **Mejor UX**: Facilita el aprendizaje de los nuevos comandos de sesión sin tener que adivinar la sintaxis.
+✅ **Documentación Integrada**: La ayuda está disponible justo donde el usuario la necesita
+---
+
+## 28-12-2025 Mejora en la Detección y Prevención de Bucles del LLM
+
+**Descripción general:**
+Se implementaron mejoras significativas en KogniTerm para detectar y prevenir que el LLM entre en bucles repetitivos al ejecutar herramientas. La causa principal identificada fue la pérdida de contexto crítico (especialmente errores de herramientas) durante la resumirización del historial. Se abordó esto mejorando el prompt de resumen y añadiendo un detector de bucles explícito.
+
+- **Punto 1**: **Mejora en la resumirización del historial (`kogniterm/core/llm_service.py`)**:
+  - Se modificó el prompt de la función `summarize_conversation_history` para instruir al LLM a incluir explícitamente en el resumen cualquier error de herramienta encontrado, las razones de su fallo y las acciones intentadas para resolverlos. Esto asegura que el LLM retenga información crítica sobre fallos pasados, evitando que repita las mismas acciones.
+- **Punto 2**: **Implementación de un detector de bucles (`kogniterm/core/agent_state.py` y `kogniterm/core/agents/bash_agent.py`)**:
+  - Se añadió un atributo `tool_call_history` de tipo `deque` a la clase `AgentState` en `kogniterm/core/agent_state.py` para almacenar un historial de las últimas llamadas a herramientas (nombre y hash de argumentos).
+  - En `kogniterm/core/agents/bash_agent.py`:
+    - Se modificó la función `execute_tool_node` para registrar cada llamada a herramienta (nombre y hash de argumentos) en `state.tool_call_history` antes de su ejecución.
+    - Se implementó una lógica de detección de bucles en la función `call_model_node`. Esta lógica verifica si las últimas 3 llamadas a herramientas se han repetido al menos una vez en el historial reciente.
+    - Si se detecta un bucle, se inyecta un `SystemMessage` de advertencia al inicio del historial de mensajes que se envía al LLM, instruyéndole a analizar la situación y cambiar su estrategia para romper el bucle.
+
+Estos cambios combinados deberían reducir drásticamente la incidencia de bucles del LLM y mejorar la robustez general de KogniTerm.
+
+---
+
+## 28-12-2025 Actualización del Título de la Terminal
+
+**Descripción general**: Se ha modificado la aplicación para que el título de la ventana de la terminal refleje dinámicamente el directorio de trabajo actual, mejorando la orientación del usuario.
+
+- **Punto 1**: Se actualizó `kogniterm/terminal/kogniterm_app.py` para inyectar la secuencia de escape ANSI `\033]0;Title\007` en el bucle principal de la aplicación.
+- **Punto 2**: El título ahora muestra "KogniTerm - [Ruta del Directorio Actual]", actualizándose cada vez que se renderiza el prompt.
+
+---
+
+## 29-12-2025 Corrección de Estilo Rich y Autocompletado de Sesiones
+
+**Descripción**: Se corrigió un error de estilo en la biblioteca `rich` y se añadió autocompletado para los comandos de gestión de sesiones (`%session`).
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/meta_command_processor.py`
+
+- **Corrección de Estilo**: Se cambió el estilo `italic grey` a `italic dim` en el mensaje de ejemplo de `%session` para evitar el error `rich.errors.MissingStyle`.
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/kogniterm_app.py`
+
+- **Autocompletado de Sesiones**:
+  - Se añadió `%session` a la lista de `MAGIC_COMMANDS`.
+  - Se implementó la lógica de autocompletado para los subcomandos de `%session`: `list`, `save`, `load`, `new`, `delete`.
+  - Ahora el usuario recibe sugerencias tanto para el comando principal `%session` como para sus subcomandos.
+
+### **🎯 Beneficios**
+
+✅ **Estabilidad**: Se eliminó el error que causaba el cierre inesperado de la aplicación al mostrar la ayuda de sesiones.
+✅ **Usabilidad**: El autocompletado facilita el uso de las funciones de gestión de sesiones, mejorando la experiencia del usuario.
+
+---
+
+## 29-12-2025 Implementación de Herramientas de Análisis y Depuración
+
+**Descripción**: Se ha potenciado la herramienta `code_analysis_tool` para incluir capacidades de validación de código (linting) para Python y JavaScript, y se ha actualizado el sistema de agentes para utilizar estas nuevas capacidades.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/tools/code_analysis_tool.py`
+
+- **Soporte para Linting**: Se añadió el tipo de análisis `lint`.
+- **Integración de Herramientas**:
+  - **Python**: Integración con `pylint` para detectar errores y problemas de estilo.
+  - **JavaScript/TypeScript**: Integración con `eslint` para validación de código JS/TS.
+- **Manejo de Errores**: La herramienta verifica la existencia de `pylint` y `eslint` en el sistema y advierte si no están instalados.
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/agents/bash_agent.py`
+
+- **Actualización de Prompts**: Se actualizaron los mensajes del sistema y las definiciones de los agentes (`ResearcherAgent` y `CodeAgent`) para que conozcan y utilicen las nuevas capacidades de validación de código.
+
+### **🎯 Beneficios**
+
+✅ **Calidad de Código**: Permite a los agentes detectar y corregir errores de sintaxis y estilo antes de finalizar una tarea.
+✅ **Depuración Proactiva**: Facilita la identificación temprana de bugs mediante análisis estático.
+✅ **Soporte Multi-lenguaje**: Cobertura tanto para el backend (Python) como para el frontend (JavaScript/TypeScript).

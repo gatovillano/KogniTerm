@@ -28,6 +28,24 @@ class FileOperationsTool(BaseTool):
         self.workspace_context = workspace_context # ¡Nuevo!
         self._git_ignore_patterns = self._load_ignore_patterns()
 
+    def get_action_description(self, **kwargs) -> str:
+        operation = kwargs.get("operation")
+        path = kwargs.get("path", "")
+        if operation == "read_file":
+            return f"Leyendo el archivo: {path}"
+        elif operation == "write_file":
+            return f"Escribiendo en el archivo: {path}"
+        elif operation == "delete_file":
+            return f"Eliminando el archivo: {path}"
+        elif operation == "list_directory":
+            return f"Listando el directorio: {path}"
+        elif operation == "read_many_files":
+            paths = kwargs.get("paths", [])
+            return f"Leyendo {len(paths)} archivos"
+        elif operation == "create_directory":
+            return f"Creando el directorio: {path}"
+        return "Realizando operación de archivos"
+
     def _load_ignore_patterns(self) -> List[str]:
         """Loads ignore patterns from .gitignore and .kognitermignore."""
         patterns = []
@@ -137,7 +155,6 @@ class FileOperationsTool(BaseTool):
 
 
     def _read_file(self, path: str) -> Dict[str, Any]:
-        print(f"📖 KogniTerm: Leyendo archivo 📄: {path}")
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de lectura de archivo interrumpida por el usuario.")
@@ -158,7 +175,6 @@ class FileOperationsTool(BaseTool):
             self.interrupt_queue.get()
             raise InterruptedError("Operación de escritura de archivo interrumpida por el usuario.")
 
-        print(f"✍️ KogniTerm: Escribiendo en archivo 📄: {path}")
         logger.debug(f"DEBUG: _write_file - confirm: {confirm}")
         # print(f"*** DEBUG PRINT: _write_file - confirm: {confirm} ***")
         if confirm:
@@ -209,7 +225,6 @@ class FileOperationsTool(BaseTool):
             self.interrupt_queue.get()
             raise InterruptedError("Operación de eliminación de archivo interrumpida por el usuario.")
 
-        print(f"🗑️ KogniTerm: Eliminando archivo 📄: {path}")
         logger.debug(f"DEBUG: _delete_file - confirm: {confirm}")
         print(f"*** DEBUG PRINT: _delete_file - confirm: {confirm} ***")
         if confirm:
@@ -239,8 +254,6 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al eliminar el archivo '{path}': {e}")
 
     def _list_directory(self, path: str, recursive: bool = False, include_hidden: bool = False, silent_mode: bool = False) -> List[str]:
-        if not silent_mode:
-            print(f"📂 KogniTerm: Listando directorio 📁: {path} (Recursivo: {recursive})")
         path = path.strip().replace('@', '')
         try:
             if recursive:
@@ -308,7 +321,6 @@ class FileOperationsTool(BaseTool):
             self.interrupt_queue.get()
             raise InterruptedError("Operación de creación de directorio interrumpida por el usuario.")
 
-        print(f"📁 KogniTerm: Creando directorio ➕: {path}")
         path = path.strip().replace('@', '')
         try:
             os.makedirs(path, exist_ok=True)

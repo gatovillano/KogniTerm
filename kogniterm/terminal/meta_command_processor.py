@@ -8,6 +8,7 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage
 from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.table import Table # Importar Table
 from kogniterm.terminal.themes import set_kogniterm_theme, get_available_themes
 from kogniterm.terminal.config_manager import ConfigManager
 
@@ -96,6 +97,98 @@ class MetaCommandProcessor:
             return True
 
 
+        if user_input.lower().strip().startswith('%session'):
+            parts = user_input.strip().split()
+            subcommand = parts[1].lower() if len(parts) > 1 else "list"
+            args = parts[2:] if len(parts) > 2 else []
+
+            session_manager = self.kogniterm_app.session_manager
+
+            if subcommand == "list":
+                sessions = session_manager.list_sessions()
+                if not sessions:
+                    self.terminal_ui.print_message("No hay sesiones guardadas.", style="yellow")
+                else:
+                    table = Table(title="Sesiones Guardadas")
+                    table.add_column("Nombre", style="cyan")
+                    table.add_column("Modificado", style="dim")
+                    table.add_column("Mensajes", justify="right")
+                    
+                    for s in sessions:
+                        table.add_row(s["name"], s["modified"], str(s["messages"]))
+                    
+                    self.terminal_ui.console.print(table)
+                    
+                    current = session_manager.get_current_session_name()
+                    if current:
+                        self.terminal_ui.print_message(f"Sesión actual: {current}", style="green")
+                    else:
+                        self.terminal_ui.print_message("Estás en una sesión temporal (no guardada).", style="dim")
+
+            elif subcommand == "save":
+                if not args:
+                    # Si no hay nombre, intentar usar el actual o pedir uno
+                    current = session_manager.get_current_session_name()
+                    if current:
+                        name = current
+                    else:
+                        self.terminal_ui.print_message("Uso: %session save <nombre>", style="red")
+                        return True
+                else:
+                    name = args[0]
+                
+                if session_manager.save_session(name, self.llm_service.conversation_history):
+                    self.terminal_ui.print_message(f"Sesión '{name}' guardada exitosamente. ✅", style="green")
+                else:
+                    self.terminal_ui.print_message(f"Error al guardar la sesión '{name}'. ❌", style="red")
+
+            elif subcommand == "load":
+                if not args:
+                    self.terminal_ui.print_message("Uso: %session load <nombre>", style="red")
+                    return True
+                name = args[0]
+                
+                history = session_manager.load_session(name)
+                if history:
+                    self.llm_service.conversation_history = history
+                    self.agent_state.messages = history
+                    self.llm_service._save_history(history) # Actualizar historial activo
+                    self.terminal_ui.print_message(f"Sesión '{name}' cargada. Historial actualizado. 🔄", style="green")
+                else:
+                    self.terminal_ui.print_message(f"No se pudo cargar la sesión '{name}'.", style="red")
+
+            elif subcommand == "new":
+                name = args[0] if args else None
+                
+                # Resetear estado
+                self.agent_state.reset()
+                self.llm_service.conversation_history = []
+                self.llm_service.conversation_history.append(SYSTEM_MESSAGE)
+                self.agent_state.messages = self.llm_service.conversation_history.copy()
+                self.llm_service._save_history(self.llm_service.conversation_history)
+                
+                if name:
+                    session_manager.save_session(name, self.llm_service.conversation_history)
+                    self.terminal_ui.print_message(f"Nueva sesión '{name}' creada e iniciada. ✨", style="green")
+                else:
+                    session_manager.current_session_name = None
+                    self.terminal_ui.print_message("Nueva sesión temporal iniciada. ✨", style="green")
+
+            elif subcommand == "delete":
+                if not args:
+                    self.terminal_ui.print_message("Uso: %session delete <nombre>", style="red")
+                    return True
+                name = args[0]
+                if session_manager.delete_session(name):
+                    self.terminal_ui.print_message(f"Sesión '{name}' eliminada. 🗑️", style="green")
+                else:
+                    self.terminal_ui.print_message(f"Error al eliminar sesión '{name}'.", style="red")
+            
+            else:
+                self.terminal_ui.print_message("Subcomandos disponibles: list, save, load, new, delete", style="yellow")
+
+            return True
+
         if user_input.lower().strip() == '%help':
             from prompt_toolkit.shortcuts import radiolist_dialog
             
@@ -105,6 +198,7 @@ class MetaCommandProcessor:
                 ("%compress", "🗜️ Comprimir Historial (Resumir para ahorrar tokens)"),
                 ("%undo", "↩️ Deshacer (Eliminar última interacción)"),
                 ("%theme", "🎨 Cambiar Tema (Ver lista de temas disponibles)"),
+                ("%session", "🗂️ Gestión de Sesiones (list, save, load, new, delete)"),
                 ("%init", "📁 Inicializar Contexto (Indexar archivos clave)"),
                 ("%salir", "🚪 Salir de KogniTerm"),
             ]
@@ -125,6 +219,17 @@ class MetaCommandProcessor:
                 elif selected_command == "%theme":
                     # Ejecutar %theme sin argumentos muestra la lista de temas
                     return await self.process_meta_command("%theme")
+
+                elif selected_command == "%session":
+                    self.terminal_ui.print_message("ℹ️  Gestión de Sesiones (%session)", style="bold cyan")
+                    self.terminal_ui.print_message("Uso: %session <subcomando> [argumentos]", style="blue")
+                    self.terminal_ui.print_message("Subcomandos disponibles:", style="yellow")
+                    self.terminal_ui.print_message("  • list           : 📋 Muestra todas las sesiones guardadas.", style="dim")
+                    self.terminal_ui.print_message("  • save <nombre>  : 💾 Guarda la sesión actual.", style="dim")
+                    self.terminal_ui.print_message("  • load <nombre>  : 🔄 Carga una sesión anterior.", style="dim")
+                    self.terminal_ui.print_message("  • new [nombre]   : ✨ Inicia una nueva sesión limpia.", style="dim")
+                    self.terminal_ui.print_message("  • delete <nombre>: 🗑️  Elimina una sesión guardada.", style="dim")
+                    self.terminal_ui.print_message("\nEjemplo: %session save mi_proyecto", style="italic dim")
                 
                 elif selected_command == "%init":
                     self.terminal_ui.print_message("ℹ️  Uso: %init [archivos]", style="blue")
