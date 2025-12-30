@@ -38,7 +38,7 @@ def create_gradient_text(text: str, gradient: List[str] = None, bold: bool = Fal
         Text: Objeto Text de Rich con el degradado aplicado
     """
     if gradient is None:
-        gradient = Gradients.PRIMARY
+        gradient = Gradients.get_current_gradient()
     
     if len(text) == 0:
         return Text("")
@@ -177,6 +177,70 @@ def create_info_panel(
         title=panel_title,
         border_style=border_color,
         expand=expand,
+        padding=(1, 2),
+        box=None if status == "minimal" else None # Podemos usar diferentes estilos de caja aquí
+    )
+    
+    return Padding(panel, padding)
+
+
+def create_thought_bubble(
+    content: Union[str, RenderableType],
+    title: str = "Pensamiento del Agente",
+    icon: str = Icons.THINKING,
+    color: str = ColorPalette.PRIMARY_LIGHT
+) -> Padding:
+    """
+    Crea una 'burbuja de pensamiento' estilizada para el agente.
+    
+    Args:
+        content: Contenido del pensamiento
+        title: Título de la burbuja
+        icon: Icono a mostrar
+        color: Color principal de la burbuja
+        
+    Returns:
+        Padding: Burbuja de pensamiento formateada
+    """
+    if isinstance(content, str):
+        content = Markdown(content)
+        
+    panel = Panel(
+        content,
+        title=f"[bold {color}]{icon} {title}[/bold {color}]",
+        border_style=f"dim {color}",
+        padding=(1, 2),
+        subtitle=f"[dim]KogniTerm Intelligence[/dim]",
+        subtitle_align="right"
+    )
+    
+    return Padding(panel, (1, 4))
+
+
+def create_gradient_panel(
+    content: Union[str, RenderableType],
+    title: str,
+    gradient: List[str] = None,
+    padding: tuple = (1, 2)
+) -> Padding:
+    """
+    Crea un panel con un título en gradiente.
+    
+    Args:
+        content: Contenido del panel
+        title: Título del panel
+        gradient: Gradiente para el título
+        padding: Padding exterior
+        
+    Returns:
+        Padding: Panel con título en gradiente
+    """
+    gradient_title = create_gradient_text(title, gradient=gradient, bold=True)
+    
+    panel = Panel(
+        content,
+        title=gradient_title,
+        border_style=gradient[0] if gradient else ColorPalette.PRIMARY,
         padding=(1, 2)
     )
     
@@ -284,7 +348,7 @@ def create_welcome_banner(
         Group: Grupo de renderables para el banner
     """
     if gradient is None:
-        gradient = Gradients.PRIMARY
+        gradient = Gradients.get_current_gradient()
     
     # Dividir el arte ASCII en líneas
     lines = ascii_art.strip().split('\n')

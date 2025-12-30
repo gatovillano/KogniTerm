@@ -54,6 +54,13 @@ class CodeAnalysisTool(BaseTool):
         if radon_cc is None:
             return "Error: La librería 'radon' no está instalada. Por favor instálala con `pip install radon`."
 
+        # Blindaje contra argumentos tipo lista (error común de LLMs)
+        if isinstance(path, list) and len(path) > 0:
+            path = path[0]
+        
+        if not isinstance(path, str):
+            path = str(path)
+
         path = path.strip().replace('@', '')
         if not os.path.exists(path):
             return f"Error: La ruta '{path}' no existe."

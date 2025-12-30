@@ -5,7 +5,7 @@ Este módulo define paletas de colores, estilos de texto y configuraciones
 de tema para mantener una apariencia visual consistente en toda la aplicación.
 """
 
-from typing import Dict
+from typing import Dict, List
 from rich.theme import Theme
 from rich.style import Style
 
@@ -158,6 +158,114 @@ _THEMES = {
         "TEXT_SECONDARY": "#fed7aa",
         "TEXT_MUTED": "#fdba74",
         "TEXT_DIM": "#fb923c",
+    },
+    "cyberpunk": {
+        "PRIMARY_LIGHTEST": "#ff7edb",
+        "PRIMARY_LIGHTER": "#ff49db",
+        "PRIMARY_LIGHT": "#ff00ff",
+        "PRIMARY": "#d300d3",
+        "PRIMARY_DARK": "#a300a3",
+        "PRIMARY_DARKER": "#730073",
+        "SECONDARY_LIGHT": "#00ffff",
+        "SECONDARY": "#00d3d3",
+        "SECONDARY_DARK": "#00a3a3",
+        "ACCENT_PINK": "#ff007f",
+        "ACCENT_BLUE": "#007fff",
+        "ACCENT_GREEN": "#39ff14",
+        "SUCCESS": "#39ff14",
+        "SUCCESS_LIGHT": "#bfff00",
+        "WARNING": "#ffff00",
+        "WARNING_LIGHT": "#fff000",
+        "ERROR": "#ff0033",
+        "ERROR_LIGHT": "#ff3366",
+        "INFO": "#00ccff",
+        "INFO_LIGHT": "#33ddff",
+        "GRAY_50": "#1a1a1a",
+        "GRAY_100": "#141414",
+        "GRAY_200": "#0f0f0f",
+        "GRAY_300": "#0a0a0a",
+        "GRAY_400": "#050505",
+        "GRAY_500": "#000000",
+        "GRAY_600": "#121212",
+        "GRAY_700": "#1e1e1e",
+        "GRAY_800": "#2a2a2a",
+        "GRAY_900": "#363636",
+        "TEXT_PRIMARY": "#00ffff",
+        "TEXT_SECONDARY": "#ff00ff",
+        "TEXT_MUTED": "#39ff14",
+        "TEXT_DIM": "#ffff00",
+    },
+    "nebula": {
+        "PRIMARY_LIGHTEST": "#f3e5f5",
+        "PRIMARY_LIGHTER": "#e1bee7",
+        "PRIMARY_LIGHT": "#ce93d8",
+        "PRIMARY": "#ba68c8",
+        "PRIMARY_DARK": "#ab47bc",
+        "PRIMARY_DARKER": "#9c27b0",
+        "SECONDARY_LIGHT": "#e1f5fe",
+        "SECONDARY": "#81d4fa",
+        "SECONDARY_DARK": "#29b6f6",
+        "ACCENT_PINK": "#f06292",
+        "ACCENT_BLUE": "#64b5f6",
+        "ACCENT_GREEN": "#81c784",
+        "SUCCESS": "#4caf50",
+        "SUCCESS_LIGHT": "#8bc34a",
+        "WARNING": "#ffb74d",
+        "WARNING_LIGHT": "#ffcc80",
+        "ERROR": "#e57373",
+        "ERROR_LIGHT": "#ef9a9a",
+        "INFO": "#4fc3f7",
+        "INFO_LIGHT": "#81d4fa",
+        "GRAY_50": "#fafafa",
+        "GRAY_100": "#f5f5f5",
+        "GRAY_200": "#eeeeee",
+        "GRAY_300": "#e0e0e0",
+        "GRAY_400": "#bdbdbd",
+        "GRAY_500": "#9e9e9e",
+        "GRAY_600": "#757575",
+        "GRAY_700": "#616161",
+        "GRAY_800": "#424242",
+        "GRAY_900": "#212121",
+        "TEXT_PRIMARY": "#ffffff",
+        "TEXT_SECONDARY": "#e1bee7",
+        "TEXT_MUTED": "#ce93d8",
+        "TEXT_DIM": "#b0bec5",
+    },
+    "dracula": {
+        "PRIMARY_LIGHTEST": "#ff92df",
+        "PRIMARY_LIGHTER": "#ff79c6",
+        "PRIMARY_LIGHT": "#bd93f9",
+        "PRIMARY": "#8be9fd",
+        "PRIMARY_DARK": "#50fa7b",
+        "PRIMARY_DARKER": "#f1fa8c",
+        "SECONDARY_LIGHT": "#ffb86c",
+        "SECONDARY": "#ff5555",
+        "SECONDARY_DARK": "#6272a4",
+        "ACCENT_PINK": "#ff79c6",
+        "ACCENT_BLUE": "#8be9fd",
+        "ACCENT_GREEN": "#50fa7b",
+        "SUCCESS": "#50fa7b",
+        "SUCCESS_LIGHT": "#f1fa8c",
+        "WARNING": "#ffb86c",
+        "WARNING_LIGHT": "#ffb86c",
+        "ERROR": "#ff5555",
+        "ERROR_LIGHT": "#ff5555",
+        "INFO": "#8be9fd",
+        "INFO_LIGHT": "#8be9fd",
+        "GRAY_50": "#f8f8f2",
+        "GRAY_100": "#f8f8f2",
+        "GRAY_200": "#f8f8f2",
+        "GRAY_300": "#f8f8f2",
+        "GRAY_400": "#f8f8f2",
+        "GRAY_500": "#6272a4",
+        "GRAY_600": "#44475a",
+        "GRAY_700": "#282a36",
+        "GRAY_800": "#21222c",
+        "GRAY_900": "#191a21",
+        "TEXT_PRIMARY": "#f8f8f2",
+        "TEXT_SECONDARY": "#bd93f9",
+        "TEXT_MUTED": "#6272a4",
+        "TEXT_DIM": "#44475a",
     }
 }
 
@@ -237,45 +345,78 @@ class ColorPalette:
 # ============================================================================
 
 class TextStyles:
-    """Estilos de texto predefinidos."""
+    """Estilos de texto predefinidos que se actualizan dinámicamente con el tema."""
     
+    @classmethod
+    def _get_style(cls, color, bold=False, italic=False, dim=False, bgcolor=None):
+        return Style(color=color, bold=bold, italic=italic, dim=dim, bgcolor=bgcolor)
+
     # Títulos
-    TITLE = Style(color=ColorPalette.PRIMARY_LIGHT, bold=True)
-    SUBTITLE = Style(color=ColorPalette.SECONDARY_LIGHT, bold=True)
-    HEADING = Style(color=ColorPalette.PRIMARY, bold=True)
+    @property
+    def TITLE(self): return self._get_style(ColorPalette.PRIMARY_LIGHT, bold=True)
+    @property
+    def SUBTITLE(self): return self._get_style(ColorPalette.SECONDARY_LIGHT, bold=True)
+    @property
+    def HEADING(self): return self._get_style(ColorPalette.PRIMARY, bold=True)
     
     # Texto general
-    NORMAL = Style(color=ColorPalette.TEXT_PRIMARY)
-    MUTED = Style(color=ColorPalette.TEXT_MUTED)
-    DIM = Style(color=ColorPalette.TEXT_DIM, dim=True)
-    BOLD = Style(bold=True)
-    ITALIC = Style(italic=True)
+    @property
+    def NORMAL(self): return self._get_style(ColorPalette.TEXT_PRIMARY)
+    @property
+    def MUTED(self): return self._get_style(ColorPalette.TEXT_MUTED)
+    @property
+    def DIM(self): return self._get_style(ColorPalette.TEXT_DIM, dim=True)
+    @property
+    def BOLD(self): return Style(bold=True)
+    @property
+    def ITALIC(self): return Style(italic=True)
     
     # Código
-    CODE = Style(color=ColorPalette.ACCENT_BLUE, bgcolor=ColorPalette.GRAY_800)
-    CODE_INLINE = Style(color=ColorPalette.SECONDARY_LIGHT)
+    @property
+    def CODE(self): return self._get_style(ColorPalette.ACCENT_BLUE, bgcolor=ColorPalette.GRAY_800)
+    @property
+    def CODE_INLINE(self): return self._get_style(ColorPalette.SECONDARY_LIGHT)
     
     # Estados
-    SUCCESS = Style(color=ColorPalette.SUCCESS, bold=True)
-    SUCCESS_LIGHT = Style(color=ColorPalette.SUCCESS_LIGHT)
-    WARNING = Style(color=ColorPalette.WARNING, bold=True)
-    WARNING_LIGHT = Style(color=ColorPalette.WARNING_LIGHT)
-    ERROR = Style(color=ColorPalette.ERROR, bold=True)
-    ERROR_LIGHT = Style(color=ColorPalette.ERROR_LIGHT)
-    INFO = Style(color=ColorPalette.INFO, bold=True)
-    INFO_LIGHT = Style(color=ColorPalette.INFO_LIGHT)
+    @property
+    def SUCCESS(self): return self._get_style(ColorPalette.SUCCESS, bold=True)
+    @property
+    def SUCCESS_LIGHT(self): return self._get_style(ColorPalette.SUCCESS_LIGHT)
+    @property
+    def WARNING(self): return self._get_style(ColorPalette.WARNING, bold=True)
+    @property
+    def WARNING_LIGHT(self): return self._get_style(ColorPalette.WARNING_LIGHT)
+    @property
+    def ERROR(self): return self._get_style(ColorPalette.ERROR, bold=True)
+    @property
+    def ERROR_LIGHT(self): return self._get_style(ColorPalette.ERROR_LIGHT)
+    @property
+    def INFO(self): return self._get_style(ColorPalette.INFO, bold=True)
+    @property
+    def INFO_LIGHT(self): return self._get_style(ColorPalette.INFO_LIGHT)
     
     # Prompt
-    PROMPT = Style(color=ColorPalette.PRIMARY_LIGHT, bold=True)
-    PROMPT_SYMBOL = Style(color=ColorPalette.SECONDARY, bold=True)
+    @property
+    def PROMPT(self): return self._get_style(ColorPalette.PRIMARY_LIGHT, bold=True)
+    @property
+    def PROMPT_SYMBOL(self): return self._get_style(ColorPalette.SECONDARY, bold=True)
     
     # Bordes y decoraciones
-    BORDER_PRIMARY = Style(color=ColorPalette.PRIMARY)
-    BORDER_SECONDARY = Style(color=ColorPalette.SECONDARY)
-    BORDER_SUCCESS = Style(color=ColorPalette.SUCCESS)
-    BORDER_WARNING = Style(color=ColorPalette.WARNING)
-    BORDER_ERROR = Style(color=ColorPalette.ERROR)
-    BORDER_INFO = Style(color=ColorPalette.INFO)
+    @property
+    def BORDER_PRIMARY(self): return self._get_style(ColorPalette.PRIMARY)
+    @property
+    def BORDER_SECONDARY(self): return self._get_style(ColorPalette.SECONDARY)
+    @property
+    def BORDER_SUCCESS(self): return self._get_style(ColorPalette.SUCCESS)
+    @property
+    def BORDER_WARNING(self): return self._get_style(ColorPalette.WARNING)
+    @property
+    def BORDER_ERROR(self): return self._get_style(ColorPalette.ERROR)
+    @property
+    def BORDER_INFO(self): return self._get_style(ColorPalette.INFO)
+
+# Instancia global para acceso fácil
+TextStyles = TextStyles()
 
 
 # ============================================================================
@@ -446,6 +587,50 @@ class Gradients:
         "#3b82f6",  # Azul
         "#a855f7",  # Morado
     ]
+
+    # Gradientes para nuevos temas
+    CYBERPUNK = [
+        "#ff00ff", # Fucsia
+        "#d300d3",
+        "#00ffff", # Cian
+        "#00d3d3",
+        "#39ff14", # Lima
+    ]
+
+    NEBULA = [
+        "#4a148c", # Morado oscuro
+        "#7b1fa2",
+        "#9c27b0",
+        "#ba68c8",
+        "#e1bee7",
+        "#f06292", # Rosa
+    ]
+
+    DRACULA = [
+        "#8be9fd", # Cian
+        "#bd93f9", # Morado
+        "#ff79c6", # Rosa
+        "#ffb86c", # Naranja
+        "#f1fa8c", # Amarillo
+        "#50fa7b", # Verde
+    ]
+
+    @classmethod
+    def get_current_gradient(cls) -> List[str]:
+        """Retorna el degradado correspondiente al tema actual."""
+        theme_name = ColorPalette.CURRENT_THEME
+        
+        mapping = {
+            "default": cls.PRIMARY,
+            "ocean": cls.OCEAN,
+            "matrix": cls.MATRIX,
+            "sunset": cls.SUNSET,
+            "cyberpunk": cls.CYBERPUNK,
+            "nebula": cls.NEBULA,
+            "dracula": cls.DRACULA
+        }
+        
+        return mapping.get(theme_name, cls.PRIMARY)
 
 
 # ============================================================================

@@ -21,6 +21,8 @@ from .file_read_directory_tool import FileReadDirectoryTool
 from .search_memory_tool import SearchMemoryTool
 from .set_llm_instructions_tool import SetLLMInstructionsTool
 from .code_analysis_tool import CodeAnalysisTool
+from .tavily_search_tool import TavilySearchTool
+from .think_tool import ThinkTool
 
 # Lista de todas las clases de herramientas para fácil acceso
 ALL_TOOLS_CLASSES = [
@@ -46,7 +48,9 @@ ALL_TOOLS_CLASSES = [
     FileUpdateTool,
     FileReadDirectoryTool,
     SearchMemoryTool,
-    SetLLMInstructionsTool
+    SetLLMInstructionsTool,
+    TavilySearchTool,
+    ThinkTool
 ]
 
 import queue
@@ -66,26 +70,25 @@ class ToolManager:
     def load_tools(self):
         for ToolClass in ALL_TOOLS_CLASSES:
             tool_kwargs = {}
-            if hasattr(ToolClass, '__init__'):
-                # Obtener la firma del __init__ de manera segura
-                import inspect
-                try:
-                    init_params = inspect.signature(ToolClass.__init__).parameters
-                except ValueError:
-                    init_params = {}
-                
-                if 'llm_service' in init_params or 'llm_service' in getattr(ToolClass, 'model_fields', {}):
-                    tool_kwargs['llm_service'] = self.llm_service
-                if 'llm_service_instance' in init_params or 'llm_service_instance' in getattr(ToolClass, 'model_fields', {}):
-                    tool_kwargs['llm_service_instance'] = self.llm_service
-                if 'interrupt_queue' in init_params or 'interrupt_queue' in getattr(ToolClass, 'model_fields', {}):
-                    tool_kwargs['interrupt_queue'] = self.interrupt_queue
-                if 'terminal_ui' in init_params or 'terminal_ui' in getattr(ToolClass, 'model_fields', {}):
-                    tool_kwargs['terminal_ui'] = self.terminal_ui
-                if 'embeddings_service' in init_params or 'embeddings_service' in getattr(ToolClass, 'model_fields', {}):
-                    tool_kwargs['embeddings_service'] = self.embeddings_service
-                if 'vector_db_manager' in init_params or 'vector_db_manager' in getattr(ToolClass, 'model_fields', {}):
-                    tool_kwargs['vector_db_manager'] = self.vector_db_manager
+            
+            import inspect
+            try:
+                init_params = inspect.signature(ToolClass.__init__).parameters
+            except ValueError:
+                init_params = {}
+            
+            if 'llm_service' in init_params:
+                tool_kwargs['llm_service'] = self.llm_service
+            if 'llm_service_instance' in init_params:
+                tool_kwargs['llm_service_instance'] = self.llm_service
+            if 'interrupt_queue' in init_params:
+                tool_kwargs['interrupt_queue'] = self.interrupt_queue
+            if 'terminal_ui' in init_params:
+                tool_kwargs['terminal_ui'] = self.terminal_ui
+            if 'embeddings_service' in init_params:
+                tool_kwargs['embeddings_service'] = self.embeddings_service
+            if 'vector_db_manager' in init_params:
+                tool_kwargs['vector_db_manager'] = self.vector_db_manager
             
             try:
                 tool_instance = ToolClass(**tool_kwargs)
@@ -100,7 +103,6 @@ class ToolManager:
                     try:
                         setattr(tool_instance, 'name', unique_name)
                     except Exception:
-                        # If the tool does not allow renaming, still avoid overwriting the map by using unique key
                         pass
                     print(f"Warning: duplicate tool name '{base_name}' renamed to '{unique_name}'")
                 self.tools.append(tool_instance)
@@ -109,7 +111,6 @@ class ToolManager:
                 print(f"Error al instanciar herramienta {ToolClass.__name__}: {e}")
 
     def register_tool(self, tool_instance):
-        """Registra una herramienta dinámicamente después de la inicialización."""
         base_name = getattr(tool_instance, 'name', None) or tool_instance.__class__.__name__
         unique_name = base_name
         suffix = 1
@@ -133,7 +134,6 @@ class ToolManager:
         return self.tool_map.get(tool_name)
 
     def set_agent_state(self, agent_state):
-        """Actualiza la referencia al estado del agente en todas las herramientas que lo necesiten."""
         for tool in self.tools:
             if hasattr(tool, 'agent_state'):
                 tool.agent_state = agent_state

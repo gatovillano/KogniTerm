@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import Dict, Any, Optional
 import queue # Importar queue
 from kogniterm.terminal.terminal_ui import TerminalUI # Importar TerminalUI
+from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 
 """
 This module contains the AgentInteractionManager class, responsible for
@@ -60,8 +61,16 @@ class AgentInteractionManager:
 
         sys.stderr.flush()
         
-        # Ejecutar invoke sin timeout
-        final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 200})
+        # Iniciar el escuchador de teclado para detectar 'Esc' durante la ejecución
+        kb_handler = KeyboardHandler(self.interrupt_queue)
+        kb_handler.start()
+        
+        try:
+            # Ejecutar invoke sin timeout
+            final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 200})
+        finally:
+            # Asegurarse de detener el escuchador siempre
+            kb_handler.stop()
 
         sys.stderr.flush()
         

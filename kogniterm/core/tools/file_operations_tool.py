@@ -14,7 +14,18 @@ import difflib # Añadir esta línea
 
 class FileOperationsTool(BaseTool):
     name: str = "file_operations"
-    description: str = "Permite realizar operaciones CRUD (Crear, Leer, Actualizar, Borrar) en archivos y directorios. La confirmación de los cambios se gestiona de forma conversacional."
+    description: str = """Permite realizar operaciones CRUD (Crear, Leer, Actualizar, Borrar) en archivos y directorios. 
+    Operaciones disponibles:
+    - read_file: Lee un solo archivo
+    - read_many_files: Lee múltiples archivos de una sola vez (MUY EFICIENTE para analizar varios archivos)
+      Ejemplo: {"operation": "read_many_files", "paths": ["/ruta/archivo1.py", "/ruta/archivo2.py", "/ruta/archivo3.py"]}
+    - write_file: Escribe o crea un archivo
+    - delete_file: Elimina un archivo
+    - list_directory: Lista el contenido de un directorio
+    - create_directory: Crea un directorio
+    
+    IMPORTANTE: Si necesitas leer más de 2 archivos, USA read_many_files en lugar de llamar a read_file múltiples veces.
+    La confirmación de los cambios se gestiona de forma conversacional."""
 
     ignored_directories: ClassVar[List[str]] = ['venv', '.git', '__pycache__', '.venv']
     llm_service: Any
@@ -84,7 +95,8 @@ class FileOperationsTool(BaseTool):
             
             if pattern.endswith('/'):
                 if not is_dir: continue
-                pattern = pattern.rstrip('/')
+                if isinstance(pattern, str):
+                    pattern = pattern.rstrip('/')
 
             if fnmatch.fnmatch(item_name, pattern) or \
                fnmatch.fnmatch(rel_path, pattern) or \
@@ -158,6 +170,13 @@ class FileOperationsTool(BaseTool):
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de lectura de archivo interrumpida por el usuario.")
+
+        # Blindaje contra argumentos tipo lista
+        if isinstance(path, list) and len(path) > 0:
+            path = path[0]
+        
+        if not isinstance(path, str):
+            path = str(path)
 
         path = path.strip().replace('@', '')
         try:
@@ -254,6 +273,13 @@ class FileOperationsTool(BaseTool):
             raise Exception(f"Error al eliminar el archivo '{path}': {e}")
 
     def _list_directory(self, path: str, recursive: bool = False, include_hidden: bool = False, silent_mode: bool = False) -> List[str]:
+        # Blindaje contra argumentos tipo lista
+        if isinstance(path, list) and len(path) > 0:
+            path = path[0]
+        
+        if not isinstance(path, str):
+            path = str(path)
+
         path = path.strip().replace('@', '')
         try:
             if recursive:

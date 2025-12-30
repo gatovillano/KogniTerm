@@ -185,6 +185,11 @@ class LLMService:
         # print("DEBUG: Iniciando LLMService.__init__...")
         from .tools.tool_manager import ToolManager
         self.model_name = os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash")
+        # Validación de seguridad: si el modelo parece una API Key de Google, corregirlo
+        if self.model_name.startswith("AIza"):
+            logger.warning(f"Se detectó una API Key en LITELLM_MODEL ('{self.model_name[:8]}...'). Corrigiendo a 'google/gemini-1.5-flash'.")
+            self.model_name = "google/gemini-1.5-flash"
+            
         self.api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
         self.interrupt_queue = interrupt_queue
         self.stop_generation_flag = False
@@ -193,7 +198,13 @@ class LLMService:
         # print("DEBUG: Inicializando EmbeddingsService...")
         self.embeddings_service = EmbeddingsService()
         # print("DEBUG: Inicializando VectorDBManager...")
-        self.vector_db_manager = VectorDBManager(project_path=os.getcwd())
+        try:
+            self.vector_db_manager = VectorDBManager(project_path=os.getcwd())
+        except Exception as e:
+            logger.error(f"⚠️ Error crítico al inicializar ChromaDB: {e}")
+            logger.warning("La aplicación continuará en MODO SEGURO (sin búsqueda vectorial).")
+            self.vector_db_manager = None
+
         # print("DEBUG: Inicializando ToolManager...")
         self.tool_manager = ToolManager(
             llm_service=self, 
@@ -325,6 +336,8 @@ class LLMService:
         pattern1 = r'tool_call\s*:\s*(\w+)\s*\(\s*([^)]*?)\s*\)'
         matches1 = re.findall(pattern1, normalized_text, re.IGNORECASE | re.DOTALL)
         for name, args_str in matches1:
+            if name not in self.tool_map:
+                continue
             args = extract_args(args_str)
             tool_calls.append({
                 "id": self._generate_short_id(),
@@ -336,6 +349,8 @@ class LLMService:
         pattern2 = r'(?:llamar|ejecutar|usar|invoke|call)\s+(?:a\s+)?(?:la\s+)?(?:herramienta|tool)\s+(\w+)\s*(?:con\s+args?|con\s+argumentos?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|.*?)$'
         matches2 = re.findall(pattern2, normalized_text, re.IGNORECASE | re.DOTALL)
         for name, args_str in matches2:
+            if name not in self.tool_map:
+                continue
             # Limpiar la cadena de argumentos
             args_str = args_str.strip().strip('{}()')
             args = extract_args(args_str)
@@ -351,6 +366,10 @@ class LLMService:
         for name, args_str in matches3:
             # Filtrar funciones comunes que no son herramientas
             if name.lower() in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple', 'range', 'type', 'isinstance', 'hasattr', 'getattr', 'open', 'input', 'print', 'exec', 'eval']:
+                continue
+            
+            # CRÍTICO: Solo agregar si el nombre es una herramienta registrada
+            if name not in self.tool_map:
                 continue
             
             args = extract_args(args_str)
@@ -722,11 +741,13 @@ class LLMService:
                     tc_name = tc.get("name", "")
                     tc_args = tc.get("args", {})
                     # Asegurarse de que los argumentos sean siempre una cadena JSON válida.
-                    # Si tc_args está vacío, se serializa a "{}"
+                    # LiteLLM espera un string para poder convertirlo correctamente entre proveedores (ej. OpenAI -> Gemini).
+                    arguments_json = json.dumps(tc_args) if tc_args else "{}"
+                    
                     serialized_tool_calls.append({
                         "id": tc_id,
                         "type": "function",
-                        "function": {"name": tc_name, "arguments": tc_args or {}},
+                        "function": {"name": tc_name, "arguments": arguments_json},
                     })
                 
                 if not content or not str(content).strip():
@@ -753,7 +774,34 @@ class LLMService:
         return messages
 
     def _get_token_count(self, text: str) -> int:
-        return len(self.tokenizer.encode(text))
+        try:
+            return len(self.tokenizer.encode(text))
+        except Exception:
+            # Fallback si el tokenizer falla
+            return len(text) // 4
+
+    def _get_messages_token_count(self, messages: List[Dict[str, Any]]) -> int:
+        """Calcula el total aproximado de tokens en una lista de mensajes formateados para LiteLLM."""
+        total_tokens = 0
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                total_tokens += self._get_token_count(content)
+            elif isinstance(content, list):
+                # Manejar contenido multimodal o estructurado
+                total_tokens += self._get_token_count(json.dumps(content))
+            
+            # Overhead por rol y estructura (aprox 4 tokens por mensaje)
+            total_tokens += 4
+            
+            if msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    total_tokens += self._get_token_count(json.dumps(tc))
+            
+            if msg.get("tool_call_id"):
+                total_tokens += 10 # Overhead por ID de herramienta
+                
+        return total_tokens
 
     def _save_history(self, history: List[BaseMessage]):
         """Método de compatibilidad que delega al history_manager."""
@@ -1214,10 +1262,12 @@ class LLMService:
                     
                     # Si llegamos aquí, el fallback funcionó, procesar respuesta normalmente
                     for chunk in response_generator:
+                        # Comprobación de interrupción prioritaria
                         if interrupt_queue and not interrupt_queue.empty():
                             while not interrupt_queue.empty():
                                 interrupt_queue.get_nowait()
                             self.stop_generation_flag = True
+                            logger.info("Interrupción detectada en el bucle principal de streaming.")
                             break
 
                         if self.stop_generation_flag:
@@ -1313,15 +1363,17 @@ class LLMService:
                             
                             # Procesar respuesta con configuración ultra-minimalista
                             for chunk in response_generator:
+                                # Comprobación de interrupción prioritaria
                                 if interrupt_queue and not interrupt_queue.empty():
                                     while not interrupt_queue.empty():
                                         interrupt_queue.get_nowait()
                                     self.stop_generation_flag = True
+                                    logger.info("Interrupción detectada en el bucle principal de streaming.")
                                     break
 
                                 if self.stop_generation_flag:
                                     break
-
+                        
                                 choices = getattr(chunk, 'choices', None)
                                 if not choices or not isinstance(choices, list) or not choices[0]:
                                     continue
@@ -1446,80 +1498,50 @@ class LLMService:
             
             yield AIMessage(content=friendly_message)
 
-    def summarize_conversation_history(self, messages_to_summarize: Optional[List[BaseMessage]] = None) -> str:
-        """Resume el historial de conversación actual utilizando el modelo LLM a través de LiteLLM."""
+    def summarize_conversation_history(self, messages_to_summarize: Optional[List[BaseMessage]] = None, force_truncate: bool = False) -> str:
+        """
+        Resume el historial de conversación actual utilizando el modelo LLM a través de LiteLLM.
+        
+        Args:
+            messages_to_summarize: Lista opcional de mensajes a resumir. Si es None, usa el historial actual.
+            force_truncate: Si es True, recorta agresivamente el historial para que quepa en los límites de tokens del modelo.
+        """
         history_source = messages_to_summarize if messages_to_summarize is not None else self.conversation_history
         if not history_source:
             return ""
         
-        # 1. Convertir el historial a mensajes de LiteLLM para aplicar la lógica de filtrado
-        raw_conv_messages_for_summary = []
+        # 1. Convertir el historial a un formato de texto plano para evitar errores de secuencia de herramientas
+        history_text = []
         for msg in history_source:
-            if isinstance(msg, SystemMessage):
-                continue
-            litellm_msg = self._to_litellm_message(msg)
-            if litellm_msg["role"] == "assistant" and not litellm_msg.get("content") and not litellm_msg.get("tool_calls"):
-                continue
-            raw_conv_messages_for_summary.append(litellm_msg)
-
-        # 2. Aplicar la misma lógica de validación estricta de secuencia que en `invoke`
-        validated_messages_for_summary = []
-        last_user_content_summary = None
-        in_tool_sequence_summary = False
-        known_tool_call_ids_summary = set()
-
-        for i, msg in enumerate(raw_conv_messages_for_summary):
-            role = msg["role"]
+            role = "Sistema" if isinstance(msg, SystemMessage) else "Usuario" if isinstance(msg, HumanMessage) else "Asistente" if isinstance(msg, AIMessage) else "Herramienta"
+            content = msg.content
             
-            if role == "user":
-                if msg["content"] != last_user_content_summary:
-                    validated_messages_for_summary.append(msg)
-                    last_user_content_summary = msg["content"]
-                in_tool_sequence_summary = False
+            # Si es un mensaje de asistente con llamadas a herramientas, incluirlas en el texto
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                tool_info = []
+                for tc in msg.tool_calls:
+                    tool_info.append(f"[Llamada a herramienta: {tc['name']}({tc['args']})]")
+                content = f"{content}\n" + "\n".join(tool_info)
             
-            elif role == "assistant":
-                if msg.get("tool_calls"):
-                    has_next_tool_summary = False
-                    for j in range(i + 1, len(raw_conv_messages_for_summary)):
-                        if raw_conv_messages_for_summary[j]["role"] == "tool":
-                            has_next_tool_summary = True
-                            break
-                        if raw_conv_messages_for_summary[j]["role"] in ["user", "assistant"]:
-                            break
-
-                    if has_next_tool_summary:
-                        validated_messages_for_summary.append(msg)
-                        in_tool_sequence_summary = True
-                        for tc in msg["tool_calls"]:
-                            known_tool_call_ids_summary.add(tc["id"])
-                    else:
-                        msg_copy = msg.copy()
-                        msg_copy.pop("tool_calls", None)
-                        if not msg_copy.get("content"):
-                            msg_copy["content"] = "Procesando..."
-                        validated_messages_for_summary.append(msg_copy)
-                        in_tool_sequence_summary = False
-                else:
-                    if not msg.get("content"):
-                        msg["content"] = "..."
-                    validated_messages_for_summary.append(msg)
-                    in_tool_sequence_summary = False
-                last_user_content_summary = None
+            # Si es una respuesta de herramienta, indicar qué herramienta fue
+            if isinstance(msg, ToolMessage):
+                role = f"Respuesta de Herramienta ({msg.tool_call_id})"
             
-            elif role == "tool":
-                if msg.get("tool_call_id") and msg["tool_call_id"] in known_tool_call_ids_summary and in_tool_sequence_summary:
-                    validated_messages_for_summary.append(msg)
-                last_user_content_summary = None
+            history_text.append(f"### {role}:\n{content}")
 
-        # 3. Añadir el prompt de resumen al final del historial validado
-        summarize_prompt = HumanMessage(content="Genera un resumen EXTENSO y DETALLADO de la conversación anterior. Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad, cualquier información relevante que ayude a retomar la conversación sin perder el hilo, y **especialmente, cualquier error de herramienta encontrado, las razones de su fallo y las acciones intentadas para resolverlos**. Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica.")
+        flat_history = "\n\n".join(history_text)
+
+        # 2. Crear un único mensaje de usuario con todo el historial y las instrucciones
+        summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior. 
         
-        # Convertir el prompt de resumen a formato LiteLLM y añadirlo
-        litellm_summarize_prompt = self._to_litellm_message(summarize_prompt)
-        validated_messages_for_summary.append(litellm_summarize_prompt)
+CONTEXTO DE LA CONVERSACIÓN:
+{flat_history}
 
-        # 4. Usar el historial validado para la llamada a LiteLLM
-        litellm_messages_for_summary = validated_messages_for_summary
+INSTRUCCIONES:
+Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad, cualquier información relevante que ayude a retomar la conversación sin perder el hilo, y **especialmente, cualquier error de herramienta encontrado, las razones de su fallo y las acciones intentadas para resolverlos**. 
+Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica."""
+
+        litellm_messages_for_summary = [{"role": "user", "content": summarize_prompt}]
         
         litellm_generation_params = self.generation_params
 
@@ -1534,6 +1556,8 @@ class LLMService:
             # Añadir reintentos para errores 503 y otros errores de servidor
             "num_retries": 3,
             "retry_strategy": "exponential_backoff_retry",
+            "tools": [], # CRÍTICO: Asegurar que no se pasen herramientas para la resumirización
+            "tool_choice": "none", # CRÍTICO: Forzar al modelo a no usar herramientas
         }
         if "top_p" in litellm_generation_params:
             summary_completion_kwargs["top_p"] = litellm_generation_params["top_p"]
@@ -1576,10 +1600,11 @@ class LLMService:
                 pass
             return "Error: No se pudo generar el resumen de la conversación."
         except Exception as e:
-            import traceback
-            print(f"Error de LiteLLM al resumir el historial: {e}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
-            return f"Error: Ocurrió un error inesperado al resumir el historial con LiteLLM: {e}."
+            # No usar traceback.print_exc para no ensuciar la terminal si falla la resumirización
+            logger.error(f"Error de LiteLLM al resumir el historial: {e}")
+            # En lugar de devolver un mensaje de error que se guardará en el historial,
+            # devolvemos una cadena vacía para que el sistema sepa que no hubo resumen.
+            return ""
 
     def get_tool(self, tool_name: str) -> Optional[BaseTool]:
         """Encuentra y devuelve una herramienta de LangChain por su nombre."""

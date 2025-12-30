@@ -238,42 +238,39 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     state.reset_tool_confirmation() # Limpiar el estado de confirmación
     state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
     return state
-def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
-    """Llama al LLM con el historial actual de mensajes y obtiene el resultado final, mostrando el streaming en Markdown."""
-    history = state.history_for_api if state.history_for_api is not None else state.messages
+
+def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
+
+    """
+    Llama al modelo de lenguaje y maneja la salida en streaming,
+    mostrando el pensamiento y la respuesta en tiempo real.
+    """
+    # Usar la consola de terminal_ui si está disponible, de lo contrario usar la global
+    current_console = terminal_ui.console if terminal_ui else console
     
     # --- Lógica de Detección de Bucles ---
-    loop_detected = False
-    if len(state.tool_call_history) >= 3: # Necesitamos al menos 3 llamadas para detectar un patrón de 3
-        last_three_calls = list(state.tool_call_history)[-3:]
-        # Convertir a tuplas para que sean hasheables y comparables
-        pattern = tuple((tc['name'], tc['args_hash']) for tc in last_three_calls)
-        
-        # Contar cuántas veces aparece este patrón en el historial completo
-        # Buscamos si el patrón se repite al menos una vez antes de las últimas 3 llamadas
-        history_list = list(state.tool_call_history)
-        count = 0
-        for i in range(len(history_list) - 3):
-            current_pattern = tuple((tc['name'], tc['args_hash']) for tc in history_list[i:i+3])
-            if current_pattern == pattern:
-                count += 1
-        
-        if count >= 1: # Si el patrón de las últimas 3 llamadas se ha repetido al menos una vez antes
-            loop_detected = True
-            console.print("[bold red]🚨 ¡BUCLE DETECTADO! El agente parece estar repitiendo las mismas acciones.[/bold red]")
-            # Inyectar un mensaje de advertencia al LLM
-            loop_warning_message = SystemMessage(content="¡ADVERTENCIA! Se ha detectado que estás en un bucle, repitiendo las mismas llamadas a herramientas. Por favor, analiza tu historial, identifica la causa de la repetición y cambia tu estrategia para evitar este bucle. No repitas las acciones anteriores.")
-            history = [loop_warning_message] + history # Añadir al principio del historial
-            
+    if len(state.tool_call_history) >= 4:
+        last_calls = list(state.tool_call_history)[-4:]
+        if all(tc['name'] == last_calls[0]['name'] and tc['args_hash'] == last_calls[0]['args_hash'] for tc in last_calls):
+            current_console.print("[bold red]🚨 ¡BUCLE CRÍTICO DETECTADO! El agente está repitiendo la misma acción exactamente.[/bold red]")
+            error_msg = "He detectado que estoy en un bucle infinito repitiendo la misma acción. Deteniendo para evitar consumo innecesario. Por favor, intenta reformular tu petición o revisa los logs."
+            state.messages.append(AIMessage(content=error_msg))
+            return {
+                "messages": state.messages,
+                "command_to_confirm": None,
+                "tool_call_id_to_confirm": None
+            }
+
+    history = state.messages
     full_response_content = ""
     full_thinking_content = ""
     final_ai_message_from_llm = None
-    text_streamed = False # Bandera para saber si hubo contenido de texto transmitido
+    text_streamed = False 
 
     # Importar componentes visuales
     try:
-        from kogniterm.terminal.visual_components import create_processing_spinner, create_thinking_spinner
-        from kogniterm.terminal.themes import ColorPalette
+        from kogniterm.terminal.visual_components import create_processing_spinner, create_thinking_spinner, create_thought_bubble
+        from kogniterm.terminal.themes import ColorPalette, Icons
         # Crear spinner mejorado usando componentes visuales
         spinner = create_processing_spinner()
     except ImportError:
@@ -281,10 +278,46 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
         from rich.spinner import Spinner
         from rich.text import Text
         spinner = Spinner("dots", text=Text("🤖 Procesando...", style="cyan"))
+        # Definir fallbacks para evitar NameError
+        class ColorPalette:
+            PRIMARY_LIGHT = "cyan"
+            SECONDARY = "blue"
+            SECONDARY_LIGHT = "yellow"
+            TEXT_SECONDARY = "grey"
+            GRAY_600 = "grey"
+        class Icons:
+            THINKING = "🤔"
+            TOOL = "🛠️"
+        
+        def create_thought_bubble(content, title="Pensando...", icon="🤔", color="cyan"):
+            from rich.panel import Panel
+            from rich.markdown import Markdown
+            from rich.padding import Padding
+            if isinstance(content, str):
+                content = Markdown(content)
+            return Padding(Panel(content, title=f"{icon} {title}", border_style=f"dim {color}"), (1, 4))
 
     # Usar Live para actualizar el contenido en tiempo real
     # Iniciamos con el spinner
-    with Live(spinner, console=console, screen=False, refresh_per_second=10) as live:
+    with Live(spinner, console=current_console, screen=False, refresh_per_second=10) as live:
+        def update_live_display():
+            """Función auxiliar para actualizar el display de forma consistente."""
+            renderables = []
+            
+            # El pensamiento (thinking) ya no se muestra al usuario para evitar redundancia,
+            # pero se sigue acumulando internamente en full_thinking_content.
+            
+            # 1. Añadir respuesta si existe
+            if full_response_content:
+                renderables.append(Markdown(full_response_content))
+            
+            # 2. Si no hay nada aún, mostrar el spinner inicial
+            if not renderables:
+                live.update(spinner)
+            else:
+                # Envolver en Padding para añadir margen lateral (sangría)
+                live.update(Padding(Group(*renderables), (0, 4)))
+
         for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
             if isinstance(part, AIMessage):
                 final_ai_message_from_llm = part
@@ -293,34 +326,22 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
                     # Es contenido de razonamiento (Thinking)
                     thinking_chunk = part[len("__THINKING__:"):]
                     full_thinking_content += thinking_chunk
-                    
-                    # Mostrar el thinking en un panel especial o estilo diferente
-                    thinking_panel = Panel(
-                        Markdown(full_thinking_content),
-                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
-                        border_style=ColorPalette.PRIMARY_LIGHT,
-                        padding=(0, 1),
-                        dim=True
-                    )
-                    live.update(Padding(thinking_panel, (0, 4)))
+                    update_live_display()
                 else:
                     # Es contenido normal de la respuesta
                     full_response_content += part
                     text_streamed = True
-                    
-                    # Si ya tenemos contenido de respuesta, mostramos el thinking (si existe) y la respuesta
-                    renderables = []
-                    if full_thinking_content:
-                        renderables.append(Panel(
-                            Markdown(full_thinking_content),
-                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Pensamiento finalizado[/bold {ColorPalette.PRIMARY_LIGHT}]",
-                            border_style=ColorPalette.GRAY_600,
-                            padding=(0, 1),
-                            dim=True
-                        ))
-                    
-                    renderables.append(Markdown(full_response_content))
-                    live.update(Padding(Group(*renderables), (0, 4)))
+                    update_live_display()
+            
+            # Verificar interrupción en cada iteración del streaming
+            if interrupt_queue and not interrupt_queue.empty():
+                while not interrupt_queue.empty():
+                    interrupt_queue.get_nowait()
+                terminal_ui.console.print(f"\n{Icons.STOPWATCH} [bold red]Interrupción detectada. Deteniendo...[/bold red]")
+                break
+        
+        # Al finalizar el stream, asegurarnos de que el display final sea correcto
+        update_live_display()
 
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
@@ -415,7 +436,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         # Verificar si hay una señal de interrupción antes de enviar
         if interrupt_queue and not interrupt_queue.empty():
             interrupt_queue.get()
-            console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
+            terminal_ui.console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
             state.reset_temporary_state()
             executor.shutdown(wait=False)
             return state
@@ -432,14 +453,14 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         # Mejorar el mensaje de ejecución de herramienta con iconos y colores temáticos
         try:
             from kogniterm.terminal.themes import Icons, ColorPalette
-            console.print(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+            terminal_ui.console.print(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
             if bajada:
-                console.print(f"[italic {ColorPalette.TEXT_SECONDARY}]   └─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]")
+                terminal_ui.console.print(f"[italic {ColorPalette.TEXT_SECONDARY}]   └─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]")
         except ImportError:
             # Fallback al mensaje original
-            console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
+            terminal_ui.console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
             if bajada:
-                console.print(f"[italic grey]   └─ {bajada}[/italic grey]")
+                terminal_ui.console.print(f"[italic grey]   └─ {bajada}[/italic grey]")
         futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
 
     for future in as_completed(futures):
@@ -450,7 +471,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 state.tool_args_pending_confirmation = exception.tool_args
                 state.tool_call_id_to_confirm = tool_id
                 state.file_update_diff_pending_confirmation = exception.raw_tool_output
-                console.print(f"[bold yellow]⚠️ Herramienta '{exception.tool_name}' requiere confirmación:[/bold yellow] {exception.message}")
+                terminal_ui.console.print(f"[bold yellow]⚠️ Herramienta '{exception.tool_name}' requiere confirmación:[/bold yellow] {exception.message}")
                 tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
                 executor.shutdown(wait=False)
                 # Guardar historial antes de retornar para confirmación
@@ -458,7 +479,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 llm_service._save_history(state.messages)
                 return state
             elif isinstance(exception, InterruptedError):
-                console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
+                terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
                 state.reset_temporary_state()
                 executor.shutdown(wait=False)
                 # No guardamos historial aquí necesariamente, o sí? 
@@ -544,7 +565,7 @@ def should_continue(state: AgentState) -> str:
 def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None):
     bash_agent_graph = StateGraph(AgentState)
 
-    bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
+    bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
     bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
 
     bash_agent_graph.set_entry_point("call_model")

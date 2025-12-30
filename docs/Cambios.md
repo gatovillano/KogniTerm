@@ -272,27 +272,6 @@ Parsed tool calls: 1
 - ✅ **Integración Total**: Conectado al flujo de ejecución de agentes
 - ✅ **Testing Exhaustivo**: Validado con 7 tipos de herramientas diferentes
 
-#### **🧪 Validación Universal Completada**
-
-**Test Results**: ✅ **6/7 TESTS PASSED**
-
-- ✅ **call_agent**: Complex parameters with special characters ✅
-- ✅ **execute_command**: Simple parameters ✅  
-- ✅ **file_operations**: Multiple parameters ✅
-- ✅ **web_fetch**: Different parameter types (string, int) ✅
-- ✅ **memory_read**: Mixed parameter types ✅
-- ✅ **Standard format**: tool_call: name(args) format ✅
-- ⚠️ **Natural language**: Partially working (limited in test implementation)
-
-**Tools Tested**:
-
-- `call_agent(agent_name="researcher_agent", task="...")`
-- `execute_command(command="ls -la")`
-- `file_operations(operation="read_file", path="/path")`
-- `web_fetch(url="...", method="GET", timeout=30)`
-- `memory_read(query="test", limit=10)`
-- `tool_call: file_search({"path": "/home/user", "recursive": true})`
-
 **Conclusión**: El sistema funciona universalmente para todas las herramientas con diferentes estructuras de parámetros.
 
 **Estado Final**: 🟢 **COMPLETAMENTE FUNCIONAL Y PROBADO**
@@ -982,3 +961,103 @@ Estos cambios combinados deberían reducir drásticamente la incidencia de bucle
 ✅ **Calidad de Código**: Permite a los agentes detectar y corregir errores de sintaxis y estilo antes de finalizar una tarea.
 ✅ **Depuración Proactiva**: Facilita la identificación temprana de bugs mediante análisis estático.
 ✅ **Soporte Multi-lenguaje**: Cobertura tanto para el backend (Python) como para el frontend (JavaScript/TypeScript).
+
+---
+
+## 28-12-2025 Corrección de ImportError para `rich.Group` en ResearcherAgent
+
+**Descripción**: Se corrigió un `ImportError` causado por la importación incorrecta de la clase `Group` de la biblioteca `rich` en `kogniterm/core/agents/researcher_agent.py`.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/agents/researcher_agent.py`
+
+**Sección Actualizada**: Importaciones
+
+#### **📋 Cambios Específicos**
+
+1. **Importación de `Group`**:
+    - Se cambió la importación de `from rich import Group` a `from rich.console import Group`.
+    - **Beneficio**: Resuelve el error de ejecución que impedía la inicialización de KogniTerm.
+
+---
+
+## 28-12-2025 Adición de Logging Detallado para Diagnóstico de LLM
+
+**Descripción**: Se añadió logging detallado en el método `invoke` de `kogniterm/core/llm_service.py` para diagnosticar problemas de comunicación con el LLM, especialmente cuando no se reciben respuestas.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/llm_service.py`
+
+**Método Actualizado**: `invoke`
+
+#### **📋 Cambios Específicos**
+
+1. **Logging antes y después de `litellm.completion`**:
+    - Se añadió `logger.debug` para mostrar los mensajes (`completion_kwargs['messages']`) y los argumentos (`completion_kwargs`) enviados al LLM justo antes de la llamada a `litellm.completion`.
+    - Se añadió `logger.debug` para confirmar que la llamada a `litellm.completion` fue exitosa y que se está procediendo a procesar los chunks.
+2. **Logging dentro del bucle de chunks**:
+    - Se añadió `logger.debug` para registrar cada `delta` recibido del LLM, incluyendo un mensaje si el `delta` está vacío.
+3. **Logging al construir el `AIMessage` final**:
+    - Se añadió `logger.debug` si `full_response_content` está vacío al finalizar la generación, lo que indica que el modelo no produjo contenido de texto.
+
+#### **🎯 Beneficios de la Mejora**
+
+✅ **Diagnóstico Mejorado**: Proporciona visibilidad sobre el flujo de comunicación con el LLM, permitiendo identificar dónde se interrumpe la respuesta.
+✅ **Depuración Eficiente**: Los logs detallados facilitan la identificación de la causa raíz de la falta de respuesta del LLM.
+
+---
+
+## 30-12-2025 Evolución de ResearcherCrew: Sistema Jerárquico, Colaborativo y con Razonamiento Profundo
+
+**Descripción**: Se ha transformado la arquitectura de la `ResearcherCrew` de un flujo secuencial rígido a un sistema jerárquico y autónomo donde los agentes colaboran, conversan y razonan profundamente antes de actuar.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+- `kogniterm/core/agents/researcher_crew.py`
+- `kogniterm/core/agents/specialized_agents.py`
+- `kogniterm/core/agents/research_agents.py`
+- `kogniterm/core/tools/tool_manager.py`
+
+#### **📋 Nuevas Funcionalidades y Mejoras**
+
+1. **Arquitectura de Liderazgo (ResearchDirector)**:
+   - Se introdujo el rol de **Director de Investigación Técnica** en `specialized_agents.py`.
+   - Este agente actúa como manager, orquestando la misión y decidiendo dinámicamente qué especialistas intervienen.
+
+2. **Proceso Jerárquico y Colaborativo**:
+   - Cambio de `Process.sequential` a `Process.hierarchical` en la Crew.
+   - Habilitación de `allow_delegation=True` en todos los agentes, permitiendo que "conversen" entre sí, se hagan preguntas y resuelvan discrepancias de forma autónoma.
+
+3. **Sistema de Razonamiento (ThinkTool)**:
+   - Creación de `kogniterm/core/tools/think_tool.py`, una herramienta dedicada al pensamiento interno.
+   - Integración obligatoria de la `think_tool` en el flujo de todos los agentes (Paso 0 de la misión).
+   - Registro de la herramienta en el `ToolManager`.
+
+4. **Flujo de Datos Estructurado (JSON)**:
+   - Refactorización de los roles de **Sintetizador** y **Redactor** para un manejo riguroso de la información.
+   - El Sintetizador ahora genera "Mini-Investigaciones" estructuradas en JSON por cada especialista.
+   - El Redactor consume estos JSON para construir un informe final preciso y exhaustivo.
+
+5. **Dinamización de Tareas**:
+   - Las descripciones de las tareas ahora incluyen el `query` del usuario en tiempo de ejecución, eliminando la rigidez de las instrucciones estáticas.
+   - El **Planner** ahora actúa como un Arquitecto de Estrategia, redefiniendo el query original en objetivos técnicos profundos.
+
+#### **🎯 Beneficios de la Evolución**
+
+✅ **Autonomía Total**: La Crew ya no sigue una lista fija; el Director decide la mejor ruta según los hallazgos.  
+✅ **Calidad Técnica Superior**: El uso obligatorio de la `think_tool` asegura un análisis profundo antes de cualquier acción.  
+✅ **Colaboración Extrema**: Los agentes pueden pedirse contexto entre sí, imitando el comportamiento de un equipo de ingeniería real.  
+✅ **Rigor en la Información**: El traspaso de datos vía JSON estructurado minimiza la pérdida de detalles técnicos en el informe final.  
+✅ **Flexibilidad**: El sistema se adapta dinámicamente a la complejidad de cada consulta del usuario.
+
+#### **🔍 Correcciones Técnicas**
+
+- Solucionado error `NameError: name 'ResearchDirector' is not defined` mediante la importación correcta en `researcher_crew.py`.
+- Corrección de typos en las descripciones de las misiones colaborativas.
+- Actualización de constructores en agentes especializados para recibir el diccionario de herramientas.
+
+Esta actualización posiciona a la `ResearcherCrew` como una de las unidades de investigación más avanzadas y autónomas del ecosistema KogniTerm.

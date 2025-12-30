@@ -155,6 +155,8 @@ class FileCompleter(Completer):
 
 
 
+import signal
+
 async def _main_async():
     """Función principal asíncrona para iniciar la terminal de KogniTerm."""
     from kogniterm.terminal.config_manager import ConfigManager
@@ -215,6 +217,18 @@ async def _main_async():
         auto_approve=auto_approve,
         workspace_directory=workspace_directory # Pasar el directorio de trabajo
     )
+
+    # Configurar manejador de señales para Ctrl+C
+    def signal_handler(sig, frame):
+        # Enviar señal de interrupción a la cola de la app
+        if app and app.terminal_ui:
+            app.terminal_ui.get_interrupt_queue().put_nowait(True)
+            # También establecer la bandera directamente en el servicio LLM por si acaso
+            if app.llm_service:
+                app.llm_service.stop_generation_flag = True
+        # No salimos de la app, solo interrumpimos la tarea actual
+
+    signal.signal(signal.SIGINT, signal_handler)
     try:
         await app.run()
     finally:
@@ -334,7 +348,7 @@ def main():
                 if vector_db:
                     vector_db.close()
 
-        elif command == 'clean-db':
+        elif command in ['clean-db', '--clear']:
             import shutil
             workspace_directory = os.getcwd()
             db_path = os.path.join(workspace_directory, ".kogniterm", "vector_db")

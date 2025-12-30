@@ -173,6 +173,7 @@ class FileCompleter(Completer):
     MAGIC_COMMANDS = [
         ("%help", "Mostrar menú de ayuda interactivo"),
         ("%models", "Cambiar modelo de IA"),
+        ("%provider", "Cambiar proveedor de LLM"),
         ("%reset", "Reiniciar conversación"),
         ("%undo", "Deshacer última acción"),
         ("%compress", "Resumir historial"),
@@ -340,27 +341,18 @@ class KogniTermApp:
                 'text': '#808080',
             })
 
-        kb_enter = KeyBindings()
-        @kb_enter.add('enter', eager=True)
-        def _(event):
-            buffer = event.app.current_buffer
-            if buffer.complete_state:
-                if buffer.complete_state.current_completion:
-                    buffer.apply_completion(buffer.complete_state.current_completion)
-                elif buffer.complete_state.completions:
-                    buffer.apply_completion(buffer.complete_state.completions[0])
-            buffer.validate_and_handle()
-
-        # Nuevo KeyBindings para la tecla Esc
+        # KeyBindings para la tecla Esc
         kb_esc = KeyBindings()
         @kb_esc.add('escape', eager=True)
         def _(event):
             # Enviar una señal de interrupción a la cola
             self.terminal_ui.get_interrupt_queue().put_nowait(True)
-            event.app.exit() # Salir del prompt actual, pero no de la aplicación
+            # No cerramos la app, solo cancelamos el prompt actual si es necesario
+            # o dejamos que el usuario vea que se interrumpió.
+            event.app.exit() 
 
-        # Combinar los KeyBindings
-        combined_key_bindings = merge_key_bindings([kb_enter, kb_esc, self.terminal_ui.kb])
+        # Combinar los KeyBindings (eliminamos kb_enter que causaba conflictos)
+        combined_key_bindings = merge_key_bindings([kb_esc, self.terminal_ui.kb])
 
         self.prompt_session = PromptSession(
             history=FileHistory('.gemini_interpreter_history'),

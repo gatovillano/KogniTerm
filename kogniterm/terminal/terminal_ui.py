@@ -26,6 +26,7 @@ from .visual_components import (
     create_error_box,
     create_warning_box,
     create_status_message,
+    create_thought_bubble,
     create_separator,
     get_random_motivational_message,
     format_command,
@@ -42,12 +43,13 @@ class TerminalUI:
         self.console = console if console else Console(theme=get_kogniterm_theme())
         self.interrupt_queue = queue.Queue()
         self.kb = KeyBindings()
-        self.prompt_session = PromptSession(key_bindings=self.kb) # Inicializar prompt_session aquí
+        # Configurar escape_delay=0 para que la tecla Esc se detecte instantáneamente
+        self.prompt_session = PromptSession(key_bindings=self.kb, input_processors=[], erase_when_done=False)
+        # Nota: El retraso de escape se configura globalmente o en el objeto de entrada si es necesario,
+        # pero prompt_toolkit suele responder bien si el binding es directo.
 
-        @self.kb.add('escape')
-        def _(event):
-            self.interrupt_queue.put("interrupt")
-            event.app.current_buffer.cancel_completion() # Limpiar el prompt
+        # El binding de Escape se maneja ahora centralmente en KogniTermApp para evitar conflictos
+        # con el historial y el autocompletado.
 
     def refresh_theme(self):
         """Recarga el tema de la consola."""
@@ -135,11 +137,12 @@ class TerminalUI:
             self.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
             return {"tool_message_content": f"Error inesperado: {e}", "approved": False}
 
-    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None):
+    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False):
         """
         Prints a message to the console with optional styling.
         If is_user_message is True, the message will be enclosed in a Panel.
         If status is provided, adds contextual icon and color.
+        If use_bubble is True, uses the thought bubble style.
         """
         if is_user_message:
             self.console.print(Padding(Panel(
@@ -152,8 +155,22 @@ class TerminalUI:
             # Usar el componente de mensaje de estado
             status_msg = create_status_message(message, status)
             self.console.print(status_msg)
+        elif use_bubble:
+            # Usar burbuja de pensamiento si se solicita explícitamente
+            if message.strip():
+                thought_bubble = create_thought_bubble(
+                    message,
+                    title="KogniTerm",
+                    icon=Icons.ROBOT,
+                    color=ColorPalette.SECONDARY
+                )
+                self.console.print(thought_bubble)
         else:
-            self.console.print(message, style=style)
+            # Por defecto, imprimir como Markdown o texto plano
+            if message.strip():
+                content = Markdown(message) if not style else message
+                # Aplicar el mismo margen que en el stream (sangría de 4 espacios)
+                self.console.print(Padding(content, (0, 4)) if not style else content)
 
     def get_interrupt_queue(self) -> queue.Queue:
         return self.interrupt_queue
