@@ -137,10 +137,6 @@ class CodebaseIndexer:
         code_files = []
         project_path = os.path.abspath(project_path)
         
-        print(f"\n[DEBUG] Iniciando listado en: {project_path}")
-        print(f"[DEBUG] Workspace Dir: {self.workspace_directory}")
-        print(f"[DEBUG] Patrones cargados: {self.ignore_patterns}")
-        
         found_count = 0
         for root, dirs, files in os.walk(project_path):
             root = os.path.abspath(root)
@@ -151,9 +147,6 @@ class CodebaseIndexer:
                 dir_path = os.path.join(root, d)
                 if not self._should_ignore(dir_path, is_dir=True):
                     dirs_to_keep.append(d)
-                else:
-                    if found_count < 10: # Solo loguear los primeros para no saturar
-                        print(f"[DEBUG] Ignorando directorio: {d}")
             
             dirs[:] = dirs_to_keep
             
@@ -162,10 +155,6 @@ class CodebaseIndexer:
                 if not self._should_ignore(file_path, is_dir=False):
                     code_files.append(file_path)
                     found_count += 1
-                    if found_count <= 20:
-                        print(f"[DEBUG] ARCHIVO INCLUIDO #{found_count}: {os.path.relpath(file_path, project_path)}")
-        
-        print(f"[DEBUG] Total archivos encontrados: {len(code_files)}\n")
         return code_files
 
     def _infer_language(self, file_path: str) -> str:
@@ -183,56 +172,67 @@ class CodebaseIndexer:
         return 'unknown'
 
     def chunk_file(self, file_path: str) -> List[Dict[str, Any]]:
-        """Reads a file and splits it into logical chunks."""
+        """Reads a file and splits it into logical chunks with overlap."""
         chunks = []
         try:
+            if not os.path.exists(file_path):
+                return []
+                
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
+            if not content.strip():
+                return []
+
             language = self._infer_language(file_path)
             lines = content.split('\n')
-            current_chunk_content = []
-            current_start_line = 1 # 1-indexed
+            
+            current_chunk_lines = []
+            current_chunk_chars = 0
+            start_line_idx = 0
 
             for i, line in enumerate(lines):
-                current_chunk_content.append(line)
-                # Simple chunking by character count approximation (or line count)
-                # Here we check character count of the chunk
-                if len('\n'.join(current_chunk_content)) >= self.chunk_size:
-                    chunk_text = '\n'.join(current_chunk_content)
+                current_chunk_lines.append(line)
+                current_chunk_chars += len(line) + 1 # +1 for newline
+
+                if current_chunk_chars >= self.chunk_size:
+                    # Create chunk
+                    chunk_text = '\n'.join(current_chunk_lines)
                     chunks.append({
                         'content': chunk_text,
                         'file_path': file_path,
-                        'start_line': current_start_line,
+                        'start_line': start_line_idx + 1,
                         'end_line': i + 1,
                         'language': language,
                         'type': 'code_block'
                     })
                     
-                    # Handle overlap
-                    # Calculate how many lines to keep for overlap
-                    # This is a simple approximation
-                    overlap_text = ""
+                    # Calculate overlap (keep last N lines that fit in chunk_overlap)
                     overlap_lines = []
-                    for line in reversed(current_chunk_content):
-                        if len(overlap_text) + len(line) < self.chunk_overlap:
-                            overlap_text = line + "\n" + overlap_text
-                            overlap_lines.insert(0, line)
+                    overlap_chars = 0
+                    for j in range(len(current_chunk_lines) - 1, -1, -1):
+                        l = current_chunk_lines[j]
+                        if overlap_chars + len(l) + 1 <= self.chunk_overlap or not overlap_lines:
+                            overlap_lines.insert(0, l)
+                            overlap_chars += len(l) + 1
                         else:
                             break
                     
-                    current_chunk_content = overlap_lines
-                    current_start_line = i + 1 - len(overlap_lines) + 1
-            
-            if current_chunk_content:
+                    current_chunk_lines = overlap_lines
+                    current_chunk_chars = overlap_chars
+                    start_line_idx = i - len(overlap_lines) + 1
+
+            # Add remaining content as the last chunk
+            if current_chunk_lines and len(current_chunk_lines) > len(overlap_lines) if 'overlap_lines' in locals() else True:
                 chunks.append({
-                    'content': '\n'.join(current_chunk_content),
+                    'content': '\n'.join(current_chunk_lines),
                     'file_path': file_path,
-                    'start_line': current_start_line,
+                    'start_line': start_line_idx + 1,
                     'end_line': len(lines),
                     'language': language,
                     'type': 'code_block'
                 })
+                
         except Exception as e:
             logger.error(f"Error chunking file {file_path}: {e}")
         return chunks

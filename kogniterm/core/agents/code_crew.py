@@ -4,10 +4,30 @@ from .code_crew_agents import CodeCrewAgents
 from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
 
 class CodeCrew:
-    def __init__(self, llm, tools_dict: dict):
-        self.agents = CodeCrewAgents(llm, tools_dict)
+    def __init__(self, llm, tools_dict: dict, approval_handler=None):
+        self.agents = CodeCrewAgents(llm, tools_dict, approval_handler=approval_handler)
+        self.approval_handler = approval_handler
 
-    def run(self, requirement: str):
+    def _step_callback(self, step):
+        """Callback ejecutado tras cada paso de un agente en la Crew."""
+        from kogniterm.terminal.visual_components import create_tool_output_panel
+        from rich.console import Console
+        console = Console()
+        
+        # Intentar extraer información del paso
+        try:
+            # En CrewAI, step es un objeto que contiene la acción y el resultado
+            action = getattr(step, 'action', None)
+            result = getattr(step, 'result', None)
+            
+            if action and result:
+                tool_name = getattr(action, 'tool', 'Unknown Tool')
+                # Imprimir el panel formateado en Markdown
+                console.print(create_tool_output_panel(tool_name, str(result)))
+        except Exception:
+            pass
+
+    async def run(self, requirement: str):
         # 1. Instanciar Agentes
         architect = self.agents.software_architect()
         developer = self.agents.senior_developer()
@@ -34,34 +54,27 @@ class CodeCrew:
             context=[implementation_task]
         )
 
-        # 3. Orquestar la Crew
+        # 3. Determinar qué tareas ejecutar basándose en el requerimiento
+        req_lower = requirement.lower()
+        is_only_architecture = any(word in req_lower for word in ["arquitectura", "diseño", "design", "architecture"]) and \
+                               not any(word in req_lower for word in ["implementa", "programa", "escribe", "code", "implement"])
+
+        active_tasks = [design_task]
+        active_agents = [architect]
+
+        if not is_only_architecture:
+            active_tasks.extend([implementation_task, review_task])
+            active_agents.extend([developer, qa])
+
+        # 4. Orquestar la Crew
         crew = Crew(
-            agents=[architect, developer, qa],
-            tasks=[design_task, implementation_task, review_task],
+            agents=active_agents,
+            tasks=active_tasks,
             process=Process.sequential,
             verbose=True,
+            step_callback=self._step_callback,
             max_rpm=10,
             cache=True
         )
 
         return crew.kickoff()
-
-    async def _handle_file_update_confirmation(self, file_path: str, diff_content: str, tool_name: str, original_tool_args: dict) -> bool:
-        """
-        Handles the file update confirmation process by displaying a diff and asking for user approval.
-        Returns True if the user approves the changes, False otherwise.
-        """
-        # Prepare the confirmation prompt
-        confirmation_prompt = f"Se detectaron cambios para '{file_path}'. Por favor, revisa los cambios y confirma para aplicar."
-        
-        # Simulate the confirmation process (in a real scenario, this would involve user interaction)
-        # For now, we'll assume the user approves the changes
-        return True
-
-    async def _apply_file_changes(self, file_path: str, content: str, tool_name: str, original_tool_args: dict) -> str:
-        """
-        Applies the file changes after confirmation.
-        Returns a message indicating the result of the operation.
-        """
-        # Simulate applying the changes (in a real scenario, this would involve actual file operations)
-        return f"Cambios aplicados exitosamente en '{file_path}'."

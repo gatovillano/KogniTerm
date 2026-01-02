@@ -59,7 +59,11 @@ class ReporterAgent:
             
             Debes asegurar que cada bloque de información de los especialistas se presente de forma 
             clara, manteniendo el rigor técnico y proporcionando una narrativa coherente que 
-            responda a la consulta original del usuario.""",
+            responda a la consulta original del usuario.
+            
+            REGLA DE FORMATO CRÍTICA: Entrega tu respuesta directamente en Markdown. 
+            NUNCA envuelvas todo el informe en un bloque de código (como ```markdown o ```). 
+            El Markdown debe ser el texto principal de tu respuesta para que se renderice correctamente.""",
             tools=[self.tools.get('think_tool')] if self.tools.get('think_tool') else [],
             llm=self.llm,
             verbose=True,

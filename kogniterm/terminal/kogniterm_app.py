@@ -374,6 +374,13 @@ class KogniTermApp:
             file_operations_tool # Pasar la instancia de file_operations_tool
         )
 
+        # Inyectar el manejador en el ToolManager y en CallAgentTool para que CrewAI pueda usarlo
+        if hasattr(self.llm_service, 'tool_manager'):
+            self.llm_service.tool_manager.approval_handler = self.command_approval_handler
+            call_agent_tool = self.llm_service.get_tool("call_agent")
+            if call_agent_tool:
+                call_agent_tool.approval_handler = self.command_approval_handler
+
     def _get_bottom_toolbar(self):
         """Genera el contenido de la barra inferior (toolbar)."""
         model_name = self.llm_service.model_name

@@ -262,6 +262,37 @@ def create_warning_box(message: str, title: str = "Advertencia") -> Padding:
     return create_info_panel(message, title=title, status="warning")
 
 
+def create_tool_output_panel(tool_name: str, output: str) -> Padding:
+    """
+    Crea un panel estilizado para mostrar la salida de una herramienta con formato Markdown.
+    
+    Args:
+        tool_name: Nombre de la herramienta ejecutada
+        output: Salida de la herramienta (será renderizada como Markdown)
+        
+    Returns:
+        Padding: Panel con la salida formateada
+    """
+    # Limpiar la salida si es necesario (ej: quitar prefijos de CrewAI)
+    clean_output = output
+    if "Action Output:" in output:
+        clean_output = output.split("Action Output:", 1)[1].strip()
+    
+    # Crear el contenido Markdown
+    content = Markdown(clean_output)
+    
+    # Crear el panel
+    panel = Panel(
+        content,
+        title=f"[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Tool Output: {tool_name}[/bold {ColorPalette.SECONDARY}]",
+        border_style=ColorPalette.SECONDARY,
+        padding=(1, 2),
+        expand=True
+    )
+    
+    return Padding(panel, (1, 4))
+
+
 # ============================================================================
 # SEPARADORES
 # ============================================================================

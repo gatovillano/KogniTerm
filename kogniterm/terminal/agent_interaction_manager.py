@@ -51,26 +51,50 @@ class AgentInteractionManager:
                         break
 
     def invoke_agent(self, user_input: Optional[str]) -> Dict[str, Any]:
-
+        import os
         
         # El mensaje ya fue añadido al historial por KogniTermApp antes de llamar a este método.
         # No lo añadimos de nuevo para evitar duplicación.
-        pass
         
+        # Inyectar contexto dinámico del directorio de trabajo actual
+        current_working_directory = os.getcwd()
         
+        # Buscar si ya existe un SystemMessage de contexto dinámico previo y eliminarlo
+        # para evitar acumulación de mensajes de contexto obsoletos
+        messages_to_keep = []
+        for msg in self.agent_state.messages:
+            # Mantener todos los mensajes excepto los SystemMessages de contexto dinámico previos
+            if isinstance(msg, SystemMessage) and "📂 **Directorio de Trabajo Actual:**" in msg.content:
+                continue  # Saltar este mensaje (eliminarlo)
+            messages_to_keep.append(msg)
+        
+        self.agent_state.messages = messages_to_keep
+        
+        # Crear el mensaje de contexto dinámico
+        context_message = SystemMessage(content=f"""
+📂 **Directorio de Trabajo Actual:** `{current_working_directory}`
+
+Este es el directorio en el que estás trabajando actualmente. Todas las rutas relativas se resolverán desde aquí.
+Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
+""")
+        
+        # Insertar el contexto justo después del SYSTEM_MESSAGE principal (índice 1)
+        # para que esté disponible para el agente pero no interfiera con el mensaje principal
+        if len(self.agent_state.messages) > 1:
+            self.agent_state.messages.insert(1, context_message)
+        else:
+            self.agent_state.messages.append(context_message)
 
         sys.stderr.flush()
         
-        # Iniciar el escuchador de teclado para detectar 'Esc' durante la ejecución
-        kb_handler = KeyboardHandler(self.interrupt_queue)
-        kb_handler.start()
+        # Ya no iniciamos el KeyboardHandler aquí globalmente para evitar conflictos con comandos interactivos.
+        # Se manejará granularmente dentro de los nodos del agente (call_model_node, etc.)
         
         try:
             # Ejecutar invoke sin timeout
             final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 200})
         finally:
-            # Asegurarse de detener el escuchador siempre
-            kb_handler.stop()
+            pass
 
         sys.stderr.flush()
         

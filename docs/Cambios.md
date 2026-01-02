@@ -1061,3 +1061,33 @@ Estos cambios combinados deberían reducir drásticamente la incidencia de bucle
 - Actualización de constructores en agentes especializados para recibir el diccionario de herramientas.
 
 Esta actualización posiciona a la `ResearcherCrew` como una de las unidades de investigación más avanzadas y autónomas del ecosistema KogniTerm.
+
+---
+
+## 31-12-2025 Corrección de Error de Inicio (ValueError en CallAgentTool)
+
+**Descripción**: Se ha restaurado el campo `approval_handler` en la clase `CallAgentTool` para resolver un conflicto con `kogniterm_app.py` que impedía el arranque de la aplicación tras la reversión de cambios.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/tools/call_agent_tool.py`
+
+**Cambios Realizados**:
+- Se añadió el campo `approval_handler: Any = None` a la clase.
+- Se actualizó el método `__init__` para aceptar y asignar `approval_handler`.
+- **Beneficio**: Restaura la compatibilidad con el orquestador principal de la aplicación y permite que `kogniterm` inicie correctamente.
+
+---
+
+## 31-12-2025 Implementación de Streaming en ThinkTool
+
+**Descripción**: Se ha mejorado la herramienta `ThinkTool` para proporcionar feedback visual en tiempo real durante los procesos de razonamiento del agente.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/tools/think_tool.py`
+
+**Cambios Realizados**:
+- Se añadió soporte para `terminal_ui` en el constructor de la clase.
+- Se implementó el método `_run` para utilizar `terminal_ui.print_stream`.
+- **Beneficio**: El pensamiento del agente ahora se muestra con un efecto de streaming (máquina de escribir) en la terminal, lo que hace que el proceso de razonamiento sea transparente y dinámico para el usuario.

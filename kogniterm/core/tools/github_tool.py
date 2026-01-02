@@ -12,9 +12,10 @@ class GitHubTool(BaseTool):
     description: str = "Una herramienta unificada para interactuar con repositorios de GitHub. Permite obtener información del repositorio, listar contenidos de directorios, leer archivos y leer directorios recursivamente."
 
     class GitHubToolInput(BaseModel):
-        action: str = Field(description="La acción a realizar: 'get_repo_info', 'list_contents', 'read_file', 'read_directory', 'read_recursive_directory'.")
-        repo_name: str = Field(description="El nombre completo del repositorio de GitHub (ej. 'octocat/Spoon-Knife').")
+        action: str = Field(description="La acción a realizar: 'get_repo_info', 'list_contents', 'read_file', 'read_directory', 'read_recursive_directory', 'search_repositories', 'search_code'.")
+        repo_name: Optional[str] = Field(default=None, description="El nombre completo del repositorio de GitHub (ej. 'octocat/Spoon-Knife'). Requerido para todas las acciones excepto 'search_repositories'.")
         path: Optional[str] = Field(default="", description="La ruta del archivo o directorio dentro del repositorio (opcional, por defecto la raíz).")
+        query: Optional[str] = Field(default=None, description="La consulta de búsqueda para las acciones 'search_repositories' o 'search_code'.")
         github_token: Optional[str] = Field(default=None, description="Token de GitHub para autenticación (opcional).")
 
     args_schema: Type[BaseModel] = GitHubToolInput
@@ -23,6 +24,8 @@ class GitHubTool(BaseTool):
         action = kwargs.get("action")
         repo_name = kwargs.get("repo_name", "")
         path = kwargs.get("path", "")
+        
+        query = kwargs.get("query", "")
         
         if action == "get_repo_info":
             return f"Obteniendo info del repo: {repo_name}"
@@ -34,6 +37,10 @@ class GitHubTool(BaseTool):
             return f"Leyendo directorio de GitHub: {repo_name}/{path}"
         elif action == "read_recursive_directory":
             return f"Leyendo recursivamente GitHub: {repo_name}/{path}"
+        elif action == "search_repositories":
+            return f"Buscando repositorios en GitHub: {query}"
+        elif action == "search_code":
+            return f"Buscando código en {repo_name}: {query}"
         return f"Interactuando con GitHub: {repo_name}"
 
     def __init__(self, **kwargs: Any):
@@ -102,9 +109,51 @@ class GitHubTool(BaseTool):
         except GithubException as e:
             raise ValueError(f"Error al leer recursivamente el directorio '{path}': {e}")
 
-    def _run(self, action: str, repo_name: str, path: Optional[str] = "", github_token: Optional[str] = None) -> str:
+    def _search_repositories(self, g: Github, query: str) -> str:
+        try:
+            repositories = g.search_repositories(query=query)
+            output = f"### Resultados de búsqueda de repositorios para '{query}'\n"
+            count = 0
+            for repo in repositories:
+                if count >= 10: break
+                output += f"- **{repo.full_name}**: {repo.description} (Estrellas: {repo.stargazers_count}) - [Link]({repo.html_url})\n"
+                count += 1
+            if count == 0:
+                output += "No se encontraron repositorios."
+            return output
+        except GithubException as e:
+            raise ValueError(f"Error al buscar repositorios: {e}")
+
+    def _search_code(self, g: Github, repo_name: str, query: str) -> str:
+        try:
+            # Scoping to the repository
+            full_query = f"{query} repo:{repo_name}"
+            code_results = g.search_code(query=full_query)
+            output = f"### Resultados de búsqueda de código para '{query}' en '{repo_name}'\n"
+            count = 0
+            for content_file in code_results:
+                if count >= 10: break
+                output += f"- [{content_file.path}]({content_file.html_url})\n"
+                count += 1
+            if count == 0:
+                output += "No se encontraron resultados de código."
+            return output
+        except GithubException as e:
+            raise ValueError(f"Error al buscar código: {e}")
+
+    def _run(self, action: str, repo_name: Optional[str] = None, path: Optional[str] = "", query: Optional[str] = None, github_token: Optional[str] = None) -> str:
         try:
             g = self._get_github_instance(github_token)
+
+            if action == 'search_repositories':
+                if not query:
+                    return "Error: Se requiere 'query' para buscar repositorios."
+                return self._search_repositories(g, query)
+
+            # Para el resto de acciones, repo_name es obligatorio
+            if not repo_name:
+                return "Error: 'repo_name' es requerido para esta acción."
+
             repo = self._get_repo(g, repo_name)
 
             if action == 'get_repo_info':
@@ -128,6 +177,10 @@ class GitHubTool(BaseTool):
                 return f"""Leyendo directorio '{path}' del repositorio '{repo.full_name}'...\n\n""" + output
             elif action == 'read_recursive_directory':
                 return f"""Leyendo directorio recursivamente '{path}' del repositorio '{repo.full_name}'...\n\n""" + self._read_directory_recursive(repo, str(path))
+            elif action == 'search_code':
+                if not query:
+                    return "Error: Se requiere 'query' para buscar código."
+                return self._search_code(g, repo_name, query)
             else:
                 return f"Error: Acción de GitHub '{action}' no reconocida."
         except ValueError as e:
@@ -137,7 +190,7 @@ class GitHubTool(BaseTool):
             logger.error(f"Error inesperado en GitHubTool: {e}", exc_info=True)
             return f"Error inesperado en GitHubTool: {e}"
 
-    async def _arun(self, action: str, repo_name: str, path: Optional[str] = "", github_token: Optional[str] = None) -> str:
+    async def _arun(self, action: str, repo_name: Optional[str] = None, path: Optional[str] = "", query: Optional[str] = None, github_token: Optional[str] = None) -> str:
         raise NotImplementedError("github_tool does not support async")
 
 # Este archivo ahora es principalmente un marcador de posición, ya que las herramientas

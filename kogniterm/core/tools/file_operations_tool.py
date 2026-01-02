@@ -30,13 +30,15 @@ class FileOperationsTool(BaseTool):
     ignored_directories: ClassVar[List[str]] = ['venv', '.git', '__pycache__', '.venv']
     llm_service: Any
     interrupt_queue: Optional[queue.Queue] = None
+    approval_handler: Optional[Any] = None
     workspace_context: Any = Field(default=None, description="Contexto del espacio de trabajo actual.") # ¡Nuevo!
     _git_ignore_patterns: List[str] = [] # Atributo privado para evitar errores de Pydantic
 
-    def __init__(self, llm_service: Any, workspace_context: Any = None, **kwargs): # ¡Modificado!
+    def __init__(self, llm_service: Any, workspace_context: Any = None, approval_handler: Any = None, **kwargs): # ¡Modificado!
         super().__init__(llm_service=llm_service, **kwargs)
         self.llm_service = llm_service
         self.workspace_context = workspace_context # ¡Nuevo!
+        self.approval_handler = approval_handler
         self._git_ignore_patterns = self._load_ignore_patterns()
 
     def get_action_description(self, **kwargs) -> str:
@@ -198,21 +200,47 @@ class FileOperationsTool(BaseTool):
         # print(f"*** DEBUG PRINT: _write_file - confirm: {confirm} ***")
         if confirm:
             logger.debug("DEBUG: _write_file - Ejecutando _perform_write_file (confirm=True).")
-            # print("*** DEBUG PRINT: _write_file - Ejecutando _perform_write_file (confirm=True). ***")
             result = self._perform_write_file(path, content)
-            logger.debug(f"DEBUG: _write_file - Devolviendo status success: {result}")
-            logger.debug(f"DEBUG: _write_file - Devolviendo status success: {result}")
             return {"status": "success", "message": result}
-        else:
-            logger.debug("DEBUG: _write_file - Solicitando confirmación (confirm=False).")
-            logger.debug("DEBUG: _write_file - Solicitando confirmación (confirm=False).")
+        
+        # Si tenemos un approval_handler, intentamos usarlo para una experiencia interactiva
+        if self.approval_handler:
             original_content = ""
             if os.path.exists(path):
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         original_content = f.read()
                 except Exception:
-                    pass # Ignorar errores de lectura si el archivo no existe o no es legible
+                    pass
+            
+            diff = "".join(difflib.unified_diff(
+                original_content.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}"
+            ))
+            
+            # Pedir aprobación a través del handler
+            approved = self.approval_handler.handle_approval(
+                action_description=f"escribir en el archivo '{path}'",
+                diff=diff
+            )
+            
+            if approved:
+                result = self._perform_write_file(path, content)
+                return {"status": "success", "message": result}
+            else:
+                return {"status": "error", "message": "Operación cancelada por el usuario."}
+
+        else:
+            logger.debug("DEBUG: _write_file - Solicitando confirmación vía retorno (confirm=False).")
+            original_content = ""
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        original_content = f.read()
+                except Exception:
+                    pass
 
             diff = "".join(difflib.unified_diff(
                 original_content.splitlines(keepends=True),
@@ -220,8 +248,6 @@ class FileOperationsTool(BaseTool):
                 fromfile=f"a/{path}",
                 tofile=f"b/{path}"
             ))
-            logger.debug(f"DEBUG: _write_file - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
-            logger.debug(f"DEBUG: _write_file - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
             return {
                 "status": "requires_confirmation",
                 "action_description": f"escribir en el archivo '{path}'",
@@ -248,14 +274,20 @@ class FileOperationsTool(BaseTool):
         print(f"*** DEBUG PRINT: _delete_file - confirm: {confirm} ***")
         if confirm:
             logger.debug("DEBUG: _delete_file - Ejecutando _perform_delete_file (confirm=True).")
-            print("*** DEBUG PRINT: _delete_file - Ejecutando _perform_delete_file (confirm=True). ***")
             result = self._perform_delete_file(path)
-            logger.debug(f"DEBUG: _delete_file - Devolviendo status success: {result}")
-            print(f"*** DEBUG PRINT: _delete_file - Devolviendo status success: {result} ***")
             return {"status": "success", "message": result}
+        
+        if self.approval_handler:
+            approved = self.approval_handler.handle_approval(
+                action_description=f"eliminar el archivo '{path}'"
+            )
+            if approved:
+                result = self._perform_delete_file(path)
+                return {"status": "success", "message": result}
+            else:
+                return {"status": "error", "message": "Operación cancelada por el usuario."}
         else:
-            logger.debug("DEBUG: _delete_file - Solicitando confirmación (confirm=False).")
-            print("*** DEBUG PRINT: _delete_file - Solicitando confirmación (confirm=False). ***")
+            logger.debug("DEBUG: _delete_file - Solicitando confirmación vía retorno (confirm=False).")
             return {
                 "status": "requires_confirmation",
                 "action_description": f"eliminar el archivo '{path}'",

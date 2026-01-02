@@ -62,6 +62,7 @@ if "openrouter" in self.model_name.lower():
 Para errores 20015 de SiliconFlow, se implementa un sistema de fallback progresivo:
 
 ##### Nivel 1: Configuración Específica por Modelo
+
 ```python
 # Configuración específica para OpenRouter/SiliconFlow con campos adicionales
 if "openrouter" in self.model_name.lower():
@@ -81,6 +82,7 @@ if "openrouter" in self.model_name.lower():
 ```
 
 ##### Nivel 2: Configuración Alternativa Simplificada
+
 ```python
 # Si es un error 20015 de SiliconFlow, intentar con configuración alternativa
 if "20015" in error_msg and "Field required" in error_msg:
@@ -110,6 +112,7 @@ if "20015" in error_msg and "Field required" in error_msg:
 ```
 
 ##### Nivel 3: Configuración Ultra-Minimalista
+
 ```python
 # Intentar configuración ultra-minimalista para modelos muy específicos
 if "nex-agi" in self.model_name.lower() or "deepseek" in self.model_name.lower():
@@ -168,6 +171,7 @@ elif "OpenrouterException" in error_msg or "Upstream error" in error_msg:
 Para verificar que la solución funciona:
 
 1. **Configurar variables de entorno**:
+
    ```bash
    export OPENROUTER_API_KEY="tu_api_key"
    export LITELLM_MODEL="nombre_del_modelo"
@@ -192,11 +196,11 @@ Para prevenir errores similares:
 
 La solución implementa una **estrategia de cuatro capas**:
 
-1. **Configuración Inicial Específica por Modelo**: 
+1. **Configuración Inicial Específica por Modelo**:
    - Detecta modelos problemáticos (Nex-AGI/DeepSeek) y aplica configuración minimalista
    - Para otros modelos, usa configuración estándar con metadata
 
-2. **Detección de Errores**: 
+2. **Detección de Errores**:
    - Identifica errores específicos de SiliconFlow (código 20015)
    - Activa sistema de fallback progresivo
 
@@ -204,12 +208,13 @@ La solución implementa una **estrategia de cuatro capas**:
    - **Nivel 1**: Configuración alternativa simplificada sin campos problemáticos
    - **Nivel 2**: Configuración ultra-minimalista solo con campos esenciales
 
-4. **Manejo de Fallos**: 
+4. **Manejo de Fallos**:
    - Logging detallado de cada intento
    - Mensajes informativos al usuario
    - Compatibilidad con múltiples proveedores
 
 Esta aproximación **proactiva y adaptativa** garantiza que:
+
 - Los errores 400 se resuelvan automáticamente en la mayoría de casos
 - El usuario reciba mensajes de error informativos y útiles
 - El sistema mantenga compatibilidad con múltiples proveedores
@@ -225,5 +230,32 @@ Esta aproximación **proactiva y adaptativa** garantiza que:
 
 ---
 **Fecha**: 22-12-2025  
+**Estado**: Resuelto  
+**Versión**: KogniTerm 0.1.0
+
+---
+
+## Error de Repetición Infinita en CodebaseSearchTool
+
+### Descripción del Problema
+
+Al realizar búsquedas de código con `CodebaseSearchTool`, los resultados mostraban fragmentos de código con miles de líneas repetidas (ej: `from core.dependencies import get_current_user` repetido cientos de veces), lo que saturaba la terminal y el contexto del agente.
+
+### Causa Raíz
+
+El algoritmo de fragmentación (`chunk_file`) en `CodebaseIndexer` tenía un fallo en la lógica de solapamiento (`overlap`). Cuando una línea superaba el tamaño del solapamiento o el tamaño del fragmento, el buffer no se gestionaba correctamente, provocando que las mismas líneas se incluyeran en múltiples fragmentos de forma redundante o que el algoritmo se "atascara" en un bucle lógico de inserción.
+
+### Solución Implementada
+
+1. **Rediseño del Algoritmo**: Se implementó una nueva lógica en `kogniterm/core/context/codebase_indexer.py` que utiliza un contador de caracteres real y un puntero de línea que siempre avanza.
+2. **Gestión de Solapamiento Robusta**: El nuevo sistema de solapamiento garantiza que solo se incluyan las últimas N líneas que quepan en el espacio de `chunk_overlap`, evitando duplicaciones innecesarias.
+3. **Limpieza de Datos**: Se ejecutó una limpieza completa de la colección en ChromaDB para eliminar los fragmentos corruptos preexistentes.
+
+### Archivos Modificados
+
+- `kogniterm/core/context/codebase_indexer.py`: Reescritura del método `chunk_file`.
+- `kogniterm/core/tools/codebase_search_tool.py`: Mejoras menores en el manejo de resultados.
+
+**Fecha**: 30-12-2025  
 **Estado**: Resuelto  
 **Versión**: KogniTerm 0.1.0

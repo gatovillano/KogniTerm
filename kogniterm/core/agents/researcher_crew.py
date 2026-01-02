@@ -14,6 +14,46 @@ class ResearcherCrew:
         self.reporter_factory = ReporterAgent(llm, tools_dict)
         self.director_factory = ResearchDirector(llm, tools_dict)
 
+    def _step_callback(self, step):
+        """Callback ejecutado tras cada paso de un agente en la Crew."""
+        from kogniterm.terminal.visual_components import create_tool_output_panel
+        from rich.console import Console
+        console = Console()
+        
+        # Intentar extraer información del paso
+        try:
+            action = getattr(step, 'action', None)
+            # En versiones modernas de crewai, el resultado está en 'observation'
+            result = getattr(step, 'observation', getattr(step, 'result', None))
+
+            if action and result:
+                tool_name = getattr(action, 'tool', 'Unknown Tool')
+                
+                output_str = ""
+                if isinstance(result, str):
+                    output_str = result
+                elif isinstance(result, (list, tuple)):
+                    items = []
+                    for item in result:
+                        if hasattr(item, 'content') and isinstance(item.content, str):
+                            items.append(item.content)
+                        elif isinstance(item, dict):
+                            items.append("\n".join([f"  - {k}: {v}" for k, v in item.items()]))
+                        else:
+                            items.append(str(item))
+                    output_str = "\n".join([f"- {item}" for item in items])
+                elif isinstance(result, dict):
+                    output_str = "\n".join([f"- **{k}**: {v}" for k, v in result.items()])
+                elif hasattr(result, 'content') and isinstance(result.content, str):
+                    output_str = result.content
+                else:
+                    output_str = str(result)
+
+                # Imprimir el panel formateado en Markdown
+                console.print(create_tool_output_panel(tool_name, output_str))
+        except Exception:
+            pass
+
     def run(self, query: str):
         # 0. Generar árbol de directorios del proyecto como contexto inicial
         project_tree = ""
@@ -27,12 +67,10 @@ class ResearcherCrew:
                     "path": project_root,
                     "recursive": True
                 })
-                # list_directory recursivo devuelve un string con líneas separadas por \n
                 if isinstance(tree_result, str):
-                    tree_lines = tree_result.split('\n')[:100]  # Limitar a 100 líneas
+                    tree_lines = tree_result.split('\n')[:100]
                     project_tree = f"\n\n**Estructura del Proyecto (primeras 100 entradas):**\n```\n{chr(10).join(tree_lines)}\n```\n"
                 elif isinstance(tree_result, list):
-                    # Si por alguna razón devuelve una lista directamente
                     tree_lines = tree_result[:100]
                     project_tree = f"\n\n**Estructura del Proyecto (primeras 100 entradas):**\n```\n{chr(10).join(tree_lines)}\n```\n"
         except Exception as e:
@@ -49,15 +87,13 @@ class ResearcherCrew:
         reporter = self.reporter_factory.agent()
 
         # 2. Definir la Dinámica de Mesa Redonda
-        # Todos los agentes pueden consultarse entre sí.
-        
         research_task = Task(
             description=f"""Misión: Resolver la consulta '{query}' mediante una investigación colaborativa en mesa redonda.
             
             PROTOCOLO DE EQUIPO:
             1. El Director inicia la sesión y coordina quién empieza.
             2. Los especialistas (Codigo, Web, GitHub, Analista) deben investigar sus áreas.
-            3. SI NECESITAS CONTEXTO de otro área, PREGUNTA a tu colega (ej: Codigo pregunta a Web sobre una librería).
+            3. SI NECESITAS CONTEXTO de otro área, PREGUNTA a tu colega.
             4. No trabajes solo. Si encuentras algo interesante, compártelo o pide una segunda opinión.
             5. El Sintetizador y Redactor deben estar atentos a la conversación para capturar la esencia del consenso.
             
@@ -68,8 +104,7 @@ class ResearcherCrew:
             agent=director
         )
 
-        # 3. Orquestar la Crew (Mesa Redonda)
-        # Habilitamos delegación para TODOS para permitir preguntas cruzadas
+        # 3. Orquestar la Crew
         director.allow_delegation = True
         planner.allow_delegation = True
         code_researcher.allow_delegation = True
@@ -82,8 +117,9 @@ class ResearcherCrew:
         crew = Crew(
             agents=[director, planner, code_researcher, github_researcher, web_researcher, static_analyzer, synthesizer, reporter],
             tasks=[research_task],
-            process=Process.sequential, # Secuencial para orden, pero con delegación libre para charla
+            process=Process.sequential,
             verbose=True,
+            step_callback=self._step_callback,
             max_rpm=10,
             cache=True
         )

@@ -35,6 +35,7 @@ dependencies = [
     "pyautogui",
     "pywinctl",
     "langchain-litellm",
+    "nest_asyncio",
 ]
 readme = "README.md"
 requires-python = ">=3.9"

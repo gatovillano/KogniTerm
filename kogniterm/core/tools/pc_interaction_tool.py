@@ -3,8 +3,12 @@ import platform
 import os
 import subprocess
 from typing import Any, Type, Optional
-import pyautogui
-import pywinctl as gw
+try:
+    import pyautogui
+    import pywinctl as gw
+    PYAUTOGUI_AVAILABLE = True
+except ImportError:
+    PYAUTOGUI_AVAILABLE = False
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 
@@ -59,6 +63,9 @@ class PCInteractionTool(BaseTool):
         return "wayland" in os.environ.get("XDG_SESSION_TYPE", "").lower()
 
     def _run(self, action: str, x: Optional[float] = None, y: Optional[float] = None, text: Optional[str] = None, url: Optional[str] = None, selector: Optional[str] = None) -> Any:
+        if not PYAUTOGUI_AVAILABLE:
+            return {"error": "Las dependencias 'pyautogui' y 'pywinctl' no están instaladas. Esta herramienta no está disponible."}
+        
         if platform.system() != "Linux":
             return {"error": "Esta herramienta solo es compatible con sistemas Linux (Ubuntu)."}
 

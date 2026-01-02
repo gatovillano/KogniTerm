@@ -378,3 +378,31 @@ class CommandApprovalHandler:
 
         # 8. Devolver el estado actualizado y el contenido del ToolMessage
         return {"messages": self.agent_state.messages, "tool_message_content": tool_message_content, "approved": run_action, "command_output": full_command_output}
+
+    def handle_approval(self, action_description: str, diff: Optional[str] = None) -> bool:
+        """
+        Versión síncrona y simplificada para ser llamada desde herramientas de CrewAI.
+        Maneja internamente el bucle de eventos asíncronos.
+        """
+        import asyncio
+        import nest_asyncio
+        nest_asyncio.apply()
+
+        # Crear un objeto de respuesta simulado para handle_command_approval
+        raw_output = {
+            "status": "requires_confirmation",
+            "action_description": action_description,
+            "diff": diff,
+            "path": action_description.split("'")[1] if "'" in action_description else "archivo"
+        }
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = loop.run_until_complete(self.handle_command_approval(
+                command_to_execute="",
+                raw_tool_output=raw_output
+            ))
+            return result.get("approved", False)
+        except Exception as e:
+            logger.error(f"Error en handle_approval: {e}")
+            return False

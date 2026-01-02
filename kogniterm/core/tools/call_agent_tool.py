@@ -84,12 +84,14 @@ class CallAgentTool(LangChainBaseTool):
     llm_service: Any = None
     terminal_ui: Any = None
     interrupt_queue: Any = None
+    approval_handler: Any = None
 
-    def __init__(self, llm_service, terminal_ui=None, interrupt_queue=None, **kwargs):
+    def __init__(self, llm_service, terminal_ui=None, interrupt_queue=None, approval_handler=None, **kwargs):
         super().__init__(**kwargs)
         self.llm_service = llm_service
         self.terminal_ui = terminal_ui
         self.interrupt_queue = interrupt_queue
+        self.approval_handler = approval_handler
 
     def _run(self, agent_name: str, task: str) -> str:
         """Ejecuta el agente especificado con la tarea dada."""

@@ -59,13 +59,16 @@ class CommandExecutor:
                 cwd=cwd
             )
 
+            # Informar al usuario cómo interrumpir
+            yield "💡 Tip: Presiona ESC, Ctrl+C o Ctrl+D para interrumpir el comando.\n\n"
+
             # Bucle principal de E/S
             while self.process.poll() is None:
                 # Verificar si hay una señal de interrupción en la cola
                 if interrupt_queue and not interrupt_queue.empty():
                     interrupt_queue.get() # Consumir la señal de interrupción
                     self.terminate()
-                    yield "\nComando cancelado por el usuario (ESC)."
+                    yield "\n\n⚠️  Comando interrumpido por el usuario (ESC).\n"
                     break
 
                 try:
@@ -96,6 +99,17 @@ class CommandExecutor:
                     if sys.stdin.fileno() in readable_fds:
                         user_input = os.read(sys.stdin.fileno(), 1024)
                         if user_input:
+                            # Detectar Ctrl+C (\x03), Ctrl+D (\x04) o ESC (\x1b) para interrumpir
+                            # Para ESC, verificamos que sea exactamente un byte para no romper secuencias de escape (flechas, etc.)
+                            if b'\x03' in user_input or b'\x04' in user_input or user_input == b'\x1b':
+                                key_name = "Ctrl+C" if b'\x03' in user_input else ("Ctrl+D" if b'\x04' in user_input else "ESC")
+                                self.terminate()
+                                # Propagar la interrupción a la cola global si existe
+                                if interrupt_queue:
+                                    interrupt_queue.put(True)
+                                yield f"\n\n⚠️  Comando interrumpido por el usuario ({key_name}).\n"
+                                break
+                            # Reenviar la entrada al comando
                             os.write(master_fd, user_input)
 
                 except select.error as e:

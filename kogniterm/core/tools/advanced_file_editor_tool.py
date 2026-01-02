@@ -33,6 +33,12 @@ class AdvancedFileEditorTool(BaseTool):
     name: str = "advanced_file_editor"
     description: str = "Realiza operaciones de edición avanzadas en un archivo, como insertar, reemplazar con regex, o añadir contenido. La confirmación de los cambios se gestiona de forma conversacional."
 
+    approval_handler: Optional[Any] = None
+
+    def __init__(self, approval_handler: Any = None, **kwargs):
+        super().__init__(**kwargs)
+        self.approval_handler = approval_handler
+
     class AdvancedFileEditorInput(BaseModel):
         path: str = Field(description="La ruta del archivo a editar.")
         action: str = Field(description="La operación a realizar: 'insert_line', 'replace_regex', 'prepend_content', 'append_content'.")
@@ -91,8 +97,30 @@ class AdvancedFileEditorTool(BaseTool):
                 if not regex_pattern or replacement_content is None:
                     return {"error": "Se requieren 'regex_pattern' y 'replacement_content' para 'replace_regex'."}
 
-                modified_content_str = re.sub(regex_pattern, replacement_content, original_content)
-                modified_lines = modified_content_str.splitlines(keepends=True)
+                try:
+                    # Intentar compilar el regex primero para detectar errores en el patrón
+                    re.compile(regex_pattern)
+                    
+                    # Pre-procesar replacement_content para evitar 'bad escape' con secuencias como \s
+                    # Si replacement_content tiene \s y no es un raw string, re.sub puede fallar.
+                    # Escapamos las barras invertidas que no son parte de grupos de captura válidos o escapes estándar.
+                    # Esta es una heurística simple.
+                    safe_replacement = replacement_content
+                    try:
+                        # Prueba rápida para ver si re.sub acepta el reemplazo
+                        re.sub(regex_pattern, replacement_content, "")
+                    except Exception:
+                        # Si falla, intentamos escapar las barras invertidas problemáticas
+                        # Específicamente, \s en el reemplazo suele ser un intento de literal \s
+                        safe_replacement = replacement_content.replace(r'\s', r'\\s')
+                    
+                    modified_content_str = re.sub(regex_pattern, safe_replacement, original_content)
+                    modified_lines = modified_content_str.splitlines(keepends=True)
+                except re.error as e:
+                    return {"error": f"Error de expresión regular inválida: {e}"}
+                except Exception as e:
+                    # Capturar otros errores como 'bad escape' que pueden surgir de re.sub
+                    return {"error": f"Error al aplicar regex: {e}. Intenta escapar las barras invertidas en el contenido de reemplazo (ej. usa \\\\s en lugar de \\s)."}
 
             elif action == 'prepend_content':
                 logger.debug(f"Añadiendo contenido al principio del archivo '{path}'.")
@@ -128,26 +156,35 @@ class AdvancedFileEditorTool(BaseTool):
 
             if not diff:
                 logger.debug(f"No se requieren cambios en el archivo '{path}' para la acción '{action}'.")
-                logger.debug(f"DEBUG: AdvancedFileEditorTool._run - No se requieren cambios para la acción '{action}'.")
                 return {"status": "success", "message": f"El archivo '{path}' no requirió cambios para la acción '{action}'."}
 
-            logger.debug(f"DEBUG: AdvancedFileEditorTool._run - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
-            return {
-                "status": "requires_confirmation",
-                "action_description": f"aplicar edición avanzada en el archivo '{path}'",
-                "operation": self.name,
-                "args": {
-                    "path": path,
-                    "action": action,
-                    "content": content,
-                    "line_number": line_number,
-                    "regex_pattern": regex_pattern,
-                    "replacement_content": replacement_content,
-                    "confirm": True,
-                },
-                "diff": diff,
-                "new_content": new_content,
-            }
+            if self.approval_handler:
+                approved = self.approval_handler.handle_approval(
+                    action_description=f"aplicar edición avanzada en el archivo '{path}'",
+                    diff=diff
+                )
+                if approved:
+                    return _apply_advanced_update(path, new_content)
+                else:
+                    return {"status": "error", "message": "Operación cancelada por el usuario."}
+            else:
+                logger.debug(f"DEBUG: AdvancedFileEditorTool._run - Devolviendo requires_confirmation. Diff: {diff[:200]}...")
+                return {
+                    "status": "requires_confirmation",
+                    "action_description": f"aplicar edición avanzada en el archivo '{path}'",
+                    "operation": self.name,
+                    "args": {
+                        "path": path,
+                        "action": action,
+                        "content": content,
+                        "line_number": line_number,
+                        "regex_pattern": regex_pattern,
+                        "replacement_content": replacement_content,
+                        "confirm": True,
+                    },
+                    "diff": diff,
+                    "new_content": new_content,
+                }
 
         except FileNotFoundError:
             return {"error": f"El archivo '{path}' no fue encontrado."}
