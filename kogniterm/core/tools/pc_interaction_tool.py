@@ -66,28 +66,34 @@ class PCInteractionTool(BaseTool):
         if not PYAUTOGUI_AVAILABLE:
             return {"error": "Las dependencias 'pyautogui' y 'pywinctl' no están instaladas. Esta herramienta no está disponible."}
         
-        if platform.system() != "Linux":
-            return {"error": "Esta herramienta solo es compatible con sistemas Linux (Ubuntu)."}
+        current_os = platform.system()
+        if current_os not in ["Linux", "Darwin"]:
+            return {"error": f"Esta herramienta no es compatible con {current_os} actualmente."}
 
-        if self._is_wayland():
-            return {"warning": "Detectado entorno Wayland. La interacción con el escritorio puede ser limitada o requerir configuración adicional (ej. ydotool). Funcionalidad parcial esperada."}
+        if current_os == "Linux":
+            if self._is_wayland():
+                return {"warning": "Detectado entorno Wayland. La interacción con el escritorio puede ser limitada o requerir configuración adicional (ej. ydotool). Funcionalidad parcial esperada."}
 
-        if not self._check_x11_dependencies():
-            return {"error": "Dependencias de X11 no encontradas. Por favor, instala 'python3-tk' y 'python3-dev' con 'sudo apt-get install python3-tk python3-dev' para una funcionalidad completa."}
+            if not self._check_x11_dependencies():
+                return {"error": "Dependencias de X11 no encontradas. Por favor, instala 'python3-tk' y 'python3-dev' con 'sudo apt-get install python3-tk python3-dev' para una funcionalidad completa."}
+        elif current_os == "Darwin":
+            # En macOS, avisar sobre permisos de accesibilidad
+            pass # pyautogui lanzará un error descriptivo si faltan permisos
 
         try:
             if action == "open_url":
                 if url:
-                    subprocess.run(["xdg-open", url], check=True)
+                    if current_os == "Linux":
+                        subprocess.run(["xdg-open", url], check=True)
+                    elif current_os == "Darwin":
+                        subprocess.run(["open", url], check=True)
                     return {"status": f"URL {url} abierta exitosamente."}
                 else:
                     return {"error": "Se requiere una URL para la acción 'open_url'."}
 
             elif action == "screenshot":
                 screenshot = pyautogui.screenshot()
-                # Guardar la captura en un archivo temporal o devolverla como base64 si es necesario
-                # Por ahora, solo confirmamos que se tomó.
-                # Para devolver la imagen, se necesitaría un mecanismo diferente, quizás guardarla y dar la ruta.
+                # En macOS/Linux usar /tmp es seguro
                 screenshot_path = "/tmp/kogniterm_screenshot.png"
                 screenshot.save(screenshot_path)
                 return {"status": f"Captura de pantalla tomada y guardada en {screenshot_path}."}
@@ -116,6 +122,8 @@ class PCInteractionTool(BaseTool):
             else:
                 return {"error": f"Acción '{action}' no soportada."}
         except Exception as e:
+            if "Accessibility" in str(e) or "permissions" in str(e).lower():
+                return {"error": f"Error de permisos: KogniTerm requiere permisos de Accesibilidad y Grabación de Pantalla en macOS para esta acción. Error: {str(e)}"}
             return {"error": f"Ocurrió un error durante la interacción: {str(e)}"}
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:

@@ -22,7 +22,7 @@ class WebScrapingTool(BaseTool):
 
     def _run(self, html_content: str, selector: str) -> str:
         try:
-            soup = BeautifulSoup(html_content, 'lxml')
+            soup = BeautifulSoup(html_content, 'html.parser')
             elements = soup.select(selector)
             scraped_content = "\n".join([e.prettify() for e in elements])
             return f'''### Resultados del Scraping (Selector: `{selector}`)

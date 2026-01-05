@@ -17,6 +17,8 @@ try:
 except ImportError:
     DOTENV_AVAILABLE = False
 
+from prompt_toolkit.formatted_text import HTML
+
 
 """
 This module contains the MetaCommandProcessor class, responsible for handling
@@ -564,10 +566,12 @@ class MetaCommandProcessor:
                 if val:
                     # Enmascarar valor: mostrar solo inicio y fin
                     masked = f"{val[:4]}...{val[-4:]}" if len(val) > 8 else "****"
-                    status = f"✅ [cyan]{masked}[/cyan]"
+                    status = f'✅ <style fg="cyan">{masked}</style>'
                 else:
-                    status = "❌ [dim]No configurada[/dim]"
-                options.append((key, f"{key:<20} | {status}"))
+                    status = '❌ <style fg="#888888">No configurada</style>'
+                
+                # Usar HTML para que prompt_toolkit renderice los estilos
+                options.append((key, HTML(f'{key:<20} | {status}')))
             
             options.append(("CUSTOM", "➕ Añadir otra variable..."))
             options.append(("BACK", "⬅️  Volver"))

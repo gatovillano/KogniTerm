@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed # Nueva importac
 from ..llm_service import LLMService
 from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
+from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 
 console = Console()
 
@@ -50,11 +51,12 @@ Cuando el usuario te pida algo, tú eres quien debe ejecutarlo.
 2.  **Usa tus herramientas**: Tienes un conjunto de herramientas, incluyendo `execute_command` para comandos de terminal, `file_operations` para interactuar con archivos y directorios, `advanced_file_editor` para ediciones de archivos con confirmación interactiva, `python_executor` para ejecutar código Python, `codebase_search_tool` para buscar en el código, `code_analysis` para realizar análisis estático y validación de código (Python/JS) y `plan_creation_tool` para generar planes detallados para tareas complejas. Úsalas para llevar a cabo la tarea.
     *   **Gestión de Proyectos**: Cuando el usuario hable de un proyecto, **debes** revisar los archivos locales, entender la estructura y arquitectura del proyecto, y guardar esta información en el archivo `.project_structure.md` en la carpeta de trabajo actual. De este modo, cuando el usuario haga consultas, podrás leer este archivo para ubicarte en qué archivos son importantes para la consulta.
 3.  **Ejecuta directamente**: No le digas al usuario qué comandos ejecutar. Ejecútalos tú mismo usando la herramienta `execute_command`, `file_operations`, `advanced_file_editor`, `python_executor`, `codebase_search_tool` o `code_analysis` según corresponda.
-4.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
-5.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
+4.  **Ejecución de Planes (CRÍTICO)**: Si utilizas `plan_creation_tool` para diseñar una estrategia, **tú mismo debes ser quien ejecute cada paso del plan**. NO le propongas al usuario que él ejecute los pasos ni le preguntes si quiere que los ejecutes tú; una vez que el plan sea aprobado (si requiere confirmación), procede a aplicar los procesos tú mismo de forma autónoma hasta completar la tarea.
+5.  **Rutas de Archivos**: Cuando el usuario se refiera a archivos o directorios, las rutas que recibirás serán rutas válidas en el sistema de archivos (absolutas o relativas al directorio actual). **Asegúrate de limpiar las rutas eliminando cualquier símbolo '@' o espacios extra al principio o al final antes de usarlas con las herramientas.**
+6.  **Informa del resultado**: Una vez que la tarea esté completa, informa al usuario del resultado de forma clara y amigable.
     *   **NO expliques comandos de terminal**: Si vas a usar la herramienta `execute_command`, **NO** incluyas ninguna explicación del comando en tu respuesta de texto. El sistema ya generará y mostrará una explicación automática en un panel visual. Tu respuesta de texto debe limitarse a decir qué acción general vas a realizar (ej: "Voy a listar los archivos"), sin mencionar el comando específico ni sus flags. Esto es CRÍTICO para evitar duplicidad.
     *   **Respuesta Final después de Herramientas**: Después de ejecutar una herramienta y recibir su salida (un `ToolMessage`), **debes** procesar esa salida, resumirla y generar una respuesta final conversacional al usuario, indicando que la tarea se ha completado o el estado actual, en lugar de volver a solicitar la misma herramienta.
-6.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
+7.  **Estilo de comunicación**: Responde siempre en español, con un tono cercano y amigable. Adorna tus respuestas con emojis (que no sean expresiones faciales, sino objetos, símbolos, etc.) y utiliza formato Markdown (como encabezados, listas, negritas) para embellecer el texto y hacerlo más legible.
     *   Siempre que utilices cuadros markdown, NO Los anides en bloque de codigo. 
     *   Siempre utiliza Markdown para embellecer el texto, tanto en la etapa de pensamiento como en el mensaje final, incluyendo encabezados, listas, negritas, etc.
 
@@ -299,49 +301,63 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
 
     # Usar Live para actualizar el contenido en tiempo real
     # Iniciamos con el spinner
-    with Live(spinner, console=current_console, screen=False, refresh_per_second=10) as live:
-        def update_live_display():
-            """Función auxiliar para actualizar el display de forma consistente."""
-            renderables = []
-            
-            # El pensamiento (thinking) ya no se muestra al usuario para evitar redundancia,
-            # pero se sigue acumulando internamente en full_thinking_content.
-            
-            # 1. Añadir respuesta si existe
-            if full_response_content:
-                renderables.append(Markdown(full_response_content))
-            
-            # 2. Si no hay nada aún, mostrar el spinner inicial
-            if not renderables:
-                live.update(spinner)
-            else:
-                # Envolver en Padding para añadir margen lateral (sangría)
-                live.update(Padding(Group(*renderables), (0, 4)))
-
-        for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
-            if isinstance(part, AIMessage):
-                final_ai_message_from_llm = part
-            elif isinstance(part, str):
-                if part.startswith("__THINKING__:"):
-                    # Es contenido de razonamiento (Thinking)
-                    thinking_chunk = part[len("__THINKING__:"):]
-                    full_thinking_content += thinking_chunk
-                    update_live_display()
+    
+    # Iniciar KeyboardHandler para detectar ESC durante la generación
+    kh = KeyboardHandler(interrupt_queue)
+    kh.start()
+    
+    try:
+        with Live(spinner, console=current_console, screen=False, refresh_per_second=10) as live:
+            def update_live_display():
+                """Función auxiliar para actualizar el display de forma consistente."""
+                renderables = []
+                
+                # El pensamiento (thinking) ya no se muestra al usuario para evitar redundancia,
+                # pero se sigue acumulando internamente en full_thinking_content.
+                
+                # 1. Añadir respuesta si existe
+                if full_response_content:
+                    renderables.append(Markdown(full_response_content))
+                
+                # 2. Si no hay nada aún, mostrar el spinner inicial
+                if not renderables:
+                    live.update(spinner)
                 else:
-                    # Es contenido normal de la respuesta
-                    full_response_content += part
-                    text_streamed = True
-                    update_live_display()
+                    # Envolver en Padding para añadir margen lateral (sangría)
+                    live.update(Padding(Group(*renderables), (0, 4)))
+
+            interrupcion_detectada = False
+            for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
+                if isinstance(part, AIMessage):
+                    final_ai_message_from_llm = part
+                elif isinstance(part, str):
+                    if part.startswith("__THINKING__:"):
+                        # Es contenido de razonamiento (Thinking)
+                        thinking_chunk = part[len("__THINKING__:"):]
+                        full_thinking_content += thinking_chunk
+                        update_live_display()
+                    else:
+                        # Es contenido normal de la respuesta
+                        full_response_content += part
+                        text_streamed = True
+                        update_live_display()
+                
+                # Verificar interrupción en cada iteración del streaming
+                # Chequeamos tanto la cola como la bandera del servicio
+                if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
+                    interrupcion_detectada = True
+                    if interrupt_queue:
+                        while not interrupt_queue.empty():
+                            interrupt_queue.get_nowait()
+                    break
             
-            # Verificar interrupción en cada iteración del streaming
-            if interrupt_queue and not interrupt_queue.empty():
-                while not interrupt_queue.empty():
-                    interrupt_queue.get_nowait()
-                terminal_ui.console.print(f"\n{Icons.STOPWATCH} [bold red]Interrupción detectada. Deteniendo...[/bold red]")
-                break
-        
-        # Al finalizar el stream, asegurarnos de que el display final sea correcto
-        update_live_display()
+            if interrupcion_detectada:
+                current_console.print(f"\n{Icons.STOPWATCH} [bold red]Interrupción detectada. Deteniendo...[/bold red]")
+            
+            # Al finalizar el stream, asegurarnos de que el display final sea correcto
+            update_live_display()
+    finally:
+        kh.stop()
 
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
@@ -418,124 +434,138 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         return state
 
     tool_messages = []
-    executor = ThreadPoolExecutor(max_workers=min(len(last_message.tool_calls), 5))
-    futures = []
-    for tool_call in last_message.tool_calls:
-        # Registrar la llamada a la herramienta en el historial para detección de bucles
-        tool_name = tool_call['name']
-        tool_args = tool_call['args']
+    
+    # Iniciar KeyboardHandler si no hay herramientas interactivas (como execute_command)
+    # execute_command ya maneja su propia interactividad y detección de ESC.
+    has_interactive_tool = any(tc['name'] == 'execute_command' for tc in last_message.tool_calls)
+    kh = None
+    if not has_interactive_tool:
+        kh = KeyboardHandler(interrupt_queue)
+        kh.start()
         
-        # Generar un hash consistente de los argumentos
-        try:
-            args_hash = json.dumps(tool_args, sort_keys=True)
-        except TypeError:
-            args_hash = str(tool_args) # Fallback si los argumentos no son serializables
-        
-        state.tool_call_history.append({"name": tool_name, "args_hash": args_hash})
-
-        # Verificar si hay una señal de interrupción antes de enviar
-        if interrupt_queue and not interrupt_queue.empty():
-            interrupt_queue.get()
-            terminal_ui.console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
-            state.reset_temporary_state()
-            executor.shutdown(wait=False)
-            return state
-
-        # Obtener la instancia de la herramienta para buscar la descripción de la acción
-        tool = llm_service.get_tool(tool_call['name'])
-        bajada = ""
-        if tool and hasattr(tool, 'get_action_description'):
+    try:
+        executor = ThreadPoolExecutor(max_workers=min(len(last_message.tool_calls), 5))
+        futures = []
+        for tool_call in last_message.tool_calls:
+            # Registrar la llamada a la herramienta en el historial para detección de bucles
+            tool_name = tool_call['name']
+            tool_args = tool_call['args']
+            
+            # Generar un hash consistente de los argumentos
             try:
-                bajada = tool.get_action_description(**tool_call['args'])
-            except Exception as e:
-                logger.warning(f"Error al obtener descripción de acción para {tool_call['name']}: {e}")
+                args_hash = json.dumps(tool_args, sort_keys=True)
+            except TypeError:
+                args_hash = str(tool_args) # Fallback si los argumentos no son serializables
+            
+            state.tool_call_history.append({"name": tool_name, "args_hash": args_hash})
 
-        # Mejorar el mensaje de ejecución de herramienta con iconos y colores temáticos
-        try:
-            from kogniterm.terminal.themes import Icons, ColorPalette
-            terminal_ui.console.print(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
-            if bajada:
-                terminal_ui.console.print(f"[italic {ColorPalette.TEXT_SECONDARY}]   └─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]")
-        except ImportError:
-            # Fallback al mensaje original
-            terminal_ui.console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
-            if bajada:
-                terminal_ui.console.print(f"[italic grey]   └─ {bajada}[/italic grey]")
-        futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
-
-    for future in as_completed(futures):
-        tool_id, content, exception = future.result()
-        if exception:
-            if isinstance(exception, UserConfirmationRequired):
-                state.tool_pending_confirmation = exception.tool_name
-                state.tool_args_pending_confirmation = exception.tool_args
-                state.tool_call_id_to_confirm = tool_id
-                state.file_update_diff_pending_confirmation = exception.raw_tool_output
-                terminal_ui.console.print(f"[bold yellow]⚠️ Herramienta '{exception.tool_name}' requiere confirmación:[/bold yellow] {exception.message}")
-                tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-                executor.shutdown(wait=False)
-                # Guardar historial antes de retornar para confirmación
-                state.messages.extend(tool_messages) # Asegurar que los mensajes se añadan al estado antes de guardar
-                llm_service._save_history(state.messages)
-                return state
-            elif isinstance(exception, InterruptedError):
-                terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
+            # Verificar si hay una señal de interrupción antes de enviar
+            if interrupt_queue and not interrupt_queue.empty():
+                interrupt_queue.get()
+                terminal_ui.console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
                 state.reset_temporary_state()
                 executor.shutdown(wait=False)
-                # No guardamos historial aquí necesariamente, o sí? 
-                # Si se interrumpió, quizás no queramos guardar el progreso parcial.
-                # Pero si hubo otras herramientas exitosas en paralelo...
-                # Por seguridad, guardamos lo que haya en state.messages hasta ahora.
-                llm_service._save_history(state.messages)
                 return state
+
+            # Obtener la instancia de la herramienta para buscar la descripción de la acción
+            tool = llm_service.get_tool(tool_call['name'])
+            bajada = ""
+            if tool and hasattr(tool, 'get_action_description'):
+                try:
+                    bajada = tool.get_action_description(**tool_call['args'])
+                except Exception as e:
+                    logger.warning(f"Error al obtener descripción de acción para {tool_call['name']}: {e}")
+
+            # Mejorar el mensaje de ejecución de herramienta con iconos y colores temáticos
+            try:
+                from kogniterm.terminal.themes import Icons, ColorPalette
+                terminal_ui.console.print(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+                if bajada:
+                    terminal_ui.console.print(f"[italic {ColorPalette.TEXT_SECONDARY}]   └─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]")
+            except ImportError:
+                # Fallback al mensaje original
+                terminal_ui.console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
+                if bajada:
+                    terminal_ui.console.print(f"[italic grey]   └─ {bajada}[/italic grey]")
+            futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
+
+        for future in as_completed(futures):
+            tool_id, content, exception = future.result()
+            if exception:
+                if isinstance(exception, UserConfirmationRequired):
+                    state.tool_pending_confirmation = exception.tool_name
+                    state.tool_args_pending_confirmation = exception.tool_args
+                    state.tool_call_id_to_confirm = tool_id
+                    state.file_update_diff_pending_confirmation = exception.raw_tool_output
+                    terminal_ui.console.print(f"[bold yellow]⚠️ Herramienta '{exception.tool_name}' requiere confirmación:[/bold yellow] {exception.message}")
+                    tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+                    executor.shutdown(wait=False)
+                    # Guardar historial antes de retornar para confirmación
+                    state.messages.extend(tool_messages) # Asegurar que los mensajes se añadan al estado antes de guardar
+                    llm_service._save_history(state.messages)
+                    return state
+                elif isinstance(exception, InterruptedError):
+                    terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
+                    state.reset_temporary_state()
+                    executor.shutdown(wait=False)
+                    # No guardamos historial aquí necesariamente, o sí? 
+                    # Si se interrumpió, quizás no queramos guardar el progreso parcial.
+                    # Pero si hubo otras herramientas exitosas en paralelo...
+                    # Por seguridad, guardamos lo que haya en state.messages hasta ahora.
+                    llm_service._save_history(state.messages)
+                    return state
+                else:
+                    tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
             else:
                 tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-        else:
-            tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-            # Lógica para confirmación si es execute_command
-            tool_name = next(tc['name'] for tc in last_message.tool_calls if tc['id'] == tool_id)
-            tool_args = next(tc['args'] for tc in last_message.tool_calls if tc['id'] == tool_id)
-            if tool_name == "execute_command":
-                state.command_to_confirm = tool_args['command']
-                state.tool_call_id_to_confirm = tool_id
-            else:
-                # Lógica para herramientas que requieren confirmación
-                try:
-                    json_output = json.loads(content)
-                    should_confirm = False
-                    confirmation_data = None
-                    if isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output):
-                        for item in json_output:
-                            if item.get("status") == "requires_confirmation":
+                # Lógica para confirmación si es execute_command
+                tool_name = next(tc['name'] for tc in last_message.tool_calls if tc['id'] == tool_id)
+                tool_args = next(tc['args'] for tc in last_message.tool_calls if tc['id'] == tool_id)
+                if tool_name == "execute_command":
+                    state.command_to_confirm = tool_args['command']
+                    state.tool_call_id_to_confirm = tool_id
+                else:
+                    # Lógica para herramientas que requieren confirmación
+                    try:
+                        json_output = json.loads(content)
+                        should_confirm = False
+                        confirmation_data = None
+                        if isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output):
+                            for item in json_output:
+                                if item.get("status") == "requires_confirmation":
+                                    should_confirm = True
+                                    confirmation_data = item
+                                    break
+                        elif isinstance(json_output, dict):
+                            if json_output.get("status") == "requires_confirmation":
                                 should_confirm = True
-                                confirmation_data = item
-                                break
-                    elif isinstance(json_output, dict):
-                        if json_output.get("status") == "requires_confirmation":
-                            should_confirm = True
-                            confirmation_data = json_output
-                    if should_confirm and confirmation_data:
-                        state.file_update_diff_pending_confirmation = confirmation_data
-                        state.tool_pending_confirmation = tool_name
-                        state.tool_args_pending_confirmation = tool_args
-                        state.tool_call_id_to_confirm = tool_id
-                        executor.shutdown(wait=False)
-                        # Guardar historial antes de retornar para confirmación
-                        # Nota: tool_messages aún no se ha añadido a state.messages en el código original aquí
-                        # Debemos añadirlos si queremos persistirlos.
-                        # El código original hace state.messages.extend(tool_messages) AL FINAL.
-                        # Aquí estamos retornando temprano.
-                        state.messages.extend(tool_messages)
-                        llm_service._save_history(state.messages)
-                        return state
-                except json.JSONDecodeError:
-                    pass
+                                confirmation_data = json_output
+                        if should_confirm and confirmation_data:
+                            state.file_update_diff_pending_confirmation = confirmation_data
+                            state.tool_pending_confirmation = tool_name
+                            state.tool_args_pending_confirmation = tool_args
+                            state.tool_call_id_to_confirm = tool_id
+                            executor.shutdown(wait=False)
+                            # Guardar historial antes de retornar para confirmación
+                            # Nota: tool_messages aún no se ha añadido a state.messages en el código original aquí
+                            # Debemos añadirlos si queremos persistirlos.
+                            # El código original hace state.messages.extend(tool_messages) AL FINAL.
+                            # Aquí estamos retornando temprano.
+                            state.messages.extend(tool_messages)
+                            llm_service._save_history(state.messages)
+                            return state
+                    except json.JSONDecodeError:
+                        pass
 
-    executor.shutdown(wait=True)
-    state.messages.extend(tool_messages)
-    
-    # Guardar historial explícitamente al finalizar la ejecución de herramientas
-    llm_service._save_history(state.messages)
+        executor.shutdown(wait=True)
+        state.messages.extend(tool_messages)
+        
+        # Guardar historial explícitamente al finalizar la ejecución de herramientas
+        llm_service._save_history(state.messages)
+
+    finally:
+        if kh:
+            kh.stop()
 
     return state
 

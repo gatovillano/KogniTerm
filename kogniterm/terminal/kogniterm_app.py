@@ -345,10 +345,13 @@ class KogniTermApp:
         kb_esc = KeyBindings()
         @kb_esc.add('escape', eager=True)
         def _(event):
-            # Enviar una señal de interrupción a la cola
+            # Enviar una señal de interrupción a la cola y establecer bandera de parada
             self.terminal_ui.get_interrupt_queue().put_nowait(True)
-            # No cerramos la app, solo cancelamos el prompt actual si es necesario
-            # o dejamos que el usuario vea que se interrumpió.
+            self.llm_service.stop_generation_flag = True
+            # Limpiar el buffer del prompt
+            event.app.current_buffer.text = ""
+            event.app.current_buffer.cursor_position = 0
+            # Salir del prompt actual para que el bucle principal procese la interrupción
             event.app.exit() 
 
         # Combinar los KeyBindings (eliminamos kb_enter que causaba conflictos)

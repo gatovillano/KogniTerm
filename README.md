@@ -162,3 +162,17 @@ Explora la documentación detallada para entender a fondo KogniTerm:
 
 ---
 *Desarrollado por Gatovillano*
+
+---
+
+## 💙 Apoya el Proyecto
+
+Si encuentras útil este proyecto, considera hacer una donación para apoyar su desarrollo continuo. Cada contribución ayuda a mantener el proyecto activo y a agregar nuevas características.
+
+[![Donar con PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate?hosted_button_id=TU_ID_DE_BOTÓN)
+
+O también puedes apoyar a través de:
+- [GitHub Sponsors](https://github.com/sponsors/tu-usuario)
+- [Patreon](https://www.patreon.com/tu-usuario)
+
+¡Gracias por tu apoyo! 🙌

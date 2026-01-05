@@ -1,9 +1,9 @@
 [project]
 name = "kogniterm"
-version = "0.1.0"
-description = "Un asistente de IA experto en terminal."
+version = "0.1.2"
+description = "KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀"
 authors = [
-    { name = "Gato Villano", email = "gato@example.com" } # Puedes cambiar esto
+    { name = "Gato Villano", email = "gato@example.com" }
 ]
 dependencies = [
     "python-dotenv",
@@ -13,7 +13,7 @@ dependencies = [
     "prompt_toolkit",
     "langchain_mcp_adapters",
     "langchain_community",
-    "bs4",
+    "beautifulsoup4",
     "PyGithub",
     "rich",
     "matplotlib",
@@ -29,16 +29,41 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "chromadb",
-    "urllib3<2", # Añadido si lo usas para la UI
-    "radon",
-    "pylint",
+    "urllib3<2",
     "pyautogui",
     "pywinctl",
     "langchain-litellm",
     "nest_asyncio",
+    "tiktoken",
+    "requests",
+    "crewai",
 ]
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["terminal", "ai", "agent", "assistant", "llm", "automation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+]
+
+[project.optional-dependencies]
+dev = [
+    "radon",
+    "pylint",
+    "pytest",
+    "build",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/gatovillano/KogniTerm"
+Repository = "https://github.com/gatovillano/KogniTerm"
+Issues = "https://github.com/gatovillano/KogniTerm/issues"
 
 [project.scripts]
 kogniterm = "kogniterm.terminal.terminal:main"
@@ -47,6 +72,8 @@ kogniterm = "kogniterm.terminal.terminal:main"
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["kogniterm*"]
+[tool.setuptools]
+packages = ["kogniterm", "kogniterm.core", "kogniterm.terminal", "kogniterm.utils"]
+
+[tool.setuptools.package-data]
+kogniterm = ["*.txt", "*.json", "*.md"]
