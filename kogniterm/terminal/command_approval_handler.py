@@ -68,6 +68,56 @@ class CommandApprovalHandler:
         
         self.diff_renderer = DiffRenderer(theme_colors=theme_colors)
 
+    def _is_command_safe(self, command: str) -> bool:
+        """
+        Determina si un comando es seguro para ejecución automática.
+        Los comandos seguros son generalmente de solo lectura y no contienen redirecciones de escritura.
+        """
+        if not command:
+            return False
+
+        # Lista de comandos considerados seguros (solo lectura / informativos)
+        SAFE_COMMANDS = {
+            'ls', 'pwd', 'cat', 'grep', 'egrep', 'fgrep', 'find', 'locate', 
+            'whoami', 'date', 'head', 'tail', 'wc', 'diff', 'cd', 'tree', 
+            'history', 'ps', 'top', 'htop', 'man', 'help', 'which', 'type',
+            'echo', 'printf', 'stat', 'du', 'df', 'free', 'uname', 'hostname',
+            'uptime', 'jobs', 'bg', 'fg', 'clear'
+        }
+
+        # Verificar redirecciones de salida que podrían sobrescribir archivos
+        if '>' in command:
+            return False
+        
+        # Simplificación: dividir por operadores comunes de encadenamiento
+        # Esto no es un parser completo de bash, pero cubre casos comunes
+        parts = command.replace('|', ';').replace('&&', ';').split(';')
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            
+            # Obtener el primer token (el comando en sí)
+            tokens = part.split()
+            if not tokens:
+                continue
+                
+            cmd = tokens[0]
+            
+            # Manejar asignaciones de variables al inicio (ej: VAR=val cmd)
+            # Si el comando contiene =, asumimos que es una asignación y miramos el siguiente token si existe
+            if '=' in cmd and len(tokens) > 1:
+                 cmd = tokens[1]
+            elif '=' in cmd:
+                 # Solo asignación, seguro
+                 continue
+
+            if cmd not in SAFE_COMMANDS:
+                return False
+                
+        return True
+
     async def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
                                  tool_name: Optional[str] = None, raw_tool_output: Optional[str] = None,
@@ -235,6 +285,13 @@ class CommandApprovalHandler:
 
         # 4. Solicitar aprobación al usuario
         run_action = False
+        
+        # Verificar si el comando es seguro para auto-aprobación
+        if not auto_approve and command_to_execute and not is_plan_confirmation and not is_file_update_confirmation and not is_user_confirmation:
+            if self._is_command_safe(command_to_execute):
+                auto_approve = True
+                self.terminal_ui.print_message(f"Comando '{command_to_execute}' considerado seguro. Auto-aprobando.", style="green")
+
         if auto_approve:
             run_action = True
             self.terminal_ui.print_message("Acción auto-aprobada.", style="yellow")

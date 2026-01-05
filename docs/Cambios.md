@@ -1073,6 +1073,7 @@ Esta actualización posiciona a la `ResearcherCrew` como una de las unidades de 
 #### **🔧 Archivo Modificado**: `kogniterm/core/tools/call_agent_tool.py`
 
 **Cambios Realizados**:
+
 - Se añadió el campo `approval_handler: Any = None` a la clase.
 - Se actualizó el método `__init__` para aceptar y asignar `approval_handler`.
 - **Beneficio**: Restaura la compatibilidad con el orquestador principal de la aplicación y permite que `kogniterm` inicie correctamente.
@@ -1088,6 +1089,56 @@ Esta actualización posiciona a la `ResearcherCrew` como una de las unidades de 
 #### **🔧 Archivo Modificado**: `kogniterm/core/tools/think_tool.py`
 
 **Cambios Realizados**:
+
 - Se añadió soporte para `terminal_ui` en el constructor de la clase.
 - Se implementó el método `_run` para utilizar `terminal_ui.print_stream`.
 - **Beneficio**: El pensamiento del agente ahora se muestra con un efecto de streaming (máquina de escribir) en la terminal, lo que hace que el proceso de razonamiento sea transparente y dinámico para el usuario.
+
+---
+
+## 05-01-2026 Creación del Manual Técnico y Filosófico
+
+**Descripción**: Se ha creado un documento exhaustivo que detalla la filosofía, arquitectura, características técnicas y módulos de KogniTerm, sirviendo como referencia central para usuarios y desarrolladores.
+
+### Archivos Creados
+
+#### **📄 `docs/KogniTerm_Manual_Tecnico.md`**
+
+- **Filosofía**: Explica los pilares de Especialización, Universalidad y Transparencia.
+- **Arquitectura**: Detalla el sistema multi-agente, el motor de parseo universal y el sistema RAG local.
+- **Funciones**: Lista y describe una a una todas las herramientas (`tools`), comandos mágicos (`%`) y comandos CLI.
+- **Estructura**: Desglosa la organización del código en `core`, `terminal` y `utils`.
+
+### **🎯 Beneficios**
+
+✅ **Centralización del Conocimiento**: Unifica información dispersa en un solo documento coherente.
+✅ **Onboarding**: Facilita la comprensión profunda del sistema para nuevos usuarios y contribuidores.
+✅ **Referencia Técnica**: Provee una guía rápida sobre las capacidades y componentes internos del sistema.
+
+---
+
+## 05-01-2026 Auto-aprobación de Comandos Inofensivos
+
+**Descripción**: Se ha implementado una mejora en el sistema de aprobación de comandos para permitir la ejecución automática de comandos considerados "inofensivos" (lectura/información), agilizando el flujo de trabajo sin comprometer la seguridad.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/command_approval_handler.py`
+
+**Método Añadido**: `_is_command_safe(self, command: str) -> bool`
+
+- Verifica si un comando está en una lista blanca de comandos seguros (ej: `ls`, `cat`, `grep`, `pwd`, etc.).
+- Comprueba que no existan redirecciones de salida (`>`) que puedan sobrescribir archivos.
+- Analiza comandos encadenados (`|`, `&&`, `;`) para asegurar que todas las partes sean seguras.
+
+**Lógica Actualizada en**: `handle_command_approval`
+
+- Antes de solicitar confirmación al usuario, se evalúa el comando con `_is_command_safe`.
+- Si el comando es seguro, se establece `auto_approve = True` automáticamente.
+- Se informa al usuario que el comando ha sido auto-aprobado por ser seguro.
+
+### **🎯 Beneficios**
+
+✅ **Mayor Fluidez**: Elimina interrupciones innecesarias para comandos triviales como listar directorios o leer archivos.
+✅ **Seguridad Mantenida**: Los comandos que modifican el sistema o archivos (ej: `rm`, `mv`, `cp`, `nano`) siguen requiriendo confirmación explícita.
+✅ **Transparencia**: El usuario es notificado cuando una acción se auto-aprueba.
