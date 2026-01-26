@@ -49,9 +49,14 @@ class GitHubTool(BaseTool):
     def _get_github_instance(self, github_token: Optional[str]) -> Github:
         if github_token is None:
             github_token = os.getenv("GITHUB_TOKEN")
-            if not github_token:
-                raise ValueError("La variable de entorno 'GITHUB_TOKEN' no está configurada y no se proporcionó un token.")
-        return Github(github_token)
+        try:
+            if github_token:
+                return Github(github_token)
+            else:
+                # Intentar crear una instancia sin autenticación para repositorios públicos
+                return Github()
+        except GithubException as e:
+            raise ValueError(f"Error al crear la instancia de GitHub: {e}")
 
     def _get_repo(self, g: Github, repo_name: str):
         try:

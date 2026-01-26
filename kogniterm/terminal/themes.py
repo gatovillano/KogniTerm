@@ -279,6 +279,7 @@ class ColorPalette:
     
     # Inicializar con el tema por defecto
     _current_theme = _THEMES["default"]
+    CURRENT_THEME = "default"
 
     # Colores primarios
     PRIMARY_LIGHTEST = _current_theme["PRIMARY_LIGHTEST"]
@@ -334,6 +335,7 @@ class ColorPalette:
         
         theme = _THEMES[theme_name]
         cls._current_theme = theme
+        cls.CURRENT_THEME = theme_name
         
         # Actualizar atributos de la clase
         for key, value in theme.items():

@@ -1,46 +1,39 @@
-import os
+import sys
 import queue
-import json # Importar json
+import json
+from rich.console import Console, Group
+from rich.status import Status
+from rich.panel import Panel
+from rich.padding import Padding
+from rich.markdown import Markdown
+from rich.syntax import Syntax
+from rich.text import Text
+from rich.align import Align
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
-from kogniterm.core.llm_service import LLMService
-from kogniterm.core.command_executor import CommandExecutor
-from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from rich.console import Console, Group # Importar Group
-from rich.markdown import Markdown
-from rich.padding import Padding
-from rich.panel import Panel
-from rich.text import Text # Importar Text
-from rich.syntax import Syntax # Importar Syntax
-from rich.status import Status
-from rich.align import Align
 
-# Importar módulos de temas y componentes visuales
-from .themes import ColorPalette, Icons, Gradients, TextStyles, get_kogniterm_theme
+from .themes import ColorPalette, Icons, Gradients
 from .visual_components import (
-    create_gradient_text,
+    create_status_message, 
+    create_thought_bubble, 
+    create_success_box, 
+    create_error_box, 
+    create_warning_box, 
     create_welcome_banner,
-    create_info_panel,
-    create_success_box,
-    create_error_box,
-    create_warning_box,
-    create_status_message,
-    create_thought_bubble,
-    create_separator,
     get_random_motivational_message,
-    format_command,
-    format_file_path
+    get_kogniterm_theme
 )
-
-"""
-This module contains the TerminalUI class, responsible for handling all user interface
-related interactions in the KogniTerm application.
-"""
 
 class TerminalUI:
     def __init__(self, console: Console | None = None):
-        self.console = console if console else Console(theme=get_kogniterm_theme())
+        self.is_tty = not sys.stdout.isatty() # Detect if it's a dumb terminal
+        
+        if self.is_tty:
+            # For dumb terminals, force no color and no terminal features for rich
+            self.console = console if console else Console(theme=get_kogniterm_theme(), force_terminal=False, no_color=True)
+        else:
+            self.console = console if console else Console(theme=get_kogniterm_theme())
+            
         self.interrupt_queue = queue.Queue()
         self.kb = KeyBindings()
         # Configurar escape_delay=0 para que la tecla Esc se detecte instantáneamente
@@ -102,7 +95,10 @@ class TerminalUI:
 
             run_update = False
             while True:
-                approval_input = await self.prompt_session.prompt_async("¿Deseas aplicar estos cambios? (s/n): ")
+                if self.is_tty:
+                    approval_input = input("¿Deseas aplicar estos cambios? (s/n): ")
+                else:
+                    approval_input = await self.prompt_session.prompt_async("¿Deseas aplicar estos cambios? (s/n): ")
 
                 if approval_input is None:
                     approval_input = "n"

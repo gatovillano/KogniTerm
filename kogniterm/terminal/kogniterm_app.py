@@ -593,82 +593,69 @@ class KogniTermApp:
                 user_human_message = HumanMessage(content=enhanced_user_input)
                 self.agent_state.messages.append(user_human_message)
 
-                final_state_dict = self.agent_interaction_manager.invoke_agent(enhanced_user_input)
+                agent_query = enhanced_user_input
                 
-                # Actualizar el estado del agente con lo que devuelve el manager
-                self.agent_state.messages = final_state_dict.get('messages', self.agent_state.messages)
-                self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
-                self.agent_state.tool_call_id_to_confirm = final_state_dict.get('tool_call_id_to_confirm') # <<--- FIX: Propagar el ID del tool call
-
-                # --- NUEVA LÓGICA PARA MANEJAR CONFIRMACIONES PENDIENTES ---
-                if self.agent_state.file_update_diff_pending_confirmation:
-                    confirmation_message = self.agent_state.file_update_diff_pending_confirmation.get("action_description", "Se requiere confirmación para una operación de archivo.")
-                    self.terminal_ui.print_message(f"Se requiere confirmación para: {confirmation_message}", style="yellow")
+                # --- BUCLE DE TRABAJO DEL AGENTE ---
+                # Este bucle permite que el agente realice múltiples acciones encadenadas
+                # y maneje múltiples confirmaciones antes de volver a pedir input al usuario.
+                while True:
+                    final_state_dict = self.agent_interaction_manager.invoke_agent(agent_query)
                     
-                    tool_name_to_confirm = self.agent_state.tool_pending_confirmation
-                    tool_args_to_confirm = self.agent_state.tool_args_pending_confirmation
-                    raw_tool_output_dict = self.agent_state.file_update_diff_pending_confirmation
+                    # Actualizar el estado del agente con lo que devuelve el manager
+                    self.agent_state.messages = final_state_dict.get('messages', self.agent_state.messages)
+                    self.agent_state.command_to_confirm = final_state_dict.get('command_to_confirm')
+                    self.agent_state.tool_call_id_to_confirm = final_state_dict.get('tool_call_id_to_confirm')
+                    self.agent_state.file_update_diff_pending_confirmation = final_state_dict.get('file_update_diff_pending_confirmation')
+                    self.agent_state.tool_pending_confirmation = final_state_dict.get('tool_pending_confirmation')
+                    self.agent_state.tool_args_pending_confirmation = final_state_dict.get('tool_args_pending_confirmation')
 
-                    approval_result = await self.command_approval_handler.handle_command_approval(
-                        command_to_execute=f"confirm_action('{confirmation_message}')", # Comando dummy
-                        auto_approve=self.auto_approve,
-                        is_user_confirmation=False,
-                        is_file_update_confirmation=True,
-                        confirmation_prompt=confirmation_message,
-                        tool_name=tool_name_to_confirm,
-                        raw_tool_output=raw_tool_output_dict,
-                        original_tool_args=tool_args_to_confirm
-                    )
-
-                    tool_message_content = approval_result['tool_message_content']
-                    action_approved = approval_result['approved']
-
-                    tool_message_for_agent = ToolMessage(
-                        content=tool_message_content,
-                        tool_call_id=f"confirmation_response_{os.urandom(8).hex()}"
-                    )
-                    self.agent_state.messages.append(tool_message_for_agent)
-                    self.llm_service.conversation_history.append(tool_message_for_agent)
-
-                    if action_approved:
-                        self.terminal_ui.print_message("Acción aprobada por el usuario. El agente procesará la respuesta.", style="green")
-                        self.terminal_ui.print_message("El agente continuará su flujo...", style="cyan")
-                        self.agent_state.messages.append(HumanMessage(content="La herramienta anterior se ejecutó con éxito. Por favor, continúa con la tarea."))
-                        final_state_after_reinvocation = self.agent_interaction_manager.invoke_agent("Procesa la salida de la herramienta que acaba de ser añadida al historial.")
+                    # 1. Manejar confirmaciones de archivos/planes
+                    if self.agent_state.file_update_diff_pending_confirmation:
+                        raw_tool_output_dict = self.agent_state.file_update_diff_pending_confirmation
+                        confirmation_message = raw_tool_output_dict.get("action_description", "Se requiere confirmación.")
                         
-                        self.agent_state.reset_tool_confirmation()
-                        self.agent_state.tool_call_id_to_confirm = None
-                    else:
-                        self.terminal_ui.print_message("Acción denegada por el usuario. El agente procesará la respuesta.", style="yellow")
-                    
-                    self.agent_state.reset_tool_confirmation()
-                    self.agent_state.tool_call_id_to_confirm = None
-                    continue # Reiniciar el bucle principal para que el agente procese el nuevo estado.
-                # --- FIN DE LA NUEVA LÓGICA ---
+                        approval_result = await self.command_approval_handler.handle_command_approval(
+                            command_to_execute=f"confirm_action('{confirmation_message}')",
+                            auto_approve=self.auto_approve,
+                            is_user_confirmation=False,
+                            is_file_update_confirmation=True,
+                            confirmation_prompt=confirmation_message,
+                            tool_name=self.agent_state.tool_pending_confirmation,
+                            raw_tool_output=raw_tool_output_dict,
+                            original_tool_args=self.agent_state.tool_args_pending_confirmation
+                        )
 
-                if self.agent_state.command_to_confirm:
-                    command_to_execute = self.agent_state.command_to_confirm
-                    self.agent_state.command_to_confirm = None # Limpiar después de usar
+                        if approval_result['approved']:
+                            self.terminal_ui.print_message("Acción aprobada. Continuando...", style="green")
+                            agent_query = None # Continuar desde el historial (ToolMessage ya añadido por handler)
+                            self.agent_state.reset_tool_confirmation()
+                            continue
+                        else:
+                            self.terminal_ui.print_message("Acción denegada.", style="yellow")
+                            self.agent_state.reset_tool_confirmation()
+                            break # Volver al input del usuario tras denegación
 
+                    # 2. Manejar confirmaciones de comandos bash
+                    if self.agent_state.command_to_confirm:
+                        command_to_execute = self.agent_state.command_to_confirm
+                        self.agent_state.command_to_confirm = None # Limpiar
+                        
+                        approval_result = await self.command_approval_handler.handle_command_approval(
+                            command_to_execute, self.auto_approve
+                        )
+                        
+                        if approval_result['approved']:
+                            self.terminal_ui.print_message("Procesando salida del comando...", style="cyan", status="info")
+                            agent_query = None # Continuar desde el historial
+                            continue
+                        else:
+                            self.terminal_ui.print_message("Comando no ejecutado.", style="yellow")
+                            break # Volver al input del usuario
 
-                    approval_result = await self.command_approval_handler.handle_command_approval(command_to_execute, self.auto_approve)
-                    
-                    # El ToolMessage ya fue añadido por CommandApprovalHandler al historial
-                    # No es necesario sobrescribir agent_state.messages aquí
-                    tool_message_content = approval_result['tool_message_content']
-
-                    # Re-invocar al agente para procesar la salida de la herramienta
-                    self.terminal_ui.print_message("Procesando salida del comando...", style="cyan", status="info")
-                    
-                    # Asegurar que tool_call_id_to_confirm siempre tenga un valor
-                    if self.agent_state.tool_call_id_to_confirm is None:
-                        self.agent_state.tool_call_id_to_confirm = f"manual_tool_call_{os.urandom(8).hex()}"
-                        self.terminal_ui.print_message(f"Advertencia: tool_call_id_to_confirm era None. Generando ID temporal: {self.agent_state.tool_call_id_to_confirm}", style="yellow")
-
-                    # El ToolMessage ya fue añadido por CommandApprovalHandler, no es necesario añadirlo de nuevo.
-                    # Invocar al agente para que procese el ToolMessage que está en el historial
-                    self.agent_interaction_manager.invoke_agent(None) # Invocar al agente sin un HumanMessage adicional
-                    self.agent_state.tool_call_id_to_confirm = None # Limpiar el tool_call_id después de usarlo
+                    # Si llegamos aquí, no hay más confirmaciones pendientes para esta ronda
+                    break
+                
+                # --- FIN DEL BUCLE DE TRABAJO ---
 
                 # Manejo de la salida de PythonTool
                 final_response_message = self.agent_state.messages[-1]

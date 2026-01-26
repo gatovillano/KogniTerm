@@ -141,6 +141,8 @@ Esta mejora hace que KogniTerm sea mucho más compatible con una gama amplia de 
 - **Mejora de contexto**: Se añadió una línea al inicio del mensaje de contexto del espacio de trabajo indicando el "Directorio de trabajo actual".
 - **Modificación en WorkspaceContext**: Se actualizó el método `initialize_context` en `kogniterm/core/context/workspace_context.py` para incluir `self.root_dir` en las partes del contexto.
 
+---
+
 ## 23-12-2025 Validación y Expansión del Sistema de Parseo Universal
 
 **Descripción**: Se completó la validación exhaustiva del sistema de parseo universal y se expandió con soporte adicional para llamadas de funciones Python específicas, incluyendo el formato `call_agent()` requerido para invocar agentes especializados.
@@ -783,7 +785,7 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 ### **🎯 Beneficios**
 
 ✅ **Respuesta más rápida**: Menor tiempo de procesamiento del historial antes de enviar la solicitud al LLM.  
-✅ **Búsquedas instantáneas**: La generación de embeddings por lotes reduce drásticamente el tiempo de espera en búsquedas de código.  
+✅ **Búsquedas instantáneas**: La generación de embeddings por lotes reduce drásticamente el tiempo de espera en buscas de código.  
 ✅ **Eficiencia de Disco**: Archivos de historial más compactos y rápidos de procesar.  
 ✅ **Escalabilidad**: El sistema maneja ahora mucho mejor historiales extensos y grandes volúmenes de datos para indexar.
 
@@ -799,346 +801,178 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 
 **Métodos Actualizados**:
 
-- `execute_tool_node`
-- `execute_single_tool`
-- `should_continue`
+- `invoke_agent(...)`
+- `_run(...)`
 
 #### **📋 Cambios Específicos**
 
-1. **Manejo Correcto de Interrupciones en `execute_tool_node`**:
-    - Antes: Si la cola de interrupción no estaba vacía, se retornaba el estado actual sin cambios, lo que causaba que `should_continue` reenviara al agente al mismo nodo, creando un bucle.
-    - Ahora: Si se detecta una interrupción, se vacía la cola, se cancelan los futuros pendientes y se generan mensajes de `ToolMessage` con contenido "Ejecución cancelada por el usuario" para todas las herramientas afectadas. Esto permite que el flujo continúe hacia el modelo con la información de cancelación.
+1. **Detección de Interrupción Mejorada**:
+    - Se añadió `if interrupt_queue and not interrupt_queue.empty(): break` dentro del bucle de reintentos.
+    - **Beneficio**: Permite salir inmediatamente del bucle si el usuario presiona ESC o solicita detener la generación.
 
-2. **Manejo Explícito de `InterruptedError` en `execute_single_tool`**:
-    - Se añadió un bloque `except InterruptedError` específico.
-    - Ahora devuelve un mensaje claro "Ejecución interrumpida por el usuario" y el objeto de excepción correcto, en lugar de un error genérico.
+2. **Manejo de `InterruptedError`**:
+    - Se añadió un bloque `except InterruptedError` para capturar la interrupción lanzada desde dentro de la ejecución del agente.
+    - Se genera un mensaje claro para el usuario indicando la cancelación.
+    - Se retorna un `HumanMessage` al sistema principal para que el flujo se detenga correctamente.
+    - **Beneficio**: Evita que el agente intente continuar después de ser interrumpido y mejora la comunicación con el usuario.
 
-3. **Diagnóstico de Parada en `should_continue`**:
-    - Se añadió un panel de diagnóstico visual que se muestra cuando el agente decide detenerse (`END`). Esto ayuda a identificar si la parada se debe a una respuesta del modelo sin tool calls o a otra razón.
+3. **Reset de banderas de interrupción**:
+    - Se asegura que las banderas de parada (`llm_service.stop_generation_flag`) se reseteen correctamente después de manejar una interrupción.
 
 #### **🎯 Beneficios de la Mejora**
 
-✅ **Prevención de Bucles Infinitos**: El agente ahora responde correctamente a la solicitud de interrupción del usuario.
-✅ **Feedback Claro**: El usuario y el LLM reciben confirmación explícita de que la acción fue cancelada.
-✅ **Mejor Diagnóstico**: Los logs visuales facilitan la depuración de paradas inesperadas del agente.
-
-#### **🔍 Problemas Resueltos**
-
-- **Agente "atascado" tras interrupción**: Se evita el comportamiento de reintento infinito.
-- **Paradas "misteriosas"**: Se visibiliza la razón por la cual el agente decide terminar su ejecución.
+✅ **Respuesta Inmediata**: El sistema responde instantáneamente a la tecla ESC para detener la investigación.
+✅ **Estabilidad**: Se elimina el riesgo de bucles infinitos durante interrupciones.
+✅ **Feedback Claro**: El usuario sabe exactamente por qué se detuvo el proceso.
+✅ **Flujo Predecible**: Mejora la coordinación entre el `BashAgent` y los agentes secundarios.
 
 ---
 
-## 28-12-2025 Implementación de Sistema de Multisesiones
+## 11-01-2026 Mejora en la Estética de la Terminal y Autocompletado de Archivos
 
-**Descripción**: Se ha implementado un sistema completo de gestión de sesiones que permite guardar, cargar, listar y eliminar historiales de conversación, accesible mediante el nuevo metacomando `%session`.
+**Descripción**: Se ha renovado la interfaz visual de KogniTerm y se ha implementado un sistema de autocompletado de archivos en segundo plano, mejorando significativamente la experiencia del usuario y la velocidad de respuesta.
 
 ### Cambios Implementados
 
-#### **🔧 Archivos Modificados**
+#### **🔧 Nuevo Archivo**: `kogniterm/terminal/themes.py`
 
-- `kogniterm/core/session_manager.py` (Nuevo)
-- `kogniterm/terminal/kogniterm_app.py`
-- `kogniterm/terminal/meta_command_processor.py`
+- Se creó un sistema de temas para centralizar colores e íconos.
+- **Paleta de Colores**: Definición de colores ANSI y Hexadecimales para un look moderno (Cyberpunk/Dark).
+- **Iconografía**: Set de íconos personalizados para diferentes tipos de mensajes (IA, Usuario, Éxito, Error, etc.).
 
-#### **📋 Funcionalidades Agregadas**
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/terminal_ui.py`
 
-1. **Gestor de Sesiones (`SessionManager`)**:
-    - Clase dedicada para manejar la persistencia de sesiones en `.kogniterm/sessions/`.
-    - Soporte para guardar y cargar historiales completos en formato JSON.
-
-2. **Metacomando `%session`**:
-    - **`%session list`**: Muestra una tabla con todas las sesiones guardadas, fecha de modificación y cantidad de mensajes.
-    - **`%session save <nombre>`**: Guarda el estado actual de la conversación.
-    - **`%session load <nombre>`**: Carga una sesión previa y restaura el contexto.
-    - **`%session new [nombre]`**: Inicia una nueva sesión limpia (opcionalmente guardándola de inmediato).
-    - **`%session delete <nombre>`**: Elimina una sesión guardada.
-
-3. **Integración en `KogniTermApp`**:
-    - Inicialización automática del gestor de sesiones.
-    - Integración fluida con el procesador de metacomandos existente.
-
-### **🎯 Beneficios**
-
-✅ **Gestión de Contexto**: Permite cambiar entre diferentes tareas o hilos de investigación sin perder el progreso.
-✅ **Persistencia**: Los usuarios pueden guardar estados importantes y retomarlos después.
-✅ **Organización**: Facilita mantener el trabajo organizado en sesiones lógicas.
-
----
-
-## 28-12-2025 Actualización de Ayuda para Gestión de Sesiones
-
-**Descripción**: Se ha mejorado la experiencia de usuario en el menú de ayuda (`%help`) para el comando `%session`. Ahora muestra una guía detallada de uso y subcomandos en lugar de ejecutar una acción por defecto.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/meta_command_processor.py`
-
-**Mejora en Menú de Ayuda**:
-
-- Al seleccionar `%session` desde el menú interactivo `%help`, ahora se imprime una guía formateada con:
-  - Lista de subcomandos disponibles (`list`, `save`, `load`, `new`, `delete`).
-  - Descripción breve de cada subcomando.
-  - Ejemplos de uso.
-
-### **🎯 Beneficios**
-
-✅ **Mejor UX**: Facilita el aprendizaje de los nuevos comandos de sesión sin tener que adivinar la sintaxis.
-✅ **Documentación Integrada**: La ayuda está disponible justo donde el usuario la necesita
----
-
-## 28-12-2025 Mejora en la Detección y Prevención de Bucles del LLM
-
-**Descripción general:**
-Se implementaron mejoras significativas en KogniTerm para detectar y prevenir que el LLM entre en bucles repetitivos al ejecutar herramientas. La causa principal identificada fue la pérdida de contexto crítico (especialmente errores de herramientas) durante la resumirización del historial. Se abordó esto mejorando el prompt de resumen y añadiendo un detector de bucles explícito.
-
-- **Punto 1**: **Mejora en la resumirización del historial (`kogniterm/core/llm_service.py`)**:
-  - Se modificó el prompt de la función `summarize_conversation_history` para instruir al LLM a incluir explícitamente en el resumen cualquier error de herramienta encontrado, las razones de su fallo y las acciones intentadas para resolverlos. Esto asegura que el LLM retenga información crítica sobre fallos pasados, evitando que repita las mismas acciones.
-- **Punto 2**: **Implementación de un detector de bucles (`kogniterm/core/agent_state.py` y `kogniterm/core/agents/bash_agent.py`)**:
-  - Se añadió un atributo `tool_call_history` de tipo `deque` a la clase `AgentState` en `kogniterm/core/agent_state.py` para almacenar un historial de las últimas llamadas a herramientas (nombre y hash de argumentos).
-  - En `kogniterm/core/agents/bash_agent.py`:
-    - Se modificó la función `execute_tool_node` para registrar cada llamada a herramienta (nombre y hash de argumentos) en `state.tool_call_history` antes de su ejecución.
-    - Se implementó una lógica de detección de bucles en la función `call_model_node`. Esta lógica verifica si las últimas 3 llamadas a herramientas se han repetido al menos una vez en el historial reciente.
-    - Si se detecta un bucle, se inyecta un `SystemMessage` de advertencia al inicio del historial de mensajes que se envía al LLM, instruyéndole a analizar la situación y cambiar su estrategia para romper el bucle.
-
-Estos cambios combinados deberían reducir drásticamente la incidencia de bucles del LLM y mejorar la robustez general de KogniTerm.
-
----
-
-## 28-12-2025 Actualización del Título de la Terminal
-
-**Descripción general**: Se ha modificado la aplicación para que el título de la ventana de la terminal refleje dinámicamente el directorio de trabajo actual, mejorando la orientación del usuario.
-
-- **Punto 1**: Se actualizó `kogniterm/terminal/kogniterm_app.py` para inyectar la secuencia de escape ANSI `\033]0;Title\007` en el bucle principal de la aplicación.
-- **Punto 2**: El título ahora muestra "KogniTerm - [Ruta del Directorio Actual]", actualizándose cada vez que se renderiza el prompt.
-
----
-
-## 29-12-2025 Corrección de Estilo Rich y Autocompletado de Sesiones
-
-**Descripción**: Se corrigió un error de estilo en la biblioteca `rich` y se añadió autocompletado para los comandos de gestión de sesiones (`%session`).
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/meta_command_processor.py`
-
-- **Corrección de Estilo**: Se cambió el estilo `italic grey` a `italic dim` en el mensaje de ejemplo de `%session` para evitar el error `rich.errors.MissingStyle`.
+- **Banner de Bienvenida**: Rediseñado con un estilo retro-moderno y gradientes.
+- **Renderizado de Mensajes**: Mejora en el espaciado, bordes y estilos de los paneles de respuesta.
+- **Barra de Progreso**: Implementación de una barra de progreso mejorada para operaciones largas.
 
 #### **🔧 Archivo Modificado**: `kogniterm/terminal/kogniterm_app.py`
 
-- **Autocompletado de Sesiones**:
-  - Se añadió `%session` a la lista de `MAGIC_COMMANDS`.
-  - Se implementó la lógica de autocompletado para los subcomandos de `%session`: `list`, `save`, `load`, `new`, `delete`.
-  - Ahora el usuario recibe sugerencias tanto para el comando principal `%session` como para sus subcomandos.
+- **FileCompleter en Segundo Plano**: Se refactorizó el autocompletado para cargar la lista de archivos en un hilo secundario al inicio, evitando latencia al escribir.
+- **Barra Inferior Dinámica**: Nueva barra inferior estilizada que muestra el modelo actual y el estado de indexación.
+- **Estilos de Prompt**: Integración de los nuevos temas en el prompt de entrada.
 
-### **🎯 Beneficios**
+#### **🎯 Beneficios**
 
-✅ **Estabilidad**: Se eliminó el error que causaba el cierre inesperado de la aplicación al mostrar la ayuda de sesiones.
-✅ **Usabilidad**: El autocompletado facilita el uso de las funciones de gestión de sesiones, mejorando la experiencia del usuario.
-
----
-
-## 29-12-2025 Implementación de Herramientas de Análisis y Depuración
-
-**Descripción**: Se ha potenciado la herramienta `code_analysis_tool` para incluir capacidades de validación de código (linting) para Python y JavaScript, y se ha actualizado el sistema de agentes para utilizar estas nuevas capacidades.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/tools/code_analysis_tool.py`
-
-- **Soporte para Linting**: Se añadió el tipo de análisis `lint`.
-- **Integración de Herramientas**:
-  - **Python**: Integración con `pylint` para detectar errores y problemas de estilo.
-  - **JavaScript/TypeScript**: Integración con `eslint` para validación de código JS/TS.
-- **Manejo de Errores**: La herramienta verifica la existencia de `pylint` y `eslint` en el sistema y advierte si no están instalados.
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/agents/bash_agent.py`
-
-- **Actualización de Prompts**: Se actualizaron los mensajes del sistema y las definiciones de los agentes (`ResearcherAgent` y `CodeAgent`) para que conozcan y utilicen las nuevas capacidades de validación de código.
-
-### **🎯 Beneficios**
-
-✅ **Calidad de Código**: Permite a los agentes detectar y corregir errores de sintaxis y estilo antes de finalizar una tarea.
-✅ **Depuración Proactiva**: Facilita la identificación temprana de bugs mediante análisis estático.
-✅ **Soporte Multi-lenguaje**: Cobertura tanto para el backend (Python) como para el frontend (JavaScript/TypeScript).
+✅ **Look Premium**: Una interfaz visualmente atractiva que se siente como una herramienta moderna.
+✅ **Fluidez Total**: El autocompletado ya no bloquea la escritura gracias al procesamiento asíncrono.
+✅ **Feedback Visual**: Mejor visibilidad de lo que el agente está haciendo en cada momento.
 
 ---
 
-## 28-12-2025 Corrección de ImportError para `rich.Group` en ResearcherAgent
+## 13-01-2026 Refactorización del Sistema de Interrupción y Salida Conversacional
 
-**Descripción**: Se corrigió un `ImportError` causado por la importación incorrecta de la clase `Group` de la biblioteca `rich` en `kogniterm/core/agents/researcher_agent.py`.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/agents/researcher_agent.py`
-
-**Sección Actualizada**: Importaciones
-
-#### **📋 Cambios Específicos**
-
-1. **Importación de `Group`**:
-    - Se cambió la importación de `from rich import Group` a `from rich.console import Group`.
-    - **Beneficio**: Resuelve el error de ejecución que impedía la inicialización de KogniTerm.
-
----
-
-## 28-12-2025 Adición de Logging Detallado para Diagnóstico de LLM
-
-**Descripción**: Se añadió logging detallado en el método `invoke` de `kogniterm/core/llm_service.py` para diagnosticar problemas de comunicación con el LLM, especialmente cuando no se reciben respuestas.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/llm_service.py`
-
-**Método Actualizado**: `invoke`
-
-#### **📋 Cambios Específicos**
-
-1. **Logging antes y después de `litellm.completion`**:
-    - Se añadió `logger.debug` para mostrar los mensajes (`completion_kwargs['messages']`) y los argumentos (`completion_kwargs`) enviados al LLM justo antes de la llamada a `litellm.completion`.
-    - Se añadió `logger.debug` para confirmar que la llamada a `litellm.completion` fue exitosa y que se está procediendo a procesar los chunks.
-2. **Logging dentro del bucle de chunks**:
-    - Se añadió `logger.debug` para registrar cada `delta` recibido del LLM, incluyendo un mensaje si el `delta` está vacío.
-3. **Logging al construir el `AIMessage` final**:
-    - Se añadió `logger.debug` si `full_response_content` está vacío al finalizar la generación, lo que indica que el modelo no produjo contenido de texto.
-
-#### **🎯 Beneficios de la Mejora**
-
-✅ **Diagnóstico Mejorado**: Proporciona visibilidad sobre el flujo de comunicación con el LLM, permitiendo identificar dónde se interrumpe la respuesta.
-✅ **Depuración Eficiente**: Los logs detallados facilitan la identificación de la causa raíz de la falta de respuesta del LLM.
-
----
-
-## 30-12-2025 Evolución de ResearcherCrew: Sistema Jerárquico, Colaborativo y con Razonamiento Profundo
-
-**Descripción**: Se ha transformado la arquitectura de la `ResearcherCrew` de un flujo secuencial rígido a un sistema jerárquico y autónomo donde los agentes colaboran, conversan y razonan profundamente antes de actuar.
-
-### Cambios Implementados
+**Descripción generada**: Se ha corregido un error crítico donde el agente agradecía al usuario por interrumpirlo y se ha implementado un sistema de salida más limpio y conversacional. También se mejoró el manejo de la tecla ESC y la terminación de procesos.
 
 #### **🔧 Archivos Modificados**
 
-- `kogniterm/core/agents/researcher_crew.py`
-- `kogniterm/core/agents/specialized_agents.py`
-- `kogniterm/core/agents/research_agents.py`
-- `kogniterm/core/tools/tool_manager.py`
+- **`kogniterm/core/agents/bash_agent.py`**:
+  - Se modificó la lógica de interrupción para que lance un `InterruptedError` cuando la bandera `stop_generation_flag` está activa.
+  - Se añadió manejo de excepciones para `InterruptedError` que detiene el flujo del agente de inmediato sin generar respuestas de agradecimiento innecesarias.
 
-#### **📋 Nuevas Funcionalidades y Mejoras**
+- **`kogniterm/core/llm_service.py`**:
+  - Se optimizó el chequeo de la bandera de interrupción durante el streaming. Ahora el generador se detiene instantáneamente al detectar la señal.
 
-1. **Arquitectura de Liderazgo (ResearchDirector)**:
-   - Se introdujo el rol de **Director de Investigación Técnica** en `specialized_agents.py`.
-   - Este agente actúa como manager, orquestando la misión y decidiendo dinámicamente qué especialistas intervienen.
+- **`kogniterm/terminal/kogniterm_app.py`**:
+  - Se actualizó el manejador de la tecla ESC para que sea más robusto: limpia el buffer, envía la señal de interrupción y resetea el estado visual de la terminal.
+  - Se implementó el comando mágico `%salir` para una salida elegante y educada.
 
-2. **Proceso Jerárquico y Colaborativo**:
-   - Cambio de `Process.sequential` a `Process.hierarchical` en la Crew.
-   - Habilitación de `allow_delegation=True` en todos los agentes, permitiendo que "conversen" entre sí, se hagan preguntas y resuelvan discrepancias de forma autónoma.
+#### **🎯 Beneficios**
 
-3. **Sistema de Razonamiento (ThinkTool)**:
-   - Creación de `kogniterm/core/tools/think_tool.py`, una herramienta dedicada al pensamiento interno.
-   - Integración obligatoria de la `think_tool` en el flujo de todos los agentes (Paso 0 de la misión).
-   - Registro de la herramienta en el `ToolManager`.
-
-4. **Flujo de Datos Estructurado (JSON)**:
-   - Refactorización de los roles de **Sintetizador** y **Redactor** para un manejo riguroso de la información.
-   - El Sintetizador ahora genera "Mini-Investigaciones" estructuradas en JSON por cada especialista.
-   - El Redactor consume estos JSON para construir un informe final preciso y exhaustivo.
-
-5. **Dinamización de Tareas**:
-   - Las descripciones de las tareas ahora incluyen el `query` del usuario en tiempo de ejecución, eliminando la rigidez de las instrucciones estáticas.
-   - El **Planner** ahora actúa como un Arquitecto de Estrategia, redefiniendo el query original en objetivos técnicos profundos.
-
-#### **🎯 Beneficios de la Evolución**
-
-✅ **Autonomía Total**: La Crew ya no sigue una lista fija; el Director decide la mejor ruta según los hallazgos.  
-✅ **Calidad Técnica Superior**: El uso obligatorio de la `think_tool` asegura un análisis profundo antes de cualquier acción.  
-✅ **Colaboración Extrema**: Los agentes pueden pedirse contexto entre sí, imitando el comportamiento de un equipo de ingeniería real.  
-✅ **Rigor en la Información**: El traspaso de datos vía JSON estructurado minimiza la pérdida de detalles técnicos en el informe final.  
-✅ **Flexibilidad**: El sistema se adapta dinámicamente a la complejidad de cada consulta del usuario.
-
-#### **🔍 Correcciones Técnicas**
-
-- Solucionado error `NameError: name 'ResearchDirector' is not defined` mediante la importación correcta en `researcher_crew.py`.
-- Corrección de typos en las descripciones de las misiones colaborativas.
-- Actualización de constructores en agentes especializados para recibir el diccionario de herramientas.
-
-Esta actualización posiciona a la `ResearcherCrew` como una de las unidades de investigación más avanzadas y autónomas del ecosistema KogniTerm.
+✅ **Interrupción Real**: Al presionar ESC, el agente se detiene de verdad y al instante.
+✅ **Comportamiento Lógico**: El agente ya no "habla" después de ser interrumpido.
+✅ **UX Refinada**: Mejor flujo de entrada y salida del sistema.
 
 ---
 
-## 31-12-2025 Corrección de Error de Inicio (ValueError en CallAgentTool)
+## 26-01-2026 Corrección de IndentationError y Optimización del Ciclo de Vida
 
-**Descripción**: Se ha restaurado el campo `approval_handler` en la clase `CallAgentTool` para resolver un conflicto con `kogniterm_app.py` que impedía el arranque de la aplicación tras la reversión de cambios.
+**Descripción**: Se ha corregido un `IndentationError` crítico que impedía que KogniTerm iniciara, además de realizar una limpieza de código en el núcleo de la aplicación de terminal.
 
 ### Cambios Implementados
 
-#### **🔧 Archivo Modificado**: `kogniterm/core/tools/call_agent_tool.py`
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/kogniterm_app.py`
 
-**Cambios Realizados**:
+- **Corrección de Indentación**: Se movieron los siguientes métodos al nivel de clase correcto (estaban anidados incorrectamente dentro de `__init__`):
+  - `_get_bottom_toolbar()`
+  - `_update_indexing_progress()`
+  - `_process_file_tags()`
+  - `_process_docker_tags()`
+  - `_run_background_indexing()`
+  - `run()`
+- **Corrección de Sintaxis**: Se arregló un error en el escape de strings dentro de una f-string en la visualización de resultados de Python.
+  - *Antes*: `\"\"` (causaba problemas en f-strings complejas).
+  - *Después*: Uso de comillas simples `''` para el join dinámico.
 
-- Se añadió el campo `approval_handler: Any = None` a la clase.
-- Se actualizó el método `__init__` para aceptar y asignar `approval_handler`.
-- **Beneficio**: Restaura la compatibilidad con el orquestador principal de la aplicación y permite que `kogniterm` inicie correctamente.
+#### **🎯 Beneficios**
 
+✅ **Estabilidad**: La aplicación vuelve a ser funcional e inicia correctamente.
+✅ **Robustez**: Se eliminaron errores latentes en el renderizado de errores de Python.
+✅ **Mantenibilidad**: Estructura de clase más limpia y estándar
 ---
 
-## 31-12-2025 Implementación de Streaming en ThinkTool
+## 26-01-2026 Lanzamiento Versión 0.1.8 - Potenciando la Interacción con el PC
 
-**Descripción**: Se ha mejorado la herramienta `ThinkTool` para proporcionar feedback visual en tiempo real durante los procesos de razonamiento del agente.
+**Descripción**: Esta actualización introduce una nueva y potente herramienta genérica de interacción con el sistema operativo y optimiza la experiencia de inicio limpiando ruidos visuales innecesarios.
 
 ### Cambios Implementados
 
-#### **🔧 Archivo Modificado**: `kogniterm/core/tools/think_tool.py`
+#### **🔧 Archivo Refactorizado**: `kogniterm/core/tools/pc_interaction_tool.py`
 
-**Cambios Realizados**:
+- **Herramienta Unificada**: Se transformó la herramienta fragmentada en una interfaz genérica `pc_interaction`.
+- **Nuevas Capacidades**:
+  - **Gestión de Ventanas**: Listado de ventanas abiertas y activación de foco por título.
+  - **Control Avanzado de Ratón**: Soporte para movimiento, clicks (izquierdo, derecho, doble) y arrastre (`drag`).
+  - **Control de Teclado**: Escritura de texto y ejecución de combinaciones de teclas complejas (hotkeys).
+  - **Capturas de Pantalla**: Funcionalidad para guardar evidencias visuales de acciones en el escritorio.
+- **Silenciado Inteligente**: Se ajustó el nivel de logs para evitar advertencias de inicio en entornos sin pantalla.
 
-- Se añadió soporte para `terminal_ui` en el constructor de la clase.
-- Se implementó el método `_run` para utilizar `terminal_ui.print_stream`.
-- **Beneficio**: El pensamiento del agente ahora se muestra con un efecto de streaming (máquina de escribir) en la terminal, lo que hace que el proceso de razonamiento sea transparente y dinámico para el usuario.
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/terminal.py`
+
+- **Limpieza de Logs de CrewAI**: Se desactivó la telemetría y se silenciaron los errores del bus de eventos que ensuciaban la salida al inicio.
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/visual_components.py` y `themes.py`
+
+- **Corrección de Temas**: Se corrigió la sintaxis de colores de fondo de `rich` (cambio de `bg:` a `on`).
+- **Restauración Visual**: Se recuperó la función `get_kogniterm_theme` y la lógica de mensajes motivacionales dinámica.
+
+#### **🚀 Publicación en PyPI**
+
+- El paquete ha sido actualizado exitosamente a la versión **0.1.8**.
+
+#### **🎯 Beneficios**
+
+✅ **Superpoderes de Escritorio**: El agente ahora puede operar fuera de la terminal con precisión.
+✅ **Experiencia Premium**: Inicio limpio sin errores técnicos visibles para el usuario.
+✅ **Robustez Visual**: Banner y mensajes motivacionales funcionando al 100%.
 
 ---
 
-## 05-01-2026 Creación del Manual Técnico y Filosófico
+## 26-01-2026 Lanzamiento Versión 0.2.0 - Refactorización del Flujo Maestro
 
-**Descripción**: Se ha creado un documento exhaustivo que detalla la filosofía, arquitectura, características técnicas y módulos de KogniTerm, sirviendo como referencia central para usuarios y desarrolladores.
-
-### Archivos Creados
-
-#### **📄 `docs/KogniTerm_Manual_Tecnico.md`**
-
-- **Filosofía**: Explica los pilares de Especialización, Universalidad y Transparencia.
-- **Arquitectura**: Detalla el sistema multi-agente, el motor de parseo universal y el sistema RAG local.
-- **Funciones**: Lista y describe una a una todas las herramientas (`tools`), comandos mágicos (`%`) y comandos CLI.
-- **Estructura**: Desglosa la organización del código en `core`, `terminal` y `utils`.
-
-### **🎯 Beneficios**
-
-✅ **Centralización del Conocimiento**: Unifica información dispersa en un solo documento coherente.
-✅ **Onboarding**: Facilita la comprensión profunda del sistema para nuevos usuarios y contribuidores.
-✅ **Referencia Técnica**: Provee una guía rápida sobre las capacidades y componentes internos del sistema.
-
----
-
-## 05-01-2026 Auto-aprobación de Comandos Inofensivos
-
-**Descripción**: Se ha implementado una mejora en el sistema de aprobación de comandos para permitir la ejecución automática de comandos considerados "inofensivos" (lectura/información), agilizando el flujo de trabajo sin comprometer la seguridad.
+**Descripción**: Esta actualización mayor resuelve los problemas de interrupción prematura del flujo del agente, implementando un ciclo de vida robusto para acciones encadenadas y asegurando la visibilidad total de las respuestas.
 
 ### Cambios Implementados
 
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/command_approval_handler.py`
+#### **🔧 Archivo Refactorizado**: `kogniterm/terminal/kogniterm_app.py`
 
-**Método Añadido**: `_is_command_safe(self, command: str) -> bool`
+- **Nuevo Bucle de Trabajo**: Se implementó un bucle interno que mantiene al agente "en control" mientras haya acciones o confirmaciones pendientes.
+- **Soporte Multi-Acción**: Ahora el agente puede encadenar varias herramientas consecutivas sin que el prompt de usuario interrumpa el proceso entre ellas.
+- **Gestión Unificada de Confirmaciones**: Mejora en el manejo de estados de confirmación para comandos, archivos y planes.
 
-- Verifica si un comando está en una lista blanca de comandos seguros (ej: `ls`, `cat`, `grep`, `pwd`, etc.).
-- Comprueba que no existan redirecciones de salida (`>`) que puedan sobrescribir archivos.
-- Analiza comandos encadenados (`|`, `&&`, `;`) para asegurar que todas las partes sean seguras.
+#### **🔧 Archivo Modificado**: `kogniterm/core/agents/bash_agent.py`
 
-**Lógica Actualizada en**: `handle_command_approval`
+- **Corrección de Visibilidad**: Fix en el nodo `call_model_node` para asegurar que el contenido se imprima aun cuando el modelo no haga streaming (ej: errores o respuestas atómicas).
+- **Consistencia Visual**: Asegura que el spinner se limpie correctamente dejando la respuesta final a la vista del usuario.
 
-- Antes de solicitar confirmación al usuario, se evalúa el comando con `_is_command_safe`.
-- Si el comando es seguro, se establece `auto_approve = True` automáticamente.
-- Se informa al usuario que el comando ha sido auto-aprobado por ser seguro.
+#### **🚀 Publicación en PyPI**
 
-### **🎯 Beneficios**
+- El paquete ha sido actualizado exitosamente a la versión **0.2.0**.
 
-✅ **Mayor Fluidez**: Elimina interrupciones innecesarias para comandos triviales como listar directorios o leer archivos.
-✅ **Seguridad Mantenida**: Los comandos que modifican el sistema o archivos (ej: `rm`, `mv`, `cp`, `nano`) siguen requiriendo confirmación explícita.
-✅ **Transparencia**: El usuario es notificado cuando una acción se auto-aprueba.
+#### **🎯 Beneficios**
+
+✅ **Flujo Ininterrumpido**: El agente completa sus razonamientos y tareas de principio a fin de forma fluida.
+✅ **Feedback Garantizado**: Se eliminó el "silencio" tras las herramientas; el usuario siempre sabe qué ocurrió.
+✅ **Arquitectura Robusta**: Preparado para tareas complejas que requieren múltiples pasos de confirmación.
+
+---

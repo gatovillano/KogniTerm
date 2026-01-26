@@ -85,4 +85,16 @@ kogniterm/terminal/visual_components.py
 kogniterm/utils/__init__.py
 kogniterm/utils/diff_renderer.py
 kogniterm/utils/playwright_browser_manager.py
+test_environment/main.py
+test_environment/planner_agent.py
+test_environment/reporter_agent.py
+test_environment/research_agents.py
+test_environment/researcher_crew.py
+test_environment/synthesizer_agent.py
+test_environment/tools.py
 tests/test_tool_message_preservation.py
+tests/verify_history_summary.py
+tests/verify_truncate_fix.py
+tests/verify_truncate_fix_simple.py
+venv/bin/dumppdf.py
+venv/bin/pdf2txt.py

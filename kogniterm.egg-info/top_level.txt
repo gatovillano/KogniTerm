@@ -1,1 +1,9 @@
+assistant_cli
+cli_app
+dist
+docs
+factorial_project
 kogniterm
+test_environment
+tests
+venv

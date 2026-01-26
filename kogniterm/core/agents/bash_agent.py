@@ -66,6 +66,7 @@ La herramienta `advanced_file_editor` te permite realizar ediciones avanzadas en
 La herramienta `python_executor` te permite ejecutar código Python interactivo, manteniendo el estado entre ejecuciones para tareas complejas que requieran múltiples pasos de código. PRIORIZA utilizar codigo python para tus tareas. 
 La herramienta `codebase_search_tool` te permite buscar patrones o texto dentro de los archivos del proyecto. **IMPORTANTE: Siempre que el usuario solicite una investigación que tenga que ver con el directorio de trabajo (buscar archivos, entender la estructura, encontrar referencias, etc.), DEBES usar `codebase_search_tool` como tu herramienta principal de investigación.**
 La herramienta `code_analysis` te permite realizar análisis estático y validación de código: linting (Pylint/ESLint), complejidad ciclomática, índice de mantenibilidad y métricas raw.
+La herramienta `pc_interaction` es una herramienta genérica potente para interactuar con el PC: controlar el ratón (moverse, click, doble click, arrastrar), el teclado (escribir texto, presionar teclas, combinaciones), gestionar ventanas (listar, activar) y tomar capturas de pantalla. Úsala cuando necesites operar fuera de la terminal en el entorno de escritorio.
 La herramienta `call_agent` te permite invocar agentes especializados como el ResearcherAgent y CodeAgent para tareas específicas. Úsala especialmente cuando el usuario solicite "investigar" o "desarrollar".
 
 **🤖 AGENTES ESPECIALIZADOS DE KOGNITERM:**
@@ -355,7 +356,12 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 current_console.print(f"\n{Icons.STOPWATCH} [bold red]Interrupción detectada. Deteniendo...[/bold red]")
             
             # Al finalizar el stream, asegurarnos de que el display final sea correcto
-            update_live_display()
+            # Si no hubo streaming de texto (e.g. error o respuesta no chunked), forzar actualización con el mensaje final
+            if final_ai_message_from_llm and not text_streamed and final_ai_message_from_llm.content:
+                full_response_content = final_ai_message_from_llm.content
+                update_live_display()
+            else:
+                update_live_display()
     finally:
         kh.stop()
 
@@ -501,26 +507,33 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
                     executor.shutdown(wait=False)
                     # Guardar historial antes de retornar para confirmación
-                    state.messages.extend(tool_messages) # Asegurar que los mensajes se añadan al estado antes de guardar
+                    state.messages.extend(tool_messages)
                     llm_service._save_history(state.messages)
-                    return state
+                    return {
+                        "messages": state.messages,
+                        "tool_pending_confirmation": state.tool_pending_confirmation,
+                        "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
+                        "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                        "file_update_diff_pending_confirmation": state.file_update_diff_pending_confirmation
+                    }
                 elif isinstance(exception, InterruptedError):
                     terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
                     state.reset_temporary_state()
                     executor.shutdown(wait=False)
-                    # No guardamos historial aquí necesariamente, o sí? 
-                    # Si se interrumpió, quizás no queramos guardar el progreso parcial.
-                    # Pero si hubo otras herramientas exitosas en paralelo...
-                    # Por seguridad, guardamos lo que haya en state.messages hasta ahora.
                     llm_service._save_history(state.messages)
-                    return state
+                    return {
+                        "messages": state.messages,
+                        "command_to_confirm": None,
+                        "tool_call_id_to_confirm": None
+                    }
                 else:
                     tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
             else:
                 tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
                 # Lógica para confirmación si es execute_command
-                tool_name = next(tc['name'] for tc in last_message.tool_calls if tc['id'] == tool_id)
-                tool_args = next(tc['args'] for tc in last_message.tool_calls if tc['id'] == tool_id)
+                tool_call_info = next(tc for tc in last_message.tool_calls if tc['id'] == tool_id)
+                tool_name = tool_call_info['name']
+                tool_args = tool_call_info['args']
                 if tool_name == "execute_command":
                     state.command_to_confirm = tool_args['command']
                     state.tool_call_id_to_confirm = tool_id
@@ -546,14 +559,15 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             state.tool_args_pending_confirmation = tool_args
                             state.tool_call_id_to_confirm = tool_id
                             executor.shutdown(wait=False)
-                            # Guardar historial antes de retornar para confirmación
-                            # Nota: tool_messages aún no se ha añadido a state.messages en el código original aquí
-                            # Debemos añadirlos si queremos persistirlos.
-                            # El código original hace state.messages.extend(tool_messages) AL FINAL.
-                            # Aquí estamos retornando temprano.
                             state.messages.extend(tool_messages)
                             llm_service._save_history(state.messages)
-                            return state
+                            return {
+                                "messages": state.messages,
+                                "tool_pending_confirmation": state.tool_pending_confirmation,
+                                "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
+                                "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                                "file_update_diff_pending_confirmation": state.file_update_diff_pending_confirmation
+                            }
                     except json.JSONDecodeError:
                         pass
 
@@ -567,7 +581,12 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         if kh:
             kh.stop()
 
-    return state
+    return {
+        "messages": state.messages,
+        "command_to_confirm": getattr(state, 'command_to_confirm', None),
+        "tool_call_id_to_confirm": getattr(state, 'tool_call_id_to_confirm', None),
+        "file_update_diff_pending_confirmation": getattr(state, 'file_update_diff_pending_confirmation', None)
+    }
 
 # --- Lógica Condicional del Grafo ---
 

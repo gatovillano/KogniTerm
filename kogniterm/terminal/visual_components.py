@@ -599,3 +599,39 @@ def format_time_elapsed(seconds: float) -> str:
         minutes = int(seconds // 60)
         remaining_seconds = int(seconds % 60)
         return f"{minutes}m {remaining_seconds}s"
+
+
+# ============================================================================
+# TEMAS DE RICH
+# ============================================================================
+
+from rich.theme import Theme
+
+def get_kogniterm_theme() -> Theme:
+    """
+    Retorna el objeto Theme de Rich con todos los estilos personalizados
+    de KogniTerm.
+    """
+    return Theme({
+        # Estados básicos
+        "info": ColorPalette.INFO,
+        "success": ColorPalette.SUCCESS,
+        "warning": ColorPalette.WARNING,
+        "error": ColorPalette.ERROR,
+        
+        # UI Components
+        "bottom-toolbar": "#ffffff on #333333",
+        "bottom-toolbar.key": f"{ColorPalette.SECONDARY} on #333333",
+        
+        # Markdown
+        "markdown.item.bullet": ColorPalette.SECONDARY,
+        "markdown.h1": f"bold {ColorPalette.PRIMARY}",
+        "markdown.h2": f"bold {ColorPalette.SECONDARY}",
+        "markdown.link": f"italic {ColorPalette.INFO_LIGHT}",
+        
+        # Código
+        "code.keyword": "bold #ff79c6",
+        "code.string": "#f1fa8c",
+        "code.comment": "italic #6272a4",
+    })
+

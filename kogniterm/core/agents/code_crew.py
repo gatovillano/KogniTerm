@@ -44,14 +44,14 @@ class CodeCrew:
             description="Implementar el código siguiendo estrictamente el diseño técnico aprobado. Escribe el código real en los archivos correspondientes.",
             expected_output="Código fuente implementado y funcional en los archivos del proyecto.",
             agent=developer,
-            context=[design_task]
+            context=[design_task.description]
         )
 
         review_task = Task(
             description="Revisar el código implementado. Ejecutar análisis estático y verificar que cumpla con los requisitos y estándares de calidad.",
             expected_output="Un informe de QA aprobando los cambios o listando los errores encontrados para corrección.",
             agent=qa,
-            context=[implementation_task]
+            context=[implementation_task.expected_output]
         )
 
         # 3. Determinar qué tareas ejecutar basándose en el requerimiento

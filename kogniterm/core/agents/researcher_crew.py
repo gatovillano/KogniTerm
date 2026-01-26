@@ -18,8 +18,10 @@ class ResearcherCrew:
         """Callback ejecutado tras cada paso de un agente en la Crew."""
         from kogniterm.terminal.visual_components import create_tool_output_panel
         from rich.console import Console
+        import logging
+        logger = logging.getLogger(__name__)
         console = Console()
-        
+
         # Intentar extraer información del paso
         try:
             action = getattr(step, 'action', None)
@@ -28,7 +30,9 @@ class ResearcherCrew:
 
             if action and result:
                 tool_name = getattr(action, 'tool', 'Unknown Tool')
-                
+                tool_input = getattr(action, 'tool_input', None)
+                logger.debug(f"DEBUG: Tool called: {tool_name}, input: {tool_input}, result type: {type(result)}")
+
                 output_str = ""
                 if isinstance(result, str):
                     output_str = result
@@ -51,7 +55,8 @@ class ResearcherCrew:
 
                 # Imprimir el panel formateado en Markdown
                 console.print(create_tool_output_panel(tool_name, output_str))
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error in _step_callback: {e}")
             pass
 
     def run(self, query: str):

@@ -256,6 +256,14 @@ def main():
 
     logging.getLogger('kogniterm.terminal.kogniterm_app').setLevel(logging.WARNING)
     
+    # Desactivar telemetría de CrewAI para evitar errores de handlers de señales
+    os.environ["CREWAI_TELEMETRY_OPT_OUT"] = "true"
+    # Silenciar logs de crewai
+    for crew_logger in ['crewai', 'CrewAIEventsBus']:
+        logger = logging.getLogger(crew_logger)
+        logger.setLevel(logging.CRITICAL)
+        logger.propagate = False
+    
     # Handle config commands
     if len(sys.argv) > 1 and sys.argv[1] == 'config':
         from kogniterm.terminal.config_manager import ConfigManager
