@@ -973,6 +973,41 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 
 ✅ **Flujo Ininterrumpido**: El agente completa sus razonamientos y tareas de principio a fin de forma fluida.
 ✅ **Feedback Garantizado**: Se eliminó el "silencio" tras las herramientas; el usuario siempre sabe qué ocurrió.
-✅ **Arquitectura Robusta**: Preparado para tareas complejas que requieren múltiples pasos de confirmación.
+✅ **Arquitectura Robusta**: Preparado para tareas complejas que requieren múltiples pasos de confirmación
+---
+
+## 26-01-2026 Implementación de Embeddings Locales Autónomos
+
+**Descripción**: Se ha migrado el sistema de embeddings para permitir una ejecución 100% local y autónoma por usuario, eliminando la dependencia de contenedores externos (como Ollama) mediante la integración de `fastembed`.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `pyproject.toml`
+
+- Se añadió `fastembed` como dependencia principal del proyecto.
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/embeddings_service.py`
+
+- **Nuevo Adaptador**: Se implementó `FastEmbedAdapter` utilizando la librería `fastembed` para generación local de vectores.
+- **Configuración por Defecto**: Se estableció `fastembed` como el proveedor de embeddings por defecto (modelo `BAAI/bge-small-en-v1.5`), asegurando que KogniTerm funcione "out-of-the-box" sin configuración externa.
+- **Soporte Multi-Proveedor**: Se mantuvo la compatibilidad con Gemini, OpenAI y Ollama.
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/meta_command_processor.py`
+
+- **Nuevo Comando Mágico**: Se implementó `%embeddings` para permitir la configuración interactiva de:
+  - Proveedor de embeddings (Local, Gemini, OpenAI, Ollama).
+  - Modelo local específico (BGE Small, BGE Base, etc.).
+- **Ayuda Integrada**: El comando fue añadido al menú de `%help`.
+
+#### **🔧 Archivo Modificado**: `.env.example`
+
+- Se añadieron variables de entorno para la configuración de `EMBEDDINGS_PROVIDER` y `EMBEDDINGS_MODEL`.
+
+### **🎯 Beneficios**
+
+✅ **Autonomía Total**: Cada usuario tiene su propio sistema de embeddings sin necesidad de servidores o contenedores adicionales.
+✅ **Privacidad y Velocidad**: Los datos no salen de la máquina (si se usa FastEmbed) y la latencia es mínima.
+✅ **Facilidad de Uso**: Configuración amigable mediante el comando `%embeddings`.
+✅ **Compatibilidad**: Mantiene la flexibilidad de usar modelos en la nube si el usuario lo prefiere.
 
 ---

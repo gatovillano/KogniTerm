@@ -204,6 +204,7 @@ class MetaCommandProcessor:
                 ("%models", "🤖 Cambiar Modelo de IA (Seleccionar modelo del proveedor actual)"),
                 ("%provider", "🌐 Cambiar Proveedor de LLM (OpenRouter, Google, OpenAI, etc.)"),
                 ("%keys", "🔑 Gestionar API Keys (Configurar llaves de proveedores)"),
+                ("%embeddings", "🧠 Configurar Embeddings (Local/FastEmbed, Gemini, OpenAI, etc.)"),
                 ("%reset", "🔄 Reiniciar Conversación (Borrar memoria actual)"),
                 ("%undo", "↩️ Deshacer (Eliminar última interacción)"),
                 ("%compress [force]", "🗜️ Comprimir Historial (Usa 'force' si excede límites)"),
@@ -510,11 +511,11 @@ class MetaCommandProcessor:
             return True
 
         if user_input.lower().strip() == '%keys':
-            if not DOTENV_AVAILABLE:
-                self.terminal_ui.print_message("❌ El módulo 'python-dotenv' no está disponible. No se pueden gestionar las llaves.", style="red")
-                return True
-            
             await self._manage_keys_interactive()
+            return True
+
+        if user_input.lower().strip().startswith('%embeddings'):
+            await self._manage_embeddings_interactive()
             return True
 
         return False
@@ -699,3 +700,84 @@ class MetaCommandProcessor:
             
         self.terminal_ui.console.print(Padding(table, (1, 2)))
         self.terminal_ui.print_message(f"Usa [bold cyan]%theme <nombre>[/bold cyan] para cambiar.", style="dim")
+
+    async def _manage_embeddings_interactive(self):
+        """Muestra una interfaz interactiva para gestionar la configuración de embeddings."""
+        from prompt_toolkit.shortcuts import radiolist_dialog, message_dialog
+        
+        config_manager = ConfigManager()
+        current_config = config_manager.get_all_config()
+        
+        current_provider = current_config.get("embeddings_provider", "fastembed")
+        current_model = current_config.get("embeddings_model", "BAAI/bge-small-en-v1.5" if current_provider == "fastembed" else "N/A")
+
+        while True:
+            options = [
+                ("PROVIDER", f"🌐 Cambiar Proveedor (Actual: {current_provider})"),
+            ]
+            
+            if current_provider == "fastembed":
+                options.append(("MODEL", f"🤖 Cambiar Modelo Local (Actual: {current_model})"))
+            
+            options.append(("BACK", "⬅️  Volver"))
+
+            choice = await radiolist_dialog(
+                title="Configuración de Embeddings",
+                text=f"Proveedor actual: {current_provider}\nModelo actual: {current_model}\n\nSelecciona una opción:",
+                values=options
+            ).run_async()
+
+            if not choice or choice == "BACK":
+                break
+
+            if choice == "PROVIDER":
+                providers = [
+                    ("fastembed", "🚀 Local (FastEmbed) - Autónomo y Rápido"),
+                    ("gemini", "♊ Google Gemini - Alta Calidad (Requiere API Key)"),
+                    ("openai", "🧠 OpenAI - Estándar de la Industria (Requiere API Key)"),
+                    ("ollama", "🦙 Ollama - Contenedor Externo (Requiere Ollama corriendo)"),
+                ]
+                
+                new_provider = await radiolist_dialog(
+                    title="Seleccionar Proveedor de Embeddings",
+                    text="Elige el proveedor que deseas utilizar:",
+                    values=providers,
+                    default=current_provider
+                ).run_async()
+
+                if new_provider and new_provider != current_provider:
+                    config_manager.set_global_config("embeddings_provider", new_provider)
+                    current_provider = new_provider
+                    # Reset model when provider changes to default
+                    if new_provider == "fastembed":
+                        current_model = "BAAI/bge-small-en-v1.5"
+                        config_manager.set_global_config("embeddings_model", current_model)
+                    
+                    await message_dialog(
+                        title="Éxito",
+                        text=f"Proveedor de embeddings cambiado a: {new_provider}\n\nNota: Es posible que necesites reiniciar KogniTerm para aplicar los cambios en el servicio activo."
+                    ).run_async()
+
+            elif choice == "MODEL" and current_provider == "fastembed":
+                # Lista de modelos populares en fastembed
+                models = [
+                    ("BAAI/bge-small-en-v1.5", "BGE Small (En) - Muy rápido y eficiente"),
+                    ("BAAI/bge-base-en-v1.5", "BGE Base (En) - Balance entre velocidad y calidad"),
+                    ("snowflake/snowflake-arctic-embed-m", "Snowflake Arctic M - Gran rendimiento"),
+                    ("sentence-transformers/all-MiniLM-L6-v2", "MiniLM-L6-v2 - Clásico y ligero"),
+                ]
+                
+                new_model = await radiolist_dialog(
+                    title="Seleccionar Modelo Local (FastEmbed)",
+                    text="Selecciona el modelo que se descargará y usará localmente:",
+                    values=models,
+                    default=current_model
+                ).run_async()
+
+                if new_model and new_model != current_model:
+                    config_manager.set_global_config("embeddings_model", new_model)
+                    current_model = new_model
+                    await message_dialog(
+                        title="Éxito",
+                        text=f"Modelo local cambiado a: {new_model}\n\nNota: La primera vez que lo uses, se descargará automáticamente."
+                    ).run_async()

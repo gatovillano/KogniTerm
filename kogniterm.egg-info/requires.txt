@@ -29,6 +29,7 @@ nest_asyncio
 tiktoken
 requests
 crewai
+fastembed
 
 [dev]
 radon

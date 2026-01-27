@@ -92,7 +92,14 @@ test_environment/research_agents.py
 test_environment/researcher_crew.py
 test_environment/synthesizer_agent.py
 test_environment/tools.py
+tests/test_chroma_lock.py
+tests/test_enhanced_parsing.py
+tests/test_init.py
+tests/test_mistral_id_fix.py
+tests/test_parsing_only.py
+tests/test_siliconflow_fix.py
 tests/test_tool_message_preservation.py
+tests/test_universal_parsing.py
 tests/verify_history_summary.py
 tests/verify_truncate_fix.py
 tests/verify_truncate_fix_simple.py

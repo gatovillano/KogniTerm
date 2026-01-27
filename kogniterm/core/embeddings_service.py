@@ -105,16 +105,39 @@ class OllamaAdapter(EmbeddingAdapter):
             logger.error(f"Error generando embeddings con Ollama: {e}")
             raise e
 
+class FastEmbedAdapter(EmbeddingAdapter):
+    def __init__(self, model: str = "BAAI/bge-small-en-v1.5"):
+        try:
+            from fastembed import TextEmbedding
+            self.model_name = model
+            self.client = TextEmbedding(model_name=self.model_name)
+        except ImportError:
+            raise ImportError("FastEmbed package is not installed. Please install it with `pip install fastembed`.")
+        except Exception as e:
+            logger.error(f"Error initializing FastEmbed: {e}")
+            raise e
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        try:
+            # fastembed devuelve un generador de numpy arrays
+            embeddings_generator = self.client.embed(texts)
+            return [embedding.tolist() for embedding in embeddings_generator]
+        except Exception as e:
+            logger.error(f"Error generating FastEmbed embeddings: {e}")
+            raise e
+
 class EmbeddingsService:
     def __init__(self):
         self.config_manager = ConfigManager()
         self.config = self.config_manager.get_config()
-        self.provider = self.config.get("embeddings_provider", "gemini")
+        self.provider = self.config.get("embeddings_provider", "fastembed")
         self.model = self.config.get("embeddings_model")
         self.api_key = self._get_api_key()
         
-        # Ollama doesn't strictly need an API key, so we handle it separately or allow None
-        if self.provider == "ollama":
+        # Ollama and FastEmbed don't strictly need an API key
+        if self.provider in ["ollama", "fastembed"]:
              self.adapter = self._get_adapter()
         elif self.api_key:
              self.adapter = self._get_adapter()
@@ -142,6 +165,9 @@ class EmbeddingsService:
             model = self.model if self.model else "nomic-embed-text"
             base_url = self.config.get("ollama_base_url", "http://localhost:11434")
             return OllamaAdapter(base_url, model)
+        elif self.provider == "fastembed":
+            model = self.model if self.model else "BAAI/bge-small-en-v1.5"
+            return FastEmbedAdapter(model)
         else:
             raise ValueError(f"Unsupported embeddings provider: {self.provider}")
 

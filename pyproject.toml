@@ -1,6 +1,6 @@
 [project]
 name = "kogniterm"
-version = "0.2.0"
+version = "0.2.1"
 description = "KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀"
 authors = [
     { name = "Gato Villano", email = "gato@example.com" }
@@ -37,6 +37,7 @@ dependencies = [
     "tiktoken",
     "requests",
     "crewai",
+    "fastembed",
 ]
 readme = "README.md"
 requires-python = ">=3.9"
