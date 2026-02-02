@@ -1,5 +1,120 @@
 # Registro de Cambios - KogniTerm
 
+## 01-02-2026 Eliminación del Paso de Estructura de Proyecto en Agentes Crew
+
+**Descripción**: Se ha eliminado el paso donde se generaba y pasaba automáticamente la estructura del proyecto (árbol de directorios) como contexto inicial a los agentes Crew, específicamente en `researcher_crew.py`.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/core/agents/researcher_crew.py`](kogniterm/core/agents/researcher_crew.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Eliminación de la Generación del Árbol de Directorios** ([`kogniterm/core/agents/researcher_crew.py`](kogniterm/core/agents/researcher_crew.py:62)):
+   - Se eliminó el bloque de código que generaba el árbol de directorios del proyecto usando `file_ops_tool.run({"operation": "list_directory", ...})`
+   - Se removió la variable `project_tree` que almacenaba la estructura del proyecto
+   - Se eliminó la inserción de `{project_tree}` en la descripción de la tarea de investigación
+
+2. **Simplificación del Método `run`**:
+   - El método ahora inicia directamente con la definición de agentes sin pasos previos de recopilación de contexto del filesystem
+   - La descripción de la tarea ya no incluye la estructura del proyecto automáticamente
+
+#### **🎯 Beneficios de la Eliminación**
+
+✅ **Menor Consumo de Tokens**: Se elimina el uso innecesario de tokens al no enviar la estructura del proyecto en cada consulta  
+✅ **Mayor Flexibilidad**: Los agentes pueden solicitar explícitamente el contexto del proyecto cuando realmente lo necesiten  
+✅ **Rendimiento Mejorado**: Menor overhead en el inicio de las tareas de investigación  
+✅ **Simplicidad**: Código más limpio sin pasos de inicialización complejos  
+
+#### **🔍 Verificación Adicional**
+
+- **Archivo `code_crew.py`**: Se verificó que este archivo no tenía el paso de estructura del proyecto, por lo que no requirió modificaciones.
+
+---
+
+## 01-02-2026 Solución al Problema de Bloqueo por Detección de Bucles Críticos
+
+**Descripción**: Se ha solucionado el problema donde la detección de bucles críticos bloqueaba la aplicación mostrando el mensaje "🚨 ¡BUCLE CRÍTICO DETECTADO! El agente está repitiendo la misma acción exactamente" en cada mensaje siguiente.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/agent_state.py`](kogniterm/core/agent_state.py)
+2. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+3. [`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py)
+4. [`kogniterm/core/agents/researcher_agent.py`](kogniterm/core/agents/researcher_agent.py)
+5. [`kogniterm/core/agents/researcher_agent_backup.py`](kogniterm/core/agents/researcher_agent_backup.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Nueva Bandera en AgentState** ([`kogniterm/core/agent_state.py`](kogniterm/core/agent_state.py:27)):
+   - Se añadió el campo `critical_loop_detected: bool = False` para indicar que se detectó un bucle crítico
+   - Se actualizó el método [`reset()`](kogniterm/core/agent_state.py:41) para reiniciar esta bandera
+
+2. **Modificación en should_continue de BashAgent** ([`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py:508)):
+   - Se añadió verificación de `state.critical_loop_detected` al inicio de la función
+   - Si la bandera está activa, retorna `END` inmediatamente para terminar el flujo
+
+3. **Modificación en should_continue de CodeAgent** ([`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py:318)):
+   - Se añadió verificación de `state.critical_loop_detected` al inicio de la función
+   - Si la bandera está activa, retorna `END` inmediatamente para terminar el flujo
+
+4. **Modificación en should_continue de ResearcherAgent** ([`kogniterm/core/agents/researcher_agent.py`](kogniterm/core/agents/researcher_agent.py:237)):
+   - Se añadió verificación de `state.critical_loop_detected` al inicio de la función
+   - Si la bandera está activa, retorna `END` inmediatamente para terminar el flujo
+
+5. **Modificación en should_continue de ResearcherAgentBackup** ([`kogniterm/core/agents/researcher_agent_backup.py`](kogniterm/core/agents/researcher_agent_backup.py:234)):
+   - Se añadió verificación de `state.critical_loop_detected` al inicio de la función
+   - Si la bandera está activa, retorna `END` inmediatamente para terminar el flujo
+
+6. **Activación de la Bandera en BashAgent** ([`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py:171)):
+   - Se modificó [`call_model_node`](kogniterm/core/agents/bash_agent.py:154) para activar `state.critical_loop_detected = True` cuando se detecta un bucle crítico
+   - Se añadió `"critical_loop_detected": True` al retorno del estado
+
+7. **Activación de la Bandera en CodeAgent** ([`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py:161)):
+   - Se modificó [`call_model_node`](kogniterm/core/agents/code_agent.py:150) para activar `state.critical_loop_detected = True` cuando se detecta un bucle crítico
+   - Se añadió `"critical_loop_detected": True` al retorno del estado
+
+#### **🎯 Beneficios de la Solución**
+
+✅ **Terminación Controlada**: El flujo del agente termina correctamente cuando se detecta un bucle crítico
+✅ **Sin Bloqueo**: La aplicación ya no se bloquea mostrando el mensaje repetidamente
+✅ **Consistencia**: Todos los agentes tienen la misma lógica de manejo de bucles críticos
+✅ **Mantenibilidad**: Código más claro y fácil de mantener con una bandera explícita
+✅ **Robustez**: El sistema es más robusto y maneja mejor los casos de bucles infinitos
+
+#### **🔍 Problema Resuelto**
+
+**Problema Original**: Cuando se detectaba un bucle crítico, el mensaje de advertencia se mostraba en cada mensaje siguiente, bloqueando la aplicación.
+
+**Causa**: El flujo del grafo no terminaba correctamente después de detectar el bucle crítico, ya que `should_continue` no verificaba ninguna condición especial para este caso.
+
+**Solución**: Se añadió una bandera `critical_loop_detected` en `AgentState` que se activa cuando se detecta un bucle crítico. Esta bandera es verificada en `should_continue` para retornar `END` inmediatamente, terminando el flujo del agente de manera controlada.
+
+### **🧪 Testing y Validación**
+
+Se verificó la sintaxis de todos los archivos modificados:
+
+- ✅ [`kogniterm/core/agent_state.py`](kogniterm/core/agent_state.py)
+- ✅ [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+- ✅ [`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py)
+- ✅ [`kogniterm/core/agents/researcher_agent.py`](kogniterm/core/agents/researcher_agent.py)
+- ✅ [`kogniterm/core/agents/researcher_agent_backup.py`](kogniterm/core/agents/researcher_agent_backup.py)
+
+### **📈 Impacto en el Sistema**
+
+- **Estabilidad**: Mejorada significativamente al eliminar el bloqueo por bucles críticos
+- **Experiencia de Usuario**: La aplicación ya no se bloquea cuando se detectan bucles infinitos
+- **Consistencia**: Todos los agentes manejan los bucles críticos de la misma manera
+- **Mantenibilidad**: Código más claro y fácil de mantener
+
+Esta solución asegura que cuando se detecta un bucle crítico, el flujo del agente termine de manera controlada sin bloquear la aplicación, mejorando significativamente la estabilidad y la experiencia de usuario.
+
+---
+
 ## 22-12-2025 Actualización de Agentes Especializados
 
 **Descripción**: Se ha actualizado el bash_agent.py para incluir información detallada sobre los agentes researcher_agent y code_agent.
@@ -1009,5 +1124,178 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 ✅ **Privacidad y Velocidad**: Los datos no salen de la máquina (si se usa FastEmbed) y la latencia es mínima.
 ✅ **Facilidad de Uso**: Configuración amigable mediante el comando `%embeddings`.
 ✅ **Compatibilidad**: Mantiene la flexibilidad de usar modelos en la nube si el usuario lo prefiere.
+
+---
+
+## 26-01-26 Preparación de Release v0.2.1
+
+**Descripción**: Se ha construido el paquete distribuable y etiquetado la versión para el release en GitHub.
+
+### Cambios Implementados
+
+- **Construcción del Paquete**: Se generaron los archivos `.whl` y `.tar.gz` mediante `python3 -m build` en el entorno virtual.
+- **Etiquetado Git**: Se creó y subió el tag `v0.2.1` al repositorio remoto.
+
+### **🎯 Beneficios**
+
+✅ **Distribución Lista**: Los artefactos están listos para ser adjuntados a un Release de GitHub o subidos a PyPI.
+✅ **Control de Versiones**: El tag `v0.2.1` marca oficialmente el estado del código para esta versión.
+
+---
+
+## 01-02-26 Corrección de Advertencia de Bucle Repetida
+
+**Descripción**: Se ha corregido el problema donde la advertencia de bucle crítico se mostraba repetidamente en cada mensaje después de ser detectada una vez.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. **[`kogniterm/core/agent_state.py`](kogniterm/core/agent_state.py)**:
+   - **Nuevo método**: [`clear_tool_call_history()`](kogniterm/core/agent_state.py:54) - Limpia el historial de llamadas a herramientas para detección de bucles.
+
+2. **[`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)**:
+   - **Modificación en [`call_model_node()`](kogniterm/core/agents/bash_agent.py:154)**: Se agregó la llamada a [`state.clear_tool_call_history()`](kogniterm/core/agent_state.py:54) después de detectar un bucle crítico (línea 173).
+
+3. **[`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py)**:
+   - **Modificación en [`call_model_node()`](kogniterm/core/agents/code_agent.py:150)**: Se agregó la llamada a [`state.clear_tool_call_history()`](kogniterm/core/agent_state.py:54) después de detectar un bucle crítico (línea 160).
+
+#### **📋 Detalle del Problema**
+
+- **Causa**: Cuando se detectaba un bucle crítico, se añadía un mensaje de error al historial de mensajes (`state.messages`), pero el `tool_call_history` (un deque temporal usado para detección de bucles) no se limpiaba.
+- **Consecuencia**: En cada iteración posterior del agente, el `tool_call_history` todavía contenía las mismas 4 llamadas repetidas, por lo que la detección de bucle se activaba nuevamente, añadiendo otro mensaje de error, y así sucesivamente.
+- **Resultado**: La advertencia de bucle se mostraba repetidamente en cada mensaje.
+
+#### **🔧 Solución Implementada**
+
+- **Limpieza del `tool_call_history`**: Después de detectar un bucle crítico, se llama a [`state.clear_tool_call_history()`](kogniterm/core/agent_state.py:54) para limpiar el deque temporal.
+- **Preservación del historial de mensajes**: El historial de mensajes (`state.messages`) se mantiene intacto, por lo que no se pierde el trabajo realizado.
+- **Prevención de repetición**: Al limpiar el `tool_call_history`, la advertencia de bucle solo se muestra una vez.
+
+### **🎯 Beneficios de la Corrección**
+
+✅ **Advertencia Única**: La advertencia de bucle crítico solo se muestra una vez.
+✅ **Preservación del Trabajo**: El historial de mensajes se mantiene intacto, no se pierde el trabajo realizado.
+✅ **Mejor Experiencia de Usuario**: Los mensajes no se llenan con advertencias repetidas.
+✅ **Claridad**: El usuario recibe una advertencia clara y concisa sin redundancia.
+
+### **🔍 Impacto en el Sistema**
+
+- **BashAgent**: Ahora limpia el `tool_call_history` después de detectar un bucle.
+- **CodeAgent**: Ahora limpia el `tool_call_history` después de detectar un bucle.
+- **AgentState**: Nuevo método [`clear_tool_call_history()`](kogniterm/core/agent_state.py:54) disponible para limpiar el historial de llamadas a herramientas.
+- **Experiencia de Usuario**: Mejorada al eliminar advertencias repetidas.
+
+---
+
+## 01-02-26 Mejora de Documentación del Agente GitHub Researcher
+
+**Descripción**: Se ha mejorado el backstory del agente `github_researcher` en `research_agents.py` para proporcionar claridad sobre cómo usar la acción `search_repositories` de la herramienta `github_tool`.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/agents/research_agents.py`
+
+- **Actualización del backstory del agente `github_researcher`**:
+  - Se agregó documentación detallada sobre la acción `search_repositories` que permite buscar repositorios en GitHub sin necesidad de especificar un `repo_name`.
+  - Se incluyeron ejemplos claros de uso: `action='search_repositories', query='python web framework'`
+  - Se documentó que esta acción retorna una lista de repositorios con nombre, descripción, estrellas y URL.
+
+- **Protocolo de Razonamiento Estructurado**:
+  1. **BÚSQUEDA DE REPOSITORIOS**: Uso de `search_repositories` para encontrar repos relevantes (solo requiere `query`)
+  2. **BÚSQUEDA PREVIA**: Alternativa usando búsqueda web para encontrar nombres exactos de repositorios
+  3. **EXPLORACIÓN NO DESTRUCTIVA**: Uso de herramientas remotas (`list_contents`, `read_file`, `read_directory`, `read_recursive_directory`)
+  4. **BÚSQUEDA DE CÓDIGO**: Uso de `search_code` para buscar código específico dentro de un repositorio (requiere `repo_name` y `query`)
+  5. **Uso de tags `<thinking>`**: Para justificar la elección del repositorio y el plan de exploración
+
+- **Listado completo de acciones disponibles**:
+  - `search_repositories`: Buscar repositorios en GitHub (solo requiere `query`)
+  - `get_repo_info`: Obtener información de un repositorio (requiere `repo_name`)
+  - `list_contents`: Listar contenidos de un directorio (requiere `repo_name`, opcional `path`)
+  - `read_file`: Leer un archivo (requiere `repo_name` y `path`)
+  - `read_directory`: Leer directorio (requiere `repo_name`, opcional `path`)
+  - `read_recursive_directory`: Leer recursivamente (requiere `repo_name`, opcional `path`)
+  - `search_code`: Buscar código dentro de un repo (requiere `repo_name` y `query`)
+
+### **🎯 Beneficios**
+
+✅ **Claridad para el Agente**: El agente ahora tiene instrucciones claras sobre cuándo y cómo usar `search_repositories` vs otras acciones.
+✅ **Diferenciación de Parámetros**: Se enfatiza que `search_repositories` NO requiere `repo_name`, mientras que otras acciones sí.
+✅ **Mejor Flujo de Trabajo**: El agente puede ahora buscar repositorios relevantes antes de intentar acceder a repositorios específicos.
+✅ **Prevención de Errores**: Ejemplos claros reducen la probabilidad de usar parámetros incorrectos.
+
+### **🔍 Impacto en el Sistema**
+
+- **GitHub Researcher**: Ahora tiene documentación completa sobre todas las acciones disponibles en `github_tool`.
+- **Crew de Investigación**: El agente puede participar más efectivamente en tareas de investigación de código open source.
+- **Experiencia de Usuario**: Mejorada al tener un agente más capacitado para buscar y explorar repositorios de GitHub.
+
+---
+
+## 01-02-2026 Inicio de Implementación de KogniTerm Desktop con Tauri
+
+**Descripción**: Se ha iniciado la implementación de KogniTerm Desktop basándose en la propuesta de arquitectura con Tauri, estableciendo los fundamentos del proyecto, incluyendo monorepo, backend Python y frontend Tauri+React en `kogniterm-desktop/`.
+
+### Cambios Implementados
+
+#### **🔧 Nueva Estructura de Proyecto**
+
+1. **Monorepo con Turbo**:
+   - Se creó el directorio raíz `kogniterm-desktop/` inicializado con `npm` y `turbo`.
+   - Se configuró `package.json` y `turbo.json` para gestión de workspaces (`apps/*`, `packages/*`).
+
+2. **Frontend Desktop (Tauri + React)**:
+   - Se creó la aplicación `apps/desktop` usando `create-tauri-app` con plantilla React + TypeScript.
+   - Se configuró `api_client.rs` en Rust para comunicación HTTP con el backend.
+   - Se implementó comandos Tauri básicos en `commands.rs` y registro en `lib.rs`.
+   - Se actualizó `App.tsx` para incluir un ejemplo funcional de invocación al backend.
+
+3. **Backend Server (Python + FastAPI)**:
+   - Se creó la estructura en `apps/server` con `kogniterm_server`.
+   - Se implementó `main.py` con FastAPI y configuración CORS.
+   - Se creó `api/routes.py` con endpoint `/api/chat` básico.
+   - Se definieron dependencias en `requirements.txt`.
+
+4. **CI/CD**:
+   - Se creó un flujo de trabajo básico en `.github/workflows/ci.yml` para build y linting.
+
+### **🎯 Beneficios**
+
+✅ **Arquitectura Híbrida**: Establece la base para una aplicación de escritorio moderna y performante.
+✅ **Separación de Responsabilidades**: Frontend React para UI y Backend Python para lógica de agentes.
+✅ **Gestión Centralizada**: El monorepo facilita el manejo de múltiples paquetes y aplicaciones.
+✅ **Comunicación Segura**: La capa de Rust gestiona la comunicación entre el webview y el backend.
+
+### **🔍 Próximos Pasos**
+
+- Integrar el núcleo de KogniTerm existente en el nuevo backend.
+- Implementar la interfaz de chat completa con soporte Markdown.
+- Configurar comunicación WebSocket para streaming de respuestas.
+
+---
+
+## 01-02-2026 Corrección de Inicialización de ChromaDB y Autocuración
+
+**Descripción**: Se ha implementado un mecanismo de autocuración para la inicialización de ChromaDB para resolver el error "Could not connect to tenant default_tenant".
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/core/context/vector_db_manager.py`](kogniterm/core/context/vector_db_manager.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Autocuración en `__init__`**:
+   - Se envolvió la inicialización de `chromadb.PersistentClient` en un bloque `try-except`.
+   - Si la inicialización falla (comúnmente por corrupción de la DB o incompatibilidad de versiones), el sistema ahora captura la excepción.
+   - En el bloque `except`, se elimina recursivamente el directorio de la base de datos (`.kogniterm/vector_db`) y se intenta reinicializar.
+   - Esto permite que la aplicación se recupere automáticamente de estados corruptos de la base de datos vectorial sin intervención manual del usuario.
+
+#### **🎯 Beneficios de la Corrección**
+
+✅ **Resiliencia**: La aplicación no falla catastróficamente si la caché vectorial está corrupta.
+✅ **Experiencia de Usuario**: El usuario no necesita borrar manualmente directorios ocultos para arreglar errores de inicio.
+✅ **Estabilidad**: Asegura que el entorno de ejecución se mantenga limpio y funcional.
 
 ---

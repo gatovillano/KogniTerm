@@ -25,6 +25,7 @@ class AgentState:
     file_update_diff_pending_confirmation: Optional[Union[str, Dict[str, Any]]] = None # Nuevo campo para el diff de file_update_tool
     search_memory: List[Dict[str, Any]] = field(default_factory=list) # ¡Nuevo campo para la memoria de búsqueda!
     tool_call_history: deque = field(default_factory=lambda: deque(maxlen=5)) # Historial de llamadas a herramientas para detección de bucles
+    critical_loop_detected: bool = False # Bandera para indicar que se detectó un bucle crítico y se debe terminar el flujo
 
     # Añadir un campo para la ruta del archivo de historial
     history_file_path: str = field(default_factory=lambda: os.path.join(os.getcwd(), ".kogniterm", "history.json"))
@@ -45,11 +46,16 @@ class AgentState:
         self.tool_call_id_to_confirm = None
         self.reset_tool_confirmation()
         self.file_update_diff_pending_confirmation = None # Limpiar el diff también
+        self.critical_loop_detected = False # Reiniciar la bandera de bucle crítico
 
     def reset_temporary_state(self):
         """Reinicia los campos de estado temporal del agente, manteniendo el historial de mensajes."""
         self.command_to_confirm = None
         self.reset_tool_confirmation()
+
+    def clear_tool_call_history(self):
+        """Limpia el historial de llamadas a herramientas para detección de bucles."""
+        self.tool_call_history.clear()
 
 
     def __post_init__(self):

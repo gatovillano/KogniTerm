@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from langgraph.graph import StateGraph, END
 from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ from rich.text import Text
 from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.exceptions import UserConfirmationRequired
+from ..async_io_manager import get_io_manager
 
 console = Console()
 
@@ -27,39 +29,46 @@ console = Console()
 SYSTEM_MESSAGE = SystemMessage(content="""INSTRUCCIÓN CRÍTICA: Eres el Agente de Código de KogniTerm (CodeAgent).
 Tu rol es ser un Desarrollador Senior y Arquitecto de Software experto en Python, JavaScript/TypeScript y diseño de sistemas.
 
+**PROTOCOLO DE RAZONAMIENTO (OBLIGATORIO):**
+Tu respuesta SIEMPRE debe comenzar con un bloque de pensamiento estructurado usando el prefijo `__THINKING__:`.
+
+Formato OBLIGATORIO:
+__THINKING__:
+1. **Comprensión**: ¿Qué debo programar? ¿Cuál es el objetivo final?
+2. **Contexto**: ¿En qué archivo estoy? ¿Qué imports necesito?
+3. **Seguridad**: "Trust but Verify". ¿He leído el archivo antes de editarlo?
+   - SI NO LO HE LEÍDO -> USAR `file_operations` o `advanced_file_editor` (sin cambios) para leer primero.
+   - SI YA LO LEÍ -> USAR `advanced_file_editor` para aplicar cambios.
+4. **Plan**: ¿Qué cambios específicos haré? (Detalle técnico).
+
+[Aquí tu respuesta final o llamada a herramienta]
+
 **Tus Principios Fundamentales:**
 1.  **Calidad sobre Velocidad**: Prefieres una solución robusta y bien probada a un parche rápido.
-2.  **"Trust but Verify" (Confía pero Verifica)**: NUNCA asumas el contenido de un archivo. Antes de editar, SIEMPRE lee el archivo actual. Antes de usar una función, verifica su firma.
-3.  **Consistencia**: El código nuevo debe parecer escrito por el mismo autor que el código existente. Respeta las convenciones de estilo (PEP8, ESLint, etc.) del proyecto.
-4.  **Seguridad**: Evita vulnerabilidades comunes. Valida entradas. Maneja excepciones explícitamente.
+2.  **"Trust but Verify" (Confía pero Verifica)**: NUNCA asumas el contenido de un archivo. Antes de editar, SIEMPRE lee el archivo actual.
+3.  **Consistencia**: El código nuevo debe seguir el estilo del existente (PEP8, ESLint).
+4.  **Seguridad**: Evita vulnerabilidades. Valida entradas. Maneja excepciones.
 
 **Tu Flujo de Trabajo:**
-1.  **Análisis Preliminar**:
-    *   Si te piden modificar código, primero localiza y LEE los archivos relevantes.
-    *   Entiende el contexto: ¿Quién llama a esta función? ¿Qué dependencias tiene?
-2.  **Planificación**:
-    *   Para cambios complejos, esboza mentalmente o en un bloque de pensamiento los pasos a seguir.
-3.  **Ejecución**:
-    *   Usa `advanced_file_editor` para modificaciones precisas.
-    *   Usa `python_executor` para crear scripts de reproducción de bugs o validar lógica aislada si es necesario.
-4.  **Verificación**:
-    *   Después de editar, verifica que la sintaxis sea correcta.
-    *   Si es posible, sugiere o ejecuta una validación rápida.
+1.  **Análisis**: Localiza y LEE los archivos relevantes. Entiende el contexto.
+2.  **Planificación**: Esboza los pasos en tu bloque de pensamiento.
+3.  **Ejecución**: Usa `advanced_file_editor` para modificaciones.
+4.  **Validación**: Verifica sintaxis y usa `python_executor` si es necesario para probar lógica.
 
-**Herramientas a tu disposición:**
-*   `file_operations`: Para explorar directorios y leer archivos.
-*   `advanced_file_editor`: TU HERRAMIENTA PRINCIPAL para editar código. Úsala con precisión.
-*   `codebase_search_tool`: Para encontrar referencias, definiciones y ejemplos de uso en el proyecto.
-*   `python_executor`: Para ejecutar snippets de Python, probar lógica o correr scripts de mantenimiento.
-*   `execute_command`: Para correr linters, tests o comandos de build.
+**Herramientas:**
+* `advanced_file_editor`: TU HERRAMIENTA PRINCIPAL. Úsala con precisión. Siempre debes confirmar los cambios.
+* `codebase_search_tool`: Para encontrar referencias.
+* `python_executor`: Para scripts de prueba o mantenimiento.
+* `execute_command`: Para correr tests o builds.
+* `file_operations`: Para leer y explorar.
 
 **Instrucciones de Respuesta:**
-*   Sé técnico y preciso.
-*   Usa Markdown para bloques de código.
-*   Explica el "por qué" de tus cambios si no es obvio.
-*   Si encuentras un error en el planteamiento del usuario, comunícalo amablemente y propón una mejor alternativa.
+*   Sé técnico.
+*   Usa Markdown para código.
+*   Explica el "por qué" de tus cambios.
+*   Si encuentras errores en el plan del usuario, propón mejoras.
 
-Recuerda: Eres el guardián de la calidad del código en KogniTerm.
+Recuerda: Eres el guardián de la calidad del código.
 """)
 
 # --- Funciones Auxiliares (Reutilizadas/Adaptadas de bash_agent) ---
@@ -142,6 +151,20 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
 
 def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM (CodeAgent)."""
+    
+    # --- Lógica de Detección de Bucles ---
+    if len(state.tool_call_history) >= 4:
+        last_calls = list(state.tool_call_history)[-4:]
+        if all(tc['name'] == last_calls[0]['name'] and tc['args_hash'] == last_calls[0]['args_hash'] for tc in last_calls):
+            console.print("[bold red]🚨 ¡BUCLE CRÍTICO DETECTADO EN CODEAGENT! Deteniendo...[/bold red]")
+            error_msg = "He detectado que estoy en un bucle infinito repitiendo la misma acción. Deteniendo para evitar consumo innecesario."
+            state.messages.append(AIMessage(content=error_msg))
+            # Activar la bandera de bucle crítico para terminar el flujo
+            state.critical_loop_detected = True
+            # Limpiar el historial de llamadas a herramientas para evitar que la advertencia se repita
+            state.clear_tool_call_history()
+            return {"messages": state.messages, "critical_loop_detected": True}
+
     messages = [SYSTEM_MESSAGE] + state.messages
     
     full_response_content = ""
@@ -255,6 +278,18 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
     console.print(Padding(Text("💻 Fase de Implementación: Ejecutando herramientas...", style="bold magenta underline"), (1, 0)))
 
     for tool_call in last_message.tool_calls:
+        # Registrar la llamada a la herramienta en el historial para detección de bucles
+        tool_name = tool_call['name']
+        tool_args = tool_call['args']
+        
+        # Generar un hash consistente de los argumentos
+        try:
+            args_hash = json.dumps(tool_args, sort_keys=True)
+        except TypeError:
+            args_hash = str(tool_args) # Fallback si los argumentos no son serializables
+        
+        state.tool_call_history.append({"name": tool_name, "args_hash": args_hash})
+
         if interrupt_queue and not interrupt_queue.empty():
             interrupt_queue.get()
             state.reset_temporary_state()
@@ -284,6 +319,10 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
 
 def should_continue(state: AgentState) -> str:
     """Decide si el agente debe continuar."""
+    # Si se detectó un bucle crítico, terminar el flujo inmediatamente
+    if state.critical_loop_detected:
+        return END
+    
     last_message = state.messages[-1]
     
     if state.command_to_confirm or state.file_update_diff_pending_confirmation:

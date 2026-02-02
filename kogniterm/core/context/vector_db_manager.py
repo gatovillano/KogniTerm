@@ -16,18 +16,29 @@ class VectorDBManager:
         self._ensure_db_dir()
         
         try:
-            # print("DEBUG: Creando PersistentClient de ChromaDB (sin telemetría)...")
-            self.client = chromadb.PersistentClient(
-                path=self.db_path,
-                settings=Settings(anonymized_telemetry=False)
-            )
-            # print("DEBUG: Obteniendo o creando colección 'codebase_chunks'...")
-            self.collection = self.client.get_or_create_collection(name="codebase_chunks")
-            # print("DEBUG: ChromaDB inicializado correctamente.")
+            self._init_client()
         except Exception as e:
-            # print(f"DEBUG: ERROR en ChromaDB: {e}")
-            logger.error(f"Failed to initialize ChromaDB at {self.db_path}: {e}")
-            raise e
+            logger.warning(f"Initial ChromaDB connection failed: {e}. Attempting to reset database...")
+            try:
+                import shutil
+                if os.path.exists(self.db_path):
+                    shutil.rmtree(self.db_path)
+                self._ensure_db_dir()
+                self._init_client()
+                logger.info("ChromaDB successfully reset and initialized.")
+            except Exception as retry_e:
+                logger.error(f"Failed to recover ChromaDB at {self.db_path}: {retry_e}")
+                raise retry_e
+
+    def _init_client(self):
+        # print("DEBUG: Creando PersistentClient de ChromaDB (sin telemetría)...")
+        self.client = chromadb.PersistentClient(
+            path=self.db_path,
+            settings=Settings(anonymized_telemetry=False)
+        )
+        # print("DEBUG: Obteniendo o creando colección 'codebase_chunks'...")
+        self.collection = self.client.get_or_create_collection(name="codebase_chunks")
+        # print("DEBUG: ChromaDB inicializado correctamente.")
 
     def _ensure_db_dir(self):
         if not os.path.exists(self.db_path):

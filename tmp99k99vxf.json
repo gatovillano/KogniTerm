@@ -1,0 +1,12 @@
+{
+  "shell_port": 49657,
+  "iopub_port": 55647,
+  "stdin_port": 49147,
+  "control_port": 57085,
+  "hb_port": 47049,
+  "ip": "127.0.0.1",
+  "key": "b7ce8a14-6936d1d33510d9962515068e",
+  "transport": "tcp",
+  "signature_scheme": "hmac-sha256",
+  "kernel_name": "kogniterm_venv"
+}

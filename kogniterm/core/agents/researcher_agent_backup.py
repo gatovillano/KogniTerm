@@ -233,6 +233,10 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
 
 def should_continue(state: AgentState) -> str:
     """Decide si el agente debe continuar."""
+    # Si se detectó un bucle crítico, terminar el flujo inmediatamente
+    if state.critical_loop_detected:
+        return END
+    
     last_message = state.messages[-1]
     
     if isinstance(last_message, AIMessage) and last_message.tool_calls:

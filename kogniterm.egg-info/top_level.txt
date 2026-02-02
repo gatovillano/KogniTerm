@@ -1,9 +1,9 @@
-assistant_cli
-cli_app
+data-gym-cache
 dist
 docs
-factorial_project
 kogniterm
+kogniterm-desktop
+plans
 test_environment
 tests
 venv

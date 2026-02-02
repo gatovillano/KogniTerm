@@ -60,27 +60,6 @@ class ResearcherCrew:
             pass
 
     def run(self, query: str):
-        # 0. Generar árbol de directorios del proyecto como contexto inicial
-        project_tree = ""
-        try:
-            file_ops_tool = self.tools.get('file_ops')
-            if file_ops_tool:
-                import os
-                project_root = os.getcwd()
-                tree_result = file_ops_tool.run({
-                    "operation": "list_directory",
-                    "path": project_root,
-                    "recursive": True
-                })
-                if isinstance(tree_result, str):
-                    tree_lines = tree_result.split('\n')[:100]
-                    project_tree = f"\n\n**Estructura del Proyecto (primeras 100 entradas):**\n```\n{chr(10).join(tree_lines)}\n```\n"
-                elif isinstance(tree_result, list):
-                    tree_lines = tree_result[:100]
-                    project_tree = f"\n\n**Estructura del Proyecto (primeras 100 entradas):**\n```\n{chr(10).join(tree_lines)}\n```\n"
-        except Exception as e:
-            project_tree = f"\n\n(No se pudo generar el árbol de directorios: {e})\n"
-        
         # 1. Definir Agentes
         director = self.director_factory.agent()
         planner = self.planner_factory.agent()
@@ -88,6 +67,7 @@ class ResearcherCrew:
         github_researcher = self.research_factory.github_researcher()
         web_researcher = self.research_factory.web_researcher()
         static_analyzer = self.research_factory.static_analyzer()
+        doc_specialist = self.research_factory.documentation_specialist()
         synthesizer = self.synthesizer_factory.agent()
         reporter = self.reporter_factory.agent()
 
@@ -97,13 +77,11 @@ class ResearcherCrew:
             
             PROTOCOLO DE EQUIPO:
             1. El Director inicia la sesión y coordina quién empieza.
-            2. Los especialistas (Codigo, Web, GitHub, Analista) deben investigar sus áreas.
+            2. Los especialistas (Codigo, Web, GitHub, Analista, Documentación) deben investigar sus áreas.
             3. SI NECESITAS CONTEXTO de otro área, PREGUNTA a tu colega.
             4. No trabajes solo. Si encuentras algo interesante, compártelo o pide una segunda opinión.
             5. El Sintetizador y Redactor deben estar atentos a la conversación para capturar la esencia del consenso.
             
-{project_tree}
-
             El objetivo es un informe Markdown que sea el resultado de una discusión técnica real.""",
             expected_output="Informe técnico maestro en Markdown, fruto de la colaboración y consulta cruzada.",
             agent=director
@@ -116,11 +94,12 @@ class ResearcherCrew:
         github_researcher.allow_delegation = True
         web_researcher.allow_delegation = True
         static_analyzer.allow_delegation = True
+        doc_specialist.allow_delegation = True
         synthesizer.allow_delegation = True
         reporter.allow_delegation = True
 
         crew = Crew(
-            agents=[director, planner, code_researcher, github_researcher, web_researcher, static_analyzer, synthesizer, reporter],
+            agents=[director, planner, code_researcher, github_researcher, web_researcher, static_analyzer, doc_specialist, synthesizer, reporter],
             tasks=[research_task],
             process=Process.sequential,
             verbose=True,

@@ -197,11 +197,11 @@ class FileOperationsTool(BaseTool):
             raise InterruptedError("Operación de escritura de archivo interrumpida por el usuario.")
 
         logger.debug(f"DEBUG: _write_file - confirm: {confirm}")
-        # print(f"*** DEBUG PRINT: _write_file - confirm: {confirm} ***")
+        # Ignorar el parámetro 'confirm' cuando viene del LLM
+        # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
         if confirm:
-            logger.debug("DEBUG: _write_file - Ejecutando _perform_write_file (confirm=True).")
-            result = self._perform_write_file(path, content)
-            return {"status": "success", "message": result}
+            logger.warning(f"FileOperationsTool - El LLM intentó usar confirm=True en write_file. Ignorando y requiriendo confirmación del usuario.")
+            # No ejecutar _perform_write_file, continuar con el flujo de confirmación
         
         # Si tenemos un approval_handler, intentamos usarlo para una experiencia interactiva
         if self.approval_handler:
@@ -271,11 +271,11 @@ class FileOperationsTool(BaseTool):
             raise InterruptedError("Operación de eliminación de archivo interrumpida por el usuario.")
 
         logger.debug(f"DEBUG: _delete_file - confirm: {confirm}")
-        print(f"*** DEBUG PRINT: _delete_file - confirm: {confirm} ***")
+        # Ignorar el parámetro 'confirm' cuando viene del LLM
+        # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
         if confirm:
-            logger.debug("DEBUG: _delete_file - Ejecutando _perform_delete_file (confirm=True).")
-            result = self._perform_delete_file(path)
-            return {"status": "success", "message": result}
+            logger.warning(f"FileOperationsTool - El LLM intentó usar confirm=True en delete_file. Ignorando y requiriendo confirmación del usuario.")
+            # No ejecutar _perform_delete_file, continuar con el flujo de confirmación
         
         if self.approval_handler:
             approved = self.approval_handler.handle_approval(

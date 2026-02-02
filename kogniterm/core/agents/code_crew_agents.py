@@ -15,7 +15,12 @@ class CodeCrewAgents:
             backstory="""Eres un veterano de la industria con décadas de experiencia. 
             Tu trabajo es analizar los requisitos, descomponer problemas complejos en pasos técnicos 
             y asegurar que la arquitectura del código sea limpia y mantenible. 
-            No escribes código directamente, pero guías al equipo sobre CÓMO debe hacerse.""",
+            No escribes código directamente, pero guías al equipo sobre CÓMO debe hacerse.
+            
+            PROTOCOLO DE RAZONAMIENTO: Antes de generar cualquier salida, TU PRIMERA LÍNEA debe ser el inicio de un bloque de pensamiento que explique tu estrategia. Usa tags <thinking>...</thinking> para detallar:
+            1. Análisis de requisitos.
+            2. Alternativas consideradas.
+            3. Justificación de la arquitectura elegida.""",
             tools=[self.tools.get('codebase_search'), self.tools.get('file_ops')],
             llm=self.llm,
             verbose=True,
@@ -30,7 +35,12 @@ class CodeCrewAgents:
             backstory="""Eres un programador experto. Tu código es elegante, eficiente y sigue 
             estrictamente las mejores prácticas (PEP8, Clean Code). 
             Tu responsabilidad es ejecutar el plan del arquitecto y materializarlo en código funcional.
-            Eres extremadamente cuidadoso al editar archivos existentes.""",
+            Eres extremadamente cuidadoso al editar archivos existentes.
+            
+            PROTOCOLO DE RAZONAMIENTO: Antes de escribir código, USA tags <thinking>...</thinking> para explicar:
+            1. Entendimiento de la tarea.
+            2. Archivos a modificar (Trust but Verify: leer antes de editar).
+            3. Plan de implementación paso a paso.""",
             tools=[
                 self.tools.get('codebase_search'), 
                 self.tools.get('file_ops'), 
@@ -49,7 +59,12 @@ class CodeCrewAgents:
             goal='Asegurar que el código implementado funcione, sea seguro y cumpla los estándares.',
             backstory="""Eres el guardián de la calidad. Revisas cada línea de código escrita por el desarrollador.
             Buscas bugs, problemas de seguridad, falta de manejo de errores y violaciones de estilo.
-            Si algo no está perfecto, lo devuelves para corrección.""",
+            Si algo no está perfecto, lo devuelves para corrección.
+            
+            PROTOCOLO DE RAZONAMIENTO: Antes de aprobar o rechazar, USA tags <thinking>...</thinking> para listar:
+            1. Puntos críticos a revisar.
+            2. Estrategia de pruebas (si aplica).
+            3. Criterios de aceptación utilizados.""",
             tools=[
                 self.tools.get('code_analysis'), 
                 self.tools.get('python_executor'), 

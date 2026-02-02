@@ -18,6 +18,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 from typing import Union # ¡Nueva importación para Union!
 
+from .multi_provider_manager import get_provider_manager, MultiProviderManager
+
 def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
     args_schema = {"type": "object", "properties": {}}
@@ -180,10 +182,20 @@ from .history_manager import HistoryManager
 
 
 class LLMService:
-    def __init__(self, interrupt_queue: Optional[queue.Queue] = None):
+    def __init__(self, interrupt_queue: Optional[queue.Queue] = None, use_multi_provider: bool = True):
         # print("DEBUG: Iniciando LLMService.__init__...")
         # print("DEBUG: Iniciando LLMService.__init__...")
         from .tools.tool_manager import ToolManager
+        
+        # Inicializar MultiProviderManager
+        self.use_multi_provider = use_multi_provider
+        if use_multi_provider:
+            self.provider_manager = get_provider_manager()
+            # Realizar health check inicial
+            self.provider_manager.health_check()
+        else:
+            self.provider_manager = None
+        
         self.model_name = os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash")
         # Validación de seguridad: si el modelo parece una API Key de Google, corregirlo
         if self.model_name.startswith("AIza"):
@@ -1120,10 +1132,23 @@ class LLMService:
             
             logger.debug(f"DEBUG: Enviando mensajes al LLM: {json.dumps(completion_kwargs['messages'], indent=2)}")
             logger.debug(f"DEBUG: completion_kwargs: {json.dumps(completion_kwargs, indent=2)}")
-            # Intentar llamada principal
-            response_generator = completion(
-                **completion_kwargs
-            )
+            
+            # Usar MultiProviderManager si está habilitado
+            if self.use_multi_provider and self.provider_manager:
+                logger.info("🔄 Usando MultiProviderManager con fallback automático")
+                response_generator = self.provider_manager.execute_with_fallback(
+                    model_name=self.model_name,
+                    messages=completion_kwargs["messages"],
+                    stream=completion_kwargs.get("stream", True),
+                    temperature=completion_kwargs.get("temperature", 0.7),
+                    max_tokens=completion_kwargs.get("max_tokens", 8192),
+                    tools=completion_kwargs.get("tools"),
+                )
+            else:
+                # Fallback al comportamiento original
+                response_generator = completion(
+                    **completion_kwargs
+                )
             logger.debug("DEBUG: litellm.completion llamada exitosa, procesando chunks...")
             end_time = time.perf_counter()
             self.call_timestamps.append(time.time())
@@ -1621,8 +1646,25 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             if hasattr(self, 'tool_executor') and self.tool_executor:
                 self.tool_executor.shutdown(wait=False)
                 logger.info("LLMService: Executor de herramientas detenido.")
+            
+            if hasattr(self, 'provider_manager') and self.provider_manager:
+                self.provider_manager.close()
+                logger.info("LLMService: ProviderManager cerrado.")
         except Exception as e:
             logger.error(f"Error al cerrar LLMService: {e}")
+    
+    def get_provider_metrics(self) -> Dict[str, Any]:
+        """Obtiene métricas de los proveedores si está usando MultiProviderManager."""
+        if self.use_multi_provider and self.provider_manager:
+            return self.provider_manager.get_metrics_report()
+        return {"error": "MultiProviderManager no está habilitado"}
+    
+    def print_provider_metrics(self):
+        """Imprime métricas de proveedores formateadas."""
+        if self.use_multi_provider and self.provider_manager:
+            self.provider_manager.print_metrics_report()
+        else:
+            print("MultiProviderManager no está habilitado")
 
     def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Generator[Any, None, None]:
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""

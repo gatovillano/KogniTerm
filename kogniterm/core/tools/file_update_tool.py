@@ -42,8 +42,11 @@ class FileUpdateTool(BaseTool):
 
     def _run(self, path: str, content: Optional[str] = None, confirm: bool = False) -> str:
         logger.debug(f"FileUpdateTool - Intentando actualizar archivo en ruta '{path}' (confirm={confirm})")
+        # Ignorar el parámetro 'confirm' cuando viene del LLM
+        # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
+        # Por lo tanto, siempre requerimos confirmación inicial
         if confirm:
-            return self._apply_update(path, content)
+            logger.warning(f"FileUpdateTool - El LLM intentó usar confirm=True. Ignorando y requiriendo confirmación del usuario.")
         try:
             if not os.path.exists(path):
                 return f"Error: El archivo '{path}' no existe para actualizar."

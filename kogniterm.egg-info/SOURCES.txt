@@ -6,6 +6,8 @@ setup.py
 kogniterm/__init__.py
 kogniterm/main.py
 kogniterm/requirements.txt
+kogniterm-desktop/apps/server/kogniterm_server/main.py
+kogniterm-desktop/apps/server/kogniterm_server/api/routes.py
 kogniterm.egg-info/PKG-INFO
 kogniterm.egg-info/SOURCES.txt
 kogniterm.egg-info/dependency_links.txt
@@ -14,6 +16,7 @@ kogniterm.egg-info/requires.txt
 kogniterm.egg-info/top_level.txt
 kogniterm/core/__init__.py
 kogniterm/core/agent_state.py
+kogniterm/core/async_io_manager.py
 kogniterm/core/command_executor.py
 kogniterm/core/config.py
 kogniterm/core/embeddings_service.py
@@ -22,6 +25,7 @@ kogniterm/core/history_manager.py
 kogniterm/core/llm_bridge.py
 kogniterm/core/llm_service.py
 kogniterm/core/llm_service_enhanced.py
+kogniterm/core/multi_provider_manager.py
 kogniterm/core/progress_manager.py
 kogniterm/core/session_manager.py
 kogniterm/core/agents/__init__.py
@@ -70,6 +74,7 @@ kogniterm/core/tools/web_scraping_tool.py
 kogniterm/core/utils/__init__.py
 kogniterm/core/utils/tool_utils.py
 kogniterm/docs/Cambios.md
+kogniterm/docs/registro_errores_soluciones.md
 kogniterm/docs/researcher_agent_flow.md
 kogniterm/terminal/__init__.py
 kogniterm/terminal/agent_interaction_manager.py
@@ -104,4 +109,5 @@ tests/verify_history_summary.py
 tests/verify_truncate_fix.py
 tests/verify_truncate_fix_simple.py
 venv/bin/dumppdf.py
+venv/bin/jp.py
 venv/bin/pdf2txt.py

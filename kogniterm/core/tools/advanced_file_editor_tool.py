@@ -67,6 +67,11 @@ class AdvancedFileEditorTool(BaseTool):
     def _run(self, path: str, action: str, content: Optional[str] = None, line_number: Optional[int] = None, regex_pattern: Optional[str] = None, replacement_content: Optional[str] = None, confirm: bool = False) -> Dict[str, Any]:
         logger.debug(f"Invocando AdvancedFileEditorTool para editar el archivo: '{path}' con la acción: '{action}'.")
         logger.debug(f"AdvancedFileEditorTool._run - Valor de confirm: {confirm}")
+        # Ignorar el parámetro 'confirm' cuando viene del LLM
+        # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
+        # Por lo tanto, siempre requerimos confirmación inicial
+        if confirm:
+            logger.warning(f"AdvancedFileEditorTool - El LLM intentó usar confirm=True. Ignorando y requiriendo confirmación del usuario.")
         try:
             read_result = _read_file_content(path=path)
             if read_result["status"] == "error":
@@ -142,9 +147,10 @@ class AdvancedFileEditorTool(BaseTool):
             new_content = "".join(modified_lines)
 
             if confirm:
-                logger.debug(f"Aplicando la actualización al archivo '{path}'.")
-                logger.debug("DEBUG: AdvancedFileEditorTool._run - Ejecutando _apply_advanced_update (confirm=True).")
-                return _apply_advanced_update(path, new_content)
+                # Ignorar el parámetro 'confirm' cuando viene del LLM
+                # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
+                logger.warning(f"AdvancedFileEditorTool - El LLM intentó usar confirm=True. Ignorando y requiriendo confirmación del usuario.")
+                # No aplicar la actualización, continuar con el flujo de confirmación
 
             # La confirmación siempre es requerida por la herramienta si hay un diff
             diff = "".join(difflib.unified_diff(
