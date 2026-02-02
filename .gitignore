@@ -1,31 +1,36 @@
+# Entornos y Variables
 .env
-venv
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.qodo/
+
+# Historiales y Logs
 *.gemini_interpreter_history
-__pycache__
-llm_context.md
-build
+.aider*
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+
+# Node / JS
+node_modules/
+dist/
+build/
+.next/
+out/
+
+# Proyecto KogniTerm
+.kogniterm/
 kogniterm_history.json
-.venv
-.qodo
-.kogniterm/.kogniterm_history
-.kogniterm/.project_structure.md
 project_structure.md
 .project_structure.md
 GEMINI.md
-.aider*
-.gitignore
-.kogniterm/.git_tracked_files_cache.json
-.kogniterm/folder_structure_cache/structure.json
-.kogniterm/history.json
+llm_context.md
 informe_kilo_code.md
-.kogniterm/vector_db/chroma.sqlite3
-.kogniterm/vector_db/chroma.sqlite3
-.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/data_level0.bin
-.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/header.bin
-.kogniterm/vector_db/chroma.sqlite3
-.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/index_metadata.pickle
-.kogniterm/
-.kogniterm/vector_db/chroma.sqlite3
-.kogniterm/vector_db/2b2890a0-7ece-4fc0-914f-42d9da65ed4a/
-kogniterm/terminal/kogniterm_app.py
-PyPI-Recovery-Codes-gatovillano-2026-01-05T05_48_00.803492.txt
+PyPI-Recovery-Codes-*.txt
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
