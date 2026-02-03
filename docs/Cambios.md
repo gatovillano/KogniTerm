@@ -1435,3 +1435,40 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 ✅ **Compatibilidad**: Implementado de forma segura para no afectar a otros proveedores (Gemini, OpenAI nativo, etc.).
 
 ---
+---
+
+## 02-02-2026 Mejora de Robustez en el Parser de Herramientas y Unificación de Detección
+
+**Descripción general**: Se ha optimizado el sistema de detección y ejecución de herramientas para resolver problemas de "bucles críticos" y llamadas con argumentos vacíos, especialmente recurrentes en modelos de OpenAI cuando mezclan razonamiento en texto plano con llamadas a funciones.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py)
+2. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Refactorización del Parser de Texto (`_parse_tool_calls_from_text`)**:
+    - **Preservación de Estructura**: Se eliminó la normalización de espacios agresiva que reemplazaba saltos de línea por espacios, permitiendo ahora el parseo correcto de bloques JSON multilínea.
+    - **Detección de Markdown**: Se añadió soporte para extraer argumentos de herramientas contenidos dentro de bloques de código Markdown (````json ...````).
+    - **Mejora de Regex (Pattern 2 y 4)**: Se actualizaron los patrones para ser más flexibles con los saltos de línea y evitar capturar texto irrelevante como argumentos.
+    - **Robustez en `extract_args`**: Ahora intenta extraer el primer objeto JSON balanceado si encuentra ruido alrededor de los argumentos.
+
+2. **Unificación de Lógica de Detección en `invoke`**:
+    - **Detección Híbrida**: El sistema ahora procesa simultáneamente los `tool_calls` nativos del proveedor y los detectados manualmente en el texto.
+    - **Rescate de Argumentos**: Si una llamada nativa se recibe con argumentos vacíos o malformados, el sistema busca automáticamente en el texto si el modelo escribió los argumentos allí, completando la llamada de forma transparente.
+    - **Fusión Inteligente**: Se implementó una lógica de fusión que evita duplicados y prioriza las llamadas que contienen argumentos válidos.
+
+3. **Ajuste de Prompt de Sistema**:
+    - Se modificó el protocolo de razonamiento en `bash_agent.py` para evitar que el modelo use nombres de herramientas literales seguidos de dos puntos en su fase de pensamiento, reduciendo falsos positivos en el parser.
+
+#### **🎯 Beneficios Obtenidos**
+
+✅ **Adiós a los Bucles Críticos**: Se eliminan las repeticiones infinitas causadas por herramientas que se llamaban sin comandos.
+✅ **Compatibilidad Superior con OpenAI**: Mejor manejo de modelos que prefieren "escribir" la herramienta en lugar de usar la API formal.
+✅ **Robustez Multilínea**: Soporte completo para comandos complejos que abarcan varias líneas.
+✅ **Fallback Silencioso**: El usuario ya no ve errores de parseo; el sistema simplemente encuentra la información donde esté disponible.
+
+---

@@ -303,22 +303,35 @@ class LLMService:
         tool_calls = []
         import re
         
-        # Normalizar texto: reemplazar múltiples espacios y normalizar caracteres
-        normalized_text = re.sub(r'\s+', ' ', text.strip())
+        # No normalizar espacios agresivamente para preservar saltos de línea necesarios en JSON
+        text_for_search = text.strip()
         
         # Función auxiliar para extraer argumentos de manera permisiva
         def extract_args(args_str):
             if not args_str:
                 return {}
             
+            args_str = args_str.strip()
+            
+            # Limpiar posibles bloques de código Markdown
+            args_str = re.sub(r'^```(?:json)?\s*', '', args_str)
+            args_str = re.sub(r'\s*```$', '', args_str)
+            args_str = args_str.strip()
+
             # Intentar JSON primero
             try:
                 return json.loads(args_str)
             except (json.JSONDecodeError, ValueError):
-                pass
+                # Intentar extraer el primer objeto JSON balanceado si hay texto extra
+                json_match = re.search(r'(\{.*\})', args_str, re.DOTALL)
+                if json_match:
+                    try:
+                        return json.loads(json_match.group(1))
+                    except:
+                        pass
             
             # Intentar argumentos key=value
-            kv_pattern = r'(\w+)\s*[:=]\s*([\w"\'\[\{].*?)(?:[,}]|$)'
+            kv_pattern = r'(\w+)\s*[:=]\s*([\w"\'\[\{].*?)(?:[,}]|\n|$)'
             kv_matches = re.findall(kv_pattern, args_str)
             if kv_matches:
                 result = {}
@@ -346,51 +359,47 @@ class LLMService:
         
         # PATRÓN 1: tool_call: nombre({args})
         pattern1 = r'tool_call\s*:\s*(\w+)\s*\(\s*([^)]*?)\s*\)'
-        matches1 = re.findall(pattern1, normalized_text, re.IGNORECASE | re.DOTALL)
+        matches1 = re.findall(pattern1, text_for_search, re.IGNORECASE | re.DOTALL)
         for name, args_str in matches1:
-            if name not in self.tool_map:
-                continue
-            args = extract_args(args_str)
-            tool_calls.append({
-                "id": self._generate_short_id(),
-                "name": name,
-                "args": args
-            })
-
-        # PATRÓN 2: llamar/ejecutar/usar herramienta nombre con args
-        pattern2 = r'(?:llamar|ejecutar|usar|invoke|call)\s+(?:a\s+)?(?:la\s+)?(?:herramienta|tool)\s+(\w+)\s*(?:con\s+args?|con\s+argumentos?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|.*?)$'
-        matches2 = re.findall(pattern2, normalized_text, re.IGNORECASE | re.DOTALL)
-        for name, args_str in matches2:
-            if name not in self.tool_map:
-                continue
-            # Limpiar la cadena de argumentos
-            args_str = args_str.strip().strip('{}()')
-            args = extract_args(args_str)
-            tool_calls.append({
-                "id": self._generate_short_id(),
-                "name": name,
-                "args": args
-            })
-
-        # PATRÓN 3: Function calls estilo código - nombre({args})
-        pattern3 = r'\b(\w+)\s*\(\s*([^)]*?)\s*\)'
-        matches3 = re.findall(pattern3, normalized_text)
-        for name, args_str in matches3:
-            # Filtrar funciones comunes que no son herramientas
-            if name.lower() in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple', 'range', 'type', 'isinstance', 'hasattr', 'getattr', 'open', 'input', 'print', 'exec', 'eval']:
-                continue
-            
-            # CRÍTICO: Solo agregar si el nombre es una herramienta registrada
-            if name not in self.tool_map:
-                continue
-            
-            args = extract_args(args_str)
-            if args or args_str.strip():  # Solo agregar si hay argumentos o si es una llamada clara
+            if name.lower() in self.tool_map:
+                args = extract_args(args_str)
                 tool_calls.append({
                     "id": self._generate_short_id(),
                     "name": name,
                     "args": args
                 })
+
+        # PATRÓN 2: llamar/ejecutar/usar herramienta nombre con args (MEJORADO)
+        pattern2 = r'(?:llamar|ejecutar|usar|invoke|call|herramienta)\s+[:\-]?\s*(\s*\w+)\s*(?:con\s+args?|con\s+argumentos?)?\s*[:\-]?\s*(\s*\{.*?\}|\s*\(.*?\)|.*?(?=\n\d+\.|\n[A-Z]|$))'
+        matches2 = re.findall(pattern2, text_for_search, re.IGNORECASE | re.DOTALL)
+        for name, args_str in matches2:
+            name = name.strip()
+            real_name = next((k for k in self.tool_map.keys() if k.lower() == name.lower()), None)
+            if real_name:
+                args = extract_args(args_str)
+                tool_calls.append({
+                    "id": self._generate_short_id(),
+                    "name": real_name,
+                    "args": args
+                })
+
+        # PATRÓN 3: Function calls estilo código - nombre({args})
+        pattern3 = r'\b(\w+)\s*\(\s*([^)]*?)\s*\)'
+        matches3 = re.findall(pattern3, text_for_search)
+        for name, args_str in matches3:
+            # Filtrar funciones comunes que no son herramientas
+            if name.lower() in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple', 'range', 'type', 'isinstance', 'hasattr', 'getattr', 'open', 'input', 'print', 'exec', 'eval']:
+                continue
+            
+            real_name = next((k for k in self.tool_map.keys() if k.lower() == name.lower()), None)
+            if real_name:
+                args = extract_args(args_str)
+                if args or args_str.strip():
+                    tool_calls.append({
+                        "id": self._generate_short_id(),
+                        "name": real_name,
+                        "args": args
+                    })
 
         # PATRÓN 3.1: Python function calls con parámetros específicos (ej: call_agent)
         # Buscar patrones como call_agent(agent_name="researcher_agent", task="...")
@@ -453,42 +462,49 @@ class LLMService:
                 })
 
         # PATRÓN 4: [TOOL_CALL] formato
-        pattern4 = r'\[TOOL_CALL\]\s*(\w+)\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\n]+)'
-        matches4 = re.findall(pattern4, normalized_text, re.IGNORECASE)
+        pattern4 = r'\[TOOL_CALL\]\s*(\w+)\s*[:\-]?\s*(\s*\{.*?\}|\s*\(.*?\)|[^\n\[]+)'
+        matches4 = re.findall(pattern4, text_for_search, re.IGNORECASE | re.DOTALL)
         for name, args_str in matches4:
-            args_str = args_str.strip().strip('{}()')
-            args = extract_args(args_str)
-            tool_calls.append({
-                "id": self._generate_short_id(),
-                "name": name,
-                "args": args
-            })
+            real_name = next((k for k in self.tool_map.keys() if k.lower() == name.lower()), None)
+            if real_name:
+                args = extract_args(args_str)
+                tool_calls.append({
+                    "id": self._generate_short_id(),
+                    "name": real_name,
+                    "args": args
+                })
 
-        # PATRÓN 5: JSON estructurado expandido
-        # Buscar cualquier objeto JSON que contenga información de herramientas
-        json_patterns = [
-            r'\{[^}]*"(?:tool_call|function_call|action|operation)"\s*:\s*\{[^}]*"(?:name|tool|function)"\s*:\s*["\']([^"\']+)["\'][^}]*"(?:args|arguments|parameters)"\s*:\s*(\{[^}]*\})[^}]*\}',
-            r'\{[^}]*"(?:name|tool|function)"\s*:\s*["\']([^"\']+)["\'][^}]*"(?:args|arguments|parameters)"\s*:\s*(\{[^}]*\})[^}]*\}',
-            r'\{[^}]*"(\w+)"\s*:\s*(\{[^}]*\})[^}]*"(?:tool|function|operation)"\s*:\s*true[^}]*\}',
-        ]
-        
-        for pattern in json_patterns:
-            matches = re.findall(pattern, normalized_text, re.DOTALL)
-            for name, args_str in matches:
-                try:
-                    args = json.loads(args_str)
-                    tool_calls.append({
-                        "id": self._generate_short_id(),
-                        "name": name,
-                        "args": args
-                    })
-                except (json.JSONDecodeError, ValueError):
-                    args = extract_args(args_str)
-                    tool_calls.append({
-                        "id": self._generate_short_id(),
-                        "name": name,
-                        "args": args
-                    })
+        # PATRÓN 5: JSON estructurado expandido y bloques de código Markdown
+        # Buscar bloques de código o JSONs sueltos que parecen llamadas a herramientas
+        json_matches = re.finditer(r'(?:```(?:json)?\s*)?(\{.*?\})(?:\s*```)?', text_for_search, re.DOTALL)
+        for match in json_matches:
+            try:
+                data = json.loads(match.group(1))
+                # Formato: {"name": "tool_name", "args": {...}}
+                if isinstance(data, dict):
+                    name = data.get("name") or data.get("tool") or data.get("function") or data.get("action")
+                    args = data.get("args") or data.get("arguments") or data.get("parameters") or data.get("params") or {}
+                    
+                    if name and name.lower() in [k.lower() for k in self.tool_map.keys()]:
+                        real_name = next(k for k in self.tool_map.keys() if k.lower() == name.lower())
+                        tool_calls.append({
+                            "id": self._generate_short_id(),
+                            "name": real_name,
+                            "args": args
+                        })
+                    # Formato: {"tool_name": {...args...}} - muy común en algunos modelos
+                    elif not name and len(data) == 1:
+                        potential_name = list(data.keys())[0]
+                        potential_args = data[potential_name]
+                        if potential_name.lower() in [k.lower() for k in self.tool_map.keys()] and isinstance(potential_args, dict):
+                            real_name = next(k for k in self.tool_map.keys() if k.lower() == potential_name.lower())
+                            tool_calls.append({
+                                "id": self._generate_short_id(),
+                                "name": real_name,
+                                "args": potential_args
+                            })
+            except:
+                continue
 
         # PATRÓN 6: YAML-like formato
         pattern6 = r'^(\w+)\s*:\s*(\{[^}]*\}|\([^)]*\)|[^\n]+)$'
@@ -1229,53 +1245,60 @@ class LLMService:
             if self.stop_generation_flag:
                 # Si se interrumpe, el AIMessage final se construye con el mensaje de interrupción
                 yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
-            elif tool_calls:
-                formatted_tool_calls = []
-                for tc in tool_calls:
-                    # Asegurarse de que 'arguments' sea una cadena antes de intentar json.loads
-                    args_str = tc["function"]["arguments"] if isinstance(tc["function"]["arguments"], str) else ""
-                    try:
-                        args = json.loads(args_str)
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSONDecodeError al decodificar argumentos de herramienta para '{tc['function']['name']}': {e}. Argumentos recibidos (truncados a 500 chars): '{args_str[:500]}'. Longitud total: {len(args_str)}")
-                        args = {}
-                    formatted_tool_calls.append({
-                        "id": tc["id"],
-                        "name": tc["function"]["name"],
-                        "args": args
-                    })
-                # El AIMessage final incluye el contenido acumulado y los tool_calls
-                # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
-                if not full_response_content or not full_response_content.strip():
-                    # Si hay tool_calls pero no hay texto, algunos proveedores fallan si el content es ""
-                    full_response_content = "Ejecutando herramientas..."
-                yield AIMessage(
-                    content=full_response_content, 
-                    tool_calls=formatted_tool_calls,
-                    additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
-                )
             else:
-                # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
-                enhanced_tool_calls = []
-                if full_response_content and full_response_content.strip():
-                    enhanced_tool_calls = self._parse_tool_calls_from_text(full_response_content)
+                # LÓGICA UNIFICADA: Combinar tool_calls nativos y manuales detectados en el texto
+                final_tool_calls = []
                 
-                if enhanced_tool_calls:
-                    # Si encontramos tool calls en el texto, crear AIMessage con ellos
-                    # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
-                    if not full_response_content.strip():
+                # 1. Procesar tool_calls nativos acumulados durante el streaming
+                if tool_calls:
+                    for tc in tool_calls:
+                        args_str = tc["function"]["arguments"] if isinstance(tc["function"]["arguments"], str) else ""
+                        try:
+                            args = json.loads(args_str)
+                        except json.JSONDecodeError:
+                            args = {}
+                        
+                        final_tool_calls.append({
+                            "id": tc["id"],
+                            "name": tc["function"]["name"],
+                            "args": args
+                        })
+                
+                # 2. Complementar con parseo de texto (siempre, para máxima robustez)
+                if full_response_content and full_response_content.strip():
+                    text_tool_calls = self._parse_tool_calls_from_text(full_response_content)
+                    
+                    # Fusionar evitando duplicados. Si ya existe una llamada nativa CON argumentos, preferirla.
+                    # Si la nativa está vacía pero la del texto tiene argumentos, preferir la del texto.
+                    for tc_text in text_tool_calls:
+                        found_index = -1
+                        for i, tc_final in enumerate(final_tool_calls):
+                            if tc_final['name'] == tc_text['name']:
+                                found_index = i
+                                break
+                        
+                        if found_index >= 0:
+                            # Si la existente no tiene argumentos pero la nueva sí, actualizar
+                            if not final_tool_calls[found_index]['args'] and tc_text.get('args'):
+                                final_tool_calls[found_index]['args'] = tc_text['args']
+                        else:
+                            # No existe, añadirla
+                            final_tool_calls.append(tc_text)
+                
+                if final_tool_calls:
+                    if not full_response_content or not full_response_content.strip():
                         full_response_content = "Ejecutando herramientas..."
+                    
                     yield AIMessage(
                         content=full_response_content, 
-                        tool_calls=enhanced_tool_calls,
+                        tool_calls=final_tool_calls,
                         additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
                     )
                 else:
                     if not full_response_content.strip():
                         logger.debug("DEBUG: full_response_content vacío al finalizar la generación.")
-                        full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
+                        full_response_content = "El modelo devolvió una respuesta vacía. Por favor, intenta reformular tu pregunta si el problema persiste."
                     
-                    # El AIMessage final incluye solo el contenido acumulado y razonamiento si lo hay
                     yield AIMessage(
                         content=full_response_content,
                         additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}

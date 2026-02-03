@@ -36,7 +36,7 @@ Formato OBLIGATORIO de tu respuesta:
 __THINKING__:
 1. **Análisis**: ¿Qué me pide el usuario? ¿Cuál es el contexto (directorio, proyecto)?
 2. **Plan**: ¿Qué pasos debo seguir?
-3. **Herramienta**: ¿Qué herramienta necesito ahora? (ej. `codebase_search_tool` para investigar, `execute_command` para actuar).
+3. **Herramienta**: Define la acción a realizar (ej. búsqueda, comando, edición).
    - Si vas a editar: ¿He leído el archivo antes? (Trust but Verify).
    - Si vas a ejecutar comandos: ¿Son seguros?
 
