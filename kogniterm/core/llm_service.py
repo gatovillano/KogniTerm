@@ -746,6 +746,13 @@ class LLMService:
                 # Handle cases where content is a list of dicts (e.g. from a tool call)
                 content = json.dumps(content)
 
+            msg = {"role": "assistant", "content": content or "..."}
+            
+            # Preservar razonamiento para OpenRouter/LiteLLM
+            reasoning = message.additional_kwargs.get("reasoning_content") or getattr(message, 'reasoning_content', None)
+            if reasoning:
+                msg["reasoning_content"] = reasoning
+
             if tool_calls:
                 serialized_tool_calls = []
                 for tc in tool_calls:
@@ -763,10 +770,11 @@ class LLMService:
                     })
                 
                 if not content or not str(content).strip():
-                    content = "Ejecutando herramientas..."
+                    msg["content"] = "Ejecutando herramientas..."
                 
-                return {"role": "assistant", "content": content, "tool_calls": serialized_tool_calls}
-            return {"role": "assistant", "content": content or "..."}
+                msg["tool_calls"] = serialized_tool_calls
+            
+            return msg
         elif isinstance(message, ToolMessage):
             content = message.content
             if isinstance(content, list):
@@ -1028,6 +1036,13 @@ class LLMService:
             if not completion_kwargs["model"].startswith("openrouter/"):
                 completion_kwargs["model"] = f"openrouter/{self.model_name}"
             
+            # Habilitar Reasoning por defecto para OpenRouter
+            if "extra_body" not in completion_kwargs:
+                completion_kwargs["extra_body"] = {}
+            completion_kwargs["extra_body"]["reasoning"] = { "type": "enabled" }
+            # También añadir el parámetro directo si LiteLLM lo soporta
+            completion_kwargs["include_reasoning"] = True
+            
             # Para modelos específicos como Nex-AGI, usar configuración más simple
             if "nex-agi" in self.model_name.lower() or "deepseek" in self.model_name.lower():
                 # Configuración minimalista para Nex-AGI/DeepSeek
@@ -1124,6 +1139,7 @@ class LLMService:
         
         # Variables para todos los niveles de fallback (inicializadas fuera del try para evitar UnboundError)
         full_response_content = ""
+        full_reasoning_content = ""
         tool_calls = []
 
         try:
@@ -1181,6 +1197,7 @@ class LLMService:
                 # Capturar contenido de razonamiento (Thinking) si está disponible
                 reasoning_delta = getattr(delta, 'reasoning_content', None)
                 if reasoning_delta is not None:
+                    full_reasoning_content += str(reasoning_delta)
                     yield f"__THINKING__:{reasoning_delta}"
 
                 if getattr(delta, 'content', None) is not None:
@@ -1232,7 +1249,11 @@ class LLMService:
                 if not full_response_content or not full_response_content.strip():
                     # Si hay tool_calls pero no hay texto, algunos proveedores fallan si el content es ""
                     full_response_content = "Ejecutando herramientas..."
-                yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
+                yield AIMessage(
+                    content=full_response_content, 
+                    tool_calls=formatted_tool_calls,
+                    additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                )
             else:
                 # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
                 enhanced_tool_calls = []
@@ -1244,14 +1265,21 @@ class LLMService:
                     # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
                     if not full_response_content.strip():
                         full_response_content = "Ejecutando herramientas..."
-                    yield AIMessage(content=full_response_content, tool_calls=enhanced_tool_calls)
+                    yield AIMessage(
+                        content=full_response_content, 
+                        tool_calls=enhanced_tool_calls,
+                        additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                    )
                 else:
-                    # El AIMessage final incluye solo el contenido acumulado
-                    # IMPORTANTE: No permitir mensajes vacíos, ya que rompen LangGraph/LangChain
                     if not full_response_content.strip():
                         logger.debug("DEBUG: full_response_content vacío al finalizar la generación.")
                         full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
-                    yield AIMessage(content=full_response_content)
+                    
+                    # El AIMessage final incluye solo el contenido acumulado y razonamiento si lo hay
+                    yield AIMessage(
+                        content=full_response_content,
+                        additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                    )
 
         except Exception as e:
             # Manejo de errores más amigable para el usuario
@@ -1311,6 +1339,12 @@ class LLMService:
                             full_response_content += str(delta.content)
                             yield str(delta.content)
                         
+                        # Capturar razonamiento en fallback
+                        reasoning_delta = getattr(delta, 'reasoning_content', None)
+                        if reasoning_delta is not None:
+                            full_reasoning_content += str(reasoning_delta)
+                            yield f"__THINKING__:{reasoning_delta}"
+                        
                         tool_calls_from_delta = getattr(delta, 'tool_calls', None)
                         if tool_calls_from_delta is not None:
                             # Acumular tool_calls
@@ -1348,7 +1382,11 @@ class LLMService:
                             })
                         if not full_response_content or not full_response_content.strip():
                             full_response_content = "Ejecutando herramientas..."
-                        yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
+                        yield AIMessage(
+                            content=full_response_content, 
+                            tool_calls=formatted_tool_calls,
+                            additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                        )
                     else:
                         # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
                         enhanced_tool_calls = []
@@ -1359,11 +1397,18 @@ class LLMService:
                             # Si encontramos tool calls en el texto, crear AIMessage con ellos
                             if not full_response_content.strip():
                                 full_response_content = "Ejecutando herramientas..."
-                            yield AIMessage(content=full_response_content, tool_calls=enhanced_tool_calls)
+                            yield AIMessage(
+                                content=full_response_content, 
+                                tool_calls=enhanced_tool_calls,
+                                additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                            )
                         else:
                             if not full_response_content.strip():
                                 full_response_content = "El modelo devolvió una respuesta vacía. Esto puede deberse a un problema temporal del proveedor o a un filtro de seguridad. Por favor, intenta reformular tu pregunta."
-                            yield AIMessage(content=full_response_content)
+                            yield AIMessage(
+                                content=full_response_content,
+                                additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                            )
                     
                     # Si llegamos aquí, el fallback funcionó, retornar
                     return

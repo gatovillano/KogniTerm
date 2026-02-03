@@ -1299,3 +1299,139 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 ✅ **Estabilidad**: Asegura que el entorno de ejecución se mantenga limpio y funcional.
 
 ---
+
+## 01-02-2026 Lanzamiento v0.2.3: Mejoras de Estabilidad y Limpieza de Repositorio
+
+**Descripción**: Se ha publicado la versión v0.2.3 en PyPI con mejoras críticas en el manejo de proveedores, limpieza de errores visuales y saneamiento del repositorio Git. Además, se resolvió con éxito el conflicto de dependencias con `crewai`.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/multi_provider_manager.py`](kogniterm/core/multi_provider_manager.py)
+2. [`pyproject.toml`](pyproject.toml)
+3. [`.gitignore`](.gitignore)
+
+#### **📋 Cambios Específicos**
+
+1. **Eliminación del Fallback Multiproveedor**:
+   - Se ha simplificado la lógica de ejecución para usar únicamente el **proveedor primario** configurado.
+   - Esto evita saltos inesperados entre proveedores (ej. de OpenRouter a OpenAI) y hace el sistema más predecible.
+   - El método `execute_with_fallback` ahora es un alias del nuevo método `execute`.
+
+2. **Limpieza de Errores HTML**:
+   - Se implementó el método `_clean_error_message` que detecta bloques de código HTML en las respuestas de error de los proveedores (especialmente OpenRouter y Google).
+   - Ahora el usuario recibe mensajes amigables como *"Modelo no encontrado"* o *"Error de autenticación"* en lugar de cientos de líneas de HTML.
+
+3. **Desactivación de Health Checks Ruidosos**:
+   - Se silenciaron los logs de advertencia de los health checks de fondo para proporcionar un arranque de terminal limpio y sin interrupciones visuales por problemas de API keys de proveedores secundarios.
+
+4. **Saneamiento del Repositorio Git**:
+   - Se actualizó el `.gitignore` para incluir `node_modules/`, `venv/` y otros patrones comunes.
+   - Se realizó una limpieza profunda del índice de Git (`git rm -r --cached .`) para remover carpetas pesadas que se habían subido accidentalmente.
+   - El repositorio ahora es ligero y sigue las mejores prácticas.
+
+5. **Resolución de Conflictos de Dependencias**:
+   - Se forzó la instalación de `mcp==1.16.0` y `uvicorn==0.40.0` para resolver el conflicto entre `crewai` y las dependencias de proxy de `litellm`.
+
+#### **🚀 Lanzamiento y Distribución**
+
+- **PyPI**: Versión v0.2.3 publicada exitosamente ([kogniterm en PyPI](https://pypi.org/project/kogniterm/0.2.3/)).
+- **GitHub**: Tag `v0.2.3` creado y subido mediante push forzado para asegurar un historial limpio sin `node_modules`.
+
+#### **🎯 Beneficios**
+
+✅ **Arranque Limpio**: Salida de terminal sin advertencias innecesarias.
+✅ **Mensajes Comprensibles**: Errores del proveedor filtrados y simplificados.
+✅ **Historial Ligero**: Repositorio Git optimizado sin dependencias locales.
+✅ **Estabilidad**: Dependencias de Python alineadas para evitar conflictos con CrewAI.
+
+---
+
+## 03-02-2026 Integración de Núcleo y Streaming en KogniTerm Desktop
+
+**Descripción**: Se han completado las tareas de integración del núcleo de KogniTerm en el backend desktop y se ha desarrollado la interfaz de chat premium con soporte para streaming vía WebSockets.
+
+### Cambios Implementados
+
+#### **🔧 Backend (FastAPI + Bridge)**
+
+1. **Adaptador de Núcleo**:
+   - Implementación de `adapter.py` que inicializa `LLMService`, `CommandExecutor` y `AgentState`.
+   - Configuración dinámica de `sys.path` para importar el paquete `kogniterm` desde el servidor.
+
+2. **Comunicación WebSocket**:
+   - Creación de `websocket.py` para manejar el streaming de respuestas del LLM en tiempo real.
+   - Uso de `ThreadPoolExecutor` para manejar generadores síncronos dentro del entorno asíncrono de FastAPI.
+   - Implementación de protocolo de mensajes para enviar chunks de texto y estados de finalización (`done`, `error`).
+
+3. **Configuración de Dependencias**:
+   - Se actualizó `requirements.txt` con todas las dependencias necesarias de `kogniterm` y `crewai`.
+
+#### **🎨 Frontend (Premium UI)**
+
+1. **Sistema de Diseño**:
+   - Configuración de **Tailwind CSS** y **PostCSS** en la aplicación desktop.
+   - Implementación de esquema de colores *Dark Mode* (Slate 950/900) con acentos en azul y cian.
+
+2. **Componentes de Chat**:
+   - `ChatMessage`: Con soporte para **Markdown**, **Gfm** y resaltado de sintaxis con **Prism**.
+   - `ChatInput`: Área de texto expansible con soporte para atajos de teclado (Shift+Enter para nueva línea).
+   - Layout principal con barra lateral estilizada e indicadores de estado de conexión.
+
+3. **Lógica de Conexión**:
+   - Implementación del hook personalizado `useChat` para gestionar la conexión WebSocket, el historial de mensajes y el estado de generación.
+
+### **🎯 Beneficios**
+
+✅ **Streaming Real**: Los usuarios ven la respuesta del agente mientras se genera, eliminando tiempos de espera vacíos.
+✅ **Experiencia UX/UI Moderna**: Interfaz limpia, responsiva y estéticamente agradable.
+✅ **Integración Total**: El backend utiliza exactamente la misma lógica que la terminal original.
+✅ **Robustez**: Manejo de errores de conexión y estados de carga visuales.
+
+### **🔍 Próximos Pasos**
+
+- Implementar la vista de Terminal integrada con XTerm.js.
+- Desarrollar el Explorador de Archivos lateral.
+- Añadir persistencia de conversaciones localmente.
+
+---
+
+---
+
+## 02-02-2026 Activación por Defecto de Reasoning para OpenRouter
+
+**Descripción**: Se ha implementado la activación automática del parámetro `reasoning` para todos los modelos de OpenRouter que lo soportan, permitiendo visualizar el "pensamiento interno" del modelo durante la generación y preservándolo en el historial de conversación.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Activación de Reasoning en OpenRouter** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:1026)):
+   - Se añadió el parámetro `reasoning: { "type": "enabled" }` dentro de `extra_body` para las peticiones a OpenRouter.
+   - Se habilitó la bandera `include_reasoning: True` para soporte nativo de LiteLLM.
+
+2. **Captura y Streaming de Pensamiento** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:1126)):
+   - Se añadió la acumulación de `reasoning_content` durante el bucle de streaming.
+   - El contenido de razonamiento se emite en tiempo real con el prefijo `__THINKING__:` para su procesamiento visual en la interfaz.
+
+3. **Preservación en el Historial** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:1270)):
+   - El razonamiento completo se almacena en los `additional_kwargs` del `AIMessage` final.
+   - Esto se aplica en todos los flujos: mensajes de texto normales, llamadas a herramientas (`tool_calls`) y modos de fallback.
+
+4. **Continuidad de Diálogo** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:742)):
+   - Se modificó `_to_litellm_message` para recuperar el `reasoning_content` guardado y enviarlo de vuelta al modelo en futuras interacciones.
+   - Esto cumple con la recomendación de OpenRouter de conservar la información completa del razonamiento para que el modelo pueda continuar desde donde lo dejó.
+
+#### **🎯 Beneficios**
+
+✅ **Transparencia**: Los usuarios ahora pueden ver cómo el modelo llega a sus conclusiones.
+✅ **Mejor Razonamiento**: Habilitar este parámetro explícitamente fuerza al modelo a usar sus capacidades de razonamiento profundo (en modelos como DeepSeek R1 o similares).
+✅ **Coherencia**: La conversación mantiene el contexto del pensamiento previo, evitando alucinaciones o pérdida de lógica en diálogos largos.
+✅ **Compatibilidad**: Implementado de forma segura para no afectar a otros proveedores (Gemini, OpenAI nativo, etc.).
+
+---
