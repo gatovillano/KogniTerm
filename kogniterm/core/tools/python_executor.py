@@ -53,7 +53,8 @@ class KogniTermKernel:
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"Error en el listener iopub: {e}")
+                if not self.stop_event.is_set():
+                    print(f"Error en el listener iopub: {e}")
                 break
 
     def execute_code(self, code):
@@ -88,15 +89,28 @@ class KogniTermKernel:
         return {"result": self.current_execution_outputs}
 
     def stop_kernel(self):
-        if self.kc:
-            print("Deteniendo canales del kernel...")
-            self.kc.stop_channels()
-        if self.km:
-            print("Apagando kernel...")
-            self.km.shutdown_kernel()
+        # 1. Avisar al hilo que debe detenerse
         self.stop_event.set()
+        
+        # 2. Esperar a que el hilo termine antes de cerrar los canales
         if self.listener_thread and self.listener_thread.is_alive():
-            self.listener_thread.join(timeout=2)
+            self.listener_thread.join(timeout=1.0)
+            
+        # 3. Ahora que el hilo está detenido, cerrar canales con seguridad
+        if self.kc:
+            try:
+                print("Deteniendo canales del kernel...")
+                self.kc.stop_channels()
+            except Exception:
+                pass # Silenciar errores si el socket ya está cerrado
+                
+        # 4. Apagar el kernel físico
+        if self.km:
+            try:
+                print("Apagando kernel...")
+                self.km.shutdown_kernel()
+            except Exception:
+                pass
         print("Kernel detenido.")
 
 class PythonToolArgs(BaseModel):

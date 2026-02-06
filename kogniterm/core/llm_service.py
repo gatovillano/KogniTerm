@@ -268,6 +268,16 @@ class LLMService:
         )
         self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
 
+    def is_thinking_model(self) -> bool:
+        """ Detecta si el modelo actual tiene capacidades de razonamiento nativo. """
+        model_lower = self.model_name.lower()
+        thinking_keywords = [
+            "deepseek-reasoner", "deepseek-r1", 
+            "o1-", "o3-", 
+            "thinking", "reasoner"
+        ]
+        return any(kw in model_lower for kw in thinking_keywords)
+
     @property
     def conversation_history(self):
         """Propiedad de compatibilidad que delega al history_manager."""
@@ -285,395 +295,138 @@ class LLMService:
 
     def _parse_tool_calls_from_text(self, text: str) -> List[Dict[str, Any]]:
         """
-        Parsea llamadas a herramientas desde texto plano para compatibilidad con modelos que no usan tool_calls nativos.
-        Implementa un modo de parseo amplio y permisivo que detecta múltiples formatos de tool calls.
-        
-        Patrones soportados:
-        - tool_call: nombre({args})
-        - Llamar/ejecutar/usar herramienta nombre con args
-        - Function calls: nombre({args})
-        - Tool invocation: [TOOL_CALL] nombre args
-        - JSON estructurado: {"tool_call": {...}}
-        - YAML-like: nombre: {args}
-        - XML-like: <tool_call name="nombre"><args>...</args> </tool_call>
-        - Natural language: I need to call/using tool nombre with args
-        - Code-like: nombre({args})
-        - Model-specific formats for OpenAI, Anthropic, etc.
+        Analiza el texto para encontrar llamadas a herramientas usando múltiples estrategias.
+        Optimizado para soportar formatos directos, JSONs embebidos y correlación contextual.
         """
+        if not text:
+            return []
+
         tool_calls = []
+        seen_combinations = set()
+        valid_tool_calls = []
         import re
         
-        # No normalizar espacios agresivamente para preservar saltos de línea necesarios en JSON
-        text_for_search = text.strip()
+        # 1. Limpieza inicial: Quitar caracteres de control invisibles
+        clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
         
-        # Función auxiliar para extraer argumentos de manera permisiva
-        def extract_args(args_str):
-            if not args_str:
-                return {}
-            
-            args_str = args_str.strip()
-            
-            # Limpiar posibles bloques de código Markdown
-            args_str = re.sub(r'^```(?:json)?\s*', '', args_str)
-            args_str = re.sub(r'\s*```$', '', args_str)
-            args_str = args_str.strip()
-
-            # Intentar JSON primero
-            try:
-                return json.loads(args_str)
-            except (json.JSONDecodeError, ValueError):
-                # Intentar extraer el primer objeto JSON balanceado si hay texto extra
-                json_match = re.search(r'(\{.*\})', args_str, re.DOTALL)
-                if json_match:
-                    try:
-                        return json.loads(json_match.group(1))
-                    except:
-                        pass
-            
-            # Intentar argumentos key=value
-            kv_pattern = r'(\w+)\s*[:=]\s*([\w"\'\[\{].*?)(?:[,}]|\n|$)'
-            kv_matches = re.findall(kv_pattern, args_str)
-            if kv_matches:
-                result = {}
-                for key, value in kv_matches:
-                    try:
-                        # Intentar convertir a número
-                        if value.isdigit():
-                            result[key] = int(value)
-                        elif value.replace('.', '').isdigit():
-                            result[key] = float(value)
-                        elif value.lower() in ['true', 'false']:
-                            result[key] = value.lower() == 'true'
-                        elif value.startswith('[') and value.endswith(']'):
-                            # Lista simple
-                            result[key] = [v.strip().strip('"\'\'') for v in value[1:-1].split(',')]
-                        else:
-                            # Cadena
-                            result[key] = value.strip('"\'\'')
-                    except:
-                        result[key] = value.strip('"\'\'')
-                return result
-            
-            # Fallback: argumentos vacíos
-            return {}
-        
-        # PATRÓN 1: tool_call: nombre({args})
-        pattern1 = r'tool_call\s*:\s*(\w+)\s*\(\s*([^)]*?)\s*\)'
-        matches1 = re.findall(pattern1, text_for_search, re.IGNORECASE | re.DOTALL)
-        for name, args_str in matches1:
-            if name.lower() in self.tool_map:
-                args = extract_args(args_str)
-                tool_calls.append({
-                    "id": self._generate_short_id(),
-                    "name": name,
-                    "args": args
-                })
-
-        # PATRÓN 2: llamar/ejecutar/usar herramienta nombre con args (MEJORADO)
-        pattern2 = r'(?:llamar|ejecutar|usar|invoke|call|herramienta)\s+[:\-]?\s*(\s*\w+)\s*(?:con\s+args?|con\s+argumentos?)?\s*[:\-]?\s*(\s*\{.*?\}|\s*\(.*?\)|.*?(?=\n\d+\.|\n[A-Z]|$))'
-        matches2 = re.findall(pattern2, text_for_search, re.IGNORECASE | re.DOTALL)
-        for name, args_str in matches2:
-            name = name.strip()
-            real_name = next((k for k in self.tool_map.keys() if k.lower() == name.lower()), None)
-            if real_name:
-                args = extract_args(args_str)
-                tool_calls.append({
-                    "id": self._generate_short_id(),
-                    "name": real_name,
-                    "args": args
-                })
-
-        # PATRÓN 3: Function calls estilo código - nombre({args})
-        pattern3 = r'\b(\w+)\s*\(\s*([^)]*?)\s*\)'
-        matches3 = re.findall(pattern3, text_for_search)
-        for name, args_str in matches3:
-            # Filtrar funciones comunes que no son herramientas
-            if name.lower() in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple', 'range', 'type', 'isinstance', 'hasattr', 'getattr', 'open', 'input', 'print', 'exec', 'eval']:
-                continue
-            
-            real_name = next((k for k in self.tool_map.keys() if k.lower() == name.lower()), None)
-            if real_name:
-                args = extract_args(args_str)
-                if args or args_str.strip():
-                    tool_calls.append({
-                        "id": self._generate_short_id(),
-                        "name": real_name,
-                        "args": args
-                    })
-
-        # PATRÓN 3.1: Python function calls con parámetros específicos (ej: call_agent)
-        # Buscar patrones como call_agent(agent_name="researcher_agent", task="...")
-        # Usar un enfoque que maneja correctamente los paréntesis anidados
-        python_func_patterns = [
-            r'\b(call_agent|invoke_agent|execute_agent|run_agent)\s*\(',
-            r'\b(llamar_agent|ejecutar_funcion|usar_funcion)\s*\('
+        # ESTRATEGIA A: Patrones explícitos "LLAMADA_A_HERRAMIENTA: name {args}"
+        explicit_patterns = [
+            r'LLAMADA_A_HERRAMIENTA:\s*(\w+)',
+            r'Herramienta:\s*(\w+)',
+            r'\[TOOL_CALL\]\s*(\w+)',
+            r'Tool:\s*(\w+)'
         ]
-        
-        for pattern in python_func_patterns:
-            matches = re.findall(pattern, normalized_text, re.IGNORECASE)
-            for func_name in matches:
-                # Encontrar la posición del match
-                start_pos = normalized_text.lower().find(func_name.lower())
-                if start_pos == -1:
-                    continue
-                    
-                # Buscar el paréntesis de apertura
-                paren_start = normalized_text.find('(', start_pos)
-                if paren_start == -1:
-                    continue
-                    
-                # Extraer el contenido entre paréntesis balanceados
-                args_str = self._extract_balanced_content(normalized_text, paren_start)
-                # Extraer argumentos específicos de funciones de agentes
-                agent_args = {}
-                
-                # Buscar agent_name o agent
-                agent_match = re.search(r'(?:agent_name|agent)\s*=\s*["\']([^"\']+)["\']', args_str)
-                if agent_match:
-                    agent_args['agent_name'] = agent_match.group(1)
-                
-                # Buscar task (el parámetro correcto del call_agent tool) - enfoque más simple y robusto
-                # Buscar desde task= hasta el final del string o hasta el siguiente parámetro
-                task_pattern = r'(?:task)\s*=\s*["\'](.*?)(?:["\']\s*(?:,|\)|$))'
-                task_match = re.search(task_pattern, args_str, re.DOTALL)
-                if not task_match:
-                    # Fallback: también buscar task_description para compatibilidad
-                    task_pattern = r'(?:task_description)\s*=\s*["\'](.*?)(?:["\']\s*(?:,|\)|$))'
-                    task_match = re.search(task_pattern, args_str, re.DOTALL)
-                if task_match:
-                    agent_args['task'] = task_match.group(1)  # Usar 'task' no 'task_description'
-                
-                # Buscar context o parameters
-                context_match = re.search(r'(?:context|parameters)\s*=\s*(\{[^}]*\})', args_str)
-                if context_match:
-                    try:
-                        agent_args['context'] = json.loads(context_match.group(1))
-                    except:
-                        agent_args['context'] = context_match.group(1)
-                
-                # Si no se encontraron argumentos específicos, usar el parser general
-                if not agent_args:
-                    agent_args = extract_args(args_str)
-                
-                tool_calls.append({
-                    "id": self._generate_short_id(),
-                    "name": func_name,
-                    "args": agent_args
-                })
+        for pat in explicit_patterns:
+            for match in re.finditer(pat, clean_text, re.IGNORECASE):
+                tool_name = match.group(1).strip()
+                real_name = next((k for k in self.tool_map.keys() if k.lower() == tool_name.lower()), None)
+                if real_name:
+                    search_start = match.end()
+                    json_start = clean_text.find('{', search_start)
+                    if json_start != -1 and (json_start - search_start) < 200:
+                        args_str = self._extract_balanced_content(clean_text, json_start)
+                        if args_str:
+                            args = self.extract_args(args_str)
+                            tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": args})
 
-        # PATRÓN 4: [TOOL_CALL] formato
-        pattern4 = r'\[TOOL_CALL\]\s*(\w+)\s*[:\-]?\s*(\s*\{.*?\}|\s*\(.*?\)|[^\n\[]+)'
-        matches4 = re.findall(pattern4, text_for_search, re.IGNORECASE | re.DOTALL)
-        for name, args_str in matches4:
+        # ESTRATEGIA B: Bloques JSON estructurados (lo más fiable)
+        for i in range(len(clean_text)):
+            if clean_text[i] == '{':
+                json_str = self._extract_balanced_content(clean_text, i)
+                if json_str:
+                    try:
+                        data = json.loads(json_str)
+                        if isinstance(data, dict) and data:
+                            # Formato directo: {"name": "...", "args": {...}}
+                            name = data.get("name") or data.get("tool") or data.get("function")
+                            args = data.get("args") or data.get("arguments") or data.get("parameters") or {}
+                            
+                            if name:
+                                real_name = next((k for k in self.tool_map.keys() if k.lower() == str(name).lower()), None)
+                                if real_name:
+                                    tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": args})
+                            
+                            # Formato: {"tool_name": {...args...}}
+                            elif len(data) == 1:
+                                potential_name = list(data.keys())[0]
+                                if potential_name.lower() in [k.lower() for k in self.tool_map.keys()]:
+                                    real_name = next(k for k in self.tool_map.keys() if k.lower() == potential_name.lower())
+                                    tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": data[potential_name]})
+                            
+                            # Correlación Contextual (si es un JSON de argumentos sin nombre)
+                            elif not any(k in data for k in ["name", "tool", "function"]):
+                                lookback = clean_text[max(0, i-300):i].lower()
+                                for tname in self.tool_map.keys():
+                                    if tname.lower() in lookback:
+                                        tool_calls.append({"id": self._generate_short_id(), "name": tname, "args": data})
+                                        break
+                    except: continue
+
+        # ESTRATEGIA C: Formatos Legacy tipo Código "name({args})"
+        legacy_pattern = r'(\w+)\s*\(([\{].*?[\}])\)'
+        for match in re.finditer(legacy_pattern, clean_text, re.DOTALL):
+            name, args_str = match.groups()
             real_name = next((k for k in self.tool_map.keys() if k.lower() == name.lower()), None)
             if real_name:
-                args = extract_args(args_str)
-                tool_calls.append({
-                    "id": self._generate_short_id(),
-                    "name": real_name,
-                    "args": args
-                })
+                args = self.extract_args(args_str)
+                tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": args})
 
-        # PATRÓN 5: JSON estructurado expandido y bloques de código Markdown
-        # Buscar bloques de código o JSONs sueltos que parecen llamadas a herramientas
-        json_matches = re.finditer(r'(?:```(?:json)?\s*)?(\{.*?\})(?:\s*```)?', text_for_search, re.DOTALL)
-        for match in json_matches:
-            try:
-                data = json.loads(match.group(1))
-                # Formato: {"name": "tool_name", "args": {...}}
-                if isinstance(data, dict):
-                    name = data.get("name") or data.get("tool") or data.get("function") or data.get("action")
-                    args = data.get("args") or data.get("arguments") or data.get("parameters") or data.get("params") or {}
-                    
-                    if name and name.lower() in [k.lower() for k in self.tool_map.keys()]:
-                        real_name = next(k for k in self.tool_map.keys() if k.lower() == name.lower())
-                        tool_calls.append({
-                            "id": self._generate_short_id(),
-                            "name": real_name,
-                            "args": args
-                        })
-                    # Formato: {"tool_name": {...args...}} - muy común en algunos modelos
-                    elif not name and len(data) == 1:
-                        potential_name = list(data.keys())[0]
-                        potential_args = data[potential_name]
-                        if potential_name.lower() in [k.lower() for k in self.tool_map.keys()] and isinstance(potential_args, dict):
-                            real_name = next(k for k in self.tool_map.keys() if k.lower() == potential_name.lower())
-                            tool_calls.append({
-                                "id": self._generate_short_id(),
-                                "name": real_name,
-                                "args": potential_args
-                            })
-            except:
-                continue
-
-        # PATRÓN 6: YAML-like formato
-        pattern6 = r'^(\w+)\s*:\s*(\{[^}]*\}|\([^)]*\)|[^\n]+)$'
-        matches6 = re.findall(pattern6, normalized_text, re.MULTILINE)
-        for name, args_str in matches6:
-            args_str = args_str.strip().strip('{}()')
-            args = extract_args(args_str)
-            tool_calls.append({
-                "id": self._generate_short_id(),
-                "name": name,
-                "args": args
-            })
-
-        # PATRÓN 7: XML-like formato
-        pattern7 = r'<(?:tool_call|function|action)\s+(?:name|id)\s*=\s*["\']([^"\']+)["\'][^>]*>(?:<args[^>]*>)?([^<]*?)(?:</args>)?</(?:tool_call|function|action)>'
-        matches7 = re.findall(pattern7, normalized_text, re.IGNORECASE | re.DOTALL)
-        for name, args_str in matches7:
-            args = extract_args(args_str)
-            tool_calls.append({
-                "id": self._generate_short_id(),
-                "name": name,
-                "args": args
-            })
-
-        # PATRÓN 8: Lenguaje natural expandido
-        natural_patterns = [
-            r'(?:i\s+need\s+to|i\s+want\s+to|i\s+should|i\s+must)\s+(?:call|use|execute|invoke|run)\s+(?:the\s+)?(?:tool|function|action)\s+(\w+)\s*(?:with\s+args?|with\s+arguments?|with\s+parameters?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\.]+)',
-            r'(?:let\s+me\s+|please\s+)?(?:call|use|execute|invoke|run)\s+(?:the\s+)?(?:tool|function|action)\s+(\w+)\s*(?:with\s+args?|with\s+arguments?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\.]+)',
-            r'(?:we\s+need\s+to|we\s+should|we\s+can)\s+(?:call|use|execute|invoke|run)\s+(?:the\s+)?(?:tool|function|action)\s+(\w+)\s*(?:with\s+args?|with\s+arguments?)?\s*[:\-]?\s*(\{[^}]*\}|\([^)]*\)|[^\.]+)'
-        ]
-        
-        for pattern in natural_patterns:
-            matches = re.findall(pattern, normalized_text, re.IGNORECASE | re.DOTALL)
-            for name, args_str in matches:
-                args_str = args_str.strip().strip('{}()')
-                args = extract_args(args_str)
-                tool_calls.append({
-                    "id": self._generate_short_id(),
-                    "name": name,
-                    "args": args
-                })
-
-        # PATRÓN 9: Formatos específicos de proveedores
-        # OpenAI function calling format
-        openai_pattern = r'"name"\s*:\s*["\']([^"\']+)["\'][^}]*"arguments"\s*:\s*(\{[^}]*\})'
-        openai_matches = re.findall(openai_pattern, normalized_text)
-        for name, args_str in openai_matches:
-            try:
-                args = json.loads(args_str)
-                tool_calls.append({
-                    "id": self._generate_short_id(),
-                    "name": name,
-                    "args": args
-                })
-            except (json.JSONDecodeError, ValueError):
-                args = extract_args(args_str)
-                tool_calls.append({
-                    "id": self._generate_short_id(),
-                    "name": name,
-                    "args": args
-                })
-
-        # PATRÓN 10: Formato de lista/bloque
-        list_pattern = r'^(?:\d+\.\s*|-\s*|\*\s*)?(\w+)\s*[:\-]\s*(\{[^}]*\}|\([^)]*\)|[^\n]+)$'
-        list_matches = re.findall(list_pattern, normalized_text, re.MULTILINE)
-        for name, args_str in list_matches:
-            # Filtrar elementos que claramente no son herramientas
-            if name.lower() in ['step', 'note', 'important', 'warning', 'error', 'info', 'debug']:
-                continue
-            
-            args_str = args_str.strip().strip('{}()')
-            args = extract_args(args_str)
-            tool_calls.append({
-                "id": self._generate_short_id(),
-                "name": name,
-                "args": args
-            })
-
-        # Filtrar y validar llamadas a herramientas
-        valid_tool_calls = []
-        seen_names = set()
-        
+        # Filtrar duplicados y consolidar
         for tc in tool_calls:
-            name = tc['name']
-            
-            # 1. Validar que el nombre de la herramienta exista en el tool_map
-            if name not in self.tool_map:
-                # Intentar búsqueda insensible a mayúsculas/minúsculas si no se encuentra exacto
-                found_match = False
-                for registered_name in self.tool_map.keys():
-                    if name.lower() == registered_name.lower():
-                        tc['name'] = registered_name
-                        name = registered_name
-                        found_match = True
-                        break
-                
-                if not found_match:
-                    logger.debug(f"Ignorando supuesta llamada a herramienta inexistente: {name}")
-                    continue
-            
-            # 2. Evitar duplicados en la misma respuesta
-            if name in seen_names:
-                continue
-                
-            # 3. Validación de calidad mínima de argumentos
-            # Si la herramienta requiere argumentos pero están vacíos, podría ser un falso positivo
-            # a menos que sea una llamada muy explícita (ej: PATRÓN 1 o PATRÓN 4)
-            tool_instance = self.tool_map[name]
-            requires_args = False
-            if hasattr(tool_instance, 'args_schema') and tool_instance.args_schema:
-                # Verificar si tiene campos requeridos
-                if hasattr(tool_instance.args_schema, 'model_fields'):
-                    requires_args = any(f.is_required() for f in tool_instance.args_schema.model_fields.values())
-            
-            if requires_args and not tc.get('args'):
-                # Si requiere argumentos y no los tiene, es sospechoso
-                # Pero si el patrón era muy específico (como tool_call:), lo mantenemos
-                # Aquí podríamos añadir lógica más compleja, por ahora solo logueamos
-                logger.debug(f"Herramienta {name} detectada sin argumentos pero los requiere.")
-            
-            seen_names.add(name)
-            valid_tool_calls.append(tc)
-        
+            try:
+                args_json = json.dumps(tc['args'], sort_keys=True)
+                key = f"{tc['name']}:{args_json}"
+                if key not in seen_combinations:
+                    seen_combinations.add(key)
+                    valid_tool_calls.append(tc)
+            except:
+                if tc not in valid_tool_calls: valid_tool_calls.append(tc)
+
         return valid_tool_calls
 
-    def _extract_balanced_content(self, text: str, start_pos: int) -> str:
-        """
-        Extrae contenido balanceado entre paréntesis desde una posición dada.
-        Maneja paréntesis anidados correctamente.
-        """
-        if start_pos >= len(text) or text[start_pos] != '(':
-            return ''
+    def extract_args(self, args_str: str) -> Dict[str, Any]:
+        """Extrae argumentos de una cadena de texto de forma permisiva."""
+        if not args_str: return {}
+        args_str = args_str.strip()
+        try:
+            return json.loads(args_str)
+        except:
+            # Fallback a extracción por regex para casos muy sucios
+            result = {}
+            pair_pattern = r'(\w+)\s*[:=]\s*(?:"([^"]*)"|\'([^\']*)\'|(\d+)|([^\s,{}]+))'
+            for m in re.finditer(pair_pattern, args_str):
+                key = m.group(1)
+                value = m.group(2) or m.group(3) or m.group(4) or m.group(5)
+                if value and value.isdigit(): value = int(value)
+                result[key] = value
+            return result
+
+    def _extract_balanced_content(self, text: str, start_pos: int) -> Optional[str]:
+        """Extrae contenido balanceado entre {}, [] o () manejando anidamiento y strings."""
+        if start_pos >= len(text): return None
+        chars = {'{': '}', '[': ']', '(': ')'}
+        open_char = text[start_pos]
+        if open_char not in chars: return None
+        close_char = chars[open_char]
         
         depth = 0
-        content = ''
         in_string = False
         string_char = None
-        i = start_pos
-        
-        while i < len(text):
+        for i in range(start_pos, len(text)):
             char = text[i]
-            
-            # Manejar strings
-            if char in ['"', "'"]:
+            if char in ['"', "'"] and (i == 0 or text[i-1] != '\\'):
                 if not in_string:
                     in_string = True
                     string_char = char
-                elif char == string_char and (i == 0 or text[i-1] != '\\'):
+                elif char == string_char:
                     in_string = False
-                    string_char = None
             
-            # Solo contar paréntesis fuera de strings
             if not in_string:
-                if char == '(':
-                    depth += 1
-                elif char == ')':
+                if char == open_char: depth += 1
+                elif char == close_char:
                     depth -= 1
-                    if depth == 0:
-                        # Paréntesis de cierre encontrado, terminar
-                        break
-            
-            content += char
-            i += 1
-        
-        # Remover el paréntesis de apertura y cierre
-        if content.startswith('(') and content.endswith(')'):
-            content = content[1:-1]
-        
-        return content.strip()
+                    if depth == 0: return text[start_pos : i + 1]
+        return None
 
     def _from_litellm_message(self, message):
         """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
@@ -689,26 +442,21 @@ class LLMService:
                     function_data = tc.get("function")
                     if function_data:
                         args = function_data.get("arguments", "")
-                        # Asegurarse de que los argumentos se manejen como un diccionario
                         if isinstance(args, str):
-                            try:
-                                args = json.loads(args)
-                            except json.JSONDecodeError:
-                                args = {} # Fallback si no es un JSON válido
+                            try: args = json.loads(args)
+                            except: args = {}
                         tool_calls.append({
                             "id": tc.get("id", self._generate_short_id()),
                             "name": function_data.get("name", ""),
                             "args": args
                         })
                 return AIMessage(content=content, tool_calls=tool_calls)
-            else:
-                return AIMessage(content=content)
+            return AIMessage(content=content)
         elif role == "tool":
             return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
         elif role == "system":
             return SystemMessage(content=content)
-        else:
-            raise ValueError(f"Tipo de mensaje desconocido de LiteLLM para LangChain: {role}")
+        return HumanMessage(content=content)
 
     def _build_llm_context_message(self) -> Optional[SystemMessage]:
         if self.workspace_context_initialized:
@@ -1224,22 +972,26 @@ class LLMService:
                 if tool_calls_from_delta is not None:
                     # Acumular tool_calls
                     for tc in tool_calls_from_delta:
+                        idx = getattr(tc, 'index', 0)
+                        
                         # Asegurarse de que la lista tool_calls tenga el tamaño suficiente
-                        while tc.index >= len(tool_calls):
+                        while idx >= len(tool_calls):
                             tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
                         
-                        # Actualizar el ID si está presente en el chunk, si no generar uno nuevo si es el inicio
+                        # Actualizar el ID si está presente
                         if getattr(tc, 'id', None) is not None:
-                            tool_calls[tc.index]["id"] = tc.id
-                        elif not tool_calls[tc.index]["id"]:
-                            tool_calls[tc.index]["id"] = self._generate_short_id()
+                            tool_calls[idx]["id"] = tc.id
+                        elif not tool_calls[idx]["id"]:
+                            tool_calls[idx]["id"] = self._generate_short_id()
                         
-                        # Actualizar el nombre de la función si está presente
-                        if getattr(tc.function, 'name', None) is not None:
-                            tool_calls[tc.index]["function"]["name"] = tc.function.name
-                            # Acumular los argumentos
+                        # Actualizar el nombre de la función
+                        if getattr(tc, 'function', None) is not None:
+                            if getattr(tc.function, 'name', None) is not None and tc.function.name:
+                                tool_calls[idx]["function"]["name"] = tc.function.name
+                            
+                            # Acumular los argumentos asegurando que son strings
                             if getattr(tc.function, 'arguments', None) is not None:
-                                tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                                tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
 
 
             if self.stop_generation_flag:
@@ -1265,8 +1017,17 @@ class LLMService:
                         })
                 
                 # 2. Complementar con parseo de texto (siempre, para máxima robustez)
+                # Combinar contenido de respuesta y razonamiento para el parser, así no importa dónde lo escriba el modelo
+                parsing_source = []
                 if full_response_content and full_response_content.strip():
-                    text_tool_calls = self._parse_tool_calls_from_text(full_response_content)
+                    parsing_source.append(full_response_content)
+                if full_reasoning_content and full_reasoning_content.strip():
+                    parsing_source.append(full_reasoning_content)
+                
+                combined_text = "\n".join(parsing_source)
+                
+                if combined_text.strip():
+                    text_tool_calls = self._parse_tool_calls_from_text(combined_text)
                     
                     # Fusionar evitando duplicados. Si ya existe una llamada nativa CON argumentos, preferirla.
                     # Si la nativa está vacía pero la del texto tiene argumentos, preferir la del texto.
@@ -1309,22 +1070,57 @@ class LLMService:
             error_type = type(e).__name__
             error_msg = str(e)
             
-            # Si es un error 20015 de SiliconFlow (requiere formato 'function'), intentar con configuración alternativa
-            if ("20015" in error_msg and "Input should be 'function'" in error_msg) or ("20015" in error_msg and "Field required" in error_msg and "openrouter" in self.model_name.lower()):
-                logger.info("Intentando configuración alternativa para SiliconFlow (formato 'function')...")
+            # Si es un error de herramientas (SiliconFlow 20015 o OpenRouter 404 No endpoints)
+            is_tool_error = (
+                ("20015" in error_msg and "Input should be 'function'" in error_msg) or 
+                ("20015" in error_msg and "Field required" in error_msg and "openrouter" in self.model_name.lower()) or
+                ("No endpoints found that support tool use" in error_msg)
+            )
+
+            if is_tool_error:
+                logger.info(f"🔄 Detectado modelo sin soporte nativo de herramientas ({self.model_name}). Activando Bypass...")
                 try:
+                    # Preparar mensajes con herramientas inyectadas en el prompt si es necesario
+                    messages_with_tools = [m.copy() for m in completion_kwargs["messages"]]
+                    
+                    # Si el error es por falta de soporte (OpenRouter 404), inyectar herramientas en el prompt de sistema
+                    if "No endpoints found" in error_msg:
+                        tools_desc = ""
+                        if completion_kwargs.get("tools"):
+                            tools_desc = "\n\n### HERRAMIENTAS DISPONIBLES\n"
+                            tools_desc += "ESTÁS EN MODO BYPASS: Este modelo NO soporta Function Calling nativo. DEBES llamar a las herramientas escribiendo EXACTAMENTE este formato en tu respuesta:\n"
+                            tools_desc += "LLAMADA_A_HERRAMIENTA: nombre_herramienta {\"arg1\": \"valor1\"}\n\n"
+                            for t in completion_kwargs["tools"]:
+                                func = t.get("function", t)
+                                name = func.get("name")
+                                desc = func.get("description", "")
+                                params = func.get("parameters", {}).get("properties", {})
+                                tools_desc += f"- **{name}**: {desc}\n  Argumentos requeridos: {list(params.keys())}\n"
+                        
+                        # Inyectar en el primer mensaje de sistema
+                        if messages_with_tools and messages_with_tools[0]["role"] == "system":
+                            messages_with_tools[0]["content"] += tools_desc
+                        else:
+                            messages_with_tools.insert(0, {"role": "system", "content": tools_desc})
+
                     # Crear configuración alternativa más específica
                     alt_kwargs = {
                         "model": completion_kwargs["model"],
-                        "messages": completion_kwargs["messages"],
+                        "messages": messages_with_tools,
                         "stream": True,
                         "api_key": completion_kwargs["api_key"],
                         "temperature": completion_kwargs.get("temperature", 0.7),
                         "max_tokens": completion_kwargs.get("max_tokens", 4096),
                         "user": f"user_{self._generate_short_id(12)}",
-                        "num_retries": 1,  # Reducir reintentos en fallback
-                        "timeout": 60     # Timeout más corto en fallback
+                        "num_retries": 1, 
+                        "timeout": 90
                     }
+                    
+                    # IMPORTANTE: Si es error de soporte, quitamos 'tools' de la llamada para que el servidor no la rechace
+                    if "No endpoints found" in error_msg:
+                        alt_kwargs.pop("tools", None)
+                        alt_kwargs.pop("tool_choice", None)
+                    
                     
                     # Solo agregar parámetros adicionales si el modelo no es Nex-AGI/DeepSeek
                     if not ("nex-agi" in self.model_name.lower() or "deepseek" in self.model_name.lower()):
@@ -1796,3 +1592,22 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             with self.tool_execution_lock:
                 if self.active_tool_future is future:
                     self.active_tool_future = None
+
+    def _extract_balanced_content(self, text: str, start_pos: int, open_char: str = '{', close_char: str = '}') -> Optional[str]:
+        """
+        Extrae un bloque de texto balanceado (paréntesis, llaves, etc) desde una posición dada.
+        Maneja anidamiento correctamente.
+        """
+        if start_pos >= len(text) or text[start_pos] != open_char:
+            return None
+            
+        depth = 0
+        for i in range(start_pos, len(text)):
+            if text[i] == open_char:
+                depth += 1
+            elif text[i] == close_char:
+                depth -= 1
+                if depth == 0:
+                    return text[start_pos : i + 1]
+        
+        return None

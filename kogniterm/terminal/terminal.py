@@ -77,10 +77,10 @@ import os
 import asyncio
 import threading # Importar threading para el watcher
 
-from .agent_interaction_manager import AgentInteractionManager
-from .command_approval_handler import CommandApprovalHandler
-from .meta_command_processor import MetaCommandProcessor
-from .terminal_ui import TerminalUI
+from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
+from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
+from kogniterm.terminal.terminal_ui import TerminalUI
 
 console = Console()
 

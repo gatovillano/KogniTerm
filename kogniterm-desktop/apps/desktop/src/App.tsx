@@ -1,76 +1,209 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useRef, useEffect, useState } from 'react';
+import { ChatMessage } from './components/chat/ChatMessage';
+import { ChatInput } from './components/chat/ChatInput';
+import { TerminalView } from './components/terminal/TerminalView';
+import { FileExplorer } from './components/files/FileExplorer';
+import { SettingsModal } from './components/settings/SettingsModal';
+import { useChat } from './hooks/useChat';
+import { Terminal as TerminalIcon, Settings, Files, MessageSquare, ShieldCheck, Command, Folder } from 'lucide-react';
+import './App.css';
+
+type ViewType = 'chat' | 'terminal' | 'files';
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const { messages, isGenerating, error, sendMessage, isConnected } = useChat();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [activeView, setActiveView] = useState<ViewType>('chat');
+  const [currentDir, setCurrentDir] = useState<string>('~/Gemini-Interpreter'); // Default fallback
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const [pythonMsg, setPythonMsg] = useState("");
-  const [pythonResponse, setPythonResponse] = useState("");
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-  async function greet() {
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
-  async function sendToPython() {
-    try {
-      const res = await invoke("send_message", { message: pythonMsg });
-      setPythonResponse(res as string);
-    } catch (e: any) {
-      setPythonResponse("Error: " + e.toString());
+  useEffect(() => {
+    // Fetch initial working directory from backend to ensure UI matches reality
+    fetch('http://127.0.0.1:8001/api/files/list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: '.' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.currentPath) {
+          setCurrentDir(data.currentPath);
+        }
+      })
+      .catch(err => console.error("Failed to fetch initial CWD:", err));
+  }, []);
+
+  const handleChangeDir = () => {
+    const newDir = window.prompt("Introduce la ruta del directorio de trabajo:", currentDir);
+    if (newDir && newDir !== currentDir) {
+      setCurrentDir(newDir);
+      sendMessage(`cd ${newDir}`);
     }
-  }
+  };
 
   return (
-    <main className="container">
-      <h1>KogniTerm Desktop</h1>
+    <div className="flex h-screen bg-[var(--bg-app)] text-slate-200 font-sans overflow-hidden selection:bg-indigo-500/30">
+      {/* Sidebar */}
+      <aside className="w-[70px] glass-panel flex flex-col items-center py-6 z-30">
+        <div className="h-10 w-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center mb-10 shadow-lg shadow-indigo-500/20 ring-1 ring-white/10">
+          <Command size={20} className="text-white" />
+        </div>
 
-      <div className="row">
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
+        <nav className="flex flex-col gap-4 flex-1 w-full px-3">
+          {[
+            { id: 'chat', icon: MessageSquare, label: 'Chat' },
+            { id: 'terminal', icon: TerminalIcon, label: 'Terminal' },
+            { id: 'files', icon: Files, label: 'Archivos' }
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveView(item.id as ViewType)}
+              className={`group relative p-3 rounded-xl transition-all duration-300 flex justify-center ${activeView === item.id
+                ? 'bg-indigo-500/10 text-indigo-400'
+                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                }`}
+            >
+              <item.icon size={22} strokeWidth={activeView === item.id ? 2.5 : 2} />
 
-      <div className="row">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            greet();
-          }}
+              {/* Tooltip hint */}
+              <div className="absolute left-14 bg-zinc-800 text-zinc-200 text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-zinc-700/50">
+                {item.label}
+              </div>
+
+              {activeView === item.id && (
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-indigo-500 rounded-r-full shadow-[0_0_12px_rgba(99,102,241,0.5)]" />
+              )}
+            </button>
+          ))}
+        </nav>
+
+        <button
+          onClick={() => setIsSettingsOpen(true)}
+          className="p-3 rounded-xl text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-all mt-auto mb-2"
         >
-          <input
-            id="greet-input"
-            onChange={(e) => setName(e.currentTarget.value)}
-            placeholder="Enter a name..."
-          />
-          <button type="submit">Greet Rust</button>
-        </form>
-      </div>
-      <p>{greetMsg}</p>
+          <Settings size={22} />
+        </button>
+      </aside>
 
-      <div className="row" style={{ marginTop: '20px', borderTop: '1px solid #333', paddingTop: '20px' }}>
-        <h2>Backend Python</h2>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            sendToPython();
-          }}
-        >
-          <input
-            onChange={(e) => setPythonMsg(e.currentTarget.value)}
-            placeholder="Message for Python..."
-          />
-          <button type="submit">Send to Python</button>
-        </form>
-      </div>
-      <p>{pythonResponse}</p>
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 relative bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900/10 via-zinc-950/0 to-zinc-950/0">
+        {/* Header */}
+        <header className="h-16 flex items-center justify-between px-8 z-20 sticky top-0">
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">
+              KogniTerm <span className="text-zinc-500 font-normal">Desktop</span>
+            </h1>
+            <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-400 font-medium uppercase tracking-wider">
+              Beta
+            </span>
+          </div>
 
-    </main>
+          <div className="flex items-center gap-4">
+
+            <button
+              onClick={handleChangeDir}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 hover:bg-zinc-800 hover:border-zinc-600 transition-all text-xs text-zinc-400 hover:text-zinc-200 max-w-[200px]"
+              title="Cambiar directorio de trabajo"
+            >
+              <Folder size={14} className="min-w-[14px]" />
+              <span className="truncate">{currentDir}</span>
+            </button>
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${isConnected
+              ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400'
+              : 'bg-red-500/5 border-red-500/10 text-red-400'
+              }`}>
+              <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_rgba(52,211,153,0.6)] ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'
+                }`} />
+              <span>{isConnected ? 'Conectado' : 'Desconectado'}</span>
+            </div>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        {activeView === 'chat' && (
+          <>
+            <section className="flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-0 scroll-smooth pb-32">
+              <div className="max-w-3xl mx-auto py-8">
+                {messages.length === 0 ? (
+                  <div className="h-[60vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
+                    <div className="relative mb-8">
+                      <div className="absolute -inset-4 bg-indigo-500/20 rounded-full blur-2xl"></div>
+                      <div className="relative h-24 w-24 bg-gradient-to-tr from-zinc-800 to-zinc-900 rounded-2xl flex items-center justify-center border border-zinc-700 shadow-2xl rotate-3 transition-transform hover:rotate-0 duration-500">
+                        <Command size={48} className="text-indigo-500" />
+                      </div>
+                    </div>
+
+                    <h2 className="text-3xl font-bold text-zinc-100 mb-3 tracking-tight">¿En qué trabajamos hoy?</h2>
+                    <p className="text-zinc-500 max-w-md text-base leading-relaxed">
+                      Tu asistente agéntico inteligente. <br />Investigación profunda, depuración y arquitectura.
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-12 w-full max-w-2xl">
+                      {[
+                        { title: "Analiza la arquitectura", desc: "Explora la estructura del proyecto y dependencias.", prompt: "Analiza la arquitectura de este proyecto" },
+                        { title: "¿Cómo desplegar?", desc: "Genera una guía de deployment paso a paso.", prompt: "Genera una guía de deployment para esta app" }
+                      ].map((card, i) => (
+                        <button
+                          key={i}
+                          onClick={() => sendMessage(card.prompt)}
+                          className="group p-5 rounded-2xl bg-zinc-900/50 border border-zinc-800/80 hover:border-indigo-500/30 hover:bg-zinc-900 text-left transition-all hover:shadow-lg hover:shadow-indigo-500/5 hover:-translate-y-1"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <p className="text-sm font-semibold text-zinc-200 group-hover:text-indigo-400 transition-colors">{card.title}</p>
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-500">→</span>
+                          </div>
+                          <p className="text-xs text-zinc-500 leading-relaxed">{card.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {messages.map((msg) => (
+                      <ChatMessage key={msg.id} message={msg} />
+                    ))}
+                  </div>
+                )}
+
+                {error && (
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl mb-6 mx-4 text-sm flex items-center gap-2">
+                    <ShieldCheck size={16} />
+                    {error}
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+            </section>
+
+            <ChatInput onSendMessage={sendMessage} isGenerating={isGenerating} />
+          </>
+        )}
+
+        {activeView === 'terminal' && (
+          <div className="flex-1 p-0 bg-[#0d0d0f]">
+            <TerminalView />
+          </div>
+        )}
+
+        {activeView === 'files' && (
+          <div className="flex-1 overflow-hidden">
+            <FileExplorer workspacePath={currentDir} />
+          </div>
+        )}
+      </main>
+
+      {/* Modals */}
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+    </div>
   );
 }
 

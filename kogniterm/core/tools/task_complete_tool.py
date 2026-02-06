@@ -38,47 +38,46 @@ class TaskCompleteTool(BaseTool):
         if not self.llm_service:
             return {"status": "error", "message": "LLMService not initialized for TaskCompleteTool."}
 
-        history = self.llm_service.conversation_history
-        summary_lines = []
-        tool_calls_count = 0
-        ai_messages_count = 0
-        human_messages_count = 0
+        # Prompt para generar un resumen amigable y humano
+        summary_prompt = (
+            "Eres un asistente virtual experto, amable y cercano. "
+            "Has finalizado con éxito la tarea solicitada por el usuario. "
+            "Tu objetivo ahora es generar un resumen elegante, cálido y profesional del trabajo realizado. "
+            "Reglas para el resumen:\n"
+            "1. Usa lenguaje natural y amigable (tutea al usuario si es apropiado).\n"
+            "2. Destaca los hitos principales y el valor entregado.\n"
+            "3. Usa emojis de forma moderada pero decorativa para dar calidez.\n"
+            "4. Sé conciso pero completo (máximo 2 o 3 párrafos).\n"
+            "5. NO incluyas detalles técnicos como IDs de llamadas a funciones o logs internos.\n"
+            "6. Termina con un mensaje de cierre positivo y alentador.\n\n"
+            "Basándote en el historial de las acciones que has realizado, genera este resumen final para el usuario:"
+        )
 
-        summary_lines.append("--- Resumen de Acciones del Agente ---")
-
-        for message in history:
-            if isinstance(message, AIMessage):
-                ai_messages_count += 1
-                if message.tool_calls:
-                    for tool_call in message.tool_calls:
-                        tool_calls_count += 1
-                        summary_lines.append(f"🤖 LLM llamó a la herramienta: `{tool_call['name']}` con argumentos: `{tool_call['args']}`")
-                elif message.content:
-                    summary_lines.append(f"💬 LLM respondió: {message.content[:100]}...") # Truncar para brevedad
-            elif isinstance(message, ToolMessage):
-                summary_lines.append(f"🛠️ Herramienta `{message.tool_call_id}` respondió: {message.content[:100]}...") # Truncar para brevedad
-            elif isinstance(message, HumanMessage):
-                human_messages_count += 1
-                # summary_lines.append(f"👤 Usuario dijo: {message.content[:100]}...") # Opcional: incluir mensajes de usuario
-
-        summary_lines.append("\n--- Estadísticas ---")
-        summary_lines.append(f"Total de mensajes del LLM: {ai_messages_count}")
-        summary_lines.append(f"Total de llamadas a herramientas: {tool_calls_count}")
-        summary_lines.append(f"Total de mensajes del usuario: {human_messages_count}")
-        summary_lines.append("\n¡Tarea completada con éxito! 🎉")
-
-        summary_markdown = "\n".join(summary_lines)
+        try:
+            summary_text = ""
+            # Invocamos al LLM para generar el resumen amigable sin guardar este paso en el historial
+            for chunk in self.llm_service.invoke(system_message=summary_prompt, save_history=False):
+                if isinstance(chunk, str):
+                    summary_text += chunk
+                elif hasattr(chunk, 'content'):
+                    summary_text += chunk.content
+            
+            if not summary_text:
+                summary_text = "¡Tarea completada con éxito! 🎉\nHe finalizado todas las acciones necesarias para cumplir con tu solicitud."
+        except Exception as e:
+            summary_text = f"¡Tarea completada con éxito! 🎉\n\n(Nota: No pude generar un resumen detallado debido a un pequeño error técnico, pero todo está listo para ti.)"
 
         console.print(
             Panel(
-                Markdown(summary_markdown),
-                title="✅ Tarea Completada",
-                border_style="green",
+                Markdown(summary_text),
+                title="✨ Tarea Finalizada",
+                border_style="cyan",
+                padding=(1, 2),
                 expand=False
             )
         )
         
-        return {"status": "success", "message": "Resumen de la tarea mostrado al usuario."}
+        return {"status": "success", "message": "Resumen amigable generado y mostrado al usuario."}
 
     async def _arun(self) -> Dict[str, Any]:
         """Async version of _run."""

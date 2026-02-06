@@ -2,7 +2,7 @@ use tauri::command;
 use crate::api_client::ApiClient;
 
 // TODO: Use a managed state for ApiClient instead of creating new one every time
-const API_URL: &str = "http://localhost:8000";
+const API_URL: &str = "http://localhost:8001";
 
 #[command]
 pub async fn send_message(message: String) -> Result<String, String> {

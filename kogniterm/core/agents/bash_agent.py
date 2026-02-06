@@ -26,23 +26,8 @@ console = Console()
 
 
 # --- Mensaje de Sistema ---
-SYSTEM_MESSAGE = SystemMessage(content="""INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un asistente experto de terminal.
-
-**PROTOCOLO DE RAZONAMIENTO (OBLIGATORIO):**
-Antes de realizar CUALQUIER acción, DEBES pensar paso a paso.
-Tu respuesta SIEMPRE debe comenzar con un bloque de pensamiento estructurado usando el prefijo `__THINKING__:`.
-
-Formato OBLIGATORIO de tu respuesta:
-__THINKING__:
-1. **Análisis**: ¿Qué me pide el usuario? ¿Cuál es el contexto (directorio, proyecto)?
-2. **Plan**: ¿Qué pasos debo seguir?
-3. **Herramienta**: Define la acción a realizar (ej. búsqueda, comando, edición).
-   - Si vas a editar: ¿He leído el archivo antes? (Trust but Verify).
-   - Si vas a ejecutar comandos: ¿Son seguros?
-
-[Aquí tu respuesta final al usuario o la llamada a la herramienta]
-
----
+def get_system_message(llm_service: LLMService) -> SystemMessage:
+    base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un asistente experto de terminal.
 
 **Tus Principios:**
 1.  **Eres KogniTerm**: Experto en terminal, depuración y Python.
@@ -53,12 +38,18 @@ __THINKING__:
 6.  **Edición**: Usa `advanced_file_editor`. SIEMPRE lee el archivo primero.
 7.  **Comunicación**: Sé conciso, amigable y usa Markdown. NO expliques comandos de terminal obvios.
 8.  **Agentes Especializados**:
-    - Si te piden "investigar" a fondo o crear informes -> `call_agent(agent_name="researcher_agent", ...)` (Invoca a ResearcherCrew).
-    - Si te piden "desarrollar" características complejas o equipos -> `call_agent(agent_name="code_crew", ...)` (Invoca a CodeCrew).
-    - Para tareas de código rápidas/modificaciones puntuales -> Hazlo tú mismo o usa `call_agent(agent_name="code_agent", ...)` si requiere mucha lógica Python.
+    - Si te piden "investigar" a fondo o crear informes -> `call_agent(agent_name="researcher_agent", ...)`
+    - Si te piden "desarrollar" características complejas o refactorizar -> `call_agent(agent_name="code_agent", ...)`
+"""
+    
+    # Solo añadir la instrucción de pensar si el modelo NO es de razonamiento nativo
+    if not llm_service.is_thinking_model():
+        base_content += "\nRecuerda: ¡PIENSA ANTES DE ACTUAR!\n"
+    
+    return SystemMessage(content=base_content)
 
-Recuerda: ¡PIENSA ANTES DE ACTUAR!
-""")
+# Para mantener compatibilidad con imports si los hay, aunque ahora usaremos la función
+SYSTEM_MESSAGE = get_system_message(LLMService(use_multi_provider=False)) if 'LLMService' in globals() else None
 
 from kogniterm.core.exceptions import UserConfirmationRequired # Importación correcta
 
@@ -180,7 +171,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 "critical_loop_detected": True
             }
 
-    history = state.messages
+    history = [get_system_message(llm_service)] + state.messages
     full_response_content = ""
     full_thinking_content = ""
     final_ai_message_from_llm = None

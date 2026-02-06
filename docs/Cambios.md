@@ -1472,3 +1472,350 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
 ✅ **Fallback Silencioso**: El usuario ya no ve errores de parseo; el sistema simplemente encuentra la información donde esté disponible.
 
 ---
+
+## 03-02-26 Mejora Definitiva de Robustez en Tool-Parsing para Modelos OSS
+
+Se ha implementado una arquitectura de detección de herramientas multi-capa para solucionar fallos críticos de ejecución en modelos como `gpt-oss-120b:free`, los cuales suelen mezclar llamadas nativas con texto libre o razonamiento interno ("thinking") mal formateado.
+
+- **Protocolo de Emergencia `LLAMADA_A_HERRAMIENTA`**: Se introdujo un formato de texto explícito en el `SYSTEM_MESSAGE` de los agentes. Si el modelo falla en usar la API nativa, el sistema ahora puede interceptar y ejecutar comandos usando este patrón visual de respaldo. ✨
+- **Nuevo Extractor Balanceado (`_extract_balanced_content`)**: Implementación de un motor de extracción propio que maneja anidamiento de llaves, corchetes y paréntesis, ignorando delimitadores dentro de cadenas de texto. Esto permite capturar JSONs complejos de forma infalible incluso en textos con mucho ruido. 🛠️
+- **Correlación Contextual Huérfana**: El sistema ahora es capaz de "rescatar" bloques JSON que no contienen el nombre de la herramienta. El parser busca menciones previas de herramientas en el contexto del texto (especialmente en el bloque de "Thinking") y las asocia automáticamente con los argumentos encontrados. 🧠
+- **Limpieza Agresiva de Datos**: Se añadió una etapa de saneamiento térmico que elimina caracteres de control invisibles (\x00-\x1f) del flujo de datos antes del parseo JSON, evitando errores de sintaxis causados por basura técnica del LLM. 🧹
+- **Unificación de Fuentes de Parseo**: Se modificó `LLMService.invoke` para fusionar el contenido de respuesta (`full_response_content`) con el de razonamiento (`full_reasoning_content`) antes del análisis, asegurando que ninguna instrucción del modelo pase desapercibida. 🎯
+- **Detección Insensible a Mayúsculas**: La resolución de nombres de herramientas ahora es total, permitiendo variaciones en el casing (ej. `Execute_Command` -> `execute_command`). 🦾
+- **Consolidación de Estabilidad**: Se repararon fragmentaciones accidentales en el archivo `llm_service.py` ocurridas durante la actualización, dejando el motor central del sistema totalmente limpio y optimizado. 🚀
+
+---
+
+## 03-02-2026 Implementación de Terminal Integrada y Explorador de Archivos en KogniTerm Desktop
+
+**Descripción**: Se ha completado la Fase 3 de KogniTerm Desktop con la implementación de una terminal integrada usando XTerm.js y un explorador de archivos funcional, junto con mejoras en la arquitectura del backend.
+
+### Cambios Implementados
+
+#### **🖥️ Terminal Integrada**
+
+1. **Componente Terminal** (`Terminal.tsx`):
+   - Integración completa de **XTerm.js** con tema personalizado oscuro.
+   - Soporte para entrada de comandos interactiva con historial.
+   - Addons: `FitAddon` para ajuste automático y `WebLinksAddon` para enlaces clickeables.
+   - Manejo de teclas especiales (Enter, Backspace, etc.).
+
+2. **Hook de Terminal** (`useTerminal.ts`):
+   - Gestión de estado de ejecución de comandos.
+   - Comunicación con el backend para ejecutar comandos shell.
+   - Manejo de errores y timeouts.
+
+3. **Vista de Terminal** (`TerminalView.tsx`):
+   - Wrapper con header estilizado (botones macOS-style).
+   - Indicador visual de estado de ejecución.
+   - Integración con el hook de ejecución.
+
+#### **📁 Explorador de Archivos**
+
+1. **Componente FileExplorer** (`FileExplorer.tsx`):
+   - Navegación de directorios con interfaz intuitiva.
+   - Iconos diferenciados para archivos y carpetas.
+   - Visualización de tamaños de archivo formateados.
+   - Ordenamiento automático (directorios primero).
+
+2. **Endpoint de Backend** (`/api/files/list`):
+   - Listado de contenidos de directorio con metadatos.
+   - Filtrado de archivos ocultos.
+   - Manejo seguro de rutas absolutas.
+
+#### **⚙️ Backend Mejorado**
+
+1. **Endpoint de Ejecución de Comandos** (`/api/execute`):
+   - Ejecución asíncrona de comandos shell usando `asyncio.create_subprocess_shell`.
+   - Captura de stdout y stderr por separado.
+   - Retorno de código de salida.
+
+2. **Modelos Pydantic Extendidos**:
+   - `CommandRequest` / `CommandResponse` para ejecución de comandos.
+   - `FileItem` / `DirectoryRequest` / `DirectoryResponse` para navegación de archivos.
+
+#### **🎨 Interfaz de Usuario**
+
+1. **Sistema de Pestañas**:
+   - Navegación entre Chat, Terminal y Explorador de Archivos.
+   - Indicadores visuales de pestaña activa.
+   - Transiciones suaves entre vistas.
+
+2. **Mejoras de Diseño**:
+   - Scrollbar personalizado para todas las vistas.
+   - Consistencia visual en todos los componentes.
+   - Responsive design para diferentes tamaños de ventana.
+
+#### **📚 Documentación**
+
+1. **README Completo** (`kogniterm-desktop/README.md`):
+   - Instrucciones detalladas de instalación.
+   - Guía de desarrollo con comandos específicos.
+   - Documentación de estructura del proyecto.
+   - Información sobre tecnologías utilizadas.
+
+### **🎯 Beneficios**
+
+✅ **Terminal Nativa**: Los usuarios pueden ejecutar comandos directamente desde la aplicación sin salir del entorno.
+✅ **Navegación de Archivos**: Exploración visual del proyecto sin necesidad de comandos.
+✅ **Experiencia Unificada**: Todas las herramientas necesarias en una sola aplicación.
+✅ **Arquitectura Escalable**: Backend preparado para futuras extensiones (edición de archivos, Git, etc.).
+✅ **Documentación Completa**: Facilita la contribución y el despliegue del proyecto.
+
+### **🔍 Próximos Pasos**
+
+- Implementar edición de archivos en el explorador.
+- Añadir integración con Git (status, commit, push).
+- Implementar persistencia de sesiones de chat.
+- Añadir configuración de temas y preferencias.
+- Implementar sistema de plugins para extensibilidad.
+
+---
+
+---
+
+## 04-02-2026 Eliminación de Razonamiento Duplicado
+
+**Descripción**: El usuario solicitó eliminar la redundancia del bloque de razonamiento ("THINKING:") que KogniTerm forzaba en el prompt de sistema. Se implementó una solución dinámica que adapta el comportamiento según las capacidades del modelo seleccionado, eliminando el protocolo forzado por texto y favoreciendo el razonamiento nativo de los modelos avanzados.
+
+- **Punto 1**: Se ha añadido un método `is_thinking_model` en `LLMService` para detectar modelos con razonamiento nativo (familia r1, o1, etc.) basándose en palabras clave en su nombre.
+- **Punto 2**: Se ha eliminado definitivamente la inyección del protocolo de razonamiento forzado del método `invoke` en `LLMService`, evitando que el sistema obligue al modelo a escribir un bloque de pensamiento manual.
+- **Punto 3**: Se ha simplificado el `SYSTEM_MESSAGE` en `bash_agent.py`, eliminando todas las menciones a protocolos de razonamiento obligatorios para mantener un historial limpio y ahorrar tokens.
+- **Punto 4**: Se ha mantenido la capacidad de capturar el `reasoning_content` nativo de los modelos que lo soportan, permitiendo que la "burbuja de pensamiento" visual siga funcionando en la terminal sin duplicar el texto en la respuesta principal.
+- **Punto 5**: Se ha restaurado la compatibilidad de importaciones restaurando la constante `SYSTEM_MESSAGE` simplificada para evitar errores en otros módulos del sistema.
+
+---
+
+## 04-02-26 Mejora del Sistema de Investigación a DeepResearch y Limpieza de Agentes
+
+**Descripción**: Se ha sustituido la antigua Crew de investigación (multi-agente) por un nuevo motor de **Deep Research** basado en un único agente hiper-especializado con flujo recursivo. Esta mejora elimina la latencia de delegación y proporciona informes técnicos mucho más profundos, coherentes y detallados. Posteriormente, se realizó una limpieza integral del código para eliminar componentes obsoletos.
+
+- **Punto 1**: Implementación de , un nuevo agente basado en LangGraph que utiliza planificación dinámica y ejecución recursiva de sub-tareas de investigación.
+- **Punto 2**: Actualización de  para redirigir todas las solicitudes de  hacia el nuevo motor DeepResearcher, eliminando la dependencia de CrewAI para esta tarea.
+- **Punto 3**: Eliminación física de archivos de agentes e infraestructura de Crew redundantes: , , ,  y .
+- **Punto 4**: Optimización de la arquitectura de agentes, manteniendo una estructura más limpia y mantenible con focos claros: Terminal (`bash_agent`), Código (`code_agent`) e Investigación (`deep_researcher`).
+- **Punto 5**: Mejora de los prompts de investigación para incentivar el uso de diagramas Mermaid, citas de archivos locales y búsquedas web exhaustivas.
+
+---
+
+## 04-02-26 Mejora del Sistema de Desarrollo a DeepCoder y Unificación de Agentes
+
+**Descripción**: Siguiendo la exitosa implementación del DeepResearcher, se ha transformado el sistema de desarrollo (Code Agent y Code Crew) en un motor de **Deep Coding** unificado. Este nuevo motor elimina la redundancia de CrewAI y proporciona un flujo de desarrollo profesional basado en Arquitectura -> Implementación -> QA Recursivo.
+
+- **Punto 1**: Implementación de `kogniterm/core/agents/deep_coder.py`, un nuevo motor de desarrollo basado en LangGraph que integra las funciones de Arquitecto, Desarrollador y QA en un solo flujo altamente cohesivo.
+- **Punto 2**: Unificación de las herramientas `code_agent` y `code_crew` en `CallAgentTool` para que ambas utilicen el nuevo motor DeepCoder, garantizando la máxima calidad de código independientemente de la forma de invocación.
+- **Punto 3**: Eliminación de componentes obsoletos de CrewAI: `code_crew.py` y `code_crew_agents.py`.
+- **Punto 4**: Refactorización técnica para mejorar la visualización del razonamiento ("Deep Thinking") durante el desarrollo de archivos.
+- **Punto 5**: Corrección de regresiones en `CallAgentTool` para asegurar que todos los agentes especializados (Research e Interacción) funcionen correctamente en el nuevo esquema.
+
+---
+
+## 04-02-2026 Corrección de Configuración PostCSS para Tailwind CSS v4
+
+**Descripción**: Se ha solucionado un error de configuración en la aplicación de escritorio (`kogniterm-desktop/apps/desktop`) causado por incompatibilidad entre la configuración de PostCSS y la versión de Tailwind CSS instalada. Se migró del plugin obsoleto `tailwindcss` al nuevo paquete `@tailwindcss/postcss`.
+
+- **Punto 1**: Instalación de la dependencia `@tailwindcss/postcss` en el paquete `desktop` para asegurar compatibilidad con Tailwind CSS v4.
+- **Punto 2**: Actualización del archivo `kogniterm-desktop/apps/desktop/postcss.config.js` para reemplazar el plugin `tailwindcss` por `@tailwindcss/postcss`, resolviendo el error de compilación de Vite.
+
+---
+
+## 04-02-2026 Rediseño Completo de la Interfaz de Usuario (Frontend)
+
+**Descripción**: Se ha realizado una mejora integral del diseño visual y la experiencia de usuario de la aplicación KogniTerm Desktop, enfocándose en una estética "Rich Aesthetics", moderna y premium.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm-desktop/apps/desktop/index.html`](kogniterm-desktop/apps/desktop/index.html)
+2. [`kogniterm-desktop/apps/desktop/src/index.css`](kogniterm-desktop/apps/desktop/src/index.css)
+3. [`kogniterm-desktop/apps/desktop/src/App.tsx`](kogniterm-desktop/apps/desktop/src/App.tsx)
+4. [`kogniterm-desktop/apps/desktop/src/components/chat/ChatInput.tsx`](kogniterm-desktop/apps/desktop/src/components/chat/ChatInput.tsx)
+
+#### **📋 Cambios Específicos**
+
+1. **Tipografía Premium**:
+   - Integración de **Inter** como fuente principal y **JetBrains Mono** para código, importadas desde Google Fonts.
+
+2. **Nuevo Sistema de Diseño (Dark Theme)**:
+   - Implementación de una paleta de colores basada en **Zinc** (fondo) y **Indigo** (acentos).
+   - Variables CSS globales para facilitar el mantenimiento y futuros cambios de tema.
+   - Utilidades personalizadas para efectos **Glassmorphism** (fondos translúcidos con desenfoque).
+
+3. **Reestructuración del Layout (`App.tsx`)**:
+   - **Sidebar Flotante**: Rediseñada como una barra lateral moderna estilo "dock" con tooltips, indicadores activos y efectos hover.
+   - **Header Transparente**: Cabecera minimalista con efecto glass y mejor jerarquía visual.
+   - **Pantalla de Bienvenida**: Nueva sección "Hero" con tarjetas interactivas, iconos grandes y micro-animaciones de entrada.
+
+4. **Componente de Chat Mejorado (`ChatInput.tsx`)**:
+   - Transformación del input en una "isla flotante" en la parte inferior.
+   - Añadido efecto de "resplandor" (glow) al enfocar.
+   - Mejoras en la usabilidad y feedback visual (iconos, estados de carga).
+
+#### **🎯 Beneficios del Rediseño**
+
+✅ **Estética Profesional**: La aplicación ahora se siente moderna, pulida y alineada con herramientas de desarrollo premium.
+✅ **Mejor Experiencia de Usuario**: La navegación es más intuitiva con indicadores claros y retroalimentación visual inmediata.
+✅ **Identidad Visual**: Se establece una identidad visual fuerte con el uso consistente de colores, tipografías y efectos.
+✅ **Atmósfera Inmersiva**: El tema oscuro refinado y los efectos de transparencia crean un entorno de trabajo agradable y enfocado.
+
+---
+## 04-02-26 Corrección de Error de Sintaxis en Deep Researcher
+
+He corregido un `SyntaxError` en `kogniterm/core/agents/deep_researcher.py` causado por caracteres de escape inesperados en las cadenas de documentación y prompts.
+
+- **Eliminación de Backslashes**: Se eliminaron los backslashes espurios (`\`) que precedían a las comillas triples (`"""`) en varias funciones (`planning_node`, `research_node`, `synthesis_node`, `call_deep_model_node`) y en la definición de `prompt`. Esto causaba el error `unexpected character after line continuation character`.
+- **Verificación**: Se verificó la sintaxis del archivo utilizando `python3 -m py_compile`.
+
+---
+
+## 04-02-2026 Corrección de Conectividad WebSocket en Frontend
+
+**Descripción**: Se ha solucionado un problema de conexión persistente en el frontend donde se reportaba un error de conexión a pesar de que el backend estaba activo.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [](kogniterm-desktop/apps/desktop/src/hooks/useChat.ts)
+
+#### **📋 Detalles Técnicos**
+
+- **Cambio de Host de Conexión**: Se actualizó la URL de conexión WebSocket de `ws://localhost:8001/ws/chat` a `ws://127.0.0.1:8001/ws/chat`.
+- **Causa**: En sistemas híbridos Node/Python, la resolución de `localhost` puede fallar o diferir entre IPv4 y IPv6 (Node >v17 prefiere IPv6 ::1, mientras que el servidor Python escuchaba en IPv4 0.0.0.0). Forzar IPv4 explícito (`127.0.0.1`) asegura la conectividad.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad de Conexión**: Elimina los falsos positivos de errores de conexión y asegura que el cliente pueda comunicarse con el servidor local confiablemente.
+
+---
+
+## 04-02-2026 Corrección de Conectividad WebSocket en Frontend
+
+**Descripción**: Se ha solucionado un problema de conexión persistente en el frontend donde se reportaba un error de conexión a pesar de que el backend estaba activo.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm-desktop/apps/desktop/src/hooks/useChat.ts`](kogniterm-desktop/apps/desktop/src/hooks/useChat.ts)
+
+#### **📋 Detalles Técnicos**
+
+- **Cambio de Host de Conexión**: Se actualizó la URL de conexión WebSocket de `ws://localhost:8001/ws/chat` a `ws://127.0.0.1:8001/ws/chat`.
+- **Causa**: En sistemas híbridos Node/Python, la resolución de `localhost` puede fallar o diferir entre IPv4 y IPv6 (Node >v17 prefiere IPv6 ::1, mientras que el servidor Python escuchaba en IPv4 0.0.0.0). Forzar IPv4 explícito (`127.0.0.1`) asegura la conectividad.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad de Conexión**: Elimina los falsos positivos de errores de conexión y asegura que el cliente pueda comunicarse con el servidor local confiablemente.
+
+---
+## 04-02-26 Corrección de Importación en Deep Researcher
+
+He corregido un `ModuleNotFoundError` en `kogniterm/core/agents/deep_researcher.py` causado por una referencia a un módulo inexistente.
+
+- **Corrección de Módulo**: Se cambió la importación de `execute_tool_node` y `should_continue` para que apunte a `.code_agent` en lugar de `.researcher_agent`, ya que este último no existe en la estructura actual del proyecto.
+- **Limpieza de Comentarios**: Se actualizó un comentario informativo que hacía mención al archivo inexistente.
+- **Verificación**: El archivo ahora compila correctamente y todas las dependencias de funciones compartidas están resueltas.
+
+---
+
+## 06-02-26 Corrección de Estado de Conexión y Directorio de Trabajo
+
+**Descripción**: Se han solucionado dos problemas de usabilidad en la interfaz de usuario y la ejecución de comandos: la inconsistencia visual del estado de conexión y la falta de persistencia al cambiar el directorio de trabajo manualmente.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm-desktop/apps/desktop/src/hooks/useChat.ts`](kogniterm-desktop/apps/desktop/src/hooks/useChat.ts)
+2. [`kogniterm-desktop/apps/desktop/src/App.tsx`](kogniterm-desktop/apps/desktop/src/App.tsx)
+3. [`kogniterm/core/tools/execute_command_tool.py`](kogniterm/core/tools/execute_command_tool.py)
+
+#### **📋 Detalles Técnicos**
+
+1. **Estado de Conexión Dinámico**:
+   - Se añadió un estado `isConnected` en el hook `useChat` que escucha los eventos `onopen` y `onclose` del WebSocket real.
+   - La interfaz (`App.tsx`) ahora utiliza este estado para mostrar el indicador en verde ("Conectado") o rojo ("Desconectado") según corresponda, eliminando la etiqueta estática que causaba confusión.
+
+2. **Persistencia de Directorio (`cd`)**:
+   - Se modificó `execute_command_tool.py` para detectar e interceptar comandos que comienzan con `cd`.
+   - Al detectar un `cd`, la herramienta ahora ejecuta `os.chdir()` en el proceso principal de Python. Esto asegura que el cambio de directorio sea persistente para futuras ejecuciones de herramientas comando, respetando la configuración manual de directorio que el usuario realiza desde la interfaz.
+
+#### **🎯 Beneficios**
+
+✅ **Feedback Visual Real**: El usuario ahora sabe con certeza si la aplicación está conectada al backend.
+✅ **Navegación Efectiva**: La función de "Cambiar directorio de trabajo" ahora funciona como se espera, permitiendo al agente operar en la carpeta seleccionada por el usuario.
+
+---
+
+## 06-02-26 Sincronización de Directorio de Trabajo
+
+**Descripción**: Se ha corregido la discrepancia entre el directorio mostrado en la interfaz (botón de carpeta y File Explorer) y el directorio de trabajo real del backend.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm-desktop/apps/desktop/src/components/files/FileExplorer.tsx`](kogniterm-desktop/apps/desktop/src/components/files/FileExplorer.tsx)
+2. [`kogniterm-desktop/apps/desktop/src/App.tsx`](kogniterm-desktop/apps/desktop/src/App.tsx)
+
+#### **📋 Detalles Técnicos**
+
+- **Actualización de endpoint**: Se cambió `http://localhost:8001` por `http://127.0.0.1:8001` en `FileExplorer.tsx` para consistencia con el resto de la aplicación y evitar problemas de resolución de nombres.
+- **Sincronización Inicial**: Se añadió un `useEffect` en `App.tsx` que consulta al backend (`/api/files/list`) al iniciar la aplicación para obtener el directorio de trabajo real actual.
+- **Actualización de Estado**: El estado `currentDir` ahora se inicializa con el valor real devuelto por el servidor, reemplazando el valor hardcodeado previo.
+
+#### **🎯 Beneficios**
+
+✅ **Consistencia UI/Backend**: La ruta mostrada en la barra superior ahora refleja fielmente dónde se está ejecutando el servidor KogniTerm.
+✅ **Mejor UX**: Elimina la confusión del usuario al ver rutas diferentes en el explorador y en la configuración del directorio.
+
+---
+
+## 06-02-26 Sincronización Reactiva de File Explorer
+
+**Descripción**: Se aseguró que el componente `FileExplorer` reaccione dinámicamente a los cambios de directorio realizados en la aplicación principal, eliminando la necesidad de recargar para ver la nueva ubicación de trabajo.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm-desktop/apps/desktop/src/components/files/FileExplorer.tsx`](kogniterm-desktop/apps/desktop/src/components/files/FileExplorer.tsx)
+2. [`kogniterm-desktop/apps/desktop/src/App.tsx`](kogniterm-desktop/apps/desktop/src/App.tsx)
+
+#### **📋 Detalles Técnicos**
+
+- **Nueva Propiedad**: Se modificó `FileExplorer` para aceptar `workspacePath` como prop.
+- **Hook Reactivo**: Se actualizó el `useEffect` en `FileExplorer` para escuchar cambios en `workspacePath` y recargar el directorio automáticamente.
+- **Navegación Absoluta**: El botón "Home" del explorador ahora navega a `workspacePath` en lugar de `.` (que podía ser ambiguo o desactualizado).
+- **Integración**: `App.tsx` ahora pasa el estado `currentDir` al componente `FileExplorer`, asegurando que ambas partes de la UI estén siempre en sintonía.
+
+#### **🎯 Beneficios**
+
+✅ **Sincronización Total**: Al cambiar el directorio de trabajo desde la barra superior, el explorador de archivos se actualiza instantáneamente para mostrar el contenido de la nueva carpeta.
+
+---
+
+## 06-02-26 Menu de Autocompletado de Comandos
+
+**Descripción**: Se ha implementado un sistema de autocompletado y sugerencias para los meta-comandos de KogniTerm en el chat.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm-desktop/apps/desktop/src/components/chat/ChatInput.tsx`](kogniterm-desktop/apps/desktop/src/components/chat/ChatInput.tsx)
+
+#### **📋 Detalles Técnicos**
+
+- **Detección de Disparadores**: El input ahora detecta cuando el usuario escribe `%` o `/` seguido de texto.
+- **Lista de Comandos**: Se integró la lista completa de meta-comandos disponibles en el backend (`%reset`, `%theme`, `%models`, etc.) con sus descripciones.
+- **Menú Flotante**: Se renderiza un menú desplegable (dropup) estilizado que muestra las coincidencias en tiempo real.
+- **Navegación por Teclado**: Soporte para navegar las sugerencias con flechas Arriba/Abajo y seleccionar con Enter o Tab.
+
+#### **🎯 Beneficios**
+
+✅ **Descubribilidad**: Los usuarios ahora pueden ver fácilmente qué comandos están disponibles sin consultar la ayuda externa.
+✅ **Eficiencia**: Permite escribir comandos largos rápidamente y sin errores tipográficos.

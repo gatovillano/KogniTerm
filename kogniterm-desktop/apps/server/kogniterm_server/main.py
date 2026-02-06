@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.routes import router as api_router
+from .api.websocket import router as ws_router
+from .api.settings import router as settings_router
 
 app = FastAPI(title="KogniTerm Server")
 
@@ -13,6 +15,8 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+app.include_router(ws_router)
 
 @app.get("/")
 async def root():
