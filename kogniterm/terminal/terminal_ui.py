@@ -1,6 +1,7 @@
 import sys
 import queue
 import json
+import shutil
 from rich.console import Console, Group
 from rich.status import Status
 from rich.panel import Panel
@@ -59,12 +60,24 @@ class TerminalUI:
 
     def handle_resize(self):
         """Maneja el redimensionamiento de la terminal refrescando la consola."""
-        # Rich detecta automáticamente el tamaño al crear una nueva instancia de Console
-        # o al llamar a ciertos métodos. Forzamos una actualización de las dimensiones.
-        self.console = Console(theme=get_kogniterm_theme())
-        # Opcionalmente, podríamos limpiar la pantalla o redibujar componentes críticos
-        # pero por ahora simplemente actualizamos el objeto console para que los
-        # próximos prints usen el nuevo ancho.
+        # Obtener dimensiones actuales de forma explícita usando shutil
+        size = shutil.get_terminal_size()
+        
+        # En lugar de solo recrear, podemos intentar actualizar la existente
+        # para que cualquier referencia mantenida por otros componentes se mantenga.
+        self.console.width = size.columns
+        self.console.height = size.lines
+        
+        # Forzamos que Rich re-detecte si es necesario, aunque asignar width es directo
+        # Re-inicializamos para asegurar que el tema y todo esté en su lugar con el nuevo ancho
+        self.console = Console(
+            theme=get_kogniterm_theme(), 
+            width=size.columns, 
+            height=size.lines,
+            force_terminal=True
+        )
+        
+        # Si hay procesos de streaming activos, esto asegurará que el próximo chunk use el nuevo ancho.
 
 
     def print_stream(self, text: str):

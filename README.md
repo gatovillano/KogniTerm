@@ -51,7 +51,7 @@ KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herra
 
 ## 🎬 Demo
 
-![KogniTerm Demo](assets/kogniterm-demo.gif)
+![KogniTerm Demo](kogniterm/kogniterm.mp4)
 
 *KogniTerm en acción: agentes colaborando en tiempo real para resolver tareas complejas.*
 
@@ -181,6 +181,7 @@ Si encuentras útil este proyecto, considera hacer una donación para apoyar su 
 [![Donar con PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate?hosted_button_id=TU_ID_DE_BOTÓN)
 
 O también puedes apoyar a través de:
+
 * [GitHub Sponsors](https://github.com/sponsors/tu-usuario)
 * [Patreon](https://www.patreon.com/tu-usuario)
 

@@ -407,16 +407,26 @@ class KogniTermApp:
         if sys.platform != "win32":
             # Capturar señal de cambio de tamaño de ventana (Linux/macOS)
             try:
-                signal.signal(signal.SIGWINCH, self._handle_sigwinch)
+                loop = asyncio.get_event_loop()
+                # Usar loop.add_signal_handler es la forma correcta en asyncio
+                loop.add_signal_handler(signal.SIGWINCH, self._handle_sigwinch_async)
             except Exception as e:
-                logger.warning(f"No se pudo configurar el manejador de SIGWINCH: {e}")
+                # Fallback al manejador estándar de signal si el loop no es compatible
+                try:
+                    signal.signal(signal.SIGWINCH, self._handle_sigwinch)
+                except Exception as e2:
+                    logger.warning(f"No se pudo configurar el manejador de SIGWINCH: {e2}")
+
+    def _handle_sigwinch_async(self):
+        """Versión asíncrona del manejador de redimensionamiento."""
+        self._handle_sigwinch(None, None)
 
     def _handle_sigwinch(self, signum, frame):
         """Maneja la señal de redimensionamiento de la ventana."""
         if hasattr(self, 'terminal_ui'):
             self.terminal_ui.handle_resize()
-            # Si el prompt de prompt_toolkit está activo, él mismo maneja su redimensionamiento,
-            # pero Rich necesita saber que el ancho cambió para sus paneles.
+            # Opcionalmente, podríamos imprimir un mensaje invisible para forzar el reflow
+            # sys.stdout.write("\033[A\033[K") # No, esto podría ensuciar la terminal
 
 
     def _get_bottom_toolbar(self):
