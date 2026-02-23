@@ -251,8 +251,9 @@ def call_deep_model_node(state: AgentState, llm_service: LLMService, interrupt_q
             if isinstance(part, AIMessage):
                 final_ai_message = part
             elif isinstance(part, str):
-                if part.startswith("__THINKING__:"):
-                    full_thinking_content += part[len("__THINKING__:"):]
+                if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
+                    prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
+                    full_thinking_content += part[len(prefix):]
                     update_display()
                 else:
                     full_response_content += part

@@ -76,6 +76,9 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> 
             tool_name = getattr(tool, 'name', 'Desconocido')
             logger.error(f"Error extracting schema for tool {tool_name}: {e}")
             args_schema = {"type": "object", "properties": {}}
+    elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
+        # Soporte para skills que usan parameters_schema directo (JSON Schema)
+        args_schema = tool.parameters_schema
 
     # Limpiar el esquema de títulos y otros metadatos de Pydantic que a veces molestan a LiteLLM/OpenRouter
     def clean_schema(s):
@@ -191,8 +194,8 @@ class LLMService:
         self.use_multi_provider = use_multi_provider
         if use_multi_provider:
             self.provider_manager = get_provider_manager()
-            # Realizar health check inicial
-            self.provider_manager.health_check()
+            # Realizar health check inicial (Comentado para evitar lentitud e inestabilidad al arranque)
+            # self.provider_manager.health_check()
         else:
             self.provider_manager = None
         
@@ -217,16 +220,21 @@ class LLMService:
             logger.warning("La aplicación continuará en MODO SEGURO (sin búsqueda vectorial).")
             self.vector_db_manager = None
 
+        # print("DEBUG: Inicializando SkillManager...")
+        from .skills.skill_manager import SkillManager
+        self.skill_manager = SkillManager()
+        
         # print("DEBUG: Inicializando ToolManager...")
         self.tool_manager = ToolManager(
             llm_service=self, 
             embeddings_service=self.embeddings_service, 
-            vector_db_manager=self.vector_db_manager
+            vector_db_manager=self.vector_db_manager,
+            skill_manager=self.skill_manager
         )
         # print("DEBUG: Cargando herramientas...")
         self.tool_manager.load_tools()
         # print("DEBUG: Generando esquemas de herramientas...")
-        self.tool_names = [tool.name for tool in self.tool_manager.get_tools()]
+        self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in self.tool_manager.get_tools()]
         self.tool_schemas = []
         for tool in self.tool_manager.get_tools():
             schema = {}
@@ -235,8 +243,10 @@ class LLMService:
                     schema = tool.args_schema.schema()
                 elif hasattr(tool.args_schema, 'model_json_schema'):
                     schema = tool.args_schema.model_json_schema()
+            elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
+                schema = tool.parameters_schema
             self.tool_schemas.append(schema)
-        self.tool_map = {tool.name: tool for tool in self.tool_manager.get_tools()}
+        self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.tool_manager.get_tools()}
         # Tools will be converted at runtime based on the actual model being used
         self.litellm_tools = None
         self.max_conversation_tokens = 128000 # Gemini 1.5 Flash context window
@@ -688,9 +698,10 @@ class LLMService:
         tool_confirmation_instruction = (
             "**INSTRUCCIÓN CRÍTICA PARA HERRAMIENTAS Y CONFIRMACIÓN:**\n"
             "1. Cuando recibas un ToolMessage con un `status: \"requires_confirmation\"`, la herramienta está PENDIENTE. DEBES ESPERAR al usuario. NO generes nuevas tool_calls ni texto hasta la confirmación.\n"
-            "2. Si el usuario aprueba, responde con el ToolMessage original con `confirm: True`.\n"
-            "3. Si deniega, explica por qué en un mensaje de texto.\n"
-            "4. Prioriza seguridad e intención del usuario."
+            "2. NO.envíes ToolMessages con `confirm: True`. La confirmación la hace el usuario directamente en la interfaz, no tú.\n"
+            "3. Simplemente espera a que el usuario confirme o niegue a través de la interfaz.\n"
+            "4. Si el usuario aprueba, la herramienta se ejecutará automáticamente.\n"
+            "5. NO generes texto ni intentes confirmar tú mismo.\n"
         )
         if not any(tool_confirmation_instruction in sc for sc in system_contents):
             system_contents.append(tool_confirmation_instruction)
@@ -1495,10 +1506,9 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             # devolvemos una cadena vacía para que el sistema sepa que no hubo resumen.
             return ""
 
-    def get_tool(self, tool_name: str) -> Optional[BaseTool]:
-        """Encuentra y devuelve una herramienta de LangChain por su nombre."""
-        tool = self.tool_manager.get_tool(tool_name)
-        return tool if isinstance(tool, BaseTool) else None
+    def get_tool(self, tool_name: str) -> Optional[Any]:
+        """Encuentra y devuelve una herramienta por su nombre (soporta BaseTool y Callables)."""
+        return self.tool_manager.get_tool(tool_name)
 
     def close(self):
         """Libera recursos y cierra conexiones de servicios internos."""
@@ -1534,11 +1544,23 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
         def _tool_target():
             try:
-                result = tool._run(**tool_args) # Usar _run directamente para obtener el generador si existe
+                # Soporte para diferentes tipos de ejecución de herramientas
+                if hasattr(tool, '_run'):
+                    # Herramientas BaseTool de LangChain (usando el método privado para obtener el generador si existe)
+                    result = tool._run(**tool_args)
+                elif hasattr(tool, 'run'):
+                    # Objetos con método run
+                    result = tool.run(**tool_args)
+                elif callable(tool):
+                    # Funciones directas (común en el sistema de skills)
+                    result = tool(**tool_args)
+                else:
+                    raise Exception(f"La herramienta '{getattr(tool, 'name', tool.__class__.__name__)}' no es ejecutable.")
+
                 if isinstance(result, dict) and result.get("status") == "requires_confirmation":
                     raise UserConfirmationRequired(
                         message=result.get("action_description", "Confirmación requerida"),
-                        tool_name=result.get("operation", tool.name),
+                        tool_name=result.get("operation", getattr(tool, 'name', tool.__class__.__name__)),
                         tool_args=result.get("args", tool_args),
                         raw_tool_output=result
                     )

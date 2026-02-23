@@ -8,7 +8,6 @@ import google.genai as genai
 from rich.console import Console, Group
 from rich.panel import Panel
 import functools
-from langchain_core.runnables import RunnableConfig # Nueva importación
 from rich.markup import escape # Nueva importación
 import sys # Nueva importación
 import json # Importar json para verificar si la salida es un JSON
@@ -240,9 +239,10 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 if isinstance(part, AIMessage):
                     final_ai_message_from_llm = part
                 elif isinstance(part, str):
-                    if part.startswith("__THINKING__:"):
+                    if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
                         # Es contenido de razonamiento (Thinking)
-                        thinking_chunk = part[len("__THINKING__:"):]
+                        prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
+                        thinking_chunk = part[len(prefix):]
                         full_thinking_content += thinking_chunk
                         update_live_display()
                     else:
@@ -384,8 +384,12 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
     except Exception as e:
         return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
 
-def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None):
+def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None, command_approval_handler=None):
     """Ejecuta las herramientas solicitadas por el modelo."""
+    # Obtener command_approval_handler del llm_service.tool_manager si no se pasó directamente
+    if command_approval_handler is None and hasattr(llm_service, 'tool_manager') and hasattr(llm_service.tool_manager, 'approval_handler'):
+        command_approval_handler = llm_service.tool_manager.approval_handler
+    
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return state
@@ -401,6 +405,9 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         kh.start()
         
     try:
+        # Set current agent state for race condition detection
+        llm_service._current_agent_state = state
+        
         executor = ThreadPoolExecutor(max_workers=min(len(last_message.tool_calls), 5))
         futures = []
         for tool_call in last_message.tool_calls:
@@ -450,22 +457,110 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             tool_id, content, exception = future.result()
             if exception:
                 if isinstance(exception, UserConfirmationRequired):
-                    state.tool_pending_confirmation = exception.tool_name
-                    state.tool_args_pending_confirmation = exception.tool_args
-                    state.tool_call_id_to_confirm = tool_id
-                    state.file_update_diff_pending_confirmation = exception.raw_tool_output
-                    terminal_ui.console.print(f"[bold yellow]⚠️ Herramienta '{exception.tool_name}' requiere confirmación:[/bold yellow] {exception.message}")
-                    tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+                    # IMPORTANTE: Manejar la confirmación DIRECTAMENTE sin involucrar al LLM
+                    # Esto evita que el LLM genere texto antes de que el usuario pueda confirmar
+                    
+                    # Preparar raw_output para el handler
+                    raw_tool_output = exception.raw_tool_output or {}
+                    
+                    # Obtener tool_name del raw_output o de la excepción
+                    tool_name = raw_tool_output.get("operation", exception.tool_name)
+                    
+                    # Determinar si es una operación de archivo
+                    is_file_update = tool_name in ["file_operations", "file_update_tool", "file_update", "advanced_file_editor", "advanced_file_editor_tool"]
+                    
+                    # Crear contenido del panel de confirmación
+                    panel_content = f"**{exception.message}**"
+                    
+                    if is_file_update and raw_tool_output.get("diff"):
+                        panel_content += f"\n\n**Diff:**\n{raw_tool_output['diff']}"
+                    
+                    # Solicitar aprobación usando command_approval_handler si está disponible
+                    if command_approval_handler:
+                        try:
+                            # Determinar el tipo de herramienta para pasar información correcta
+                            tool_name_for_handler = raw_tool_output.get("operation", exception.tool_name)
+                            
+                            # Crear un raw_output para el handler
+                            handler_raw_output = {
+                                "status": "requires_confirmation",
+                                "action_description": exception.message,
+                                "diff": raw_tool_output.get("diff", ""),
+                                "path": exception.tool_args.get("path", "") if exception.tool_args else ""
+                            }
+                            
+                            approval_result = command_approval_handler.handle_approval(
+                                action_description=exception.message,
+                                diff=raw_tool_output.get("diff", "")
+                            )
+                            run_action = approval_result
+                        except Exception as e:
+                            terminal_ui.console.print(f"[bold red]Error al solicitar confirmación: {e}[/bold red]")
+                            run_action = False
+                    else:
+                        # Fallback: usar prompt simple si no hay command_approval_handler
+                        # NOTA: Comentado porque la confirmación ya se maneja a través del flujo normal del tool
+                        # terminal_ui.print_confirmation_panel(
+                        #     panel_content,
+                        #     "Confirmación Requerida",
+                        #     'yellow'
+                        # )
+                        # approval_result = input("¿Deseas ejecutar esta acción? (s/n): ")
+                        # run_action = approval_result.lower().strip() == 's'
+                        run_action = False  # Denegar por defecto si no hay command_approval_handler
+                    
+                    if run_action:
+                        # Ejecutar la operación directamente
+                        if tool_name == "file_operations":
+                            # Determinar si es write o delete
+                            operation = exception.tool_args.get("operation", "write_file")
+                            if operation == "write_file":
+                                from kogniterm.core.tools.file_operations_tool import FileOperationsTool
+                                file_ops = FileOperationsTool(llm_service=llm_service)
+                                write_result = file_ops._perform_write_file(
+                                    exception.tool_args.get("path", ""),
+                                    exception.tool_args.get("content", "")
+                                )
+                                content = write_result
+                            elif operation == "delete_file":
+                                from kogniterm.core.tools.file_operations_tool import FileOperationsTool
+                                file_ops = FileOperationsTool(llm_service=llm_service)
+                                delete_result = file_ops._perform_delete_file(
+                                    exception.tool_args.get("path", "")
+                                )
+                                content = delete_result
+                        elif tool_name in ["file_update_tool", "file_update"]:
+                            from kogniterm.core.tools.file_update_tool import FileUpdateTool
+                            file_update = FileUpdateTool()
+                            update_result = file_update._apply_update(
+                                exception.tool_args.get("path", ""),
+                                exception.tool_args.get("content", "")
+                            )
+                            content = update_result
+                        elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
+                            from kogniterm.core.tools.advanced_file_editor_tool import _apply_advanced_update
+                            edit_result = _apply_advanced_update(
+                                exception.tool_args.get("path", ""),
+                                exception.tool_args.get("new_content", exception.tool_args.get("content", ""))
+                            )
+                            content = edit_result
+                        
+                        tool_message = ToolMessage(content=content, tool_call_id=tool_id)
+                        tool_messages.append(tool_message)
+                        state.messages.append(tool_message)
+                        terminal_ui.print_message("✅ Acción ejecutada por el usuario.", style="green")
+                    else:
+                        # Usuario denegó
+                        content = f"Operación cancelada por el usuario: {exception.message}"
+                        tool_message = ToolMessage(content=content, tool_call_id=tool_id)
+                        tool_messages.append(tool_message)
+                        state.messages.append(tool_message)
+                        terminal_ui.print_message("❌ Acción cancelada por el usuario.", style="yellow")
+                    
                     executor.shutdown(wait=False)
-                    # Guardar historial antes de retornar para confirmación
-                    state.messages.extend(tool_messages)
                     llm_service._save_history(state.messages)
                     return {
-                        "messages": state.messages,
-                        "tool_pending_confirmation": state.tool_pending_confirmation,
-                        "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
-                        "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
-                        "file_update_diff_pending_confirmation": state.file_update_diff_pending_confirmation
+                        "messages": state.messages
                     }
                 elif isinstance(exception, InterruptedError):
                     terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
@@ -532,12 +627,15 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         if kh:
             kh.stop()
 
-    return {
-        "messages": state.messages,
-        "command_to_confirm": getattr(state, 'command_to_confirm', None),
-        "tool_call_id_to_confirm": getattr(state, 'tool_call_id_to_confirm', None),
-        "file_update_diff_pending_confirmation": getattr(state, 'file_update_diff_pending_confirmation', None)
-    }
+        # Clear current agent state
+        llm_service._current_agent_state = None
+
+        return {
+            "messages": state.messages,
+            "command_to_confirm": getattr(state, 'command_to_confirm', None),
+            "tool_call_id_to_confirm": getattr(state, 'tool_call_id_to_confirm', None),
+            "file_update_diff_pending_confirmation": getattr(state, 'file_update_diff_pending_confirmation', None)
+        }
 
 # --- Lógica Condicional del Grafo ---
 
@@ -566,11 +664,11 @@ def should_continue(state: AgentState) -> str:
 
 # --- Construcción del Grafo ---
 
-def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None):
+def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None, command_approval_handler=None):
     bash_agent_graph = StateGraph(AgentState)
 
     bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
-    bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
+    bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue, command_approval_handler=command_approval_handler))
 
     bash_agent_graph.set_entry_point("call_model")
 
@@ -586,5 +684,3 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
     bash_agent_graph.add_edge("execute_tool", "call_model")
 
     return bash_agent_graph.compile()
-
-

@@ -25,11 +25,115 @@ async def websocket_chat(websocket: WebSocket):
                     await websocket.send_json({"type": "info", "content": "🔄 Sesión reiniciada."})
                 continue
 
-            # Fallback para slash commands en texto
-            if user_message.startswith("/reset"):
-                 adapter.reset()
-                 await websocket.send_json({"type": "info", "content": "🔄 Sesión reiniciada."})
-                 continue
+            # Manejo de Meta-Comandos (comenzando con / o %)
+            if user_message.startswith("/") or user_message.startswith("%"):
+                cmd = user_message.split(" ")[0].lower().replace("/", "").replace("%", "")
+                args = user_message.split(" ")[1:]
+                
+                if cmd == "reset":
+                    adapter.agent_state.reset()
+                    # Re-initialize history
+                    from kogniterm.core.agents.bash_agent import SYSTEM_MESSAGE
+                    adapter.llm_service.conversation_history = [SYSTEM_MESSAGE]
+                    adapter.llm_service._save_history([SYSTEM_MESSAGE])
+                    adapter.agent_state.messages = [SYSTEM_MESSAGE]
+                    
+                    await websocket.send_json({"type": "info", "content": "🔄 Sesión reiniciada correctamente."})
+                    continue
+
+                elif cmd == "undo":
+                    if len(adapter.agent_state.messages) >= 3:
+                        adapter.agent_state.messages.pop() # Remove AI response
+                        adapter.agent_state.messages.pop() # Remove User message
+                        await websocket.send_json({"type": "info", "content": "↩️ Última interacción deshecha."})
+                    else:
+                        await websocket.send_json({"type": "error", "content": "⚠️ No hay nada que deshacer."})
+                    continue
+
+                elif cmd == "help":
+                    help_text = """### 🛠️ Comandos Disponibles
+
+| Comando | Descripción |
+| :--- | :--- |
+| `%reset` | Reiniciar conversación y memoria |
+| `%undo` | Deshacer la última interacción |
+| `%models` | Ver modelo actual y cambiarlo (`%models <nombre>`) |
+| `%compress` | Resumir el historial de conversación |
+| `%init <files>` | Cargar contexto de archivos específicos |
+| `%session save <name>` | Guardar la sesión actual |
+| `%session load <name>` | Cargar una sesión guardada |
+"""
+                    await websocket.send_json({"type": "chunk", "content": help_text})
+                    await websocket.send_json({"type": "done"})
+                    continue
+
+                elif cmd == "models":
+                    if args:
+                         new_model = args[0]
+                         try:
+                             adapter.llm_service.set_model(new_model)
+                             await websocket.send_json({"type": "info", "content": f"✅ Modelo cambiado a: {new_model}"})
+                         except Exception as e:
+                             await websocket.send_json({"type": "error", "content": f"❌ Error al cambiar modelo: {e}"})
+                    else:
+                        current = adapter.llm_service.model_name
+                        msg = f"**Modelo Actual:** `{current}`\n\nPara cambiar: `%models <nombre_modelo>` (ej: `gpt-4o`, `gemini/gemini-1.5-pro`)"
+                        await websocket.send_json({"type": "chunk", "content": msg})
+                        await websocket.send_json({"type": "done"})
+                    continue
+
+                elif cmd == "compress":
+                    force = "force" in args
+                    await websocket.send_json({"type": "info", "content": "🗜️ Comprimiendo historial..."})
+                    summary = adapter.llm_service.summarize_conversation_history(force_truncate=force)
+                    # Update state with summary logic (similar to MetaCommandProcessor)
+                    from kogniterm.core.agents.bash_agent import SYSTEM_MESSAGE
+                    from langchain_core.messages import AIMessage
+                    
+                    if not summary.startswith("Error"):
+                        adapter.llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
+                        adapter.agent_state.messages = adapter.llm_service.conversation_history
+                        adapter.llm_service._save_history(adapter.llm_service.conversation_history)
+                        await websocket.send_json({"type": "chunk", "content": f"**Historial Comprimido:**\n{summary}"})
+                    else:
+                         await websocket.send_json({"type": "error", "content": summary})
+                    
+                    await websocket.send_json({"type": "done"})
+                    continue
+
+                elif cmd == "init":
+                     files = args[0].split(",") if args else None
+                     
+                     msg = "Inicializando contexto del espacio de trabajo"
+                     if files:
+                         msg += f" con: {', '.join(files)}"
+                     else:
+                         msg += " (completo)..."
+                     
+                     await websocket.send_json({"type": "info", "content": f"⏳ {msg}"})
+                     
+                     try:
+                         # Run in executor to avoid blocking the event loop
+                         loop = asyncio.get_event_loop()
+                         await loop.run_in_executor(
+                            executor, 
+                            lambda: adapter.llm_service.initialize_workspace_context(files_to_include=files)
+                         )
+                         await websocket.send_json({"type": "info", "content": "✅ Contexto inicializado correctamente."})
+                     except Exception as e:
+                         await websocket.send_json({"type": "error", "content": f"Error: {e}"})
+                     continue
+                
+                # If command not recognized/handled but started with % or /, treat as chat or warn?
+                # For now, let it fall through to chat if it's not one of specific ones, 
+                # OR handle as "unknown command" to avoid LLM hallucinating a response to a system command.
+                
+                # Let's return "Unknown command" for explicit safety if it started with %
+                if user_message.startswith("%"):
+                     await websocket.send_json({"type": "error", "content": f"Comando desconocido: {cmd}"})
+                     continue
+
+            # Fall through to normal chat processing for everything else
 
             if not user_message:
                 continue

@@ -1,0 +1,629 @@
+"""
+SkillManager: Gestión centralizada de skills con discovery, loading y registro.
+
+Este módulo implementa un sistema modular de skills que permite:
+- Discovery automático de skills en múltiples ubicaciones
+- Carga dinámica (JIT) de módulos Python
+- Registro centralizado de herramientas
+- Filtrado por contexto y permisos
+- Compatibilidad con sistema legacy de herramientas
+"""
+
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
+import yaml
+import importlib.util
+import sys
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Skill:
+    """Representación de una skill con sus metadatos y herramientas."""
+    path: Path
+    name: str
+    version: str = "1.0.0"
+    author: str = ""
+    description: str = ""
+    category: str = "general"
+    tags: List[str] = field(default_factory=list)
+    dependencies: List[str] = field(default_factory=list)
+    required_permissions: List[str] = field(default_factory=list)
+    security_level: str = "low"  # low, medium, high, elevated
+    allowlist: bool = False
+    auto_approve: bool = False
+    sandbox_required: bool = False
+    instructions: str = ""
+    scripts_path: Path = field(init=False)
+    references_path: Path = field(init=False)
+    loaded: bool = False
+    tools: List[Any] = field(default_factory=list)
+
+    def __post_init__(self):
+        self.scripts_path = self.path / 'scripts'
+        self.references_path = self.path / 'references'
+
+
+class SkillValidator:
+    """Valida la estructura y metadatos de una skill."""
+
+    REQUIRED_FIELDS = ['name', 'version', 'description']
+    VALID_SECURITY_LEVELS = ['low', 'standard', 'medium', 'high', 'elevated']
+
+    def validate_skill(self, skill_path: Path) -> Tuple[bool, List[str]]:
+        """
+        Valida que una skill tenga la estructura correcta.
+
+        Returns:
+            (is_valid, errors)
+        """
+        errors = []
+
+        # 1. Verificar que es un directorio
+        if not skill_path.is_dir():
+            errors.append(f"Skill path no es un directorio: {skill_path}")
+            return False, errors
+
+        # 2. Verificar SKILL.md existe
+        skill_file = skill_path / 'SKILL.md'
+        if not skill_file.exists():
+            errors.append(f"SKILL.md no encontrado en {skill_path}")
+            return False, errors
+
+        # 3. Parsear y validar SKILL.md
+        config, parse_error = self._parse_skill_file(skill_file)
+        if parse_error:
+            errors.append(f"Error parseando SKILL.md: {parse_error}")
+            return False, errors
+
+        # 4. Verificar campos requeridos
+        for field in self.REQUIRED_FIELDS:
+            if field not in config:
+                errors.append(f"Campo requerido faltante en SKILL.md: {field}")
+
+        # 5. Verificar security_level
+        if 'security_level' in config:
+            if config['security_level'] not in self.VALID_SECURITY_LEVELS:
+                errors.append(f"security_level inválido: {config['security_level']}. "
+                              f"Válidos: {self.VALID_SECURITY_LEVELS}")
+
+        # 6. Verificar estructura de directorios
+        scripts_dir = skill_path / 'scripts'
+        if not scripts_dir.exists():
+            errors.append(f"Directorio 'scripts/' no encontrado")
+        elif not scripts_dir.is_dir():
+            errors.append(f"'scripts/' no es un directorio")
+
+        references_dir = skill_path / 'references'
+        if references_dir.exists() and not references_dir.is_dir():
+            errors.append(f"'references/' no es un directorio")
+
+        # 7. Verificar que hay al menos un archivo .py en scripts/
+        if scripts_dir.exists():
+            py_files = list(scripts_dir.glob('*.py'))
+            if not py_files:
+                errors.append(f"No hay archivos .py en scripts/")
+
+        return len(errors) == 0, errors
+
+    def _parse_skill_file(self, skill_file: Path) -> Tuple[Optional[dict], Optional[str]]:
+        """Parsea el SKILL.md con frontmatter YAML."""
+        try:
+            with open(skill_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Buscar frontmatter YAML entre ---
+            if content.startswith('---'):
+                end_idx = content.find('---', 3)
+                if end_idx != -1:
+                    yaml_content = content[3:end_idx].strip()
+                    config = yaml.safe_load(yaml_content) or {}
+                    return config, None
+            return None, "Formato frontmatter YAML inválido (debe empezar con ---)"
+        except yaml.YAMLError as e:
+            return None, f"Error YAML: {str(e)}"
+        except Exception as e:
+            return None, f"Error leyendo archivo: {str(e)}"
+
+
+class SkillLoader:
+    """Carga dinámica de módulos Python desde scripts/."""
+
+    def load_tools_from_skill(self, skill: Skill) -> List[Any]:
+        """
+        Importa todas las herramientas desde scripts/ de una skill.
+
+        Busca funciones o clases callables que tengan atributo 'name' o método 'run'.
+        """
+        tools = []
+
+        if not skill.scripts_path.exists():
+            logger.warning(f"Skill '{skill.name}' no tiene directorio scripts/")
+            return tools
+
+        for script_file in skill.scripts_path.glob('*.py'):
+            try:
+                module_tools = self._load_module_tools(script_file, skill.name)
+                tools.extend(module_tools)
+                logger.debug(f"Cargados {len(module_tools)} herramientas desde {script_file.name}")
+            except Exception as e:
+                logger.error(f"Error cargando módulo {script_file}: {e}", exc_info=True)
+
+        return tools
+
+    def _load_module_tools(self, script_file: Path, skill_name: str) -> List[Any]:
+        """Carga un módulo Python y extrae las herramientas."""
+        module_name = f"skill_{skill_name}_{script_file.stem}"
+        spec = importlib.util.spec_from_file_location(module_name, script_file)
+
+        if spec is None or spec.loader is None:
+            raise ImportError(f"No se pudo cargar spec para {script_file}")
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module  # Registrar en sys.modules
+        spec.loader.exec_module(module)
+
+        # Buscar callables que sean herramientas
+        tools = []
+
+        # Obtener metadatos del módulo para inyectar en las funciones si es necesario
+        module_name_attr = getattr(module, 'name', None)
+        module_desc_attr = getattr(module, 'description', None)
+        module_params_attr = getattr(module, 'parameters_schema', None)
+        module_tool_schema = getattr(module, 'tool_schema', None)
+
+        # Estrategia 1: Buscar objetos con atributos 'name' o método 'run' (clases legacy)
+        for attr_name in dir(module):
+            if attr_name.startswith('_'):
+                continue
+            attr = getattr(module, attr_name)
+            if callable(attr):
+                 # Solo procesar objetos definidos en el módulo (no imports)
+                if getattr(attr, '__module__', None) != module_name:
+                    continue
+                if hasattr(attr, 'name') or hasattr(attr, 'run'):
+                    tools.append(attr)
+
+        # Estrategia 2: Si no se encontraron herramientas, buscar funciones callables
+        # y verificar si el módulo tiene variables 'name' y 'description'
+        if not tools:
+            seen_objects = set()
+            for attr_name in sorted(dir(module)): # Origen consistente
+                if attr_name.startswith('_'):
+                    continue
+                attr = getattr(module, attr_name)
+                
+                # Solo procesar callables definidos en el módulo (no imports)
+                if callable(attr) and getattr(attr, '__module__', None) == module_name:
+                    # Evitar clases de esquema (Pydantic models) o clases que no son herramientas
+                    if isinstance(attr, type):
+                        # Solo permitir clases si tienen 'run' o 'name' (clases legacy)
+                        if not (hasattr(attr, 'run') or hasattr(attr, 'name')):
+                            continue
+                            
+                    if id(attr) in seen_objects:
+                        continue
+                        
+                    is_tool = False
+                    reason = ""
+                    
+                    # Caso A: El nombre de la función coincide con 'name' del módulo
+                    if module_name_attr and attr_name == module_name_attr:
+                        is_tool = True
+                        reason = "match_module_name"
+                    # Caso B: Funciones conocidas
+                    elif attr_name in ['execute_command', 'file_operations', 'memory_append', 'memory_read', 'memory_init', 'call_agent', 'think', 'web_fetch', 'pc_interaction']:
+                        is_tool = True
+                        reason = "known_name"
+                    # Caso C: La función termina en _skill o _tool
+                    elif attr_name.endswith('_skill') or attr_name.endswith('_tool'):
+                        is_tool = True
+                        reason = "convention_suffix"
+                    # Caso D: Es la única función principal o se llama igual que la skill
+                    elif attr_name == skill_name:
+                        is_tool = True
+                        reason = "match_skill_name"
+                    # Caso E: tool.py y no tenemos nada aún
+                    elif script_file.name == 'tool.py' and not tools and not attr_name.endswith('_sync'):
+                        is_tool = True
+                        reason = "tool_py_default"
+
+                    if is_tool:
+                        # Inyectar metadata solo si no la tiene
+                        has_name = hasattr(attr, 'name')
+                        has_desc = hasattr(attr, 'description')
+                        has_params = hasattr(attr, 'parameters_schema')
+
+                        # 1. Determinar el nombre
+                        if not has_name:
+                            # Priorizar concordancia exacta
+                            if module_name_attr and attr_name == module_name_attr:
+                                attr.name = module_name_attr
+                            elif module_tool_schema and module_tool_schema.get('name') == attr_name:
+                                attr.name = attr_name
+                            elif reason == "tool_py_default" and len(tools) == 0 and module_name_attr:
+                                # Si es la primera/única y el módulo tiene un nombre oficial, usarlo
+                                attr.name = module_name_attr
+                            elif reason == "tool_py_default" and len(tools) == 0 and module_tool_schema and module_tool_schema.get('name'):
+                                attr.name = module_tool_schema.get('name')
+                            else:
+                                # Por defecto, el nombre de la función
+                                attr.name = attr_name
+
+                        # 2. Determinar la descripción
+                        if not has_desc:
+                            # Priorizar: tool_schema['description'] -> module.description -> docstring
+                            suggested_desc = module_desc_attr
+                            if not suggested_desc and module_tool_schema:
+                                suggested_desc = module_tool_schema.get('description')
+                            
+                            # Check if current tool matches the module "main" tool definition
+                            current_name = getattr(attr, 'name', '')
+                            main_module_name = module_name_attr or (module_tool_schema.get('name') if module_tool_schema else None)
+                            
+                            is_main_tool = (current_name == main_module_name) if main_module_name else (reason == "tool_py_default")
+
+                            if suggested_desc and is_main_tool:
+                                attr.description = suggested_desc
+                            else:
+                                attr.description = (attr.__doc__.strip() if attr.__doc__ else "") or suggested_desc or ""
+
+                        # 3. Determinar el esquema de parámetros
+                        if not has_params:
+                            suggested_params = module_params_attr
+                            if not suggested_params and module_tool_schema:
+                                suggested_params = module_tool_schema.get('parameters')
+                            
+                            # Recalculate is_main_tool just in case, or reuse if variables are in scope (they are)
+                            current_name = getattr(attr, 'name', '')
+                            main_module_name = module_name_attr or (module_tool_schema.get('name') if module_tool_schema else None)
+                            is_main_tool = (current_name == main_module_name) if main_module_name else (reason == "tool_py_default")
+                            
+                            if suggested_params and is_main_tool:
+                                attr.parameters_schema = suggested_params
+                        
+                        tools.append(attr)
+                        seen_objects.add(id(attr))
+
+        return tools
+
+
+class SkillManager:
+    """
+    Gestor principal de skills.
+
+    Responsabilidades:
+    - Discovery de skills en múltiples ubicaciones
+    - Validación de estructura y metadatos
+    - Carga JIT de módulos Python
+    - Registro centralizado de herramientas
+    - Filtrado por contexto y permisos
+    """
+
+    def __init__(
+        self,
+        base_path: Optional[Path] = None,
+        user_skills_path: Optional[Path] = None
+    ):
+        """
+        Inicializa el SkillManager.
+
+        Args:
+            base_path: Ruta base del proyecto (kogniterm/)
+            user_skills_path: Ruta de skills de usuario (~/.kogniterm/skills)
+        """
+        self.base_path = base_path or Path(__file__).parent.parent.parent
+        self.user_skills_path = user_skills_path or Path.home() / '.kogniterm' / 'skills'
+
+        # Rutas de skills por nivel
+        self.bundled_path = self.base_path / 'skills' / 'bundled'
+        self.managed_path = self.user_skills_path / 'managed'
+        self.workspace_path = self.base_path / 'skills' / 'workspace'
+
+        # Registros
+        self.skills: Dict[str, Skill] = {}  # name -> Skill
+        self.loaded_skills: set = set()     # Nombres de skills cargadas
+        self.tool_registry: Dict[str, Dict[str, Any]] = {}  # tool_name -> {tool, skill, security_level, sandbox_required}
+
+        # Componentes
+        self.validator = SkillValidator()
+        self.loader = SkillLoader()
+
+        logger.info(f"SkillManager inicializado. Bases: bundled={self.bundled_path}, managed={self.managed_path}, workspace={self.workspace_path}")
+
+    def discover_all_skills(self) -> List[Skill]:
+        """
+        Descubre todas las skills disponibles en las tres ubicaciones.
+
+        Returns:
+            Lista de objetos Skill descubiertos (no necesariamente cargados)
+        """
+        discovered = []
+        search_paths = [
+            ('bundled', self.bundled_path),
+            ('managed', self.managed_path),
+            ('workspace', self.workspace_path)
+        ]
+
+        for level, base_dir in search_paths:
+            if not base_dir.exists():
+                logger.debug(f"Directorio no existe (skip): {base_dir}")
+                continue
+
+            logger.info(f"Buscando skills en {level}: {base_dir}")
+            skills_in_dir = self._discover_in_dir(base_dir, level)
+            discovered.extend(skills_in_dir)
+
+        # Registrar en diccionario
+        for skill in discovered:
+            self.skills[skill.name] = skill
+
+        logger.info(f"Discovery completado: {len(discovered)} skills encontradas")
+        return discovered
+
+    def _discover_in_dir(self, base_dir: Path, level: str) -> List[Skill]:
+        """Busca skills en un directorio base."""
+        skills = []
+
+        for skill_dir in base_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+
+            # Saltar directorios que empiezan con _
+            if skill_dir.name.startswith('_'):
+                continue
+
+            skill_file = skill_dir / 'SKILL.md'
+            if not skill_file.exists():
+                logger.debug(f"SKILL.md no encontrado en {skill_dir}, skip")
+                continue
+
+            try:
+                is_valid, errors = self.validator.validate_skill(skill_dir)
+                if not is_valid:
+                    logger.warning(f"Skill inválida en {skill_dir}: {errors}")
+                    continue
+
+                config, _ = self.validator._parse_skill_file(skill_file)
+                skill = Skill(path=skill_dir, **config)
+                skills.append(skill)
+                logger.debug(f"Skill descubierta: {skill.name} (nivel: {level})")
+
+            except Exception as e:
+                logger.error(f"Error procesando skill {skill_dir}: {e}", exc_info=True)
+
+        return skills
+
+    def load_skill(self, skill_name: str, agent_context: Optional[dict] = None) -> bool:
+        """
+        Carga una skill si existe y no está ya cargada.
+
+        Args:
+            skill_name: Nombre de la skill a cargar
+            agent_context: Contexto del agente (para filtrado de permisos)
+
+        Returns:
+            True si se cargó exitosamente, False en caso contrario
+        """
+        if skill_name not in self.skills:
+            logger.warning(f"Skill '{skill_name}' no encontrada en registry")
+            return False
+
+        if skill_name in self.loaded_skills:
+            logger.debug(f"Skill '{skill_name}' ya está cargada")
+            return True
+
+        skill = self.skills[skill_name]
+
+        # Validar permisos contra contexto del agente (futuro)
+        if agent_context and not self._check_permissions(skill, agent_context):
+            logger.warning(f"Skill '{skill_name}' no tiene permisos para este agente")
+            return False
+
+        try:
+            # 1. Validar dependencias
+            self._validate_dependencies(skill.dependencies)
+
+            # 2. Cargar herramientas desde scripts/
+            tools = self.loader.load_tools_from_skill(skill)
+            if not tools:
+                logger.error(f"No se encontraron herramientas en skill '{skill_name}'")
+                return False
+
+            # 3. Registrar cada herramienta en tool_registry
+            for tool in tools:
+                tool_name = getattr(tool, 'name', tool.__class__.__name__)
+                # Asegurar nombre único
+                unique_name = self._get_unique_tool_name(tool_name)
+                if unique_name != tool_name and hasattr(tool, 'name'):
+                    try:
+                        setattr(tool, 'name', unique_name)
+                    except Exception:
+                        pass
+
+                self.tool_registry[unique_name] = {
+                    'tool': tool,
+                    'skill': skill.name,
+                    'security_level': skill.security_level,
+                    'sandbox_required': skill.sandbox_required,
+                    'permissions': skill.required_permissions
+                }
+                logger.debug(f"Herramienta registrada: {unique_name} (skill: {skill.name})")
+
+            # 4. Marcar skill como cargada
+            skill.loaded = True
+            skill.tools = tools
+            self.loaded_skills.add(skill_name)
+
+            logger.info(f"✅ Skill '{skill_name}' cargada ({len(tools)} herramientas)")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Error cargando skill '{skill_name}': {e}", exc_info=True)
+            return False
+
+    def _get_unique_tool_name(self, base_name: str) -> str:
+        """Genera un nombre único para evitar colisiones."""
+        unique_name = base_name
+        suffix = 1
+        while unique_name in self.tool_registry:
+            unique_name = f"{base_name}_{suffix}"
+            suffix += 1
+        return unique_name
+
+    def _check_permissions(self, skill: Skill, agent_context: dict) -> bool:
+        """
+        Verifica si el agente tiene permisos para usar esta skill.
+
+        TODO: Implementar lógica de permisos basada en agent_context
+        """
+        # Por ahora, siempre True
+        return True
+
+    def _validate_dependencies(self, dependencies: List[str]):
+        """
+        Valida que las dependencias estén instaladas.
+
+        No instala automáticamente, solo verifica y loggea warnings.
+        """
+        for dep in dependencies:
+            # Si es un paquete pip (contiene ==, >=, <=, >, <)
+            if any(op in dep for op in ['==', '>=', '<=', '>', '<']):
+                package_name = dep.split('==')[0].split('>=')[0].split('<=')[0].split('>')[0].split('<')[0]
+                try:
+                    importlib.import_module(package_name.replace('-', '_'))
+                except ImportError:
+                    logger.warning(f"Dependencia '{dep}' no instalada. Instalar con: pip install {dep}")
+            # Si es stdlib (ej. "subprocess"), no hacer nada
+
+    def unload_skill(self, skill_name: str):
+        """Descarga una skill (útil para recargar o desinstalar)."""
+        if skill_name not in self.loaded_skills:
+            return
+
+        # Remover herramientas del registro
+        to_remove = [k for k, v in self.tool_registry.items() if v['skill'] == skill_name]
+        for key in to_remove:
+            del self.tool_registry[key]
+
+        self.loaded_skills.remove(skill_name)
+        if skill_name in self.skills:
+            self.skills[skill_name].loaded = False
+            self.skills[skill_name].tools = []
+
+        logger.info(f"Skill '{skill_name}' descargada ({len(to_remove)} herramientas removidas)")
+
+    def reload_skill(self, skill_name: str) -> bool:
+        """Recarga una skill (útil en desarrollo)."""
+        if skill_name not in self.skills:
+            return False
+
+        skill_path = self.skills[skill_name].path
+        self.unload_skill(skill_name)
+
+        # Re-descubrir esta skill específica
+        is_valid, errors = self.validator.validate_skill(skill_path)
+        if not is_valid:
+            logger.error(f"No se puede recargar skill '{skill_name}': {errors}")
+            return False
+
+        config, _ = self.validator._parse_skill_file(skill_path / 'SKILL.md')
+        self.skills[skill_name] = Skill(path=skill_path, **config)
+
+        return self.load_skill(skill_name)
+
+    def get_tool(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        """Obtiene información de una herramienta por nombre."""
+        return self.tool_registry.get(tool_name)
+
+    def get_skill_for_tool(self, tool_name: str) -> Optional[Skill]:
+        """Obtiene la skill que provee una herramienta."""
+        tool_info = self.tool_registry.get(tool_name)
+        if tool_info:
+            skill_name = tool_info['skill']
+            return self.skills.get(skill_name)
+        return None
+
+    def get_available_tools(self, agent_context: Optional[dict] = None) -> List[Dict[str, Any]]:
+        """
+        Obtiene todas las herramientas disponibles, opcionalmente filtradas por contexto.
+
+        Returns:
+            Lista de diccionarios con metadata de cada herramienta
+        """
+        available = []
+
+        for tool_name, tool_info in self.tool_registry.items():
+            # Filtrar por allowlist del agente (futuro)
+            skill = self.skills.get(tool_info['skill'])
+
+            metadata = {
+                'name': tool_name,
+                'description': getattr(tool_info['tool'], 'description', ''),
+                'skill': tool_info['skill'],
+                'security_level': tool_info['security_level'],
+                'sandbox_required': tool_info['sandbox_required'],
+                'permissions': tool_info.get('permissions', []),
+                'loaded': skill.loaded if skill else False
+            }
+            available.append(metadata)
+
+        return available
+
+    def get_tools_by_security_level(self, level: str) -> List[Dict[str, Any]]:
+        """Filtra herramientas por nivel de seguridad."""
+        return [
+            t for t in self.get_available_tools()
+            if t['security_level'] == level
+        ]
+
+    def get_tools_by_permission(self, permission: str) -> List[Dict[str, Any]]:
+        """Filtra herramientas por permiso requerido."""
+        return [
+            t for t in self.get_available_tools()
+            if permission in t['permissions']
+        ]
+
+    def list_skills(self) -> List[Dict[str, Any]]:
+        """Lista todas las skills con su estado."""
+        return [
+            {
+                'name': skill.name,
+                'version': skill.version,
+                'description': skill.description,
+                'category': skill.category,
+                'tags': skill.tags,
+                'loaded': skill.loaded,
+                'tool_count': len(skill.tools),
+                'path': str(skill.path)
+            }
+            for skill in self.skills.values()
+        ]
+
+    def get_skill_info(self, skill_name: str) -> Optional[Dict[str, Any]]:
+        """Obtiene información detallada de una skill."""
+        if skill_name not in self.skills:
+            return None
+
+        skill = self.skills[skill_name]
+        return {
+            'name': skill.name,
+            'version': skill.version,
+            'description': skill.description,
+            'category': skill.category,
+            'tags': skill.tags,
+            'dependencies': skill.dependencies,
+            'required_permissions': skill.required_permissions,
+            'security_level': skill.security_level,
+            'allowlist': skill.allowlist,
+            'auto_approve': skill.auto_approve,
+            'sandbox_required': skill.sandbox_required,
+            'loaded': skill.loaded,
+            'tool_count': len(skill.tools),
+            'tools': [getattr(t, 'name', t.__class__.__name__) for t in skill.tools],
+            'path': str(skill.path)
+        }

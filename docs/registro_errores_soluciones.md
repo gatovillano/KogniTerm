@@ -259,3 +259,31 @@ El algoritmo de fragmentación (`chunk_file`) en `CodebaseIndexer` tenía un fal
 **Fecha**: 30-12-2025  
 **Estado**: Resuelto  
 **Versión**: KogniTerm 0.1.0
+---
+
+## Error en github_skill: repo_name obligatorio para búsquedas
+
+### Descripción del Problema
+
+La skill de GitHub (`github_skill`) exigía de forma obligatoria el parámetro `repo_name` para todas las acciones, incluyendo `search_repositories` y `search_code`. Esto impedía realizar búsquedas globales o encontrar nuevos repositorios si el agente no conocía de antemano el nombre de uno.
+
+### Causa Raíz
+
+En el archivo `kogniterm/skills/bundled/github/scripts/tool.py`, la validación de `repo_name` era global para casi todas las acciones. Además, el esquema JSON inyectado al LLM marcaba incorrectamente la descripción del parámetro sugiriendo que era requerido para casi todo.
+
+### Solución Implementada
+
+1. **Lógica de Validación**: Se movió la validación de `repo_name` para que solo se ejecute en acciones que operan sobre un repositorio específico (ej: `read_file`, `get_repo_info`).
+2. **Búsqueda Global**: Se implementó una nueva función `_search_code_global` para permitir buscar fragmentos de código en todo GitHub si no se especifica un repositorio.
+3. **Actualización de Metadatos**: Se actualizaron los esquemas JSON y el archivo `SKILL.md` para clarificar la opcionalidad de los parámetros.
+
+### Archivos Modificados
+
+- `kogniterm/skills/bundled/github/scripts/tool.py`: Reestructuración de la función `github_skill` y adición de `_search_code_global`.
+- `kogniterm/skills/bundled/github/SKILL.md`: Actualización de instrucciones y parámetros.
+
+**Fecha**: 23-02-2026  
+**Estado**: Resuelto  
+**Versión**: KogniTerm 1.0.0 (Skill system)
+
+---

@@ -99,19 +99,19 @@ class KogniTermKernel:
         # 3. Ahora que el hilo está detenido, cerrar canales con seguridad
         if self.kc:
             try:
-                print("Deteniendo canales del kernel...")
+                # print("Deteniendo canales del kernel...")
                 self.kc.stop_channels()
             except Exception:
-                pass # Silenciar errores si el socket ya está cerrado
+                pass 
                 
         # 4. Apagar el kernel físico
         if self.km:
             try:
-                print("Apagando kernel...")
+                # print("Apagando kernel...")
                 self.km.shutdown_kernel()
             except Exception:
                 pass
-        print("Kernel detenido.")
+        # print("Kernel detenido.")
 
 class PythonToolArgs(BaseModel):
     code: str = Field(description="El código Python a ejecutar.")

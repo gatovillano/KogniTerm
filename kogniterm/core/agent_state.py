@@ -1,11 +1,15 @@
 import os
 import json
+import hashlib
 from dataclasses import dataclass, field
 from collections import deque # Importar deque
 from typing import List, Optional, Dict, Any, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 # No necesitamos importar LLMService aquí para los métodos estáticos de historial
 # from kogniterm.core.llm_service import LLMService
+
+# Importar MessageManager
+from kogniterm.core.message_manager import MessageManager, create_message_manager
 
 @dataclass
 class AgentState:
@@ -15,6 +19,12 @@ class AgentState:
     tool_call_id_to_confirm: Optional[str] = None # Nuevo campo para el tool_call_id asociado al comando
     current_agent_mode: str = "bash" # Añadido para el modo del agente
     history_for_api: Optional[List[BaseMessage]] = field(default=None, repr=False, compare=False) # Campo temporal para compatibilidad
+    
+    # MessageManager para manejo centralizado de mensajes
+    message_manager: Optional[Any] = field(default=None, repr=False)
+    
+    # NUEVO: Referencia al HistoryManager para MessageManager
+    history_manager_ref: Optional[Any] = field(default=None, repr=False)
 
     # Nuevos campos para manejar la confirmación de herramientas
     tool_pending_confirmation: Optional[str] = None
@@ -29,6 +39,10 @@ class AgentState:
 
     # Añadir un campo para la ruta del archivo de historial
     history_file_path: str = field(default_factory=lambda: os.path.join(os.getcwd(), ".kogniterm", "history.json"))
+
+    # NUEVO: Caché de hashes de archivos para detección de race conditions
+    # Estructura: {file_path: {"hash": str, "timestamp": float, "content": str}}
+    file_hash_cache: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def reset_tool_confirmation(self):
         """Reinicia el estado de la confirmación de herramientas."""
@@ -56,6 +70,34 @@ class AgentState:
     def clear_tool_call_history(self):
         """Limpia el historial de llamadas a herramientas para detección de bucles."""
         self.tool_call_history.clear()
+
+    def initialize_message_manager(self, llm_service: Any = None):
+        """
+        Inicializa el MessageManager para manejo centralizado de mensajes.
+        
+        Inspirado en el MessageManager de KiloCode (github.com/Kilo-Org/kilocode)
+        
+        Args:
+            llm_service: Referencia al LLMService (opcional)
+        """
+        if self.message_manager is not None:
+            return  # Ya inicializado
+        
+        # Obtener el history_manager del llm_service si está disponible
+        history_manager = None
+        if llm_service and hasattr(llm_service, 'history_manager'):
+            history_manager = llm_service.history_manager
+        elif self.history_manager_ref:
+            history_manager = self.history_manager_ref
+        
+        # Crear el MessageManager
+        self.message_manager = create_message_manager(self, history_manager)
+        
+        # Sincronizar desde el estado existente
+        self.message_manager.sync_from_agent_state()
+        
+        import logging
+        logging.getLogger(__name__).info("[AgentState] MessageManager inicializado")
 
 
     def __post_init__(self):

@@ -7,9 +7,9 @@ from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
 
-
 import queue
-import difflib # Añadir esta línea
+import difflib
+from kogniterm.core.race_condition_guard import RaceConditionGuard, RaceConditionDetected
 
 
 class FileOperationsTool(BaseTool):
@@ -24,8 +24,7 @@ class FileOperationsTool(BaseTool):
     - list_directory: Lista el contenido de un directorio
     - create_directory: Crea un directorio
     
-    IMPORTANTE: Si necesitas leer más de 2 archivos, USA read_many_files en lugar de llamar a read_file múltiples veces.
-    La confirmación de los cambios se gestiona de forma conversacional."""
+    IMPORTANTE: Si necesitas leer más de 2 archivos, USA read_many_files en lugar de llamar a read_file múltiples veces."""
 
     ignored_directories: ClassVar[List[str]] = ['venv', '.git', '__pycache__', '.venv']
     llm_service: Any
@@ -40,6 +39,12 @@ class FileOperationsTool(BaseTool):
         self.workspace_context = workspace_context # ¡Nuevo!
         self.approval_handler = approval_handler
         self._git_ignore_patterns = self._load_ignore_patterns()
+
+    def _get_agent_state(self) -> Optional[Any]:
+        """Obtiene el AgentState actual desde el LLMService si está disponible."""
+        if hasattr(self.llm_service, '_current_agent_state'):
+            return self.llm_service._current_agent_state
+        return None
 
     def get_action_description(self, **kwargs) -> str:
         operation = kwargs.get("operation")
@@ -115,11 +120,11 @@ class FileOperationsTool(BaseTool):
     class WriteFileInput(BaseModel):
         path: str = Field(description="La ruta absoluta del archivo a escribir/crear.")
         content: str = Field(description="El contenido a escribir en el archivo.")
-        confirm: Optional[bool] = Field(default=False, description="Si es True, confirma la operación de escritura sin requerir aprobación adicional.")
+        # NOTA: El parámetro 'confirm' ha sido eliminado. La confirmación SIEMPRE la hace el usuario.
 
     class DeleteFileInput(BaseModel):
         path: str = Field(description="La ruta absoluta del archivo a borrar.")
-        confirm: Optional[bool] = Field(default=False, description="Si es True, confirma la operación de eliminación sin requerir aprobación adicional.")
+        # NOTA: El parámetro 'confirm' ha sido eliminado. La confirmación SIEMPRE la hace el usuario.
 
     class ListDirectoryInput(BaseModel):
         path: str = Field(description="La ruta absoluta del directorio a listar.")
@@ -140,7 +145,7 @@ class FileOperationsTool(BaseTool):
             if operation == "read_file":
                 return self._read_file(kwargs["path"])
             elif operation == "write_file":
-                result = self._write_file(kwargs["path"], kwargs["content"], confirm=confirm)
+                result = self._write_file(kwargs["path"], kwargs["content"])
                 if isinstance(result, dict) and result.get("status") == "requires_confirmation":
                     return result
                 return result
@@ -185,25 +190,28 @@ class FileOperationsTool(BaseTool):
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
+            # Register this file read for race condition detection
+            agent_state = self._get_agent_state()
+            if agent_state:
+                RaceConditionGuard.register_read(agent_state, path, content)
+            
             return {"file_path": path, "content": content}
         except FileNotFoundError:
             raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
         except Exception as e:
             raise Exception(f"Error al leer el archivo '{path}': {e}")
 
-    def _write_file(self, path: str, content: str, confirm: bool = False) -> str | Dict[str, Any]:
+    def _write_file(self, path: str, content: str) -> str | Dict[str, Any]:
         if self.interrupt_queue and not self.interrupt_queue.empty():
             self.interrupt_queue.get()
             raise InterruptedError("Operación de escritura de archivo interrumpida por el usuario.")
 
-        logger.debug(f"DEBUG: _write_file - confirm: {confirm}")
-        # Ignorar el parámetro 'confirm' cuando viene del LLM
-        # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
-        if confirm:
-            logger.warning(f"FileOperationsTool - El LLM intentó usar confirm=True en write_file. Ignorando y requiriendo confirmación del usuario.")
-            # No ejecutar _perform_write_file, continuar con el flujo de confirmación
+        logger.debug(f"DEBUG: _write_file - La confirmación SIEMPRE es requerida del usuario.")
         
-        # Si tenemos un approval_handler, intentamos usarlo para una experiencia interactiva
+        # La confirmación SIEMPRE la hace el usuario directamente en la interfaz.
+        # Esta herramienta NUNCA ejecuta escritura sin confirmación del usuario.
+        
+        # Si tenemos un approval_handler, usamos el flujo interactivo
         if self.approval_handler:
             original_content = ""
             if os.path.exists(path):
@@ -258,9 +266,29 @@ class FileOperationsTool(BaseTool):
             }
 
     def _perform_write_file(self, path: str, content: str) -> str:
+        """
+        Realiza la escritura del archivo, previa validación de race condition.
+        Esta méthode es llamada después de que el usuario ha aprobado la operación.
+        """
+        agent_state = self._get_agent_state()
+        
+        # RACE CONDITION VALIDATION just before writing
+        if agent_state and os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    current_content = f.read()
+                is_safe, message = RaceConditionGuard.validate_write(agent_state, path, current_content)
+                if not is_safe:
+                    raise RaceConditionDetected(message)
+            except Exception as e:
+                logger.warning(f"Race condition validation skipped: {e}")
+        
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
+            # Register the new file state after successful write
+            if agent_state:
+                RaceConditionGuard.register_write(agent_state, path, content)
             return "Archivo escrito con éxito."
         except Exception as e:
             raise Exception(f"Error al escribir/crear el archivo '{path}': {e}")
@@ -296,11 +324,26 @@ class FileOperationsTool(BaseTool):
             }
 
     def _perform_delete_file(self, path: str) -> str:
+        """
+        Realiza la eliminación del archivo, previa validación de race condition.
+        Este método es llamado después de la aprobación del usuario.
+        """
+        agent_state = self._get_agent_state()
+        
+        # RACE CONDITION VALIDATION just before delete
+        if agent_state:
+            is_safe, message = RaceConditionGuard.validate_delete(agent_state, path)
+            if not is_safe:
+                raise RaceConditionDetected(message)
+        
         try:
+            if not os.path.exists(path):
+                return "El archivo no existe. No se requiere eliminación."
             os.remove(path)
+            # Invalidate cache entry after successful delete
+            if agent_state:
+                RaceConditionGuard.invalidate(agent_state, path)
             return "Archivo eliminado con éxito."
-        except FileNotFoundError:
-            raise FileNotFoundError(f"El archivo '{path}' no fue encontrado.")
         except Exception as e:
             raise Exception(f"Error al eliminar el archivo '{path}': {e}")
 

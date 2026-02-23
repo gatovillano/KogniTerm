@@ -24,12 +24,12 @@ orchestrating AI agent interactions in the KogniTerm application.
 """
 
 class AgentInteractionManager:
-    def __init__(self, llm_service: LLMService, agent_state: AgentState, terminal_ui: TerminalUI, interrupt_queue: queue.Queue):
+    def __init__(self, llm_service: LLMService, agent_state: AgentState, terminal_ui: TerminalUI, interrupt_queue: queue.Queue, command_approval_handler=None):
         self.llm_service = llm_service
         self.agent_state = agent_state
         self.terminal_ui = terminal_ui # Guardar la instancia de TerminalUI
         self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
-        self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue) # Pasar terminal_ui e interrupt_queue
+        self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue, command_approval_handler) # Pasar command_approval_handler
         
         # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial.
         if not self.agent_state.messages or not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == SYSTEM_MESSAGE.content):

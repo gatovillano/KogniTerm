@@ -230,6 +230,7 @@ async def _main_async():
 
     signal.signal(signal.SIGINT, signal_handler)
     try:
+        # print("DEBUG: Iniciando bucle principal de la aplicación...")
         await app.run()
     finally:
         # Cerrar el servicio LLM y liberar recursos (como ChromaDB)
@@ -242,20 +243,22 @@ async def _main_async():
 
 def main():
     """Función principal síncrona para el punto de entrada de KogniTerm."""
-    import logging
     logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
     
+    # Silenciar loggers específicos de KogniTerm
+    logging.getLogger('kogniterm.core.skills.skill_manager').setLevel(logging.WARNING)
+    logging.getLogger('kogniterm.core.tools.tool_manager').setLevel(logging.WARNING)
+    logging.getLogger('kogniterm.terminal.kogniterm_app').setLevel(logging.WARNING)
+
     # Desactivar el logger de litellm por completo y establecer nivel CRITICAL
     litellm_logger = logging.getLogger('litellm')
     litellm_logger.propagate = False
     litellm_logger.disabled = True
-    litellm_logger.setLevel(logging.CRITICAL) # Establecer nivel CRITICAL
+    litellm_logger.setLevel(logging.CRITICAL) 
     # Eliminar cualquier manejador existente que litellm pueda haber añadido
     for handler in list(litellm_logger.handlers):
         litellm_logger.removeHandler(handler)
 
-    logging.getLogger('kogniterm.terminal.kogniterm_app').setLevel(logging.WARNING)
-    
     # Desactivar telemetría de CrewAI para evitar errores de handlers de señales
     os.environ["CREWAI_TELEMETRY_OPT_OUT"] = "true"
     # Silenciar logs de crewai
@@ -455,7 +458,10 @@ def main():
             
         return
 
-    asyncio.run(_main_async())
+    try:
+        asyncio.run(_main_async())
+    except (RuntimeError, KeyboardInterrupt):
+        pass # Handle potential loop issues or interruptions gracefully
 
 if __name__ == "__main__":
     main()

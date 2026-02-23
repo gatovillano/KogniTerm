@@ -48,6 +48,14 @@ KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herra
 * **Modo Auto-Aprobación (`-y`)**: Para automatización supervisada.
 * **Visualización de Diffs**: Revisa exactamente qué cambiará en tu código antes de aplicarlo.
 
+
+## 🎬 Demo
+
+![KogniTerm Demo](assets/kogniterm-demo.gif)
+
+*KogniTerm en acción: agentes colaborando en tiempo real para resolver tareas complejas.*
+
+> GIF preview - [Ver video completo (14:48) en YouTube](URL_DEL_VIDEO)
 ## 🚀 Instalación
 
 ```bash

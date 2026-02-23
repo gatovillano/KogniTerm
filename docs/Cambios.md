@@ -1,6 +1,117 @@
 # Registro de Cambios - KogniTerm
 
-## 01-02-2026 Eliminación del Paso de Estructura de Proyecto en Agentes Crew
+## 11-02-2026 Implementación de MessageManager (Inspirado en KiloCode)
+
+**Descripción**: Se ha implementado un sistema de MessageManager inspirado en el agente KiloCode (github.com/Kilo-Org/kilocode) para mejorar la precisión e inteligencia del agente respecto al contexto del código.
+
+### Cambios Implementados
+
+#### 📁 Archivos Creados
+
+1. [`kogniterm/core/message_manager.py`](kogniterm/core/message_manager.py)
+   - **Sistema de mensajes dual**: Separa la historia de API (para el LLM) de los mensajes UI
+   - **Rewind centralizado**: Un punto de entrada único para todas las operaciones de eliminación de mensajes
+   - **Tracking de costos de API**: Mantiene el costo total aunque los mensajes sean eliminados
+   - **Manejo de mensajes condensados**: Soporte para summaries y marcadores de truncamiento
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/core/agent_state.py`](kogniterm/core/agent_state.py)
+   - Añadido campo `message_manager` para acceso al sistema centralizado
+   - Añadido campo `history_manager_ref` para referencia al HistoryManager
+   - Añadido método `initialize_message_manager()` para inicialización
+
+#### 📋 Documentos de Investigación Creados
+
+1. [`docs/investigacion_kilocode_arquitectura.md`](docs/investigacion_kilocode_arquitectura.md)
+   - Análisis profundo de la arquitectura del agente KiloCode vs KogniTerm
+   - Comparación de patrones: EventEmitter vs LangGraph
+   - Sistema de modos, tool protocol locking, contexto automático
+
+2. [`docs/investigacion_kilocode_mejoras.md`](docs/investigacion_kilocode_mejoras.md)
+   - Resumen de mejoras propuestas para edición de código
+   - Estrategias de búsqueda múltiples, consecutiveMistakeCount
+   - FileContextTracker, protección de archivos
+
+#### 🎯 Beneficios
+
+✅ **Consistencia de mensajes**: El sistema de rewind mantiene consistencia entre API history y UI messages
+✅ **Manejo de conversaciones largas**: Sistema de condensación de contexto
+✅ **Tracking de costos**: Mantiene el costo total de API aunque los mensajes se eliminen
+✅ **Arquitectura escalable**: Patrón similar a KiloCode para futuras integraciones
+
+---
+
+## 15-02-2026 Migración de Tools de Búsqueda y Web a Skills
+
+**Descripción**: Se han migrado 4 herramientas de búsqueda y web al formato skill en `kogniterm/skills/bundled/`.
+
+### Skills Creadas
+
+#### 📁 brave_search
+
+- [`kogniterm/skills/bundled/brave_search/SKILL.md`](kogniterm/skills/bundled/brave_search/SKILL.md)
+  - Metadata YAML con name, version, author, description, category, tags, security_level
+  - Skill para búsqueda web usando Brave Search API
+  - Requiere variable de entorno BRAVE_SEARCH_API_KEY
+
+- [`kogniterm/skills/bundled/brave_search/scripts/tool.py`](kogniterm/skills/bundled/brave_search/scripts/tool.py)
+  - Función principal brave_search() con soporte generator
+  - Versión síncrona brave_search_sync()
+  - Schema de parámetros para el LLM
+
+#### 📁 web_fetch
+
+- [`kogniterm/skills/bundled/web_fetch/SKILL.md`](kogniterm/skills/bundled/web_fetch/SKILL.md)
+  - Metadata YAML con configuración de la skill
+  - Skill para obtener contenido HTML de URLs
+
+- [`kogniterm/skills/bundled/web_fetch/scripts/tool.py`](kogniterm/skills/bundled/web_fetch/scripts/tool.py)
+  - Función principal web_fetch() con soporte generator
+  - Versión síncrona web_fetch_sync()
+  - Schema de parámetros para el LLM
+
+#### 📁 web_scraping
+
+- [`kogniterm/skills/bundled/web_scraping/SKILL.md`](kogniterm/skills/bundled/web_scraping/SKILL.md)
+  - Metadata YAML con configuración de la skill
+  - Skill para extraer datos estructurados usando selectores CSS
+
+- [`kogniterm/skills/bundled/web_scraping/scripts/tool.py`](kogniterm/skills/bundled/web_scraping/scripts/tool.py)
+  - Función principal web_scraping() con soporte generator
+  - Versión síncrona web_scraping_sync()
+  - Schema de parámetros para el LLM
+
+#### 📁 tavily_search
+
+- [`kogniterm/skills/bundled/tavily_search/SKILL.md`](kogniterm/skills/bundled/tavily_search/SKILL.md)
+  - Metadata YAML con configuración de la skill
+  - Skill para búsqueda web optimizada para agentes IA usando Tavily
+  - Requiere variable de entorno TAVILY_API_KEY
+
+- [`kogniterm/skills/bundled/tavily_search/scripts/tool.py`](kogniterm/skills/bundled/tavily_search/scripts/tool.py)
+  - Función principal tavily_search() con soporte generator
+  - Versión síncrona tavily_search_sync()
+  - Schema de parámetros para el LLM
+
+### Archivos de Referencia Utilizados
+
+- [`kogniterm/skills/bundled/execute_command/SKILL.md`](kogniterm/skills/bundled/execute_command/SKILL.md) - Estructura de SKILL.md
+- [`kogniterm/skills/bundled/execute_command/scripts/tool.py`](kogniterm/skills/bundled/execute_command/scripts/tool.py) - Estructura de tool.py
+
+### Archivos Source Migrados
+
+- [`kogniterm/core/tools/brave_search_tool.py`](kogniterm/core/tools/brave_search_tool.py)
+- [`kogniterm/core/tools/web_fetch_tool.py`](kogniterm/core/tools/web_fetch_tool.py)
+- [`kogniterm/core/tools/web_scraping_tool.py`](kogniterm/core/tools/web_scraping_tool.py)
+- [`kogniterm/core/tools/tavily_search_tool.py`](kogniterm/core/tools/tavily_search_tool.py)
+
+### Beneficios
+
+✅ **Arquitectura unificada**: Las tools ahora siguen el formato de skill
+✅ **Reutilización**: Las funciones pueden ser importadas y usadas directamente
+✅ **Documentación**: Cada skill tiene su SKILL.md con metadata y documentación
+✅ **Schema de parámetros**: Compatible con LLMs para generación de llamadas
 
 **Descripción**: Se ha eliminado el paso donde se generaba y pasaba automáticamente la estructura del proyecto (árbol de directorios) como contexto inicial a los agentes Crew, específicamente en `researcher_crew.py`.
 
@@ -31,6 +142,82 @@
 #### **🔍 Verificación Adicional**
 
 - **Archivo `code_crew.py`**: Se verificó que este archivo no tenía el paso de estructura del proyecto, por lo que no requirió modificaciones.
+
+---
+
+## 15-02-2026 Migración de Tools de Código y Análisis a Skills
+
+**Descripción**: Se han migrado 4 herramientas de código y análisis al formato skill en `kogniterm/skills/bundled/`. Estas herramientas proporcionan capacidades avanzadas de análisis de código, búsqueda semántica, ejecución interactiva de Python y razonamiento.
+
+### Skills Creadas
+
+#### 📁 code_analysis
+
+- [`kogniterm/skills/bundled/code_analysis/SKILL.md`](kogniterm/skills/bundled/code_analysis/SKILL.md)
+  - Metadata YAML con name, version, author, description, category, tags, security_level
+  - Skill para análisis estático de código Python con métricas de calidad
+  - Soporta complejidad ciclomática, índice de mantenibilidad, métricas raw y linting
+
+- [`kogniterm/skills/bundled/code_analysis/scripts/tool.py`](kogniterm/skills/bundled/code_analysis/scripts/tool.py)
+  - Función principal code_analysis() con soporte generator
+  - Versión síncrona code_analysis_sync()
+  - Schema de parámetros para el LLM
+  - Integración con librerías radon y pylint/eslint
+
+#### 📁 codebase_search
+
+- [`kogniterm/skills/bundled/codebase_search/SKILL.md`](kogniterm/skills/bundled/codebase_search/SKILL.md)
+  - Metadata YAML con configuración de la skill
+  - Skill para búsqueda semántica de snippets de código en base de datos vectorial
+  - Soporta filtros por ruta de archivo y lenguaje de programación
+
+- [`kogniterm/skills/bundled/codebase_search/scripts/tool.py`](kogniterm/skills/bundled/codebase_search/scripts/tool.py)
+  - Función principal codebase_search() con soporte generator
+  - Versión síncrona codebase_search_sync()
+  - Schema de parámetros para el LLM
+  - Integración con embeddings service y vector DB manager
+
+#### 📁 python_executor
+
+- [`kogniterm/skills/bundled/python_executor/SKILL.md`](kogniterm/skills/bundled/python_executor/SKILL.md)
+  - Metadata YAML con configuración de alta seguridad
+  - Skill para ejecución interactiva de código Python con kernel de Jupyter
+  - Mantiene estado entre ejecuciones y soporta múltiples tipos de salida
+
+- [`kogniterm/skills/bundled/python_executor/scripts/tool.py`](kogniterm/skills/bundled/python_executor/scripts/tool.py)
+  - Función principal python_executor() con soporte generator
+  - Versión síncrona python_executor_sync()
+  - Schema de parámetros para el LLM
+  - Implementación de kernel de Jupyter con manejo de hilos
+
+#### 📁 think
+
+- [`kogniterm/skills/bundled/think/SKILL.md`](kogniterm/skills/bundled/think/SKILL.md)
+  - Metadata YAML con configuración de baja seguridad
+  - Skill para razonamiento y planificación antes de tomar decisiones
+  - Ideal para procesos de pensamiento profundo y análisis
+
+- [`kogniterm/skills/bundled/think/scripts/tool.py`](kogniterm/skills/bundled/think/scripts/tool.py)
+  - Función principal think() con soporte generator
+  - Versión síncrona think_sync()
+  - Schema de parámetros para el LLM
+  - Soporte opcional para UI terminal con efectos de streaming
+
+### Archivos Source Migrados
+
+- [`kogniterm/core/tools/code_analysis_tool.py`](kogniterm/core/tools/code_analysis_tool.py)
+- [`kogniterm/core/tools/codebase_search_tool.py`](kogniterm/core/tools/codebase_search_tool.py)
+- [`kogniterm/core/tools/python_executor.py`](kogniterm/core/tools/python_executor.py)
+- [`kogniterm/core/tools/think_tool.py`](kogniterm/core/tools/think_tool.py)
+
+### Beneficios
+
+✅ **Arquitectura unificada**: Las tools ahora siguen el formato de skill
+✅ **Reutilización**: Las funciones pueden ser importadas y usadas directamente
+✅ **Documentación**: Cada skill tiene su SKILL.md con metadata y documentación
+✅ **Schema de parámetros**: Compatible con LLMs para generación de llamadas
+✅ **Seguridad diferenciada**: Cada skill tiene su nivel de seguridad apropiado
+✅ **Mantenimiento mejorado**: Estructura clara y separación de responsabilidades
 
 ---
 
@@ -798,804 +985,6 @@ Esta mejora hace que KogniTerm sea más resiliente a las variaciones en la salid
         - El mensaje de la excepción `JSONDecodeError`.
         - Los argumentos recibidos (truncados a 500 caracteres para evitar logs excesivamente largos).
         - La longitud total de la cadena de argumentos.
-    - **Beneficio**: Proporciona información crucial para diagnosticar si el truncamiento ocurre en la respuesta del LLM y qué parte de la cadena se está truncando, facilitando la depuración de errores de parseo JSON.
-
-#### **🎯 Beneficios de la Mejora**
-
-✅ **Reducción de Truncamiento**: El aumento de `max_tokens` disminuye la probabilidad de que los argumentos de las herramientas sean cortados por el LLM.
-✅ **Diagnóstico Preciso**: Los logs detallados permiten identificar la causa raíz de los `JSONDecodeError` relacionados con argumentos truncados o mal formados.
-✅ **Mayor Robustez**: El sistema es más resistente a las respuestas del LLM que contienen argumentos de herramientas largos o con problemas de formato.
-✅ **Depuración Eficiente**: La información adicional en los logs acelera el proceso de identificación y resolución de problemas.
-
-#### **🔍 Problemas Resueltos**
-
-- **`Unterminated string` en argumentos de herramientas**: Se aborda la causa subyacente de este error al permitir respuestas más largas y proporcionar herramientas de diagnóstico.
-- **`JSONDecodeError` con argumentos largos**: Los logs detallados ayudan a entender y resolver estos errores.
-
-### **📈 Impacto en el Sistema**
-
-- **Estabilidad Mejorada**: El sistema es más estable al manejar interacciones complejas con herramientas que requieren argumentos extensos.
-- **Fiabilidad del LLM**: Aumenta la confianza en la capacidad del LLM para generar tool calls correctos y completos.
-- **Mantenibilidad**: Facilita el mantenimiento y la depuración del código relacionado con la invocación de herramientas.
-
----
-
-## 28-12-2025 Manejo de Errores de Formato de Tool Calls en LiteLLM
-
-**Descripción**: Se implementó un manejo de errores específico para `litellm.BadRequestError` cuando el proveedor del modelo rechaza una llamada a herramienta debido a un formato incorrecto de los argumentos. Esto evita que la conversación se rompa y permite al usuario continuar.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/llm_service.py`
-
-**Métodos Actualizados**:
-
-- `invoke(self, history: Optional[List[BaseMessage]] = None, ...)`
-
-#### **📋 Cambios Específicos**
-
-1. **Manejo de `litellm.BadRequestError` con formato de herramienta incorrecto**:
-    - Dentro del bloque `except Exception as e:` en el método `invoke`, se añadió una condición específica para `litellm.BadRequestError`.
-    - Si el mensaje de error del proveedor contiene la frase "Function name was" (indicando que los argumentos se interpretaron como el nombre de la función), se activa una estrategia de recuperación.
-    - **Estrategia de Recuperación**: En lugar de fallar, se genera un `AIMessage` sin `tool_calls` y con un mensaje amigable para el usuario. Este mensaje explica que el modelo intentó usar una herramienta con un formato incorrecto y sugiere reformular la solicitud.
-    - **Beneficio**: Evita que la conversación se interrumpa abruptamente debido a errores de formato de tool calls por parte del proveedor, permitiendo al usuario continuar la interacción.
-
-#### **🎯 Beneficios de la Mejora**
-
-✅ **Continuidad de la Conversación**: La interacción con el agente no se detiene por errores de formato de tool calls.
-✅ **Experiencia de Usuario Mejorada**: El usuario recibe un mensaje claro sobre el problema y una sugerencia para continuar.
-✅ **Robustez del Sistema**: El sistema es más resiliente a las idiosincrasias de formato de tool calls de diferentes proveedores de LLM.
-✅ **Depuración Asistida**: Aunque el error se maneja, el mensaje al usuario y los logs internos (si se configuran) pueden ayudar a identificar patrones de errores de formato.
-
-#### **🔍 Problemas Resueltos**
-
-- **Interrupción de la conversación por `litellm.BadRequestError`**: Se evita que el agente falle y se reinicie la conversación.
-- **Errores de formato de `tool_calls` específicos del proveedor**: Se proporciona un mecanismo para manejar estos errores de forma elegante.
-
-### **📈 Impacto en el Sistema**
-
-- **Estabilidad**: Aumenta la estabilidad general de la interacción con LLMs, especialmente con proveedores estrictos en el formato de tool calls.
-- **Fiabilidad**: Mejora la fiabilidad del agente al recuperarse de errores de formato sin perder el contexto.
-- **Usabilidad**: Hace que el agente sea más fácil de usar al proporcionar retroalimentación útil en caso de problemas con las herramientas.
-
----
-
-## 28-12-2025 Corrección de NameError para `rich.Group` y `rich.Panel`
-
-**Descripción**: Se corrigió un `NameError` causado por la falta de importación de las clases `Group` y `Panel` de la biblioteca `rich` en `kogniterm/core/agents/bash_agent.py`.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/agents/bash_agent.py`
-
-**Sección Actualizada**: Importaciones
-
-#### **📋 Cambios Específicos**
-
-1. **Importación de `Group` y `Panel`**:
-    - Se añadió `Group` a la importación existente de `rich.console`.
-    - Se añadió `Panel` a la importación existente de `rich.panel`.
-    - **Beneficio**: Resuelve el error de ejecución que impedía renderizar correctamente los paneles de pensamiento y respuesta en la terminal.
-
----
-
-## 28-12-2025 Optimización de Latencia y Rendimiento en el Núcleo
-
-**Descripción**: Se han implementado mejoras críticas en la gestión del historial y en el servicio de embeddings para reducir la latencia de respuesta y optimizar el uso de recursos.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/history_manager.py`
-
-- **Procesamiento Unificado**: Se refactorizó `get_processed_history_for_llm` para realizar la limpieza de mensajes huérfanos y la validación de integridad en una sola pasada eficiente.
-- **I/O Optimizado**: Se eliminó la indentación en el guardado de archivos JSON (`separators=(',', ':')`), reduciendo el tamaño de los archivos de historial y acelerando las operaciones de lectura/escritura.
-- **Filtrado Inteligente**: Mejora en la detección y eliminación de mensajes de asistente vacíos al final del historial.
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/embeddings_service.py`
-
-- **Procesamiento por Lotes (Batching)**: Se implementó soporte nativo para lotes en `GeminiAdapter` y `OllamaAdapter`.
-- **Ollama Turbo**: Se actualizó el adaptador de Ollama para usar el endpoint `/api/embed` (más moderno y rápido) con soporte para múltiples entradas en una sola petición.
-- **Gestión de Lotes**: `EmbeddingsService` ahora divide automáticamente las solicitudes grandes en lotes de 100, optimizando la latencia de red y respetando los límites de las APIs.
-
-### **🎯 Beneficios**
-
-✅ **Respuesta más rápida**: Menor tiempo de procesamiento del historial antes de enviar la solicitud al LLM.  
-✅ **Búsquedas instantáneas**: La generación de embeddings por lotes reduce drásticamente el tiempo de espera en buscas de código.  
-✅ **Eficiencia de Disco**: Archivos de historial más compactos y rápidos de procesar.  
-✅ **Escalabilidad**: El sistema maneja ahora mucho mejor historiales extensos y grandes volúmenes de datos para indexar.
-
----
-
-## 28-12-2025 Corrección de Bucle de Interrupción en ResearcherAgent
-
-**Descripción**: Se corrigió un problema crítico en `researcher_agent.py` donde la detección de interrupciones en la cola provocaba un bucle infinito de reintentos en lugar de detener la ejecución. También se mejoró el manejo de `InterruptedError` para proporcionar feedback claro al LLM y al usuario.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/agents/researcher_agent.py`
-
-**Métodos Actualizados**:
-
-- `invoke_agent(...)`
-- `_run(...)`
-
-#### **📋 Cambios Específicos**
-
-1. **Detección de Interrupción Mejorada**:
-    - Se añadió `if interrupt_queue and not interrupt_queue.empty(): break` dentro del bucle de reintentos.
-    - **Beneficio**: Permite salir inmediatamente del bucle si el usuario presiona ESC o solicita detener la generación.
-
-2. **Manejo de `InterruptedError`**:
-    - Se añadió un bloque `except InterruptedError` para capturar la interrupción lanzada desde dentro de la ejecución del agente.
-    - Se genera un mensaje claro para el usuario indicando la cancelación.
-    - Se retorna un `HumanMessage` al sistema principal para que el flujo se detenga correctamente.
-    - **Beneficio**: Evita que el agente intente continuar después de ser interrumpido y mejora la comunicación con el usuario.
-
-3. **Reset de banderas de interrupción**:
-    - Se asegura que las banderas de parada (`llm_service.stop_generation_flag`) se reseteen correctamente después de manejar una interrupción.
-
-#### **🎯 Beneficios de la Mejora**
-
-✅ **Respuesta Inmediata**: El sistema responde instantáneamente a la tecla ESC para detener la investigación.
-✅ **Estabilidad**: Se elimina el riesgo de bucles infinitos durante interrupciones.
-✅ **Feedback Claro**: El usuario sabe exactamente por qué se detuvo el proceso.
-✅ **Flujo Predecible**: Mejora la coordinación entre el `BashAgent` y los agentes secundarios.
-
----
-
-## 11-01-2026 Mejora en la Estética de la Terminal y Autocompletado de Archivos
-
-**Descripción**: Se ha renovado la interfaz visual de KogniTerm y se ha implementado un sistema de autocompletado de archivos en segundo plano, mejorando significativamente la experiencia del usuario y la velocidad de respuesta.
-
-### Cambios Implementados
-
-#### **🔧 Nuevo Archivo**: `kogniterm/terminal/themes.py`
-
-- Se creó un sistema de temas para centralizar colores e íconos.
-- **Paleta de Colores**: Definición de colores ANSI y Hexadecimales para un look moderno (Cyberpunk/Dark).
-- **Iconografía**: Set de íconos personalizados para diferentes tipos de mensajes (IA, Usuario, Éxito, Error, etc.).
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/terminal_ui.py`
-
-- **Banner de Bienvenida**: Rediseñado con un estilo retro-moderno y gradientes.
-- **Renderizado de Mensajes**: Mejora en el espaciado, bordes y estilos de los paneles de respuesta.
-- **Barra de Progreso**: Implementación de una barra de progreso mejorada para operaciones largas.
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/kogniterm_app.py`
-
-- **FileCompleter en Segundo Plano**: Se refactorizó el autocompletado para cargar la lista de archivos en un hilo secundario al inicio, evitando latencia al escribir.
-- **Barra Inferior Dinámica**: Nueva barra inferior estilizada que muestra el modelo actual y el estado de indexación.
-- **Estilos de Prompt**: Integración de los nuevos temas en el prompt de entrada.
-
-#### **🎯 Beneficios**
-
-✅ **Look Premium**: Una interfaz visualmente atractiva que se siente como una herramienta moderna.
-✅ **Fluidez Total**: El autocompletado ya no bloquea la escritura gracias al procesamiento asíncrono.
-✅ **Feedback Visual**: Mejor visibilidad de lo que el agente está haciendo en cada momento.
-
----
-
-## 13-01-2026 Refactorización del Sistema de Interrupción y Salida Conversacional
-
-**Descripción generada**: Se ha corregido un error crítico donde el agente agradecía al usuario por interrumpirlo y se ha implementado un sistema de salida más limpio y conversacional. También se mejoró el manejo de la tecla ESC y la terminación de procesos.
-
-#### **🔧 Archivos Modificados**
-
-- **`kogniterm/core/agents/bash_agent.py`**:
-  - Se modificó la lógica de interrupción para que lance un `InterruptedError` cuando la bandera `stop_generation_flag` está activa.
-  - Se añadió manejo de excepciones para `InterruptedError` que detiene el flujo del agente de inmediato sin generar respuestas de agradecimiento innecesarias.
-
-- **`kogniterm/core/llm_service.py`**:
-  - Se optimizó el chequeo de la bandera de interrupción durante el streaming. Ahora el generador se detiene instantáneamente al detectar la señal.
-
-- **`kogniterm/terminal/kogniterm_app.py`**:
-  - Se actualizó el manejador de la tecla ESC para que sea más robusto: limpia el buffer, envía la señal de interrupción y resetea el estado visual de la terminal.
-  - Se implementó el comando mágico `%salir` para una salida elegante y educada.
-
-#### **🎯 Beneficios**
-
-✅ **Interrupción Real**: Al presionar ESC, el agente se detiene de verdad y al instante.
-✅ **Comportamiento Lógico**: El agente ya no "habla" después de ser interrumpido.
-✅ **UX Refinada**: Mejor flujo de entrada y salida del sistema.
-
----
-
-## 26-01-2026 Corrección de IndentationError y Optimización del Ciclo de Vida
-
-**Descripción**: Se ha corregido un `IndentationError` crítico que impedía que KogniTerm iniciara, además de realizar una limpieza de código en el núcleo de la aplicación de terminal.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/kogniterm_app.py`
-
-- **Corrección de Indentación**: Se movieron los siguientes métodos al nivel de clase correcto (estaban anidados incorrectamente dentro de `__init__`):
-  - `_get_bottom_toolbar()`
-  - `_update_indexing_progress()`
-  - `_process_file_tags()`
-  - `_process_docker_tags()`
-  - `_run_background_indexing()`
-  - `run()`
-- **Corrección de Sintaxis**: Se arregló un error en el escape de strings dentro de una f-string en la visualización de resultados de Python.
-  - *Antes*: `\"\"` (causaba problemas en f-strings complejas).
-  - *Después*: Uso de comillas simples `''` para el join dinámico.
-
-#### **🎯 Beneficios**
-
-✅ **Estabilidad**: La aplicación vuelve a ser funcional e inicia correctamente.
-✅ **Robustez**: Se eliminaron errores latentes en el renderizado de errores de Python.
-✅ **Mantenibilidad**: Estructura de clase más limpia y estándar
----
-
-## 26-01-2026 Lanzamiento Versión 0.1.8 - Potenciando la Interacción con el PC
-
-**Descripción**: Esta actualización introduce una nueva y potente herramienta genérica de interacción con el sistema operativo y optimiza la experiencia de inicio limpiando ruidos visuales innecesarios.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Refactorizado**: `kogniterm/core/tools/pc_interaction_tool.py`
-
-- **Herramienta Unificada**: Se transformó la herramienta fragmentada en una interfaz genérica `pc_interaction`.
-- **Nuevas Capacidades**:
-  - **Gestión de Ventanas**: Listado de ventanas abiertas y activación de foco por título.
-  - **Control Avanzado de Ratón**: Soporte para movimiento, clicks (izquierdo, derecho, doble) y arrastre (`drag`).
-  - **Control de Teclado**: Escritura de texto y ejecución de combinaciones de teclas complejas (hotkeys).
-  - **Capturas de Pantalla**: Funcionalidad para guardar evidencias visuales de acciones en el escritorio.
-- **Silenciado Inteligente**: Se ajustó el nivel de logs para evitar advertencias de inicio en entornos sin pantalla.
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/terminal.py`
-
-- **Limpieza de Logs de CrewAI**: Se desactivó la telemetría y se silenciaron los errores del bus de eventos que ensuciaban la salida al inicio.
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/visual_components.py` y `themes.py`
-
-- **Corrección de Temas**: Se corrigió la sintaxis de colores de fondo de `rich` (cambio de `bg:` a `on`).
-- **Restauración Visual**: Se recuperó la función `get_kogniterm_theme` y la lógica de mensajes motivacionales dinámica.
-
-#### **🚀 Publicación en PyPI**
-
-- El paquete ha sido actualizado exitosamente a la versión **0.1.8**.
-
-#### **🎯 Beneficios**
-
-✅ **Superpoderes de Escritorio**: El agente ahora puede operar fuera de la terminal con precisión.
-✅ **Experiencia Premium**: Inicio limpio sin errores técnicos visibles para el usuario.
-✅ **Robustez Visual**: Banner y mensajes motivacionales funcionando al 100%.
-
----
-
-## 26-01-2026 Lanzamiento Versión 0.2.0 - Refactorización del Flujo Maestro
-
-**Descripción**: Esta actualización mayor resuelve los problemas de interrupción prematura del flujo del agente, implementando un ciclo de vida robusto para acciones encadenadas y asegurando la visibilidad total de las respuestas.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Refactorizado**: `kogniterm/terminal/kogniterm_app.py`
-
-- **Nuevo Bucle de Trabajo**: Se implementó un bucle interno que mantiene al agente "en control" mientras haya acciones o confirmaciones pendientes.
-- **Soporte Multi-Acción**: Ahora el agente puede encadenar varias herramientas consecutivas sin que el prompt de usuario interrumpa el proceso entre ellas.
-- **Gestión Unificada de Confirmaciones**: Mejora en el manejo de estados de confirmación para comandos, archivos y planes.
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/agents/bash_agent.py`
-
-- **Corrección de Visibilidad**: Fix en el nodo `call_model_node` para asegurar que el contenido se imprima aun cuando el modelo no haga streaming (ej: errores o respuestas atómicas).
-- **Consistencia Visual**: Asegura que el spinner se limpie correctamente dejando la respuesta final a la vista del usuario.
-
-#### **🚀 Publicación en PyPI**
-
-- El paquete ha sido actualizado exitosamente a la versión **0.2.0**.
-
-#### **🎯 Beneficios**
-
-✅ **Flujo Ininterrumpido**: El agente completa sus razonamientos y tareas de principio a fin de forma fluida.
-✅ **Feedback Garantizado**: Se eliminó el "silencio" tras las herramientas; el usuario siempre sabe qué ocurrió.
-✅ **Arquitectura Robusta**: Preparado para tareas complejas que requieren múltiples pasos de confirmación
----
-
-## 26-01-2026 Implementación de Embeddings Locales Autónomos
-
-**Descripción**: Se ha migrado el sistema de embeddings para permitir una ejecución 100% local y autónoma por usuario, eliminando la dependencia de contenedores externos (como Ollama) mediante la integración de `fastembed`.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `pyproject.toml`
-
-- Se añadió `fastembed` como dependencia principal del proyecto.
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/embeddings_service.py`
-
-- **Nuevo Adaptador**: Se implementó `FastEmbedAdapter` utilizando la librería `fastembed` para generación local de vectores.
-- **Configuración por Defecto**: Se estableció `fastembed` como el proveedor de embeddings por defecto (modelo `BAAI/bge-small-en-v1.5`), asegurando que KogniTerm funcione "out-of-the-box" sin configuración externa.
-- **Soporte Multi-Proveedor**: Se mantuvo la compatibilidad con Gemini, OpenAI y Ollama.
-
-#### **🔧 Archivo Modificado**: `kogniterm/terminal/meta_command_processor.py`
-
-- **Nuevo Comando Mágico**: Se implementó `%embeddings` para permitir la configuración interactiva de:
-  - Proveedor de embeddings (Local, Gemini, OpenAI, Ollama).
-  - Modelo local específico (BGE Small, BGE Base, etc.).
-- **Ayuda Integrada**: El comando fue añadido al menú de `%help`.
-
-#### **🔧 Archivo Modificado**: `.env.example`
-
-- Se añadieron variables de entorno para la configuración de `EMBEDDINGS_PROVIDER` y `EMBEDDINGS_MODEL`.
-
-### **🎯 Beneficios**
-
-✅ **Autonomía Total**: Cada usuario tiene su propio sistema de embeddings sin necesidad de servidores o contenedores adicionales.
-✅ **Privacidad y Velocidad**: Los datos no salen de la máquina (si se usa FastEmbed) y la latencia es mínima.
-✅ **Facilidad de Uso**: Configuración amigable mediante el comando `%embeddings`.
-✅ **Compatibilidad**: Mantiene la flexibilidad de usar modelos en la nube si el usuario lo prefiere.
-
----
-
-## 26-01-26 Preparación de Release v0.2.1
-
-**Descripción**: Se ha construido el paquete distribuable y etiquetado la versión para el release en GitHub.
-
-### Cambios Implementados
-
-- **Construcción del Paquete**: Se generaron los archivos `.whl` y `.tar.gz` mediante `python3 -m build` en el entorno virtual.
-- **Etiquetado Git**: Se creó y subió el tag `v0.2.1` al repositorio remoto.
-
-### **🎯 Beneficios**
-
-✅ **Distribución Lista**: Los artefactos están listos para ser adjuntados a un Release de GitHub o subidos a PyPI.
-✅ **Control de Versiones**: El tag `v0.2.1` marca oficialmente el estado del código para esta versión.
-
----
-
-## 01-02-26 Corrección de Advertencia de Bucle Repetida
-
-**Descripción**: Se ha corregido el problema donde la advertencia de bucle crítico se mostraba repetidamente en cada mensaje después de ser detectada una vez.
-
-### Cambios Implementados
-
-#### **🔧 Archivos Modificados**
-
-1. **[`kogniterm/core/agent_state.py`](kogniterm/core/agent_state.py)**:
-   - **Nuevo método**: [`clear_tool_call_history()`](kogniterm/core/agent_state.py:54) - Limpia el historial de llamadas a herramientas para detección de bucles.
-
-2. **[`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)**:
-   - **Modificación en [`call_model_node()`](kogniterm/core/agents/bash_agent.py:154)**: Se agregó la llamada a [`state.clear_tool_call_history()`](kogniterm/core/agent_state.py:54) después de detectar un bucle crítico (línea 173).
-
-3. **[`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py)**:
-   - **Modificación en [`call_model_node()`](kogniterm/core/agents/code_agent.py:150)**: Se agregó la llamada a [`state.clear_tool_call_history()`](kogniterm/core/agent_state.py:54) después de detectar un bucle crítico (línea 160).
-
-#### **📋 Detalle del Problema**
-
-- **Causa**: Cuando se detectaba un bucle crítico, se añadía un mensaje de error al historial de mensajes (`state.messages`), pero el `tool_call_history` (un deque temporal usado para detección de bucles) no se limpiaba.
-- **Consecuencia**: En cada iteración posterior del agente, el `tool_call_history` todavía contenía las mismas 4 llamadas repetidas, por lo que la detección de bucle se activaba nuevamente, añadiendo otro mensaje de error, y así sucesivamente.
-- **Resultado**: La advertencia de bucle se mostraba repetidamente en cada mensaje.
-
-#### **🔧 Solución Implementada**
-
-- **Limpieza del `tool_call_history`**: Después de detectar un bucle crítico, se llama a [`state.clear_tool_call_history()`](kogniterm/core/agent_state.py:54) para limpiar el deque temporal.
-- **Preservación del historial de mensajes**: El historial de mensajes (`state.messages`) se mantiene intacto, por lo que no se pierde el trabajo realizado.
-- **Prevención de repetición**: Al limpiar el `tool_call_history`, la advertencia de bucle solo se muestra una vez.
-
-### **🎯 Beneficios de la Corrección**
-
-✅ **Advertencia Única**: La advertencia de bucle crítico solo se muestra una vez.
-✅ **Preservación del Trabajo**: El historial de mensajes se mantiene intacto, no se pierde el trabajo realizado.
-✅ **Mejor Experiencia de Usuario**: Los mensajes no se llenan con advertencias repetidas.
-✅ **Claridad**: El usuario recibe una advertencia clara y concisa sin redundancia.
-
-### **🔍 Impacto en el Sistema**
-
-- **BashAgent**: Ahora limpia el `tool_call_history` después de detectar un bucle.
-- **CodeAgent**: Ahora limpia el `tool_call_history` después de detectar un bucle.
-- **AgentState**: Nuevo método [`clear_tool_call_history()`](kogniterm/core/agent_state.py:54) disponible para limpiar el historial de llamadas a herramientas.
-- **Experiencia de Usuario**: Mejorada al eliminar advertencias repetidas.
-
----
-
-## 01-02-26 Mejora de Documentación del Agente GitHub Researcher
-
-**Descripción**: Se ha mejorado el backstory del agente `github_researcher` en `research_agents.py` para proporcionar claridad sobre cómo usar la acción `search_repositories` de la herramienta `github_tool`.
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**: `kogniterm/core/agents/research_agents.py`
-
-- **Actualización del backstory del agente `github_researcher`**:
-  - Se agregó documentación detallada sobre la acción `search_repositories` que permite buscar repositorios en GitHub sin necesidad de especificar un `repo_name`.
-  - Se incluyeron ejemplos claros de uso: `action='search_repositories', query='python web framework'`
-  - Se documentó que esta acción retorna una lista de repositorios con nombre, descripción, estrellas y URL.
-
-- **Protocolo de Razonamiento Estructurado**:
-  1. **BÚSQUEDA DE REPOSITORIOS**: Uso de `search_repositories` para encontrar repos relevantes (solo requiere `query`)
-  2. **BÚSQUEDA PREVIA**: Alternativa usando búsqueda web para encontrar nombres exactos de repositorios
-  3. **EXPLORACIÓN NO DESTRUCTIVA**: Uso de herramientas remotas (`list_contents`, `read_file`, `read_directory`, `read_recursive_directory`)
-  4. **BÚSQUEDA DE CÓDIGO**: Uso de `search_code` para buscar código específico dentro de un repositorio (requiere `repo_name` y `query`)
-  5. **Uso de tags `<thinking>`**: Para justificar la elección del repositorio y el plan de exploración
-
-- **Listado completo de acciones disponibles**:
-  - `search_repositories`: Buscar repositorios en GitHub (solo requiere `query`)
-  - `get_repo_info`: Obtener información de un repositorio (requiere `repo_name`)
-  - `list_contents`: Listar contenidos de un directorio (requiere `repo_name`, opcional `path`)
-  - `read_file`: Leer un archivo (requiere `repo_name` y `path`)
-  - `read_directory`: Leer directorio (requiere `repo_name`, opcional `path`)
-  - `read_recursive_directory`: Leer recursivamente (requiere `repo_name`, opcional `path`)
-  - `search_code`: Buscar código dentro de un repo (requiere `repo_name` y `query`)
-
-### **🎯 Beneficios**
-
-✅ **Claridad para el Agente**: El agente ahora tiene instrucciones claras sobre cuándo y cómo usar `search_repositories` vs otras acciones.
-✅ **Diferenciación de Parámetros**: Se enfatiza que `search_repositories` NO requiere `repo_name`, mientras que otras acciones sí.
-✅ **Mejor Flujo de Trabajo**: El agente puede ahora buscar repositorios relevantes antes de intentar acceder a repositorios específicos.
-✅ **Prevención de Errores**: Ejemplos claros reducen la probabilidad de usar parámetros incorrectos.
-
-### **🔍 Impacto en el Sistema**
-
-- **GitHub Researcher**: Ahora tiene documentación completa sobre todas las acciones disponibles en `github_tool`.
-- **Crew de Investigación**: El agente puede participar más efectivamente en tareas de investigación de código open source.
-- **Experiencia de Usuario**: Mejorada al tener un agente más capacitado para buscar y explorar repositorios de GitHub.
-
----
-
-## 01-02-2026 Inicio de Implementación de KogniTerm Desktop con Tauri
-
-**Descripción**: Se ha iniciado la implementación de KogniTerm Desktop basándose en la propuesta de arquitectura con Tauri, estableciendo los fundamentos del proyecto, incluyendo monorepo, backend Python y frontend Tauri+React en `kogniterm-desktop/`.
-
-### Cambios Implementados
-
-#### **🔧 Nueva Estructura de Proyecto**
-
-1. **Monorepo con Turbo**:
-   - Se creó el directorio raíz `kogniterm-desktop/` inicializado con `npm` y `turbo`.
-   - Se configuró `package.json` y `turbo.json` para gestión de workspaces (`apps/*`, `packages/*`).
-
-2. **Frontend Desktop (Tauri + React)**:
-   - Se creó la aplicación `apps/desktop` usando `create-tauri-app` con plantilla React + TypeScript.
-   - Se configuró `api_client.rs` en Rust para comunicación HTTP con el backend.
-   - Se implementó comandos Tauri básicos en `commands.rs` y registro en `lib.rs`.
-   - Se actualizó `App.tsx` para incluir un ejemplo funcional de invocación al backend.
-
-3. **Backend Server (Python + FastAPI)**:
-   - Se creó la estructura en `apps/server` con `kogniterm_server`.
-   - Se implementó `main.py` con FastAPI y configuración CORS.
-   - Se creó `api/routes.py` con endpoint `/api/chat` básico.
-   - Se definieron dependencias en `requirements.txt`.
-
-4. **CI/CD**:
-   - Se creó un flujo de trabajo básico en `.github/workflows/ci.yml` para build y linting.
-
-### **🎯 Beneficios**
-
-✅ **Arquitectura Híbrida**: Establece la base para una aplicación de escritorio moderna y performante.
-✅ **Separación de Responsabilidades**: Frontend React para UI y Backend Python para lógica de agentes.
-✅ **Gestión Centralizada**: El monorepo facilita el manejo de múltiples paquetes y aplicaciones.
-✅ **Comunicación Segura**: La capa de Rust gestiona la comunicación entre el webview y el backend.
-
-### **🔍 Próximos Pasos**
-
-- Integrar el núcleo de KogniTerm existente en el nuevo backend.
-- Implementar la interfaz de chat completa con soporte Markdown.
-- Configurar comunicación WebSocket para streaming de respuestas.
-
----
-
-## 01-02-2026 Corrección de Inicialización de ChromaDB y Autocuración
-
-**Descripción**: Se ha implementado un mecanismo de autocuración para la inicialización de ChromaDB para resolver el error "Could not connect to tenant default_tenant".
-
-### Cambios Implementados
-
-#### **🔧 Archivo Modificado**
-
-1. [`kogniterm/core/context/vector_db_manager.py`](kogniterm/core/context/vector_db_manager.py)
-
-#### **📋 Cambios Específicos**
-
-1. **Autocuración en `__init__`**:
-   - Se envolvió la inicialización de `chromadb.PersistentClient` en un bloque `try-except`.
-   - Si la inicialización falla (comúnmente por corrupción de la DB o incompatibilidad de versiones), el sistema ahora captura la excepción.
-   - En el bloque `except`, se elimina recursivamente el directorio de la base de datos (`.kogniterm/vector_db`) y se intenta reinicializar.
-   - Esto permite que la aplicación se recupere automáticamente de estados corruptos de la base de datos vectorial sin intervención manual del usuario.
-
-#### **🎯 Beneficios de la Corrección**
-
-✅ **Resiliencia**: La aplicación no falla catastróficamente si la caché vectorial está corrupta.
-✅ **Experiencia de Usuario**: El usuario no necesita borrar manualmente directorios ocultos para arreglar errores de inicio.
-✅ **Estabilidad**: Asegura que el entorno de ejecución se mantenga limpio y funcional.
-
----
-
-## 01-02-2026 Lanzamiento v0.2.3: Mejoras de Estabilidad y Limpieza de Repositorio
-
-**Descripción**: Se ha publicado la versión v0.2.3 en PyPI con mejoras críticas en el manejo de proveedores, limpieza de errores visuales y saneamiento del repositorio Git. Además, se resolvió con éxito el conflicto de dependencias con `crewai`.
-
-### Cambios Implementados
-
-#### **🔧 Archivos Modificados**
-
-1. [`kogniterm/core/multi_provider_manager.py`](kogniterm/core/multi_provider_manager.py)
-2. [`pyproject.toml`](pyproject.toml)
-3. [`.gitignore`](.gitignore)
-
-#### **📋 Cambios Específicos**
-
-1. **Eliminación del Fallback Multiproveedor**:
-   - Se ha simplificado la lógica de ejecución para usar únicamente el **proveedor primario** configurado.
-   - Esto evita saltos inesperados entre proveedores (ej. de OpenRouter a OpenAI) y hace el sistema más predecible.
-   - El método `execute_with_fallback` ahora es un alias del nuevo método `execute`.
-
-2. **Limpieza de Errores HTML**:
-   - Se implementó el método `_clean_error_message` que detecta bloques de código HTML en las respuestas de error de los proveedores (especialmente OpenRouter y Google).
-   - Ahora el usuario recibe mensajes amigables como *"Modelo no encontrado"* o *"Error de autenticación"* en lugar de cientos de líneas de HTML.
-
-3. **Desactivación de Health Checks Ruidosos**:
-   - Se silenciaron los logs de advertencia de los health checks de fondo para proporcionar un arranque de terminal limpio y sin interrupciones visuales por problemas de API keys de proveedores secundarios.
-
-4. **Saneamiento del Repositorio Git**:
-   - Se actualizó el `.gitignore` para incluir `node_modules/`, `venv/` y otros patrones comunes.
-   - Se realizó una limpieza profunda del índice de Git (`git rm -r --cached .`) para remover carpetas pesadas que se habían subido accidentalmente.
-   - El repositorio ahora es ligero y sigue las mejores prácticas.
-
-5. **Resolución de Conflictos de Dependencias**:
-   - Se forzó la instalación de `mcp==1.16.0` y `uvicorn==0.40.0` para resolver el conflicto entre `crewai` y las dependencias de proxy de `litellm`.
-
-#### **🚀 Lanzamiento y Distribución**
-
-- **PyPI**: Versión v0.2.3 publicada exitosamente ([kogniterm en PyPI](https://pypi.org/project/kogniterm/0.2.3/)).
-- **GitHub**: Tag `v0.2.3` creado y subido mediante push forzado para asegurar un historial limpio sin `node_modules`.
-
-#### **🎯 Beneficios**
-
-✅ **Arranque Limpio**: Salida de terminal sin advertencias innecesarias.
-✅ **Mensajes Comprensibles**: Errores del proveedor filtrados y simplificados.
-✅ **Historial Ligero**: Repositorio Git optimizado sin dependencias locales.
-✅ **Estabilidad**: Dependencias de Python alineadas para evitar conflictos con CrewAI.
-
----
-
-## 03-02-2026 Integración de Núcleo y Streaming en KogniTerm Desktop
-
-**Descripción**: Se han completado las tareas de integración del núcleo de KogniTerm en el backend desktop y se ha desarrollado la interfaz de chat premium con soporte para streaming vía WebSockets.
-
-### Cambios Implementados
-
-#### **🔧 Backend (FastAPI + Bridge)**
-
-1. **Adaptador de Núcleo**:
-   - Implementación de `adapter.py` que inicializa `LLMService`, `CommandExecutor` y `AgentState`.
-   - Configuración dinámica de `sys.path` para importar el paquete `kogniterm` desde el servidor.
-
-2. **Comunicación WebSocket**:
-   - Creación de `websocket.py` para manejar el streaming de respuestas del LLM en tiempo real.
-   - Uso de `ThreadPoolExecutor` para manejar generadores síncronos dentro del entorno asíncrono de FastAPI.
-   - Implementación de protocolo de mensajes para enviar chunks de texto y estados de finalización (`done`, `error`).
-
-3. **Configuración de Dependencias**:
-   - Se actualizó `requirements.txt` con todas las dependencias necesarias de `kogniterm` y `crewai`.
-
-#### **🎨 Frontend (Premium UI)**
-
-1. **Sistema de Diseño**:
-   - Configuración de **Tailwind CSS** y **PostCSS** en la aplicación desktop.
-   - Implementación de esquema de colores *Dark Mode* (Slate 950/900) con acentos en azul y cian.
-
-2. **Componentes de Chat**:
-   - `ChatMessage`: Con soporte para **Markdown**, **Gfm** y resaltado de sintaxis con **Prism**.
-   - `ChatInput`: Área de texto expansible con soporte para atajos de teclado (Shift+Enter para nueva línea).
-   - Layout principal con barra lateral estilizada e indicadores de estado de conexión.
-
-3. **Lógica de Conexión**:
-   - Implementación del hook personalizado `useChat` para gestionar la conexión WebSocket, el historial de mensajes y el estado de generación.
-
-### **🎯 Beneficios**
-
-✅ **Streaming Real**: Los usuarios ven la respuesta del agente mientras se genera, eliminando tiempos de espera vacíos.
-✅ **Experiencia UX/UI Moderna**: Interfaz limpia, responsiva y estéticamente agradable.
-✅ **Integración Total**: El backend utiliza exactamente la misma lógica que la terminal original.
-✅ **Robustez**: Manejo de errores de conexión y estados de carga visuales.
-
-### **🔍 Próximos Pasos**
-
-- Implementar la vista de Terminal integrada con XTerm.js.
-- Desarrollar el Explorador de Archivos lateral.
-- Añadir persistencia de conversaciones localmente.
-
----
-
----
-
-## 02-02-2026 Activación por Defecto de Reasoning para OpenRouter
-
-**Descripción**: Se ha implementado la activación automática del parámetro `reasoning` para todos los modelos de OpenRouter que lo soportan, permitiendo visualizar el "pensamiento interno" del modelo durante la generación y preservándolo en el historial de conversación.
-
-### Cambios Implementados
-
-#### **🔧 Archivos Modificados**
-
-1. [`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py)
-
-#### **📋 Cambios Específicos**
-
-1. **Activación de Reasoning en OpenRouter** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:1026)):
-   - Se añadió el parámetro `reasoning: { "type": "enabled" }` dentro de `extra_body` para las peticiones a OpenRouter.
-   - Se habilitó la bandera `include_reasoning: True` para soporte nativo de LiteLLM.
-
-2. **Captura y Streaming de Pensamiento** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:1126)):
-   - Se añadió la acumulación de `reasoning_content` durante el bucle de streaming.
-   - El contenido de razonamiento se emite en tiempo real con el prefijo `__THINKING__:` para su procesamiento visual en la interfaz.
-
-3. **Preservación en el Historial** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:1270)):
-   - El razonamiento completo se almacena en los `additional_kwargs` del `AIMessage` final.
-   - Esto se aplica en todos los flujos: mensajes de texto normales, llamadas a herramientas (`tool_calls`) y modos de fallback.
-
-4. **Continuidad de Diálogo** ([`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py:742)):
-   - Se modificó `_to_litellm_message` para recuperar el `reasoning_content` guardado y enviarlo de vuelta al modelo en futuras interacciones.
-   - Esto cumple con la recomendación de OpenRouter de conservar la información completa del razonamiento para que el modelo pueda continuar desde donde lo dejó.
-
-#### **🎯 Beneficios**
-
-✅ **Transparencia**: Los usuarios ahora pueden ver cómo el modelo llega a sus conclusiones.
-✅ **Mejor Razonamiento**: Habilitar este parámetro explícitamente fuerza al modelo a usar sus capacidades de razonamiento profundo (en modelos como DeepSeek R1 o similares).
-✅ **Coherencia**: La conversación mantiene el contexto del pensamiento previo, evitando alucinaciones o pérdida de lógica en diálogos largos.
-✅ **Compatibilidad**: Implementado de forma segura para no afectar a otros proveedores (Gemini, OpenAI nativo, etc.).
-
----
----
-
-## 02-02-2026 Mejora de Robustez en el Parser de Herramientas y Unificación de Detección
-
-**Descripción general**: Se ha optimizado el sistema de detección y ejecución de herramientas para resolver problemas de "bucles críticos" y llamadas con argumentos vacíos, especialmente recurrentes en modelos de OpenAI cuando mezclan razonamiento en texto plano con llamadas a funciones.
-
-### Cambios Implementados
-
-#### **🔧 Archivos Modificados**
-
-1. [`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py)
-2. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
-
-#### **📋 Cambios Específicos**
-
-1. **Refactorización del Parser de Texto (`_parse_tool_calls_from_text`)**:
-    - **Preservación de Estructura**: Se eliminó la normalización de espacios agresiva que reemplazaba saltos de línea por espacios, permitiendo ahora el parseo correcto de bloques JSON multilínea.
-    - **Detección de Markdown**: Se añadió soporte para extraer argumentos de herramientas contenidos dentro de bloques de código Markdown (````json ...````).
-    - **Mejora de Regex (Pattern 2 y 4)**: Se actualizaron los patrones para ser más flexibles con los saltos de línea y evitar capturar texto irrelevante como argumentos.
-    - **Robustez en `extract_args`**: Ahora intenta extraer el primer objeto JSON balanceado si encuentra ruido alrededor de los argumentos.
-
-2. **Unificación de Lógica de Detección en `invoke`**:
-    - **Detección Híbrida**: El sistema ahora procesa simultáneamente los `tool_calls` nativos del proveedor y los detectados manualmente en el texto.
-    - **Rescate de Argumentos**: Si una llamada nativa se recibe con argumentos vacíos o malformados, el sistema busca automáticamente en el texto si el modelo escribió los argumentos allí, completando la llamada de forma transparente.
-    - **Fusión Inteligente**: Se implementó una lógica de fusión que evita duplicados y prioriza las llamadas que contienen argumentos válidos.
-
-3. **Ajuste de Prompt de Sistema**:
-    - Se modificó el protocolo de razonamiento en `bash_agent.py` para evitar que el modelo use nombres de herramientas literales seguidos de dos puntos en su fase de pensamiento, reduciendo falsos positivos en el parser.
-
-#### **🎯 Beneficios Obtenidos**
-
-✅ **Adiós a los Bucles Críticos**: Se eliminan las repeticiones infinitas causadas por herramientas que se llamaban sin comandos.
-✅ **Compatibilidad Superior con OpenAI**: Mejor manejo de modelos que prefieren "escribir" la herramienta en lugar de usar la API formal.
-✅ **Robustez Multilínea**: Soporte completo para comandos complejos que abarcan varias líneas.
-✅ **Fallback Silencioso**: El usuario ya no ve errores de parseo; el sistema simplemente encuentra la información donde esté disponible.
-
----
-
-## 03-02-26 Mejora Definitiva de Robustez en Tool-Parsing para Modelos OSS
-
-Se ha implementado una arquitectura de detección de herramientas multi-capa para solucionar fallos críticos de ejecución en modelos como `gpt-oss-120b:free`, los cuales suelen mezclar llamadas nativas con texto libre o razonamiento interno ("thinking") mal formateado.
-
-- **Protocolo de Emergencia `LLAMADA_A_HERRAMIENTA`**: Se introdujo un formato de texto explícito en el `SYSTEM_MESSAGE` de los agentes. Si el modelo falla en usar la API nativa, el sistema ahora puede interceptar y ejecutar comandos usando este patrón visual de respaldo. ✨
-- **Nuevo Extractor Balanceado (`_extract_balanced_content`)**: Implementación de un motor de extracción propio que maneja anidamiento de llaves, corchetes y paréntesis, ignorando delimitadores dentro de cadenas de texto. Esto permite capturar JSONs complejos de forma infalible incluso en textos con mucho ruido. 🛠️
-- **Correlación Contextual Huérfana**: El sistema ahora es capaz de "rescatar" bloques JSON que no contienen el nombre de la herramienta. El parser busca menciones previas de herramientas en el contexto del texto (especialmente en el bloque de "Thinking") y las asocia automáticamente con los argumentos encontrados. 🧠
-- **Limpieza Agresiva de Datos**: Se añadió una etapa de saneamiento térmico que elimina caracteres de control invisibles (\x00-\x1f) del flujo de datos antes del parseo JSON, evitando errores de sintaxis causados por basura técnica del LLM. 🧹
-- **Unificación de Fuentes de Parseo**: Se modificó `LLMService.invoke` para fusionar el contenido de respuesta (`full_response_content`) con el de razonamiento (`full_reasoning_content`) antes del análisis, asegurando que ninguna instrucción del modelo pase desapercibida. 🎯
-- **Detección Insensible a Mayúsculas**: La resolución de nombres de herramientas ahora es total, permitiendo variaciones en el casing (ej. `Execute_Command` -> `execute_command`). 🦾
-- **Consolidación de Estabilidad**: Se repararon fragmentaciones accidentales en el archivo `llm_service.py` ocurridas durante la actualización, dejando el motor central del sistema totalmente limpio y optimizado. 🚀
-
----
-
-## 03-02-2026 Implementación de Terminal Integrada y Explorador de Archivos en KogniTerm Desktop
-
-**Descripción**: Se ha completado la Fase 3 de KogniTerm Desktop con la implementación de una terminal integrada usando XTerm.js y un explorador de archivos funcional, junto con mejoras en la arquitectura del backend.
-
-### Cambios Implementados
-
-#### **🖥️ Terminal Integrada**
-
-1. **Componente Terminal** (`Terminal.tsx`):
-   - Integración completa de **XTerm.js** con tema personalizado oscuro.
-   - Soporte para entrada de comandos interactiva con historial.
-   - Addons: `FitAddon` para ajuste automático y `WebLinksAddon` para enlaces clickeables.
-   - Manejo de teclas especiales (Enter, Backspace, etc.).
-
-2. **Hook de Terminal** (`useTerminal.ts`):
-   - Gestión de estado de ejecución de comandos.
-   - Comunicación con el backend para ejecutar comandos shell.
-   - Manejo de errores y timeouts.
-
-3. **Vista de Terminal** (`TerminalView.tsx`):
-   - Wrapper con header estilizado (botones macOS-style).
-   - Indicador visual de estado de ejecución.
-   - Integración con el hook de ejecución.
-
-#### **📁 Explorador de Archivos**
-
-1. **Componente FileExplorer** (`FileExplorer.tsx`):
-   - Navegación de directorios con interfaz intuitiva.
-   - Iconos diferenciados para archivos y carpetas.
-   - Visualización de tamaños de archivo formateados.
-   - Ordenamiento automático (directorios primero).
-
-2. **Endpoint de Backend** (`/api/files/list`):
-   - Listado de contenidos de directorio con metadatos.
-   - Filtrado de archivos ocultos.
-   - Manejo seguro de rutas absolutas.
-
-#### **⚙️ Backend Mejorado**
-
-1. **Endpoint de Ejecución de Comandos** (`/api/execute`):
-   - Ejecución asíncrona de comandos shell usando `asyncio.create_subprocess_shell`.
-   - Captura de stdout y stderr por separado.
-   - Retorno de código de salida.
-
-2. **Modelos Pydantic Extendidos**:
-   - `CommandRequest` / `CommandResponse` para ejecución de comandos.
-   - `FileItem` / `DirectoryRequest` / `DirectoryResponse` para navegación de archivos.
-
-#### **🎨 Interfaz de Usuario**
-
-1. **Sistema de Pestañas**:
-   - Navegación entre Chat, Terminal y Explorador de Archivos.
-   - Indicadores visuales de pestaña activa.
-   - Transiciones suaves entre vistas.
-
-2. **Mejoras de Diseño**:
-   - Scrollbar personalizado para todas las vistas.
-   - Consistencia visual en todos los componentes.
-   - Responsive design para diferentes tamaños de ventana.
-
-#### **📚 Documentación**
-
-1. **README Completo** (`kogniterm-desktop/README.md`):
-   - Instrucciones detalladas de instalación.
-   - Guía de desarrollo con comandos específicos.
-   - Documentación de estructura del proyecto.
-   - Información sobre tecnologías utilizadas.
-
-### **🎯 Beneficios**
-
-✅ **Terminal Nativa**: Los usuarios pueden ejecutar comandos directamente desde la aplicación sin salir del entorno.
-✅ **Navegación de Archivos**: Exploración visual del proyecto sin necesidad de comandos.
-✅ **Experiencia Unificada**: Todas las herramientas necesarias en una sola aplicación.
-✅ **Arquitectura Escalable**: Backend preparado para futuras extensiones (edición de archivos, Git, etc.).
-✅ **Documentación Completa**: Facilita la contribución y el despliegue del proyecto.
-
-### **🔍 Próximos Pasos**
-
-- Implementar edición de archivos en el explorador.
-- Añadir integración con Git (status, commit, push).
-- Implementar persistencia de sesiones de chat.
-- Añadir configuración de temas y preferencias.
-- Implementar sistema de plugins para extensibilidad.
-
----
-
----
-
-## 04-02-2026 Eliminación de Razonamiento Duplicado
-
-**Descripción**: El usuario solicitó eliminar la redundancia del bloque de razonamiento ("THINKING:") que KogniTerm forzaba en el prompt de sistema. Se implementó una solución dinámica que adapta el comportamiento según las capacidades del modelo seleccionado, eliminando el protocolo forzado por texto y favoreciendo el razonamiento nativo de los modelos avanzados.
-
-- **Punto 1**: Se ha añadido un método `is_thinking_model` en `LLMService` para detectar modelos con razonamiento nativo (familia r1, o1, etc.) basándose en palabras clave en su nombre.
-- **Punto 2**: Se ha eliminado definitivamente la inyección del protocolo de razonamiento forzado del método `invoke` en `LLMService`, evitando que el sistema obligue al modelo a escribir un bloque de pensamiento manual.
-- **Punto 3**: Se ha simplificado el `SYSTEM_MESSAGE` en `bash_agent.py`, eliminando todas las menciones a protocolos de razonamiento obligatorios para mantener un historial limpio y ahorrar tokens.
-- **Punto 4**: Se ha mantenido la capacidad de capturar el `reasoning_content` nativo de los modelos que lo soportan, permitiendo que la "burbuja de pensamiento" visual siga funcionando en la terminal sin duplicar el texto en la respuesta principal.
-- **Punto 5**: Se ha restaurado la compatibilidad de importaciones restaurando la constante `SYSTEM_MESSAGE` simplificada para evitar errores en otros módulos del sistema.
-
----
-
-## 04-02-26 Mejora del Sistema de Investigación a DeepResearch y Limpieza de Agentes
-
-**Descripción**: Se ha sustituido la antigua Crew de investigación (multi-agente) por un nuevo motor de **Deep Research** basado en un único agente hiper-especializado con flujo recursivo. Esta mejora elimina la latencia de delegación y proporciona informes técnicos mucho más profundos, coherentes y detallados. Posteriormente, se realizó una limpieza integral del código para eliminar componentes obsoletos.
-
-- **Punto 1**: Implementación de , un nuevo agente basado en LangGraph que utiliza planificación dinámica y ejecución recursiva de sub-tareas de investigación.
-- **Punto 2**: Actualización de  para redirigir todas las solicitudes de  hacia el nuevo motor DeepResearcher, eliminando la dependencia de CrewAI para esta tarea.
-- **Punto 3**: Eliminación física de archivos de agentes e infraestructura de Crew redundantes: , , ,  y .
-- **Punto 4**: Optimización de la arquitectura de agentes, manteniendo una estructura más limpia y mantenible con focos claros: Terminal (`bash_agent`), Código (`code_agent`) e Investigación (`deep_researcher`).
-- **Punto 5**: Mejora de los prompts de investigación para incentivar el uso de diagramas Mermaid, citas de archivos locales y búsquedas web exhaustivas.
 
 ---
 
@@ -1661,11 +1050,13 @@ Se ha implementado una arquitectura de detección de herramientas multi-capa par
 ✅ **Atmósfera Inmersiva**: El tema oscuro refinado y los efectos de transparencia crean un entorno de trabajo agradable y enfocado.
 
 ---
+
 ## 04-02-26 Corrección de Error de Sintaxis en Deep Researcher
 
 He corregido un `SyntaxError` en `kogniterm/core/agents/deep_researcher.py` causado por caracteres de escape inesperados en las cadenas de documentación y prompts.
 
-- **Eliminación de Backslashes**: Se eliminaron los backslashes espurios (`\`) que precedían a las comillas triples (`"""`) en varias funciones (`planning_node`, `research_node`, `synthesis_node`, `call_deep_model_node`) y en la definición de `prompt`. Esto causaba el error `unexpected character after line continuation character`.
+- **Eliminación de Backslashes**: Se eliminaron los backslashes espurios (`
+`) que precedían a las comillas triples (`"""`) en varias funciones (`planning_node`, `research_node`, `synthesis_node`, `call_deep_model_node`) y en la definición de `prompt`. Esto causaba el error `unexpected character after line continuation character`.
 - **Verificación**: Se verificó la sintaxis del archivo utilizando `python3 -m py_compile`.
 
 ---
@@ -1711,6 +1102,7 @@ He corregido un `SyntaxError` en `kogniterm/core/agents/deep_researcher.py` caus
 ✅ **Estabilidad de Conexión**: Elimina los falsos positivos de errores de conexión y asegura que el cliente pueda comunicarse con el servidor local confiablemente.
 
 ---
+
 ## 04-02-26 Corrección de Importación en Deep Researcher
 
 He corregido un `ModuleNotFoundError` en `kogniterm/core/agents/deep_researcher.py` causado por una referencia a un módulo inexistente.
@@ -1819,3 +1211,623 @@ He corregido un `ModuleNotFoundError` en `kogniterm/core/agents/deep_researcher.
 
 ✅ **Descubribilidad**: Los usuarios ahora pueden ver fácilmente qué comandos están disponibles sin consultar la ayuda externa.
 ✅ **Eficiencia**: Permite escribir comandos largos rápidamente y sin errores tipográficos.
+
+---
+
+## 06-02-26 Implementación de Meta-Comandos en Servidor WebSocket
+
+**Descripción**: Se habilitó el soporte para meta-comandos (`%reset`, `%help`, `%models`, etc.) directamente en el servidor WebSocket, permitiendo que la interfaz web ejecute las mismas acciones administrativas que la versión de terminal CLI.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm-desktop/apps/server/kogniterm_server/api/websocket.py`](kogniterm-desktop/apps/server/kogniterm_server/api/websocket.py)
+
+#### **📋 Detalles Técnicos**
+
+- **Interceptación de Comandos**: Se añadió lógica en el bucle principal del WebSocket para detectar mensajes que comienzan con `%` o `/`.
+- **Implementación de Comandos Clave**:
+  - **%reset**: Reinicia el estado del agente y el historial de conversación.
+  - **%undo**: Elimina el último par de mensajes (usuario/asistente).
+  - **%help**: Devuelve una tabla Markdown con la lista de comandos disponibles.
+  - **%models**: Permite ver y cambiar el modelo LLM activo.
+  - **%compress**: Ejecuta la lógica de resumen de historial para liberar tokens.
+  - **%init**: Carga contexto inicial desde archivos específicos.
+- **Feedback JSON**: Se implementaron respuestas estructuradas JSON (`type: "info" | "error"`) para que el frontend pueda mostrar notificaciones toast o mensajes de sistema apropiados.
+
+#### **🎯 Beneficios**
+
+✅ **Funcionalidad Completa**: El menú de autocompletado del chat ahora es 100% funcional.
+✅ **Gestión Remota**: Permite administrar el estado de la sesión, modelos y memoria desde la interfaz web sin reiniciar el servidor.
+
+---
+
+## 06-02-26 Mejora de Comando %init
+
+**Descripción**: Se actualizó el comportamiento del comando `%init` para permitir su ejecución sin argumentos, permitiendo cargar el contexto completo del espacio de trabajo.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm-desktop/apps/server/kogniterm_server/api/websocket.py`](kogniterm-desktop/apps/server/kogniterm_server/api/websocket.py)
+
+#### **📋 Detalles Técnicos**
+
+- **Argumentos Opcionales**: Ahora `%init` puede llamarse sin argumentos para inicializar todo el workspace.
+- **Ejecución Asíncrona**: La inicialización del contexto (que puede ser pesada) se movió a un `executor` para no bloquear el bucle de eventos del WebSocket.
+- **Feedback Mejorado**: Se añadieron mensajes de estado (`⏳ Inicializando...`) para informar al usuario sobre el progreso.
+
+#### **🎯 Beneficios**
+
+✅ **Flexibilidad**: El usuario puede elegir entre cargar todo el contexto o solo archivos específicos.
+✅ **Rendimiento**: La interfaz no se congele mientras se procesan los archivos del proyecto.
+
+---
+
+## 07-02-26 Corrección de visualización de razonamiento y actualización a v0.2.8
+
+Se ha corregido la fuga de etiquetas de razonamiento (**THINKING**:) en la interfaz de la terminal y se ha publicado la versión 0.2.8 en PyPI. La solicitud del usuario era evitar que el pensamiento interno del modelo ensucie las explicaciones de los comandos y asegurar que la última versión esté disponible globalmente.
+
+- **Filtro de razonamiento en confirmación**: Se modificó `command_approval_handler.py` para ignorar fragmentos de texto con prefijos `__THINKING__:` o `THINKING:` durante la generación de explicaciones de comandos.
+- **Soporte robusto en Agentes**: Se actualizaron `bash_agent.py`, `code_agent.py`, `deep_coder.py` y `deep_researcher.py` para reconocer tanto `__THINKING__:` como `THINKING:` (sin guiones) como indicadores de razonamiento, redirigiéndolos correctamente a burbujas de pensamiento visuales.
+- **Limpieza de etiquetas <think>**: Se implementó una limpieza basada en expresiones regulares para eliminar bloques `<think>...</think>` y etiquetas huérfanas en el texto final de la explicación.
+- **Actualización de Versión y Publicación**: Se incrementó la versión a 0.2.8 en `pyproject.toml` y se realizó la carga exitosa a PyPI mediante `twine`.
+
+---
+
+## 07-02-2026 Corrección de TypeError en TavilySearchTool
+
+**Descripción**: Se ha solucionado un `TypeError` en la herramienta `TavilySearchTool` que ocurría cuando el parámetro `max_results` era pasado como una cadena de texto en lugar de un entero.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/core/tools/tavily_search_tool.py`](kogniterm/core/tools/tavily_search_tool.py)
+
+#### **📋 Detalles Técnicos**
+
+- **Conversión de Tipo**: En el método `_run`, se añadió una línea para convertir explícitamente `max_results` a `int` antes de ser utilizado en operaciones de comparación.
+- **Manejo de Nulos**: Se incluyó una comprobación para asignar un valor por defecto (5) si `max_results` es `None`.
+- **Causa del Error**: El error `'<' not supported between instances of 'int' and 'str'` se producía en la línea `max(1, min(max_results, 10))` porque `max_results` llegaba como un string desde la invocación de la herramienta.
+
+#### **🎯 Beneficios**
+
+✅ **Robustez**: La herramienta ahora es resistente a variaciones en el tipo de dato de los argumentos.
+✅ **Prevención de Errores**: Se elimina la posibilidad de un `TypeError` que interrumpía la ejecución de la búsqueda.
+
+---
+
+## 09-02-2026 Corrección del Bug en Herramientas de Creación de Archivos
+
+**Descripción**: Se ha corregido un bug que impedía que los archivos se crearan después de que el usuario confirmara la operación. El problema estaba en la lógica de las herramientas de archivo que ignoraba el parámetro `confirm=True` permanentemente.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/tools/file_operations_tool.py`](kogniterm/core/tools/file_operations_tool.py)
+2. [`kogniterm/core/tools/file_update_tool.py`](kogniterm/core/tools/file_update_tool.py)
+3. [`kogniterm/core/tools/advanced_file_editor_tool.py`](kogniterm/core/tools/advanced_file_editor_tool.py)
+4. [`kogniterm/terminal/command_approval_handler.py`](kogniterm/terminal/command_approval_handler.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Corrección en [`_write_file()`](kogniterm/core/tools/file_operations_tool.py:194)**:
+   - Se eliminó la lógica que ignoraba `confirm=True` al inicio del método
+   - Ahora si `confirm=True`, ejecuta directamente `_perform_write_file()` sin pedir confirmación adicional
+
+2. **Corrección en [`_run()`](kogniterm/core/tools/file_update_tool.py:43)** de FileUpdateTool:
+   - Se eliminó la lógica que ignoraba `confirm=True` al inicio del método
+   - Ahora si `confirm=True`, ejecuta directamente `_apply_update()` sin pedir confirmación adicional
+
+3. **Corrección en [`_run()`](kogniterm/core/tools/advanced_file_editor_tool.py:67)** de AdvancedFileEditorTool:
+   - Se eliminó la lógica que ignoraba `confirm=True` al inicio del método
+   - Ahora si `confirm=True`, ejecuta directamente `_apply_advanced_update()` sin pedir confirmación adicional
+
+4. **Actualización del [`command_approval_handler`](kogniterm/terminal/command_approval_handler.py:349)**:
+   - Se modificó la sección de re-invocación de herramientas para pasar `confirm=True` explícitamente
+   - Para `advanced_file_editor`: ahora crea una copia de args y establece `confirm=True` antes de invocar
+   - Para `file_operations`: ahora crea una copia de args y establece `confirm=True` antes de invocar
+
+#### **🎯 Beneficios de la Corrección**
+
+✅ **Funcionalidad Restaurada**: Las herramientas de creación de archivos ahora funcionan correctamente después de la confirmación del usuario
+✅ **Flujo de Confirmación Correcto**: El usuario puede confirmar y los archivos se crean sin problemas
+✅ **Consistencia**: Todas las herramientas de archivo siguen el mismo patrón de confirmación
+
+#### **🔍 Problema Resuelto**
+
+**Problema Original**: Cuando el usuario creaba un archivo y confirmaba, el archivo no se creaba. Esto se debía a que las herramientas tenían una lógica que siempre ignoraba `confirm=True`.
+
+**Causa**: Las herramientas verificaban `if confirm:` y mostraban un warning, pero luego continuaban con el flujo de confirmación en lugar de ejecutar la escritura.
+
+**Solución**: Se modificó el flujo para que cuando `confirm=True` venga después de la aprobación del handler, las herramientas ejecuten directamente la operación de escritura.
+
+---
+
+## 09-02-2026 Actualización de Descripciones de Herramientas para el LLM
+
+**Descripción**: Se actualizaron las descripciones de las herramientas de archivo para instruir al LLM que siempre envíe `confirm=False` y que el usuario interactuará para confirmar directamente.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/tools/file_operations_tool.py`](kogniterm/core/tools/file_operations_tool.py:15)
+2. [`kogniterm/core/tools/file_update_tool.py`](kogniterm/core/tools/file_update_tool.py:17)
+3. [`kogniterm/core/tools/advanced_file_editor_tool.py`](kogniterm/core/tools/advanced_file_editor_tool.py:32)
+
+#### **📋 Cambios Específicos**
+
+1. **Actualización de [`FileOperationsTool.description`](kogniterm/core/tools/file_operations_tool.py:17)**:
+   - Se añadió instrucción explícita: "SIEMPRE envía 'confirm': false (o no envíes el parámetro confirm)"
+   - Se añadió: "El sistema automáticamente mostrará la operación al usuario para confirmación antes de ejecutarla"
+   - Se añadió: "No intentes confirmar tú mismo"
+
+2. **Actualización de [`FileUpdateTool.description`](kogniterm/core/tools/file_update_tool.py:19)**:
+   - Se añadió descripción detallada con instrucciones para el LLM
+   - Se especifica que el usuario confirmará directamente en la interfaz
+
+3. **Actualización de [`AdvancedFileEditorTool.description`](kogniterm/core/tools/advanced_file_editor_tool.py:34)**:
+   - Se añadió lista de acciones disponibles
+   - Se añadió instrucción explícita para el LLM sobre `confirm=False`
+
+#### **🎯 Beneficios**
+
+✅ **Claridad para el LLM**: El modelo ahora sabe claramente que no debe enviar `confirm=True`
+✅ **Flujo de Usuario**: El usuario confirma directamente en la interfaz sin intervención del LLM
+✅ **Consistencia**: Todas las herramientas de archivo tienen el mismo patrón de confirmación
+
+---
+
+## 09-02-2026 Corrección de Auto-aprobación en handle_approval
+
+**Descripción**: Se corrigió el problema donde el método síncrono `handle_approval` no establecía `is_file_update_confirmation=True`, lo que permitía que la lógica de auto-aprobación se activara para operaciones de archivo.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/terminal/command_approval_handler.py`](kogniterm/terminal/command_approval_handler.py:455)
+
+#### **📋 Cambios Específicos**
+
+1. **Actualización de [`handle_approval()`](kogniterm/terminal/command_approval_handler.py:455)**:
+   - Se añadió `is_file_update_confirmation=True` al llamar a `handle_command_approval`
+   - Esto evita que la lógica de auto-aprobación se active para operaciones de archivo
+   - El usuario siempre será consultado para confirmar operaciones de escritura
+
+#### **🎯 Beneficios**
+
+✅ **Control de Usuario**: Las operaciones de archivo ahora requieren confirmación explícita del usuario
+✅ **Seguridad**: Se evita la auto-aprobación no deseada de operaciones de escritura
+✅ **Consistencia**: El comportamiento es coherente con el flujo de confirmación esperado
+✅ **Consistencia**: Asegura que `max_results` siempre sea un entero, como se espera.
+
+---
+
+## 13-02-2026 Sistema de Skills Dinámico (Inspirado en OpenClaw)
+
+**Descripción**: Se ha implementado un sistema completo de skills dinámico inspirado en OpenClaw para migrar desde el sistema monolítico de herramientas hardcoded. Este nuevo sistema permite discovery automático, JIT loading y tres niveles de gestión de skills.
+
+### Arquitectura Implementada
+
+#### 📁 Estructura de Carpetas
+
+1. **kogniterm/core/skills/** - Gestión de skills
+   - [`skill_manager.py`](kogniterm/core/skills/skill_manager.py): Clase principal con discovery, loading y registro
+   - [`skill_migrator.py`](kogniterm/core/skills/skill_migrator.py): Migrador automático de tools a skills
+
+2. **kogniterm/skills/bundled/** - Skills del core (migradas)
+   - execute_command/
+   - file_operations/
+   - memory_append/
+
+3. **kogniterm/skills/managed/** - Skills instalados por usuario
+4. **kogniterm/skills/workspace/** - Skills del proyecto actual
+
+#### 🔧 Componentes Principales
+
+1. **SkillManager**:
+   - Discovery automático en bundled/managed/workspace/
+   - Carga JIT (Just-In-Time) de módulos Python
+   - Registro centralizado de herramientas
+   - Filtrado por permisos y contexto
+
+2. **SkillValidator**:
+   - Valida estructura de SKILL.md
+   - Verifica campos requeridos (name, version, description)
+   - Valida security_level válido
+
+3. **SkillLoader**:
+   - Carga dinámica de módulos desde scripts/
+   - Detecta herramientas por atributos 'name' o 'run'
+
+4. **SkillMigrator**:
+   - Parsea herramientas legacy con AST
+   - Infiere permisos y nivel de seguridad
+   - Genera SKILL.md automáticamente
+
+#### 📄 Formato SKILL.md
+
+Cada skill tiene un archivo SKILL.md con frontmatter YAML:
+
+```yaml
+---
+name: execute_command
+version: 1.0.0
+author: "KogniTerm Core"
+description: "Ejecuta comandos en la terminal"
+category: "system"
+tags: ["bash", "shell"]
+security_level: "elevated"
+allowlist: true
+sandbox_required: true
+---
+```
+
+#### 🔄 Compatibilidad con Legacy
+
+- ToolManager actualizado para soportar skills + legacy
+- Las tools legacy en core/tools/ siguen funcionando
+- Skills tienen prioridad sobre tools con mismo nombre
+-get_tool() busca primero en skills, luego en legacy
+
+### Skills Migradas
+
+1. **execute_command**: Seguridad elevated, permisos execute/filesystem
+2. **file_operations**: Seguridad high, permisos filesystem
+3. **memory_append**: Seguridad low, permisos memory, auto_approve=true
+
+### Pruebas Realizadas
+
+✅ Discovery encuentra 3 skills en bundled/
+✅ Loading carga las 3 skills correctamente
+✅ Herramientas disponibles con metadata de security_level
+
+### Beneficios
+
+✅ **Modularidad**: Añadir skills sin modificar el core
+✅ **Flexibilidad**: Skills instalables/desinstalables dinámicamente
+✅ **Seguridad**: Metadatos de seguridad por skill
+✅ **Compatibilidad**: 100% backward compatible con legacy
+✅ **Discoverability**: Auto-detección en múltiples directorios
+
+### Documentación Adicional
+
+- [`docs/migracion_sistema_skills.md`](docs/migracion_sistema_skills.md): Diseño técnico completo
+
+---
+
+## 15-02-26 Corrección de errores de sintaxis en bash_agent.py
+
+**Descripción**: Se corrigieron errores de sintaxis que impedían iniciar la aplicación KogniTerm. Los errores eran:
+
+1. Error de indentación en la función `execute_tool_node` (línea 640)
+2. Importación incorrecta de `Runnable_configuración` que no existe en langchain_core
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+   - **Corrección de indentación**: Eliminado código duplicado y mal indentado después del bloque `finally` en la función `execute_tool_node`. El código ahora tiene la estructura correcta con el return dentro del bloque finally.
+   - **Eliminación de importación inválida**: Removida la línea `from langchain_core.runnables import Runnable_configuración` que causaba ImportError, ya que esta importación no existe en langchain_core y no se usaba en el código.
+
+### Verificación
+
+✅ La importación de bash_agent now funciona correctamente
+✅ El error de IndentationError en línea 640 está resuelto
+✅ El error de ImportError de Runnable_configuración está resuelto
+
+---
+
+## 15-02-26 Corrección de error de Pydantic en AdvancedFileEditorTool
+
+**Descripción**: Se corrigió un error donde Pydantic v2 no permitía establecer el atributo `llm_service` porque no estaba definido en el modelo.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/core/tools/advanced_file_editor_tool.py`](kogniterm/core/tools/advanced_file_editor_tool.py)
+   - **Agregar campo llm_service**: Se agregó `llm_service: Optional[Any] = None` como campo de la clase Pantic para permitir asignación en `__init__`
+   - **Reordenar inicialización**: Se movió `super().__init__()` al inicio del `__init__` para evitar el error de Pydantic
+
+### Verificación
+
+✅ La aplicación ahora importa correctamente
+✅ Error de ValueError resuelto
+
+---
+
+## 15-02-26 Migración de skills de memoria a formato skill
+
+**Descripción**: Se migraron las herramientas de memoria del proyecto al nuevo formato de skills en `kogniterm/skills/bundled/`. Las tools migradas fueron:
+
+### Skills Creadas
+
+1. **memory_init** - Inicializa la memoria contextual creando archivos de memoria
+   - SKILL.md: Metadatos con YAML frontmatter
+   - scripts/tool.py: Función principal `memory_init()`
+   - Parameters schema para LLM
+
+2. **memory_read** - Lee el contenido de la memoria contextual
+   - SKILL.md: Metadatos con YAML frontmatter
+   - scripts/tool.py: Función principal `memory_read()`
+   - Parameters schema para LLM
+
+3. **memory_summarize** - Resume el contenido de la memoria (placeholder)
+   - SKILL.md: Metadatos con YAML frontmatter
+   - scripts/tool.py: Función principal `memory_summarize()`
+   - Parameters schema para LLM
+
+4. **search_memory** - Guarda y busca resultados de búsqueda
+   - SKILL.md: Metadatos con YAML frontmatter
+   - scripts/tool.py: Funciones `_add_search_result()` y `_get_relevant_search_results()`
+   - Parameters schema para LLM
+
+### Archivos Creados
+
+1. [`kogniterm/skills/bundled/memory_init/SKILL.md`](kogniterm/skills/bundled/memory_init/SKILL.md)
+2. [`kogniterm/skills/bundled/memory_init/scripts/tool.py`](kogniterm/skills/bundled/memory_init/scripts/tool.py)
+3. [`kogniterm/skills/bundled/memory_read/SKILL.md`](kogniterm/skills/bundled/memory_read/SKILL.md)
+4. [`kogniterm/skills/bundled/memory_read/scripts/tool.py`](kogniterm/skills/bundled/memory_read/scripts/tool.py)
+5. [`kogniterm/skills/bundled/memory_summarize/SKILL.md`](kogniterm/skills/bundled/memory_summarize/SKILL.md)
+6. [`kogniterm/skills/bundled/memory_summarize/scripts/tool.py`](kogniterm/skills/bundled/memory_summarize/scripts/tool.py)
+7. [`kogniterm/skills/bundled/search_memory/SKILL.md`](kogniterm/skills/bundled/search_memory/SKILL.md)
+8. [`kogniterm/skills/bundled/search_memory/scripts/tool.py`](kogniterm/skills/bundled/search_memory/scripts/tool.py)
+
+### Estructura de cada skill
+
+- Directorio: `kogniterm/skills/bundled/<skill_name>/`
+- SKILL.md con YAML frontmatter (name, version, author, description, category, tags, security_level, etc.)
+- Directorio scripts/tool.py con la lógica de la herramienta
+- Directorio references/.gitkeep
+
+### Verificación
+
+✅ Skills de memoria creadas correctamente
+✅ Estructura compatible con el sistema de skills existente
+✅ Metadatos de seguridad incluidos en cada SKILL.md
+
+---
+
+## 15-02-26 Migración de skills de archivos a formato skill
+
+**Descripción**: Se migraron las herramientas de archivos del proyecto al nuevo formato de skills en `kogniterm/skills/bundled/`. Las tools migradas fueron:
+
+### Skills Creadas
+
+1. **file_search** - Busca archivos que coincidan con un patrón glob en un directorio
+   - SKILL.md: Metadatos con YAML frontmatter
+   - scripts/tool.py: Función principal `file_search()` con soporte para patrones glob
+   - Parameters schema para LLM
+   - security_level: standard, auto_approve: true
+
+2. **file_update** - Actualiza el contenido de un archivo existente mostrando diferencias
+   - SKILL.md: Metadatos con YAML frontmatter
+   - scripts/tool.py: Función principal `file_update()` con diff y confirmación
+   - Parameters schema para LLM
+   - security_level: elevated, auto_approve: false
+
+3. **file_read_directory** - Lee el contenido de un directorio (no recursivo)
+   - SKILL.md: Metadatos con YAML frontmatter
+   - scripts/tool.py: Función principal `file_read_directory()`
+   - Parameters schema para LLM
+   - security_level: standard, auto_approve: true
+
+### Archivos Creados
+
+1. [`kogniterm/skills/bundled/file_search/SKILL.md`](kogniterm/skills/bundled/file_search/SKILL.md)
+2. [`kogniterm/skills/bundled/file_search/scripts/tool.py`](kogniterm/skills/bundled/file_search/scripts/tool.py)
+3. [`kogniterm/skills/bundled/file_search/references/.gitkeep`](kogniterm/skills/bundled/file_search/references/.gitkeep)
+4. [`kogniterm/skills/bundled/file_update/SKILL.md`](kogniterm/skills/bundled/file_update/SKILL.md)
+5. [`kogniterm/skills/bundled/file_update/scripts/tool.py`](kogniterm/skills/bundled/file_update/scripts/tool.py)
+6. [`kogniterm/skills/bundled/file_update/references/.gitkeep`](kogniterm/skills/bundled/file_update/references/.gitkeep)
+7. [`kogniterm/skills/bundled/file_read_directory/SKILL.md`](kogniterm/skills/bundled/file_read_directory/SKILL.md)
+8. [`kogniterm/skills/bundled/file_read_directory/scripts/tool.py`](kogniterm/skills/bundled/file_read_directory/scripts/tool.py)
+9. [`kogniterm/skills/bundled/file_read_directory/references/.gitkeep`](kogniterm/skills/bundled/file_read_directory/references/.gitkeep)
+
+### Archivos Source Migrados
+
+Las siguientes tools fueron migradas desde `kogniterm/core/tools/`:
+
+1. [`kogniterm/core/tools/file_search_tool.py`](kogniterm/core/tools/file_search_tool.py) → `file_search`
+2. [`kogniterm/core/tools/file_update_tool.py`](kogniterm/core/tools/file_update_tool.py) → `file_update`
+3. [`kogniterm/core/tools/file_read_directory_tool.py`](kogniterm/core/tools/file_read_directory_tool.py) → `file_read_directory`
+
+### Estructura de cada skill
+
+- Directorio: `kogniterm/skills/bundled/<skill_name>/`
+- SKILL.md con YAML frontmatter (name, version, author, description, category, tags, security_level, etc.)
+- Directorio scripts/tool.py con la lógica de la herramienta
+- Directorio references/.gitkeep
+
+### Verificación
+
+✅ Skills de archivos creadas correctamente
+✅ Estructura compatible con el sistema de skills existente
+✅ Metadatos de seguridad incluidos en cada SKILL.md
+✅ Parámetros documentados y schema para LLM incluido
+
+---
+
+## 15-02-2026 Migración AdvancedFileEditorTool a Skill
+
+Descripción: Se migró la herramienta `AdvancedFileEditorTool` a una skill unificada bajo `kogniterm/skills/bundled/advanced_file_editor`.
+
+- **Skill creada**: `advanced_file_editor` con metadata y funcionalidad de edición avanzada.
+- **Archivo SKILL.md**: Añadido en `kogniterm/skills/bundled/advanced_file_editor/SKILL.md`.
+- **Script tool.py**: Implementado en `kogniterm/skills/bundled/advanced_file_editor/scripts/tool.py` replicando la lógica de la herramienta original.
+- **Integración**: Disponible como skill `advanced_file_editor` con schema de parámetros para LLM.
+
+---
+
+## 16-02-2026 Corección de Errores en Migración de Skills
+
+**Descripción**: Se han corregido varios errores críticos que impedían la correcta carga y funcionamiento de las skills migradas, asegurando la estabilidad del sistema.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/core/tools/tool_manager.py`](kogniterm/core/tools/tool_manager.py)
+   - **Corrección de NameError**: Se añadió la importación de `logging` y la definición de `logger` que faltaba y causaba un crash al iniciar.
+
+2. [`kogniterm/core/skills/skill_manager.py`](kogniterm/core/skills/skill_manager.py)
+   - **Mejora en Validación**:
+     - Se añadió `standard` a la lista de `VALID_SECURITY_LEVELS`.
+     - Se hizo opcional la existencia del directorio `references/` en las skills.
+   - **Lógica de Carga Robusta**:
+     - Se reescribió la lógica de `_load_module_tools` para detectar correctamente las herramientas dentro de los scripts.
+     - Se corrigió un error de variable no definida (`suggested_name`) al inyectar metadatos.
+     - Se implementó una lógica de prioridad para asignar nombres y descripciones a las herramientas, asegurando que coincidan con la definición del módulo o del esquema.
+
+### 🎯 Beneficios
+
+✅ **Estabilidad**: El sistema carga todas las skills sin errores ni excepciones.
+✅ **Flexibilidad**: Las skills no están obligadas a tener una estructura rígida de directorios si no lo necesitan.
+✅ **Corrección de Bugs**: Se eliminaron los `NameError` que impedían el arranque de la aplicación.
+✅ **Compatibilidad**: Se soportan niveles de seguridad heredados o estándar.
+
+---
+
+## 16-02-2026 Actualización de Compatibilidad en Confirmación de Comandos y Archivos
+
+**Descripción**: Se ha actualizado el sistema de confirmación de comandos (`CommandApprovalHandler`) y el agente principal (`BashAgent`) para reconocer los nuevos nombres de las skills migradas, asegurando que las confirmaciones de seguridad sigan funcionando correctamente.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/terminal/command_approval_handler.py`](kogniterm/terminal/command_approval_handler.py)
+   - **Reconocimiento de Skills**: Se actualizaron las condiciones `if/elif` para verificar nombres de herramientas tanto en formato antiguo (ej: `file_update_tool`) como en formato nuevo de skill (ej: `file_update`).
+   - **Soporte para AdvancedFileEditor**: Se añadió el alias `advanced_file_editor_tool` para mayor robustez.
+
+2. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+   - **Manejo de Excepciones**: Se actualizó el bloque `UserConfirmationRequired` para mapear correctamente las nuevas skills a las acciones de confirmación.
+   - **Lista de Herramientas Seguras**: Se expandió la lista de herramientas de actualización de archivos para incluir los nuevos identificadores.
+
+### 🎯 Beneficios
+
+✅ **Seguridad Mantenida**: Las confirmaciones de usuario (diffs y prompts) funcionan correctamente con la nueva arquitectura de skills.
+✅ **Transparencia**: El usuario sigue teniendo control total sobre las modificaciones de archivos, independientemente de si la herramienta es "legacy" o una nueva "skill".
+✅ **Compatibilidad**: El sistema soporta ambos formatos de nombres, facilitando una transición suave.
+
+---
+
+## 16-02-2026 Corrección de Crash en Start-up de Terminal
+
+**Descripción**: Se ha solucionado un `RuntimeError` relacionado con `asyncio` que podía ocurrir al salir de la aplicación o en ciertos entornos de ejecución, asegurando una terminación limpia del proceso.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/terminal/terminal.py`](kogniterm/terminal/terminal.py)
+   - **Manejo de Errores Asyncio**: Se envolvió la llamada principal `asyncio.run(_main_async())` en un bloque `try-except` para capturar `RuntimeError` y `KeyboardInterrupt`.
+
+### 🎯 Beneficios
+
+✅ **Estabilidad**: La aplicación termina sin mostrar trazas de error confusas al usuario.
+✅ **Robustez**: Se maneja la interrupción del usuario (Ctrl+C) de manera más elegante en el punto de entrada.
+
+---
+
+## 16-02-2026 Limpieza de Duplicidad de Skills y Reducción de Ruido
+
+**Descripción**: Se optimizó la carga de skills para evitar la duplicación de herramientas (por ejemplo, cargar tanto la clase importada como la función local) y se reemplazaron los mensajes de advertencia ruidosos por logs estructurados.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/core/skills/skill_manager.py`](kogniterm/core/skills/skill_manager.py)
+   - **Filtro de Origen**: Se modificó la estrategia de detección de herramientas para ignorar objetos importados de otros módulos, asegurando que solo se carguen las herramientas definidas explícitamente en el script de la skill.
+   - **Resultado**: Elimina duplicados como `python_executor` y `python_executor_1`, mejorando significativamente el tiempo de inicio al evitar múltiples instancias de recursos pesados (como kernels de Jupyter).
+
+2. [`kogniterm/core/tools/tool_manager.py`](kogniterm/core/tools/tool_manager.py)
+   - **Logging**: Se reemplazaron los `print` statements por llamadas a `logger.info` y `logger.warning`, limpiando la salida de la terminal para el usuario final.
+
+### 🎯 Beneficios
+
+✅ **Inicio Rápido**: Reducción drástica del overhead al cargar skills, especialmente aquellas con recursos pesados.
+✅ **Salida Limpia**: La terminal muestra información relevante sin inundar al usuario con advertencias técnicas de "duplicate tool".
+✅ **Corrección de Bugs**: Se eliminó la causa raíz de la duplicación de herramientas.
+
+---
+
+## 16-02-2026 Limpieza final de Herramientas Duplicadas
+
+**Descripción**: Se han renombrado funciones auxiliares públicas a privadas en varios scripts de skills para evitar que el `SkillManager` las detecte y cargue erróneamente como herramientas duplicadas.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/skills/bundled/file_update/scripts/tool.py`](kogniterm/skills/bundled/file_update/scripts/tool.py)
+   - Renombrado `file_update_sync` -> `_file_update_sync`
+   - Renombrado `apply_file_update` -> `_apply_file_update`
+
+2. [`kogniterm/skills/bundled/search_memory/scripts/tool.py`](kogniterm/skills/bundled/search_memory/scripts/tool.py)
+   - Renombrado `clear_search_memory` -> `_clear_search_memory`
+
+3. [`kogniterm/skills/bundled/python_executor/scripts/tool.py`](kogniterm/skills/bundled/python_executor/scripts/tool.py)
+   - Renombrado `python_executor_sync` -> `_python_executor_sync`
+   - Renombrado `get_last_structured_output` -> `_get_last_structured_output`
+   - Renombrado `cleanup` -> `_cleanup`
+
+### 🎯 Beneficios
+
+✅ **Consistencia**: Cada skill ahora carga exactamente una herramienta principal, eliminando la confusión de `tool_name_1`.
+✅ **Claridad**: Los logs de inicio muestran conteos correctos (1 tool per skill), confirmando la limpieza del entorno.
+✅ **Rendimiento**: Se ha optimizado `ToolManager` para ignorar herramientas legacy **antes de su instanciación**, evitando el arranque innecesario de kernels de Jupyter y acelerando el inicio de la aplicación.
+
+---
+
+## 16-02-2026 Optimización de Logs y Silenciamiento de Debug
+
+**Descripción**: Se ha ajustado la configuración de logging en el punto de entrada de la aplicación para eliminar el ruido visual durante el arranque, asegurando que se utilicen las Skills correctamente de forma silenciosa.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/terminal/terminal.py`](kogniterm/terminal/terminal.py)
+   - Establecido nivel base de logging a `WARNING`.
+   - Silenciados explícitamente los loggers de `skill_manager` y `tool_manager`.
+
+### 🎯 Beneficios
+
+✅ **Experiencia de Usuario**: Interfaz de terminal limpia, mostrando solo información relevante del modelo activo.
+✅ **Foco**: Eliminación de mensajes de depuración internos que distraían del flujo de trabajo principal
+---
+
+## 23-02-2026 Creación de Informe Detallado sobre Herramientas y Skills
+
+**Descripción**: Se ha redactado un informe técnico exhaustivo que explica el funcionamiento, la arquitectura y los mecanismos de seguridad del sistema de herramientas y skills de KogniTerm.
+
+### Cambios Implementados
+
+#### 📄 Documentación Nueva
+
+1. [`docs/Informe_Herramientas_Skills.md`](docs/Informe_Herramientas_Skills.md)
+   - Análisis de la arquitectura legacy vs. modular.
+   - Detalle del ciclo de vida de las skills (Discovery, Validación, Carga JIT).
+   - Documentación del `SkillManager` y su integración con `ToolManager`.
+   - Explicación de los mecanismos de seguridad (Race Condition Guard, Diffs, Niveles de Seguridad).
+   - **Nueva Sección**: Guía de migración 100% al enfoque de skills.
+   - **Nueva Sección**: Concepto de "Autofabricación de Skills" para autonomía evolutiva.
+
+- **Deshabilitación de Herramientas Legacy**: Se ha configurado `load_legacy=False` en `ToolManager` y se han comentado las clases en `ALL_TOOLS_CLASSES` para facilitar las pruebas exclusivas con skills.
+- **Corrección Bug github_skill**: Se ha eliminado la obligatoriedad de `repo_name` para acciones de búsqueda y se ha implementado la búsqueda global de código.
+
+### Beneficios
+
+✅ **Transferencia de Conocimiento**: Documentación clara para futuros desarrolladores sobre cómo extender el sistema.
+✅ **Claridad Arquitectónica**: Mejor comprensión de la modularidad del sistema.
+✅ **Seguridad**: Explicita los procesos de validación y control de cambios en el sistema de archivos.

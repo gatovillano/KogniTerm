@@ -183,7 +183,7 @@ class CommandApprovalHandler:
         elif is_file_update_confirmation:
             logger.debug("DEBUG: is_file_update_confirmation es True. Preparando panel de diff.")
             panel_title = f'[bold]Confirmación de Actualización:[/bold] [cyan]{file_path}[/cyan]'
-            if tool_name == "file_operations" and original_tool_args and original_tool_args.get("operation") == "delete_file":
+            if tool_name in ["file_operations", "file_operations_tool"] and original_tool_args and original_tool_args.get("operation") == "delete_file":
                 # Si es una operación de eliminación, mostrar solo la ruta del archivo
                 panel_content_markdown = Markdown(
                     f"""**Eliminación de Archivo Requerida:**\n{message}\n\n**Archivo a eliminar:**\n```\n{file_path}\n```\n"""
@@ -192,7 +192,8 @@ class CommandApprovalHandler:
                     Panel(
                         panel_content_markdown,
                         border_style='yellow',
-                        title=panel_title
+                        title=panel_title,
+                        padding=(0, 2, 0, 2)
                     ),
                     soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
                 )
@@ -211,7 +212,8 @@ class CommandApprovalHandler:
                     Panel(
                         panel_content,
                         border_style='yellow',
-                        title=panel_title
+                        title=panel_title,
+                        padding=(0, 2, 0, 2)
                     ),
                     soft_wrap=False,
                     overflow="fold",
@@ -243,14 +245,27 @@ class CommandApprovalHandler:
                         if not full_response_content and chunk.content:
                              full_response_content = chunk.content
                     elif isinstance(chunk, str):
+                        # FILTRO CRÍTICO: No añadir contenido de razonamiento a la explicación visual
+                        if chunk.startswith("__THINKING__:") or chunk.startswith("THINKING:"):
+                            continue
                         full_response_content += chunk
                     else:
                         content_part = str(chunk)
                         # Evitar duplicación si el objeto convertido a string es igual a lo que ya tenemos (heurística simple)
-                        if content_part not in full_response_content:
+                        if content_part not in full_response_content and not content_part.startswith("__THINKING__:") and not content_part.startswith("THINKING:"):
                             full_response_content += content_part
 
-                explanation_text = full_response_content.strip() if full_response_content.strip() else "No se pudo generar una explicación concisa." # Manejo de respuesta vacía
+                # Limpieza final de posibles bloques <think> remanentes (algunos modelos no los separan por chunks)
+                import re
+                explanation_text = full_response_content.strip()
+                # Usar una expresión regular más robusta para limpiar los artefactos de "thinking"
+                explanation_text = re.sub(r'(__THINKING__:?|THINKING:?|\bTHINKING\b:?)', '', explanation_text, flags=re.IGNORECASE)
+                # Eliminar posibles residuos como guiones bajos al inicio de palabras
+                explanation_text = re.sub(r'\s*__\s*', ' ', explanation_text).strip()
+                explanation_text = re.sub(r'<think>.*?</think>', '', explanation_text, flags=re.DOTALL).strip()
+                
+                if not explanation_text:
+                    explanation_text = "No se pudo generar una explicación concisa."
                 logger.debug(f"DEBUG: Longitud de explanation_text: {len(explanation_text)}") # Nuevo log
 
             except Exception as e:
@@ -334,24 +349,32 @@ class CommandApprovalHandler:
                 })
                 self.terminal_ui.print_message(f"Plan '{plan_title}' aprobado. ¡A trabajar! 🚀", style="green")
             elif is_file_update_confirmation:
-                # Re-ejecutar la herramienta con los args originales (que ya incluyen confirm=True)
-                # logger.debug(f"DEBUG: CommandApprovalHandler - tool_name en re-invocación: {tool_name}") # <-- Añadir este log
-                if tool_name == "file_update_tool":
+                # Ejecutar directamente la operación de archivo
+                if tool_name in ["file_update_tool", "file_update"]:
                     result = self.file_update_tool._apply_update(file_path, original_tool_args.get("content", ""))
                     tool_message_content = json.loads(result).get("message", "")
-                elif tool_name == "advanced_file_editor":
-                    result = self.advanced_file_editor_tool._run(**original_tool_args)
-                    tool_message_content = result.get("message", "")
-                elif tool_name == "file_operations": # Añadir manejo para file_operations
-                    # logger.debug(f"DEBUG: CommandApprovalHandler - Re-invocando file_operations con args: {original_tool_args}") # <-- Añadir este log
-                    result = self.file_operations_tool._run(**original_tool_args)
-                    # logger.debug(f"DEBUG: CommandApprovalHandler - Resultado de re-invocación de file_operations: {result}") # <-- Añadir este log
-                    tool_message_content = result.get("message", str(result)) if isinstance(result, dict) else str(result) # Modificación aquí
+                elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
+                    # Para advanced_file_editor, necesitamos reconstruir el contenido completo
+                    # El contenido puede estar en 'content' o我们需要 reconstruirlo de otra manera
+                    # Por ahora, usamos el método privado _run con confirm=False para pedir confirmación
+                    # Pero como ya estamos en el flujo de confirmación, ejecutamos directamente
+                    advanced_result = self.advanced_file_editor_tool._apply_advanced_update(
+                        file_path, 
+                        original_tool_args.get("new_content", original_tool_args.get("content", ""))
+                    )
+                    tool_message_content = advanced_result.get("message", "")
+                elif tool_name in ["file_operations", "file_operations_tool"]:
+                    # Ejecutar directamente write_file
+                    file_ops_result = self.file_operations_tool._perform_write_file(
+                        original_tool_args.get("path", file_path),
+                        original_tool_args.get("content", "")
+                    )
+                    tool_message_content = file_ops_result
                 
-                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Aprobado. {tool_message_content}", style="green")
+                # NO imprimir mensaje de confirmación aquí - el ToolMessage en el historial es suficiente
             elif is_user_confirmation:
                 tool_message_content = f"Confirmación de usuario: Aprobado para '{confirmation_prompt}'."
-                self.terminal_ui.print_message("Acción de usuario aprobada.", style="green")
+                # NO imprimir mensaje de confirmación aquí - evitar duplicación
             else:
                 full_command_output = ""
                 try:
@@ -405,7 +428,7 @@ class CommandApprovalHandler:
                 self.terminal_ui.print_message(f"Plan '{plan_title}' denegado. 😔", style="yellow")
             elif is_file_update_confirmation:
                 tool_message_content = f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
-                self.terminal_ui.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
+                # NO imprimir mensaje aquí - el AIMessage en el historial es suficiente
             elif is_user_confirmation:
                 tool_message_content = f"Confirmación de usuario: Denegado para '{confirmation_prompt}'."
                 self.terminal_ui.print_message("Acción de usuario denegada.", style="yellow")
@@ -426,8 +449,8 @@ class CommandApprovalHandler:
             # logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {tool_call_id}") # <-- Añadir este log
         else: # Acción denegada
             self.agent_state.messages.append(AIMessage(content=tool_message_content))
-            self.terminal_ui.print_message("Acción denegada por el usuario.", style="yellow")
-            # logger.debug("DEBUG: CommandApprovalHandler - AIMessage de denegación añadido al historial.") # <-- Añadir este log
+            # NO imprimir mensaje aquí - el AIMessage en el historial es suficiente
+            # El LLM procesará la denegación correctamente desde el historial
 
         # 7. Guardar el historial antes de la re-invocación
         self.llm_service._save_history(self.agent_state.messages)
@@ -457,7 +480,8 @@ class CommandApprovalHandler:
             loop = asyncio.get_event_loop()
             result = loop.run_until_complete(self.handle_command_approval(
                 command_to_execute="",
-                raw_tool_output=raw_output
+                raw_tool_output=raw_output,
+                is_file_update_confirmation=True  # Establecer True para evitar auto-aprobación
             ))
             return result.get("approved", False)
         except Exception as e:

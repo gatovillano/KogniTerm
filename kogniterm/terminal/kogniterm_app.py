@@ -15,6 +15,7 @@ import asyncio # Nueva importación para el FileCompleter
 from typing import Optional, List # Nuevas importaciones para el FileCompleter
 import fnmatch # Nueva importación para el FileCompleter
 import logging
+import signal
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -307,7 +308,6 @@ class KogniTermApp:
         self.auto_approve = auto_approve
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
-        self.agent_interaction_manager = AgentInteractionManager(self.llm_service, self.agent_state, self.terminal_ui, self.terminal_ui.get_interrupt_queue())
 
         # Inicializar SessionManager
         from kogniterm.core.session_manager import SessionManager
@@ -320,11 +320,17 @@ class KogniTermApp:
         # Estado de indexación para la barra de progreso
         self.indexing_status = None
 
+        # Configurar manejadores de señales para redimensionamiento
+        self._setup_signal_handlers()
+
 
         # Instanciar AdvancedFileEditorTool
         advanced_file_editor_tool = AdvancedFileEditorTool()
-
-        # Definir un estilo mejorado para el prompt usando temas
+        
+        # Inicializar file_operations_tool
+        file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
+        
+        # Definir un estilo mejorado para el prompt usando temas (antes de prompt_session)
         if THEMES_AVAILABLE:
             custom_style = Style.from_dict({
                 'prompt': ColorPalette.PRIMARY_LIGHT,
@@ -357,6 +363,7 @@ class KogniTermApp:
         # Combinar los KeyBindings (eliminamos kb_enter que causaba conflictos)
         combined_key_bindings = merge_key_bindings([kb_esc, self.terminal_ui.kb])
 
+        # Crear prompt_session ANTES de command_approval_handler
         self.prompt_session = PromptSession(
             history=FileHistory('.gemini_interpreter_history'),
             completer=self.completer,
@@ -365,7 +372,8 @@ class KogniTermApp:
             bottom_toolbar=self._get_bottom_toolbar, # Añadir bottom_toolbar
             refresh_interval=0.5 # Refrescar la UI cada 0.5s para actualizar la barra
         )
-
+        
+        # Ahora podemos crear CommandApprovalHandler
         self.command_approval_handler = CommandApprovalHandler(
             self.llm_service,
             self.command_executor,
@@ -373,16 +381,43 @@ class KogniTermApp:
             self.terminal_ui,
             self.agent_state,
             self.file_update_tool,
-            advanced_file_editor_tool, # Pasar la instancia de advanced_file_editor_tool
-            file_operations_tool # Pasar la instancia de file_operations_tool
+            advanced_file_editor_tool,
+            file_operations_tool
         )
-
+        
         # Inyectar el manejador en el ToolManager y en CallAgentTool para que CrewAI pueda usarlo
         if hasattr(self.llm_service, 'tool_manager'):
             self.llm_service.tool_manager.approval_handler = self.command_approval_handler
             call_agent_tool = self.llm_service.get_tool("call_agent")
             if call_agent_tool:
                 call_agent_tool.approval_handler = self.command_approval_handler
+        
+        # Ahora podemos inicializar AgentInteractionManager con el command_approval_handler
+        self.agent_interaction_manager = AgentInteractionManager(
+            self.llm_service, 
+            self.agent_state, 
+            self.terminal_ui, 
+            self.terminal_ui.get_interrupt_queue(),
+            self.command_approval_handler
+        )
+
+
+    def _setup_signal_handlers(self):
+        """Configura los manejadores de señales para la aplicación."""
+        if sys.platform != "win32":
+            # Capturar señal de cambio de tamaño de ventana (Linux/macOS)
+            try:
+                signal.signal(signal.SIGWINCH, self._handle_sigwinch)
+            except Exception as e:
+                logger.warning(f"No se pudo configurar el manejador de SIGWINCH: {e}")
+
+    def _handle_sigwinch(self, signum, frame):
+        """Maneja la señal de redimensionamiento de la ventana."""
+        if hasattr(self, 'terminal_ui'):
+            self.terminal_ui.handle_resize()
+            # Si el prompt de prompt_toolkit está activo, él mismo maneja su redimensionamiento,
+            # pero Rich necesita saber que el ancho cambió para sus paneles.
+
 
     def _get_bottom_toolbar(self):
         """Genera el contenido de la barra inferior (toolbar)."""
@@ -626,8 +661,7 @@ class KogniTermApp:
                         )
 
                         if approval_result['approved']:
-                            self.terminal_ui.print_message("Acción aprobada. Continuando...", style="green")
-                            agent_query = None # Continuar desde el historial (ToolMessage ya añadido por handler)
+                            # Continuar desde el historial (ToolMessage ya añadido por handler)
                             self.agent_state.reset_tool_confirmation()
                             continue
                         else:
@@ -645,7 +679,6 @@ class KogniTermApp:
                         )
                         
                         if approval_result['approved']:
-                            self.terminal_ui.print_message("Procesando salida del comando...", style="cyan", status="info")
                             agent_query = None # Continuar desde el historial
                             continue
                         else:

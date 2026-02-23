@@ -10,6 +10,7 @@ import json
 from typing import Optional, Dict, Any, Type # ¡Aquí va la importación de typing!
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
+from kogniterm.core.race_condition_guard import RaceConditionGuard, RaceConditionDetected
 
 def _read_file_content(path: str) -> Dict[str, Any]:
     try:
@@ -21,32 +22,68 @@ def _read_file_content(path: str) -> Dict[str, Any]:
     except Exception as e:
         return {"status": "error", "message": f"Error al leer el archivo '{path}': {e}"}
 
-def _apply_advanced_update(path: str, content: str) -> Dict[str, Any]:
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return {"status": "success", "path": path, "message": f"Archivo '{path}' actualizado exitosamente."}
-    except Exception as e:
-        return {"status": "error", "path": path, "message": f"Error al aplicar la actualización: {e}"}
+# La función _apply_advanced_update se reemplaza por un método de la clase con validación
 
 class AdvancedFileEditorTool(BaseTool):
     name: str = "advanced_file_editor"
-    description: str = "Realiza operaciones de edición avanzadas en un archivo, como insertar, reemplazar con regex, o añadir contenido. La confirmación de los cambios se gestiona de forma conversacional."
+    description: str = """Realiza operaciones de edición avanzadas en un archivo.
+    Acciones disponibles:
+    - insert_line: Inserta contenido en una línea específica
+    - replace_regex: Reemplaza contenido usando expresiones regulares
+    - prepend_content: Añade contenido al inicio del archivo
+    - append_content: Añade contenido al final del archivo"""
 
     approval_handler: Optional[Any] = None
+    llm_service: Optional[Any] = None
 
-    def __init__(self, approval_handler: Any = None, **kwargs):
+    def __init__(self, approval_handler: Any = None, llm_service: Any = None, **kwargs):
         super().__init__(**kwargs)
         self.approval_handler = approval_handler
+        self.llm_service = llm_service
+
+    def _get_agent_state(self) -> Optional[Any]:
+        """Obtiene el AgentState actual desde el LLMService si está disponible."""
+        if hasattr(self, 'llm_service') and hasattr(self.llm_service, '_current_agent_state'):
+            return self.llm_service._current_agent_state
+        return None
+
+
+    def _apply_advanced_update_with_validation(self, path: str, content: str) -> Dict[str, Any]:
+        """
+        Aplica la actualización al archivo con validación de race condition.
+        Este método verifica que el archivo no haya sido modificado externamente.
+        """
+        agent_state = self._get_agent_state()
+        
+        # RACE CONDITION VALIDATION just before write
+        if agent_state and os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    current_content = f.read()
+                is_safe, message = RaceConditionGuard.validate_write(agent_state, path, current_content)
+                if not is_safe:
+                    raise RaceConditionDetected(message)
+            except Exception as e:
+                logger.warning(f"Race condition validation skipped: {e}")
+        
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            # Register new state after successful write
+            if agent_state:
+                RaceConditionGuard.register_write(agent_state, path, content)
+            return {"status": "success", "path": path, "message": f"Archivo '{path}' actualizado exitosamente."}
+        except Exception as e:
+            return {"status": "error", "path": path, "message": f"Error al aplicar la actualización: {e}"}
 
     class AdvancedFileEditorInput(BaseModel):
         path: str = Field(description="La ruta del archivo a editar.")
         action: str = Field(description="La operación a realizar: 'insert_line', 'replace_regex', 'prepend_content', 'append_content'.")
-        content: Optional[str] = Field(default=None, description="El contenido a insertar, añadir o usar para reemplazar (para 'insert_line', 'prepend_content', 'append_content').")
+        content: Optional[str] = Field(default=None, description="El contenido a insertar, añadir o usar para reemplazar.")
         line_number: Optional[int] = Field(default=None, description="El número de línea para la acción 'insert_line' (basado en 1).")
         regex_pattern: Optional[str] = Field(default=None, description="El patrón de expresión regular a buscar para la acción 'replace_regex'.")
         replacement_content: Optional[str] = Field(default=None, description="El contenido de reemplazo para la acción 'replace_regex'.")
-        confirm: bool = Field(default=False, description="Si es True, confirma la operación de escritura sin requerir aprobación adicional.")
+        # NOTA: El parámetro 'confirm' ha sido eliminado. La confirmación SIEMPRE la hace el usuario.
 
     args_schema: Type[BaseModel] = AdvancedFileEditorInput
 
@@ -64,18 +101,25 @@ class AdvancedFileEditorTool(BaseTool):
             return f"Añadiendo contenido al final de {path}"
         return f"Editando archivo: {path}"
 
-    def _run(self, path: str, action: str, content: Optional[str] = None, line_number: Optional[int] = None, regex_pattern: Optional[str] = None, replacement_content: Optional[str] = None, confirm: bool = False) -> Dict[str, Any]:
+    def _run(self, **kwargs) -> Dict[str, Any]:
+        path = kwargs.get("path")
+        action = kwargs.get("action")
+        content = kwargs.get("content")
+        line_number = kwargs.get("line_number")
+        regex_pattern = kwargs.get("regex_pattern")
+        replacement_content = kwargs.get("replacement_content")
+        confirm = kwargs.get("confirm", False)
+        
         logger.debug(f"Invocando AdvancedFileEditorTool para editar el archivo: '{path}' con la acción: '{action}'.")
-        logger.debug(f"AdvancedFileEditorTool._run - Valor de confirm: {confirm}")
-        # Ignorar el parámetro 'confirm' cuando viene del LLM
-        # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
-        # Por lo tanto, siempre requerimos confirmación inicial
-        if confirm:
-            logger.warning(f"AdvancedFileEditorTool - El LLM intentó usar confirm=True. Ignorando y requiriendo confirmación del usuario.")
+        
+        # La confirmación SIEMPRE la hace el usuario directamente en la interfaz.
+        # Esta herramienta NUNCA ejecuta escritura sin confirmación del usuario.
+        
         try:
             read_result = _read_file_content(path=path)
             if read_result["status"] == "error":
-                return {"error": f"Error al leer el archivo '{path}': {read_result["message"]}"}
+                error_msg = read_result.get("message", "Error desconocido")
+                return {"error": f"Error al leer el archivo '{path}': {error_msg}"}
             original_content = read_result["content"]
             original_lines = original_content.splitlines(keepends=True)
             modified_lines = list(original_lines)
@@ -146,11 +190,10 @@ class AdvancedFileEditorTool(BaseTool):
 
             new_content = "".join(modified_lines)
 
+            # Si confirm=True, significa que el usuario ya aprobó la operación
+            # Aplicamos directamente sin pasar por el flujo de confirmación again
             if confirm:
-                # Ignorar el parámetro 'confirm' cuando viene del LLM
-                # Solo se debe usar 'confirm=True' cuando se re-ejecuta tras aprobación del usuario
-                logger.warning(f"AdvancedFileEditorTool - El LLM intentó usar confirm=True. Ignorando y requiriendo confirmación del usuario.")
-                # No aplicar la actualización, continuar con el flujo de confirmación
+                return self._apply_advanced_update_with_validation(path, new_content)
 
             # La confirmación siempre es requerida por la herramienta si hay un diff
             diff = "".join(difflib.unified_diff(
@@ -170,7 +213,7 @@ class AdvancedFileEditorTool(BaseTool):
                     diff=diff
                 )
                 if approved:
-                    return _apply_advanced_update(path, new_content)
+                    return self._apply_advanced_update_with_validation(path, new_content)
                 else:
                     return {"status": "error", "message": "Operación cancelada por el usuario."}
             else:

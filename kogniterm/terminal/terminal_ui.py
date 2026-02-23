@@ -57,6 +57,15 @@ class TerminalUI:
         # TextStyles se define una sola vez al importar. 
         pass
 
+    def handle_resize(self):
+        """Maneja el redimensionamiento de la terminal refrescando la consola."""
+        # Rich detecta automáticamente el tamaño al crear una nueva instancia de Console
+        # o al llamar a ciertos métodos. Forzamos una actualización de las dimensiones.
+        self.console = Console(theme=get_kogniterm_theme())
+        # Opcionalmente, podríamos limpiar la pantalla o redibujar componentes críticos
+        # pero por ahora simplemente actualizamos el objeto console para que los
+        # próximos prints usen el nuevo ancho.
+
 
     def print_stream(self, text: str):
         """

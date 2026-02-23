@@ -52,6 +52,7 @@ class TavilySearchTool(BaseTool):
             client = TavilyClient(api_key=api_key)
 
             # Validar parámetros
+            max_results = int(max_results) if max_results is not None else 5
             max_results = max(1, min(max_results, 10))  # Limitar entre 1 y 10
             if search_depth not in ["basic", "advanced"]:
                 search_depth = "basic"

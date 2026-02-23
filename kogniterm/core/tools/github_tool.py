@@ -117,7 +117,7 @@ class GitHubTool(BaseTool):
     def _search_repositories(self, g: Github, query: str) -> str:
         try:
             repositories = g.search_repositories(query=query)
-            output = f"### Resultados de búsqueda de repositorios para '{query}'\n"
+            output = f"## Fuentes\n\n### Resultados de búsqueda de repositorios para '{query}'\n"
             count = 0
             for repo in repositories:
                 if count >= 10: break
@@ -134,7 +134,7 @@ class GitHubTool(BaseTool):
             # Scoping to the repository
             full_query = f"{query} repo:{repo_name}"
             code_results = g.search_code(query=full_query)
-            output = f"### Resultados de búsqueda de código para '{query}' en '{repo_name}'\n"
+            output = f"## Fuentes\n\n### Resultados de búsqueda de código para '{query}' en '{repo_name}'\n"
             count = 0
             for content_file in code_results:
                 if count >= 10: break
