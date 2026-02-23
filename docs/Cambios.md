@@ -1827,6 +1827,8 @@ Descripción: Se migró la herramienta `AdvancedFileEditorTool` a una skill unif
 - **Corrección Bug github_skill**: Se ha eliminado la obligatoriedad de `repo_name` para acciones de búsqueda y se ha implementado la búsqueda global de código.
 - **Implementación de Skill Factory**: Se ha creado una nueva skill meta que permite al agente autogenerar y registrar herramientas en tiempo de ejecución, habilitando la autonomía evolutiva.
 - **Refresco Dinámico**: Se ha añadido el método `refresh_skills` al `ToolManager` para cargar nuevas habilidades sin reiniciar la aplicación.
+- **Limpieza de Código Legacy**: Se han eliminado los archivos de herramientas antiguos en `core/tools` y se ha limpiado `tool_manager.py` de imports obsoletos.
+- **Publicación PyPI (v0.3.2)**: Se ha empaquetado y subido la nueva versión estable a PyPI.
 
 ### Beneficios
 

@@ -1,28 +1,4 @@
-from .brave_search_tool import BraveSearchTool
-from .web_fetch_tool import WebFetchTool
-from .web_scraping_tool import WebScrapingTool
-from .github_tool import GitHubTool
-from .execute_command_tool import ExecuteCommandTool
-from .memory_init_tool import MemoryInitTool
-from .memory_read_tool import MemoryReadTool
-from .memory_append_tool import MemoryAppendTool
-from .memory_summarize_tool import MemorySummarizeTool
-from .python_executor import PythonTool
-from .file_search_tool import FileSearchTool
-from .file_operations_tool import FileOperationsTool
-from .advanced_file_editor_tool import AdvancedFileEditorTool
-from .pc_interaction_tool import PCInteractionTool
-from .plan_creation_tool import PlanCreationTool
-from .task_complete_tool import TaskCompleteTool
-from .call_agent_tool import CallAgentTool
-from .codebase_search_tool import CodebaseSearchTool
-from .file_update_tool import FileUpdateTool
-from .file_read_directory_tool import FileReadDirectoryTool
-from .search_memory_tool import SearchMemoryTool
-from .set_llm_instructions_tool import SetLLMInstructionsTool
-from .code_analysis_tool import CodeAnalysisTool
-from .tavily_search_tool import TavilySearchTool
-from .think_tool import ThinkTool
+# Imports de herramientas legacy eliminados (Sistema migrado a Skills)
 import logging
 
 logger = logging.getLogger(__name__)

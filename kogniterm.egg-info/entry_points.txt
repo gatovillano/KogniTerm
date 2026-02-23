@@ -1,0 +1,2 @@
+[console_scripts]
+kogniterm = kogniterm.terminal.terminal:main

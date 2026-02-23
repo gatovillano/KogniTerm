@@ -1,7 +1,84 @@
+Metadata-Version: 2.4
+Name: kogniterm
+Version: 0.3.2
+Summary: KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀
+Author-email: Gato Villano <gato@example.com>
+License: MIT License
+        
+        Copyright (c) 2023 KogniTerm
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+Project-URL: Homepage, https://github.com/gatovillano/KogniTerm
+Project-URL: Repository, https://github.com/gatovillano/KogniTerm
+Project-URL: Issues, https://github.com/gatovillano/KogniTerm/issues
+Keywords: terminal,ai,agent,assistant,llm,automation
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: python-dotenv
+Requires-Dist: langchain
+Requires-Dist: langchain-core
+Requires-Dist: langgraph
+Requires-Dist: prompt_toolkit
+Requires-Dist: langchain_mcp_adapters
+Requires-Dist: langchain_community
+Requires-Dist: beautifulsoup4
+Requires-Dist: PyGithub
+Requires-Dist: rich
+Requires-Dist: matplotlib
+Requires-Dist: google-genai
+Requires-Dist: jupyter_client
+Requires-Dist: loguru
+Requires-Dist: colorama
+Requires-Dist: gitignore-parser
+Requires-Dist: watchdog
+Requires-Dist: litellm
+Requires-Dist: playwright
+Requires-Dist: GitPython
+Requires-Dist: pydantic
+Requires-Dist: pydantic-settings
+Requires-Dist: chromadb
+Requires-Dist: urllib3<2
+Requires-Dist: pyautogui
+Requires-Dist: pywinctl
+Requires-Dist: langchain-litellm
+Requires-Dist: nest_asyncio
+Requires-Dist: tiktoken
+Requires-Dist: requests
+Requires-Dist: crewai
+Requires-Dist: fastembed
+Provides-Extra: dev
+Requires-Dist: radon; extra == "dev"
+Requires-Dist: pylint; extra == "dev"
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: build; extra == "dev"
+Requires-Dist: twine; extra == "dev"
+Dynamic: license-file
+
 # 🤖 KogniTerm
 
 ![KogniTerm Banner](image.png)
-<video controls src="kogniterm/kogniterm.mp4" title="KogniTerm Demo"></video>
 
 **KogniTerm** es un asistente de terminal agéntico de última generación. Transforma tu línea de comandos en un entorno de desarrollo colaborativo donde **Agentes de IA Especializados** trabajan contigo para razonar, investigar, codificar y ejecutar tareas complejas.
 
@@ -49,6 +126,7 @@ KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herra
 * **Modo Auto-Aprobación (`-y`)**: Para automatización supervisada.
 * **Visualización de Diffs**: Revisa exactamente qué cambiará en tu código antes de aplicarlo.
 
+
 ## 🎬 Demo
 
 ![KogniTerm Demo](assets/kogniterm-demo.gif)
@@ -56,7 +134,6 @@ KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herra
 *KogniTerm en acción: agentes colaborando en tiempo real para resolver tareas complejas.*
 
 > GIF preview - [Ver video completo (14:48) en YouTube](URL_DEL_VIDEO)
->
 ## 🚀 Instalación
 
 ```bash
@@ -181,7 +258,7 @@ Si encuentras útil este proyecto, considera hacer una donación para apoyar su 
 [![Donar con PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate?hosted_button_id=TU_ID_DE_BOTÓN)
 
 O también puedes apoyar a través de:
-* [GitHub Sponsors](https://github.com/sponsors/tu-usuario)
-* [Patreon](https://www.patreon.com/tu-usuario)
+- [GitHub Sponsors](https://github.com/sponsors/tu-usuario)
+- [Patreon](https://www.patreon.com/tu-usuario)
 
 ¡Gracias por tu apoyo! 🙌
