@@ -121,11 +121,12 @@ class ToolManager:
                     if success:
                         logger.debug(f"Skill cargada: {skill.name}")
 
-                # Registrar herramientas de skills en tool_map
+                # Registrar herramientas de skills en tool_map evitando duplicados
                 for tool_name, tool_info in self.skill_manager.tool_registry.items():
-                    self.tools.append(tool_info['tool'])
-                    self.tool_map[tool_name] = tool_info['tool']
-                    logger.debug(f"Herramienta de skill registrada: {tool_name}")
+                    if tool_name not in self.tool_map:
+                        self.tools.append(tool_info['tool'])
+                        self.tool_map[tool_name] = tool_info['tool']
+                        logger.debug(f"Herramienta de skill registrada: {tool_name}")
             except Exception as e:
                 print(f"Error cargando skills: {e}")
                 import traceback
@@ -201,6 +202,23 @@ class ToolManager:
                     print(f"Error crítico al procesar la clase de herramienta {ToolClass.__name__}: {e}")
                     import traceback
                     traceback.print_exc()
+
+    def refresh_skills(self, agent_context: Optional[dict] = None):
+        """
+        Re-escanea los directorios de skills y carga las nuevas encontradas
+        o actualiza las existentes en el registro de herramientas.
+        """
+        if self.skill_manager and SKILLS_AVAILABLE:
+            logger.info("Refrescando sistema de skills...")
+            # 1. Re-descubrir skills
+            self.skill_manager.discover_all_skills()
+            
+            # 2. Cargar las herramientas (solo las nuevas se añadirán a tool_map gracias a la lógica en load_tools)
+            self.load_tools(load_legacy=False, load_skills=True, agent_context=agent_context)
+            
+            logger.info(f"Refresco completado. Total herramientas: {len(self.tool_map)}")
+            return True
+        return False
 
     def register_tool(self, tool_instance):
         """Registra una herramienta manualmente."""

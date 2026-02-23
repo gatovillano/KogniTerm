@@ -1825,6 +1825,8 @@ Descripción: Se migró la herramienta `AdvancedFileEditorTool` a una skill unif
 
 - **Deshabilitación de Herramientas Legacy**: Se ha configurado `load_legacy=False` en `ToolManager` y se han comentado las clases en `ALL_TOOLS_CLASSES` para facilitar las pruebas exclusivas con skills.
 - **Corrección Bug github_skill**: Se ha eliminado la obligatoriedad de `repo_name` para acciones de búsqueda y se ha implementado la búsqueda global de código.
+- **Implementación de Skill Factory**: Se ha creado una nueva skill meta que permite al agente autogenerar y registrar herramientas en tiempo de ejecución, habilitando la autonomía evolutiva.
+- **Refresco Dinámico**: Se ha añadido el método `refresh_skills` al `ToolManager` para cargar nuevas habilidades sin reiniciar la aplicación.
 
 ### Beneficios
 
