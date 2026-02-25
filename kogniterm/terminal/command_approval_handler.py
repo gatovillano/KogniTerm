@@ -7,9 +7,6 @@ from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState
 from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from kogniterm.core.tools.file_update_tool import FileUpdateTool
-from kogniterm.core.tools.advanced_file_editor_tool import AdvancedFileEditorTool
-from kogniterm.core.tools.file_operations_tool import FileOperationsTool
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -43,7 +40,7 @@ managing command approval from the user in the KogniTerm application.
 class CommandApprovalHandler:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor,
                  prompt_session: PromptSession, terminal_ui: TerminalUI, agent_state: AgentState,
-                 file_update_tool: FileUpdateTool, advanced_file_editor_tool: AdvancedFileEditorTool, file_operations_tool: FileOperationsTool):
+                 file_update_tool: Any = None, advanced_file_editor_tool: Any = None, file_operations_tool: Any = None):
         self.llm_service = llm_service
         self.command_executor = command_executor
         self.prompt_session = prompt_session
@@ -351,25 +348,64 @@ class CommandApprovalHandler:
             elif is_file_update_confirmation:
                 # Ejecutar directamente la operación de archivo
                 if tool_name in ["file_update_tool", "file_update"]:
-                    result = self.file_update_tool._apply_update(file_path, original_tool_args.get("content", ""))
-                    tool_message_content = json.loads(result).get("message", "")
+                    # Intentar usar el método de aplicación si es el objeto legacy, 
+                    # o llamar a la skill si es la nueva implementación.
+                    if hasattr(self.file_update_tool, '_apply_update'):
+                        result = self.file_update_tool._apply_update(file_path, original_tool_args.get("content", ""))
+                        tool_message_content = json.loads(result).get("message", "")
+                    else:
+                        # Para la skill, como no tiene 'confirm' en el schema todavía, 
+                        # buscamos la función _apply_file_update en su módulo si podemos,
+                        # o simplemente usamos una función helper si está disponible.
+                        from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
+                        result = _apply_file_update(file_path, original_tool_args.get("content", ""))
+                        tool_message_content = json.loads(result).get("message", "")
+
                 elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
-                    # Para advanced_file_editor, necesitamos reconstruir el contenido completo
-                    # El contenido puede estar en 'content' o我们需要 reconstruirlo de otra manera
-                    # Por ahora, usamos el método privado _run con confirm=False para pedir confirmación
-                    # Pero como ya estamos en el flujo de confirmación, ejecutamos directamente
-                    advanced_result = self.advanced_file_editor_tool._apply_advanced_update(
-                        file_path, 
-                        original_tool_args.get("new_content", original_tool_args.get("content", ""))
-                    )
-                    tool_message_content = advanced_result.get("message", "")
+                    if hasattr(self.advanced_file_editor_tool, '_apply_advanced_update'):
+                        advanced_result = self.advanced_file_editor_tool._apply_advanced_update(
+                            file_path, 
+                            original_tool_args.get("new_content", original_tool_args.get("content", ""))
+                        )
+                        tool_message_content = advanced_result.get("message", "")
+                    else:
+                        # Para la skill advanced_file_editor, podemos llamarla con confirm=True
+                        # o usar su función interna.
+                        from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import _apply_advanced_update_with_validation
+                        advanced_result = _apply_advanced_update_with_validation(
+                            file_path, 
+                            original_tool_args.get("new_content", original_tool_args.get("content", ""))
+                        )
+                        tool_message_content = advanced_result.get("message", "")
+
                 elif tool_name in ["file_operations", "file_operations_tool"]:
-                    # Ejecutar directamente write_file
-                    file_ops_result = self.file_operations_tool._perform_write_file(
-                        original_tool_args.get("path", file_path),
-                        original_tool_args.get("content", "")
-                    )
-                    tool_message_content = file_ops_result
+                    op_type = original_tool_args.get("operation")
+                    if hasattr(self.file_operations_tool, '_perform_write_file') and op_type != "delete_file":
+                        file_ops_result = self.file_operations_tool._perform_write_file(
+                            original_tool_args.get("path", file_path),
+                            original_tool_args.get("content", "")
+                        )
+                        tool_message_content = file_ops_result
+                    else:
+                        # Para la skill file_operations
+                        if op_type == "delete_file":
+                            from kogniterm.skills.bundled.file_operations.scripts.tool import _delete_file
+                            file_ops_result = _delete_file(
+                                original_tool_args.get("path", file_path),
+                                confirm=True
+                            )
+                        else:
+                            from kogniterm.skills.bundled.file_operations.scripts.tool import _write_file
+                            file_ops_result = _write_file(
+                                original_tool_args.get("path", file_path),
+                                original_tool_args.get("content", ""),
+                                confirm=True
+                            )
+                        # Ensure we extract message if a dict is returned
+                        if isinstance(file_ops_result, dict):
+                            tool_message_content = file_ops_result.get("message", str(file_ops_result))
+                        else:
+                            tool_message_content = file_ops_result
                 
                 # NO imprimir mensaje de confirmación aquí - el ToolMessage en el historial es suficiente
             elif is_user_confirmation:

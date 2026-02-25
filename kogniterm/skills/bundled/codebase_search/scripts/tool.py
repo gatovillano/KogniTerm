@@ -138,6 +138,11 @@ def codebase_search_sync(
     return "".join(output)
 
 
+def get_action_description(query: str, **kwargs) -> str:
+    """Devuelve una descripción legible de la acción que realiza la herramienta."""
+    return f"Buscando código relacionado con: '{query}'..."
+
+
 # Schema de parámetros para el LLM
 parameters_schema = {
     "type": "object",

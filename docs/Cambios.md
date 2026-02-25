@@ -1835,3 +1835,91 @@ Descripción: Se migró la herramienta `AdvancedFileEditorTool` a una skill unif
 ✅ **Transferencia de Conocimiento**: Documentación clara para futuros desarrolladores sobre cómo extender el sistema.
 ✅ **Claridad Arquitectónica**: Mejor comprensión de la modularidad del sistema.
 ✅ **Seguridad**: Explicita los procesos de validación y control de cambios en el sistema de archivos.
+
+---
+
+## 23-02-26 Purga Final de Herramientas Legacy y Estabilización de Skills
+
+Se ha completado la eliminación total de la arquitectura de herramientas antigua (`core/tools`) y el saneamiento de la aplicación para operar exclusivamente bajo el motor de **Skills**.
+
+- **Limpieza de Dependencias**: Eliminación de imports de herramientas legacy en `terminal.py`, `bash_agent.py`, `kogniterm_app.py` y `command_approval_handler.py`.
+- **Restauración de Autocompletado**: Se ha corregido un `AttributeError` en el `FileCompleter` de `kogniterm_app.py`, permitiendo que use la función de ayuda `_list_directory` de la skill `file_operations`.
+- **Mejora en Salida de Python**: Se ha adaptado la lógica de captura de resultados en `kogniterm_app.py` para usar `_get_last_structured_output` de la skill `python_executor`, restaurando la visualización de STDOUT, errores y gráficos.
+- **Robustez del Motor de Skills**: La `skill_factory` ahora utiliza rutas absolutas para el descubrimiento, y se ha implementado el refresco automático de herramientas tras el uso de la skill `refresh_tools`.
+- **Verificación de Estabilidad**: Pruebas de arranque exitosas en el entorno virtual (`venv`), confirmando que la aplicación es funcional y libre de dependencias circulares u obsoletas.
+
+---
+
+## 23-02-2026 Sincronización de Herramientas y Evolución Autónoma
+
+**Descripción**: Se ha implementado un sistema de sincronización técnica y evolutiva que permite al agente crear sus propias skills y utilizarlas de forma nativa e inmediata sin intervención manual.
+
+### Cambios Implementados
+
+#### **🔧 ToolManager y LLMService**
+
+- **Invalidación de Caché**: Se modificó `ToolManager.refresh_skills` para que invalide explícitamente la caché de herramientas en `LLMService` (`self.llm_service.litellm_tools = None`). Esto obliga al modelo a reconocer las nuevas herramientas en su siguiente interacción.
+- **Registro Limpio**: Se ajustó `ToolManager.load_tools` para asegurar que las listas de herramientas se sincronicen correctamente con el `SkillManager` durante un refresco.
+
+#### **🛠️ Skill Factory**
+
+- **Automatización**: Se actualizó `skill_factory` para informar al sistema sobre la disponibilidad inmediata de la nueva habilidad, eliminando la necesidad de que el usuario o el agente ejecuten `refresh_tools` manualmente.
+
+#### **🧠 Inteligencia de Agentes**
+
+- **Capacidad Evolutiva**: Se actualizaron los `SYSTEM_MESSAGE` de `BashAgent` y `DeepResearcher` para incluir instrucciones explícitas sobre la creación y el uso nativo de sus propias skills. El agente ahora entiende que "evolucionar su arsenal" es una capacidad core y debe preferir sus herramientas optimizadas sobre la ejecución manual de código Python.
+
+### Beneficios
+
+✅ **Sincronización Instantánea**: Las habilidades recién creadas son visibles inmediatamente para el LLM.
+✅ **Uso Nativo**: El agente llama a sus skills directamente por su nombre, eliminando el uso de `python_executor` como puente innecesario.
+✅ **Autonomía Total**: El ciclo de creación-descubrimiento-uso ahora es completamente autónomo y robusto.
+
+---
+
+## 23-02-2026 Corrección de Creación y Ejecución de Skills
+
+**Descripción**: Se han corregido pequeños bugs que afectaban a la herramienta responsable de la autogeneración de skills por los agentes y la actualización del arsenal.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/skills/bundled/skill_factory/SKILL.md`](kogniterm/skills/bundled/skill_factory/SKILL.md)
+   - Adicionadas reglas estrictas y una plantilla de código explícita.
+   - Prohibido el uso de patrones dinámicos `def mi_tool(args):` y `args.get()` en favor de *kwargs* explícitos.
+   - Forzada la declaración del diccionario `parameters_schema` a nivel global para resolver el error `'str' object has no attribute 'get'`.
+
+2. [`kogniterm/skills/bundled/skill_factory/scripts/tool.py`](kogniterm/skills/bundled/skill_factory/scripts/tool.py)
+   - Actualizada la descripción en `tool_schema` para reafirmarle al modelo cómo escribir las firmas de las funciones Python.
+
+3. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+   - Agregada la importación `import logging` y la definición `logger = logging.getLogger(__name__)`.
+   - Esto soluciona el error `name 'logger' is not defined` que ocurría asíncronamente al interceptar el uso de la herramienta `refresh_tools`.
+
+#### **🗑️ Limpieza del Entorno**
+
+- Eliminada la skill fallida `disk_analyzer` de forma segura desde `skills/workspace` para limpiar el arsenal del agente.
+
+### Beneficios
+
+✅ **Generación Robusta**: Las nuevas skills se crean con una estructura estándar garantizada y sin errores de parseo de parámetros.
+✅ **Mantenibilidad**: Logging fiable en el `bash_agent` durante operaciones críticas en background.
+
+---
+
+## 23-02-2026 Restauración de Confirmación en File Operations
+
+**Descripción**: Se restauró la funcionalidad original de confirmación (diff) en la herramienta `file_operations` para acciones críticas de archivos.
+También se eliminó la skill de prueba generada automáticamente (`disk_usage_analyzer`) y se empaquetó una nueva versión (`0.3.3`) en PyPI.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. `kogniterm/skills/bundled/file_operations/scripts/tool.py`
+   - Se añadió el parámetro `confirm` a `file_operations`, `_write_file`, y `_delete_file`.
+   - Se adaptó el retorno para devolver el estado `requires_confirmation`, mostrando el diff de la actualización propuesta o un aviso de eliminación.
+
+2. `kogniterm/terminal/command_approval_handler.py`
+   - Se reparó el enrutamiento para `file_operations`, dividiendo las respuestas afirmativas hacia `_delete_file` o `_write_file` con el argumento explicitado `confirm=True`.

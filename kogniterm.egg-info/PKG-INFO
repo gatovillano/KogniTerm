@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: kogniterm
-Version: 0.3.2
+Version: 0.3.3
 Summary: KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀
 Author-email: Gato Villano <gato@example.com>
 License: MIT License
@@ -79,6 +79,7 @@ Dynamic: license-file
 # 🤖 KogniTerm
 
 ![KogniTerm Banner](image.png)
+<video controls src="kogniterm/kogniterm.mp4" title="KogniTerm Demo"></video>
 
 **KogniTerm** es un asistente de terminal agéntico de última generación. Transforma tu línea de comandos en un entorno de desarrollo colaborativo donde **Agentes de IA Especializados** trabajan contigo para razonar, investigar, codificar y ejecutar tareas complejas.
 
@@ -126,14 +127,14 @@ KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herra
 * **Modo Auto-Aprobación (`-y`)**: Para automatización supervisada.
 * **Visualización de Diffs**: Revisa exactamente qué cambiará en tu código antes de aplicarlo.
 
-
 ## 🎬 Demo
 
-![KogniTerm Demo](assets/kogniterm-demo.gif)
+![KogniTerm Demo](kogniterm/kogniterm.mp4)
 
 *KogniTerm en acción: agentes colaborando en tiempo real para resolver tareas complejas.*
 
 > GIF preview - [Ver video completo (14:48) en YouTube](URL_DEL_VIDEO)
+>
 ## 🚀 Instalación
 
 ```bash
@@ -258,7 +259,8 @@ Si encuentras útil este proyecto, considera hacer una donación para apoyar su 
 [![Donar con PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate?hosted_button_id=TU_ID_DE_BOTÓN)
 
 O también puedes apoyar a través de:
-- [GitHub Sponsors](https://github.com/sponsors/tu-usuario)
-- [Patreon](https://www.patreon.com/tu-usuario)
+
+* [GitHub Sponsors](https://github.com/sponsors/tu-usuario)
+* [Patreon](https://www.patreon.com/tu-usuario)
 
 ¡Gracias por tu apoyo! 🙌

@@ -286,6 +286,19 @@ class SkillLoader:
                             if suggested_params and is_main_tool:
                                 attr.parameters_schema = suggested_params
                         
+                        # 4. Inyectar get_action_description si existe en el módulo
+                        if not hasattr(attr, 'get_action_description'):
+                            get_desc_func = getattr(module, 'get_action_description', None)
+                            if get_desc_func and callable(get_desc_func):
+                                # Solo inyectar en la herramienta principal o si el nombre coincide
+                                current_name = getattr(attr, 'name', '')
+                                main_module_name = module_name_attr or (module_tool_schema.get('name') if module_tool_schema else None)
+                                is_main_tool = (current_name == main_module_name) if main_module_name else (reason == "tool_py_default")
+                                
+                                if is_main_tool:
+                                    attr.get_action_description = get_desc_func
+                                    logger.debug(f"Inyectado get_action_description en {attr.name}")
+
                         tools.append(attr)
                         seen_objects.add(id(attr))
 

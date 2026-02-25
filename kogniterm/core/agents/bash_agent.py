@@ -20,13 +20,17 @@ from kogniterm.core.agent_state import AgentState # Importar AgentState desde el
 from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 from ..async_io_manager import get_io_manager, AsyncTaskResult
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 console = Console()
 
 
 
 # --- Mensaje de Sistema ---
 def get_system_message(llm_service: LLMService) -> SystemMessage:
-    base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un asistente experto de terminal.
+    base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un asistente experto de terminal con **Capacidad Evolutiva**.
 
 **Tus Principios:**
 1.  **Eres KogniTerm**: Experto en terminal, depuración y Python.
@@ -39,6 +43,11 @@ def get_system_message(llm_service: LLMService) -> SystemMessage:
 8.  **Agentes Especializados**:
     - Si te piden "investigar" a fondo o crear informes -> `call_agent(agent_name="researcher_agent", ...)`
     - Si te piden "desarrollar" características complejas o refactorizar -> `call_agent(agent_name="code_agent", ...)`
+9.  **Evolución (MUY IMPORTANTE)**:
+    - Puedes crear nuevas herramientas con `skill_factory`. Tras crearla, el sistema la registra AUTOMÁTICAMENTE.
+    - Las herramientas creadas con `skill_factory` aparecen en tu **esquema de herramientas** y DEBES invocarlas igual que `execute_command` o `file_operations`: **directamente por su nombre** (ej. `nombre_skill(param=valor)`).
+    - **NUNCA uses `execute_command` ni `call_agent` para ejecutar una skill que ya está en tu arsenal.**
+    - Si acabas de crear una skill y no aparece en tu lista, usa `refresh_tools` una vez y luego invócala directamente.
 """
     
     # Solo añadir la instrucción de pensar si el modelo NO es de razonamiento nativo
@@ -376,6 +385,25 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
         # Sin truncamiento - devolver la salida completa tal cual
         processed_tool_output = full_tool_output
 
+        # --- Refresco automático de herramientas ---
+        # Si la herramienta es 'refresh_tools', forzar al ToolManager a recargar
+        if tool_name == 'refresh_tools' and hasattr(llm_service, 'tool_manager'):
+            logger.info("Detectada llamada a refresh_tools. Disparando ToolManager.refresh_skills().")
+            llm_service.tool_manager.refresh_skills()
+
+        # Si la herramienta es 'skill_factory' y terminó con éxito, refrescar el arsenal
+        # automáticamente para que la nueva skill quede disponible en el siguiente turno.
+        if tool_name == 'skill_factory' and hasattr(llm_service, 'tool_manager'):
+            logger.info("Detectada creación de skill via skill_factory. Disparando refresh automático.")
+            try:
+                llm_service.tool_manager.refresh_skills()
+                new_tool_names = list(llm_service.tool_manager.tool_map.keys())
+                logger.info(f"Arsenal actualizado. Herramientas disponibles: {new_tool_names}")
+                # Añadir al output la lista de herramientas para que el LLM sepa qué puede invocar
+                processed_tool_output += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
+            except Exception as e:
+                logger.warning(f"Error al refrescar skills tras skill_factory: {e}")
+
         return tool_id, processed_tool_output, None
     except UserConfirmationRequired as e:
         return tool_id, json.dumps(e.raw_tool_output), e
@@ -515,31 +543,28 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             # Determinar si es write o delete
                             operation = exception.tool_args.get("operation", "write_file")
                             if operation == "write_file":
-                                from kogniterm.core.tools.file_operations_tool import FileOperationsTool
-                                file_ops = FileOperationsTool(llm_service=llm_service)
-                                write_result = file_ops._perform_write_file(
+                                from kogniterm.skills.bundled.file_operations.scripts.tool import _write_file
+                                write_result = _write_file(
                                     exception.tool_args.get("path", ""),
                                     exception.tool_args.get("content", "")
                                 )
                                 content = write_result
                             elif operation == "delete_file":
-                                from kogniterm.core.tools.file_operations_tool import FileOperationsTool
-                                file_ops = FileOperationsTool(llm_service=llm_service)
-                                delete_result = file_ops._perform_delete_file(
+                                from kogniterm.skills.bundled.file_operations.scripts.tool import _delete_file
+                                delete_result = _delete_file(
                                     exception.tool_args.get("path", "")
                                 )
                                 content = delete_result
                         elif tool_name in ["file_update_tool", "file_update"]:
-                            from kogniterm.core.tools.file_update_tool import FileUpdateTool
-                            file_update = FileUpdateTool()
-                            update_result = file_update._apply_update(
+                            from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
+                            update_result = _apply_file_update(
                                 exception.tool_args.get("path", ""),
                                 exception.tool_args.get("content", "")
                             )
                             content = update_result
                         elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
-                            from kogniterm.core.tools.advanced_file_editor_tool import _apply_advanced_update
-                            edit_result = _apply_advanced_update(
+                            from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import _apply_advanced_update_with_validation
+                            edit_result = _apply_advanced_update_with_validation(
                                 exception.tool_args.get("path", ""),
                                 exception.tool_args.get("new_content", exception.tool_args.get("content", ""))
                             )

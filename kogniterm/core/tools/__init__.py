@@ -1,13 +1,2 @@
-from .brave_search_tool import BraveSearchTool
-from .web_fetch_tool import WebFetchTool
-from .web_scraping_tool import WebScrapingTool
-from .github_tool import GitHubTool
-from .execute_command_tool import ExecuteCommandTool
-from .memory_init_tool import MemoryInitTool
-from .memory_read_tool import MemoryReadTool
-from .memory_append_tool import MemoryAppendTool
-from .memory_summarize_tool import MemorySummarizeTool
-from .file_operations_tool import FileOperationsTool
-from .python_executor import PythonTool
-from .plan_creation_tool import PlanCreationTool
-from .pc_interaction_tool import PCInteractionTool
+# Carpeta de herramientas (Sincronizada con el sistema de Skills)
+# Solo tool_manager.py permanece aquí como orquestador.

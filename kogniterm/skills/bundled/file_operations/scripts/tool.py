@@ -7,6 +7,7 @@ Provee funcionalidad para leer, escribir, eliminar y listar archivos.
 
 import os
 import shutil
+import difflib
 from typing import List, Dict, Any, Optional
 
 
@@ -33,7 +34,8 @@ def file_operations(
     path: Optional[str] = None,
     content: Optional[str] = None,
     paths: Optional[List[str]] = None,
-    recursive: bool = False
+    recursive: bool = False,
+    confirm: bool = False
 ) -> str | Dict[str, Any]:
     """
     Realiza operaciones CRUD en archivos y directorios.
@@ -45,6 +47,7 @@ def file_operations(
         content: Contenido para escribir (write_file)
         paths: Lista de rutas para read_many_files
         recursive: Listar recursivamente (list_directory)
+        confirm: Si True, se ejecuta la acción sin pedir confirmación adicional
 
     Returns:
         str o Dict: Resultado de la operación
@@ -55,9 +58,9 @@ def file_operations(
         if operation == "read_file":
             return _read_file(path)
         elif operation == "write_file":
-            return _write_file(path, content)
+            return _write_file(path, content, confirm)
         elif operation == "delete_file":
-            return _delete_file(path)
+            return _delete_file(path, confirm)
         elif operation == "list_directory":
             return _list_directory(path, recursive)
         elif operation == "read_many_files":
@@ -91,12 +94,43 @@ def _read_file(path: str) -> Dict[str, Any]:
         return {"error": f"Error al leer '{path}': {e}"}
 
 
-def _write_file(path: str, content: str) -> str:
+def _write_file(path: str, content: str, confirm: bool = False) -> str | Dict[str, Any]:
     """Escribe contenido en un archivo."""
     if not path:
         return "Error: Path no proporcionado"
     if content is None:
         return "Error: Contenido no proporcionado"
+        
+    path = path.strip().replace('@', '')
+
+    if not confirm:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    old_content = f.read()
+                diff = "".join(difflib.unified_diff(
+                    old_content.splitlines(keepends=True),
+                    content.splitlines(keepends=True),
+                    fromfile=f"a/{path}",
+                    tofile=f"b/{path}",
+                ))
+            except Exception as e:
+                diff = f"No se pudo generar diff: {e}"
+        else:
+            diff = f"Nuevo archivo a crear:\n{content[:500]}..."
+
+        return {
+            "status": "requires_confirmation",
+            "action_description": f"escribir en el archivo '{path}'",
+            "operation": "file_operations",
+            "args": {
+                "operation": "write_file",
+                "path": path,
+                "content": content,
+                "confirm": True
+            },
+            "diff": diff
+        }
 
     try:
         # Crear directorio padre si no existe
@@ -106,23 +140,37 @@ def _write_file(path: str, content: str) -> str:
 
         with open(path, 'w', encoding='utf-8') as f:
             f.write(content)
-        return f"Archivo escrito exitosamente: {path}"
+        return {"status": "success", "message": f"Archivo escrito exitosamente: {path}"}
     except Exception as e:
         return f"Error al escribir el archivo '{path}': {e}"
 
 
-def _delete_file(path: str) -> str:
+def _delete_file(path: str, confirm: bool = False) -> str | Dict[str, Any]:
     """Elimina un archivo."""
     if not path:
         return "Error: Path no proporcionado"
 
     path = path.strip().replace('@', '')
 
+    if not os.path.exists(path):
+        return f"El archivo no existe: {path}"
+
+    if not confirm:
+        return {
+            "status": "requires_confirmation",
+            "action_description": f"eliminar el archivo '{path}'",
+            "operation": "file_operations",
+            "args": {
+                "operation": "delete_file",
+                "path": path,
+                "confirm": True
+            },
+            "diff": f"- Se eliminará permanentemente el archivo: {path}"
+        }
+
     try:
-        if not os.path.exists(path):
-            return f"El archivo no existe: {path}"
         os.remove(path)
-        return f"Archivo eliminado exitosamente: {path}"
+        return {"status": "success", "message": f"Archivo eliminado exitosamente: {path}"}
     except Exception as e:
         return f"Error al eliminar el archivo '{path}': {e}"
 
@@ -193,6 +241,28 @@ def _create_directory(path: str) -> str:
         return f"Directorio creado exitosamente: {path}"
     except Exception as e:
         return f"Error al crear el directorio '{path}': {e}"
+
+
+def get_action_description(operation: str, path: Optional[str] = None, paths: Optional[List[str]] = None, **kwargs) -> str:
+    """Devuelve una descripción legible de la acción que realiza la herramienta."""
+    operation = operation.lower().strip()
+    if path:
+        path = path.strip().replace('@', '')
+    
+    if operation == "read_file":
+        return f"Leyendo el archivo {path}..."
+    elif operation == "write_file":
+        return f"Escribiendo en el archivo {path}..."
+    elif operation == "delete_file":
+        return f"Eliminando el archivo {path}..."
+    elif operation == "list_directory":
+        return f"Listando el contenido de {path}..."
+    elif operation == "read_many_files":
+        count = len(paths) if paths else 0
+        return f"Leyendo {count} archivos..."
+    elif operation == "create_directory":
+        return f"Creando el directorio {path}..."
+    return f"Realizando operación {operation}..."
 
 
 # Schema de parámetros para el LLM

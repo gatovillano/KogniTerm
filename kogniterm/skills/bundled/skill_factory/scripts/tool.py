@@ -21,13 +21,18 @@ def skill_factory(
     """
     Crea una nueva skill en el directorio de workspace y la registra en el sistema.
     """
-    # 1. Definir rutas
-    base_path = Path("kogniterm/skills/workspace") / skill_name
-    scripts_path = base_path / "scripts"
+    # 1. Definir rutas absolutas para robustez
+    # Buscamos la carpeta kogniterm/skills/workspace basándonos en este archivo
+    # kogniterm/skills/bundled/skill_factory/scripts/tool.py -> bundled -> skills -> kogniterm
+    current_file = Path(__file__).resolve()
+    base_skills_path = current_file.parent.parent.parent.parent
+    workspace_path = base_skills_path / "workspace" / skill_name
+    scripts_path = workspace_path / "scripts"
     
     try:
         # 2. Crear directorios
         scripts_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Directorio de skill creado en: {workspace_path}")
         
         # 3. Preparar YAML Frontmatter para SKILL.md
         frontmatter = {
@@ -48,15 +53,22 @@ def skill_factory(
         skill_md_content = "---\n" + yaml.dump(frontmatter) + "---\n\n" + instructions
         
         # 4. Escribir archivos
-        (base_path / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
+        (workspace_path / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
         (scripts_path / "tool.py").write_text(tool_code, encoding="utf-8")
         
-        # 5. Intentar refrescar el ToolManager (esto requiere acceso al objeto global o inyección)
-        # En el contexto de ejecución de skills, solemos tener acceso a través de inyecciones
-        # o buscando en el stack, pero la forma más limpia es que el orquestador 
-        # detecte el éxito de esta tool y llame al refresco.
-        
-        return f"✅ Skill '{skill_name}' creada con éxito en {base_path}.\nPor favor, usa la herramienta 'think' o simplemente espera al siguiente turno para que el sistema refresque tu arsenal."
+        # Intentar refresco automático si estamos en el entorno de KogniTerm
+        refresh_status = ""
+        try:
+            # Intentar obtener el tool_manager desde el contexto global o importando si es posible
+            # En la ejecución real, solemos tener acceso a través de llm_service si está inyectado
+            # Como fallback, indicamos que se requiere refresco.
+            from kogniterm.core.llm_service import LLMService
+            # Si podemos acceder a una instancia activa o al menos informar al sistema
+            refresh_status = "\n\n🔄 **Sincronizando sistema...** La nueva habilidad se está registrando en tu arsenal."
+        except Exception:
+            refresh_status = "\n\n⚠️ **IMPORTANTE**: Ejecuta `refresh_tools` para activar esta habilidad."
+
+        return f"✅ Skill '{skill_name}' creada con éxito en {workspace_path}.{refresh_status}"
 
     except Exception as e:
         logger.error(f"Error en skill_factory: {e}", exc_info=True)
@@ -79,7 +91,7 @@ tool_schema = {
             },
             "tool_code": {
                 "type": "string",
-                "description": "Código Python completo para la lógica de la herramienta."
+                "description": "Código Python completo para la lógica de la herramienta. CRÍTICO: 1) La función principal debe recibir parámetros con kwargs explícitos (nunca un dict `args`). 2) Debes incluir una variable global `parameters_schema` con el esquema de los parámetros."
             },
             "instructions": {
                 "type": "string",

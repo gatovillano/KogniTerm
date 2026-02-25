@@ -145,7 +145,7 @@ def advanced_file_editor(
         except re.error as e:
             return {"error": f"Error de expresión regular inválida: {e}"}
         except Exception as e:
-            return {"error": f"Error al aplicar regex: {e}. Intenta escapar las barras invertidas en el contenido de reemplazo (ej. usa \\s en lugar de \s)."}
+            return {"error": f"Error al aplicar regex: {e}. Intenta escapar las barras invertidas en el contenido de reemplazo (ej. usa \\\\s en lugar de \\s)."}
 
     elif action == "prepend_content":
         if content is None:
@@ -198,6 +198,20 @@ def advanced_file_editor(
         "diff": diff,
         "new_content": new_content,
     }
+
+
+def get_action_description(path: str, action: str, **kwargs) -> str:
+    """Devuelve una descripción legible de la acción que realiza la herramienta."""
+    path = path.strip().replace('@', '')
+    if action == "insert_line":
+        return f"Insertando línea en {path}..."
+    elif action == "replace_regex":
+        return f"Reemplazando contenido con regex en {path}..."
+    elif action == "prepend_content":
+        return f"Añadiendo contenido al inicio de {path}..."
+    elif action == "append_content":
+        return f"Añadiendo contenido al final de {path}..."
+    return f"Editando archivo {path}..."
 
 
 # ---------------------------------------------------------------------------

@@ -34,9 +34,6 @@ from rich.panel import Panel
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState, UserConfirmationRequired
-from kogniterm.core.tools.file_operations_tool import FileOperationsTool
-from kogniterm.core.tools.python_executor import PythonTool
-from kogniterm.core.tools.advanced_file_editor_tool import AdvancedFileEditorTool # Importar AdvancedFileEditorTool
 from langchain_core.messages import ToolMessage, HumanMessage, AIMessage
 
 from kogniterm.terminal.terminal_ui import TerminalUI
@@ -65,8 +62,8 @@ class FileCompleter(Completer):
         # "docs/", "examples/", "tests/", # Comentar si se quieren incluir estos directorios
     ]
 
-    def __init__(self, file_operations_tool: FileOperationsTool, workspace_directory: str, show_indicator: bool = True):
-        self.file_operations_tool = file_operations_tool
+    def __init__(self, tool_manager, workspace_directory: str, show_indicator: bool = True):
+        self.tool_manager = tool_manager
         self.workspace_directory = workspace_directory
         self.show_indicator = show_indicator
         self._cached_files: Optional[List[str]] = None
@@ -115,17 +112,29 @@ class FileCompleter(Completer):
         """Realiza la carga real de archivos de forma síncrona en un hilo secundario."""
         # logger.debug(f"FileCompleter: Ejecutando _do_load_files en hilo: {threading.current_thread().name}")
         try:
-            raw_items = self.file_operations_tool._list_directory(
-                path=self.workspace_directory,
-                recursive=True,
-                include_hidden=False, # No permitir incluir archivos ocultos
-                silent_mode=True
-            )
-            
+            # Importar funcionalidad de listado desde la skill de operaciones de archivo
+            try:
+                from kogniterm.skills.bundled.file_operations.scripts.tool import _list_directory
+                
+                output = _list_directory(
+                    path=self.workspace_directory,
+                    recursive=True
+                )
+                
+                if isinstance(output, str):
+                    raw_items = output.split('\n')
+                else:
+                    raw_items = []
+            except ImportError:
+                logger.error("FileCompleter: No se pudo importar _list_directory de la skill file_operations.")
+                return []
+                
             all_relative_items = []
             for item in raw_items:
                 item = item.strip()
                 if item:
+                    # Ignorar directorios (terminan en /) para el completado de archivos puros si se desea, 
+                    # pero aquí los mantenemos si el patrón EXCLUDE los permite.
                     if any(fnmatch.fnmatch(item, pattern) for pattern in self.EXCLUDE_PATTERNS):
                         continue
                     all_relative_items.append(item)
@@ -289,7 +298,6 @@ class FileCompleter(Completer):
             self._executor.shutdown(wait=True)
             # print("ThreadPoolExecutor de autocompletado detenido.")
 
-from kogniterm.core.tools.file_update_tool import FileUpdateTool
 
 class KogniTermApp:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor, agent_state: AgentState, auto_approve: bool = False, workspace_directory: str = None):
@@ -304,18 +312,21 @@ class KogniTermApp:
         # Inicializar el resto de atributos
         self.command_executor = command_executor
         self.agent_state = agent_state
-        self.file_update_tool = FileUpdateTool()
         self.auto_approve = auto_approve
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
+        
+        # Obtener herramientas desde ToolManager
+        self.file_update_tool = self.llm_service.get_tool("file_update")
+        file_operations_tool = self.llm_service.get_tool("file_operations")
+        advanced_file_editor_tool = self.llm_service.get_tool("advanced_file_editor")
 
         # Inicializar SessionManager
         from kogniterm.core.session_manager import SessionManager
         self.session_manager = SessionManager(self.workspace_directory or os.getcwd())
 
         # Inicializar FileCompleter con el workspace_directory
-        file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
-        self.completer = FileCompleter(file_operations_tool=file_operations_tool, workspace_directory=self.workspace_directory, show_indicator=False)
+        self.completer = FileCompleter(tool_manager=self.llm_service.tool_manager, workspace_directory=self.workspace_directory, show_indicator=False)
         
         # Estado de indexación para la barra de progreso
         self.indexing_status = None
@@ -324,11 +335,7 @@ class KogniTermApp:
         self._setup_signal_handlers()
 
 
-        # Instanciar AdvancedFileEditorTool
-        advanced_file_editor_tool = AdvancedFileEditorTool()
-        
-        # Inicializar file_operations_tool
-        file_operations_tool = FileOperationsTool(llm_service=self.llm_service)
+
         
         # Definir un estilo mejorado para el prompt usando temas (antes de prompt_session)
         if THEMES_AVAILABLE:
@@ -703,9 +710,13 @@ class KogniTermApp:
                 # Manejo de la salida de PythonTool
                 final_response_message = self.agent_state.messages[-1]
                 if isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "python_executor":
-                    python_tool_instance = self.llm_service.get_tool("python_executor")
-                    if isinstance(python_tool_instance, PythonTool) and hasattr(python_tool_instance, 'get_last_structured_output'):
-                        structured_output = python_tool_instance.get_last_structured_output()
+                    try:
+                        from kogniterm.skills.bundled.python_executor.scripts.tool import _get_last_structured_output
+                        structured_output_raw = _get_last_structured_output()
+                        
+                        # Re-formatear para que coincida con lo que espera la UI (un dict con "result")
+                        structured_output = {"result": structured_output_raw} if structured_output_raw else None
+                        
                         if structured_output and "result" in structured_output:
                             self.terminal_ui.console.print(Padding(Panel("[bold green]Salida del Código Python:[/bold green]", border_style='green'), (1, 2)))
                             for item in structured_output["result"]:
@@ -725,8 +736,10 @@ class KogniTermApp:
                                     else:
                                         self.terminal_ui.console.print(f"[magenta]DATOS DE VISUALIZACIÓN:[/magenta] {str(item['data'])}")
                             self.terminal_ui.console.print(Padding(Panel("[bold green]Fin de la Salida Python[/bold green]", border_style='green'), (1, 2)))
-                        elif "error" in structured_output:
+                        elif structured_output and "error" in structured_output:
                             self.terminal_ui.console.print(f"[red]Error en la ejecución de Python:[/red] {structured_output['error']}")
+                    except Exception as e:
+                        logger.error(f"Error al procesar salida estructurada de Python: {e}")
                     continue
                 elif isinstance(final_response_message, ToolMessage) and final_response_message.tool_call_id == "file_operations":
                     continue

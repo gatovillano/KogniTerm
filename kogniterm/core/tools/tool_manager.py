@@ -97,12 +97,12 @@ class ToolManager:
                     if success:
                         logger.debug(f"Skill cargada: {skill.name}")
 
-                # Registrar herramientas de skills en tool_map evitando duplicados
+                # Registrar herramientas de skills en tool_map
+                # Al refrescar, vaciamos para asegurar que solo queden las actuales
                 for tool_name, tool_info in self.skill_manager.tool_registry.items():
-                    if tool_name not in self.tool_map:
-                        self.tools.append(tool_info['tool'])
-                        self.tool_map[tool_name] = tool_info['tool']
-                        logger.debug(f"Herramienta de skill registrada: {tool_name}")
+                    self.tools.append(tool_info['tool'])
+                    self.tool_map[tool_name] = tool_info['tool']
+                    logger.debug(f"Herramienta de skill registrada: {tool_name}")
             except Exception as e:
                 print(f"Error cargando skills: {e}")
                 import traceback
@@ -186,11 +186,23 @@ class ToolManager:
         """
         if self.skill_manager and SKILLS_AVAILABLE:
             logger.info("Refrescando sistema de skills...")
+            
+            # Limpiar listas internas para forzar recarga limpia
+            self.tools = []
+            self.tool_map = {}
+            self.legacy_tools = []
+            self.legacy_tool_map = {}
+            
             # 1. Re-descubrir skills
             self.skill_manager.discover_all_skills()
             
-            # 2. Cargar las herramientas (solo las nuevas se añadirán a tool_map gracias a la lógica en load_tools)
+            # 2. Cargar las herramientas
             self.load_tools(load_legacy=False, load_skills=True, agent_context=agent_context)
+            
+            # 3. Invalidar la caché del LLMService para que regenere los esquemas
+            if self.llm_service:
+                self.llm_service.litellm_tools = None
+                logger.info("Caché de herramientas de LLMService invalidada.")
             
             logger.info(f"Refresco completado. Total herramientas: {len(self.tool_map)}")
             return True

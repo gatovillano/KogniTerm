@@ -48,6 +48,7 @@ Tu objetivo es resolver consultas complejas mediante un proceso iterativo de:
 - **Deep Dive**: Si ves una referencia a un componente que no conoces, ¡investígalo! No asumas.
 - **Evidencia**: Cada afirmación en tu reporte final debe estar respaldada por código local, documentación oficial o resultados de búsqueda.
 - **Estructura**: Usa Mermaid para diagramas, tablas para comparativas y bloques de código para ejemplos.
+- **Evolución**: Como motor de investigación avanzado, puedes automatizar tus propios flujos. Si necesitas realizar análisis especializados repetitivos, usa `skill_factory` para crear herramientas de investigación a medida y úsalas de forma nativa.
 """
     
     if not llm_service.is_thinking_model():

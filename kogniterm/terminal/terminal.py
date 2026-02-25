@@ -59,7 +59,6 @@ from kogniterm.terminal.kogniterm_app import KogniTermApp
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor # Importar CommandExecutor
 from kogniterm.core.agent_state import AgentState # Importar AgentState
-from kogniterm.core.tools.file_read_directory_tool import FileReadDirectoryTool
 from prompt_toolkit.completion import Completer, Completion
 import os
 from rich.text import Text
@@ -84,72 +83,7 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 
 console = Console()
 
-class FileCompleter(Completer):
-    def __init__(self, *, file_read_directory_tool: FileReadDirectoryTool, workspace_directory: str, show_indicator: bool = True):
-        self.file_read_directory_tool = file_read_directory_tool
-        self.show_indicator = show_indicator
-        self.workspace_directory = workspace_directory
-        self._cached_files = None  # Caché para almacenar la lista de archivos
-        self._cache_lock = threading.Lock() # Bloqueo para proteger el acceso a la caché
 
-    def invalidate_cache(self):
-        """Invalida la caché de archivos, forzando una recarga la próxima vez que se necesite."""
-        with self._cache_lock:
-            self._cached_files = None
-
-    def _load_files_into_cache(self):
-        """Carga todos los archivos y directorios relativos al workspace_directory en la caché."""
-        with self._cache_lock:
-            if self._cached_files is not None:
-                return self._cached_files
-
-            all_relative_items = []
-            for root, dirs, files in os.walk(self.workspace_directory):
-                for file in files:
-                    rel_path = os.path.relpath(os.path.join(root, file), self.workspace_directory)
-                    all_relative_items.append(rel_path)
-                for dir in dirs:
-                    rel_path = os.path.relpath(os.path.join(root, dir), self.workspace_directory)
-                    all_relative_items.append(rel_path + '/')
-            self._cached_files = all_relative_items
-            return self._cached_files
-
-    def get_completions(self, document, complete_event):
-        text_before_cursor = document.text_before_cursor
-        
-        if '@' not in text_before_cursor:
-            return # No estamos en modo de autocompletado de archivos
-
-        current_input_part = text_before_cursor.split('@')[-1]
-        
-        # Asegurarse de que la caché se cargue solo cuando se necesite
-        if self._cached_files is None:
-            self._load_files_into_cache()
-            # self._start_watcher() # Iniciar el watcher solo después de la primera carga
-
-        all_relative_items = self._cached_files # Usar la caché
-            
-        suggestions = []
-        for relative_item_path in all_relative_items:
-            # Construir la ruta absoluta para verificar si es un directorio
-            absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
-            
-            display_item = relative_item_path
-            if os.path.isdir(absolute_item_path): # Verificar si es directorio para añadir '/'
-                display_item += '/'
-
-            if current_input_part.lower() in display_item.lower():
-                suggestions.append(display_item)
-        
-        suggestions.sort()
-
-        for suggestion in suggestions:
-            start_position = -len(current_input_part)
-            yield Completion(suggestion, start_position=start_position)
-
-    def dispose(self):
-        """Detiene el FileSystemWatcher cuando la aplicación se cierra."""
-        pass
 
 
 
