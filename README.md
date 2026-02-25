@@ -51,7 +51,7 @@ KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herra
 
 ## 🎬 Demo
 
-![KogniTerm Demo](kogniterm/kogniterm.gif)
+![KogniTerm Demo](kogniterm.gif)
 
 ## 🚀 Instalación
 
