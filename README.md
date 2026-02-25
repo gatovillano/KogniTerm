@@ -51,12 +51,11 @@ KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herra
 
 ## 🎬 Demo
 
-![KogniTerm Demo](kogniterm/kogniterm.mp4)
+<video width="320" height="240" controls>
+  <source src="kogniterm/kogniterm.mp4" type="video/mp4">
+  Tu navegador no soporta la etiqueta de video.
+</video>
 
-*KogniTerm en acción: agentes colaborando en tiempo real para resolver tareas complejas.*
-
-> GIF preview - [Ver video completo (14:48) en YouTube](URL_DEL_VIDEO)
->
 ## 🚀 Instalación
 
 ```bash
