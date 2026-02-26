@@ -1553,7 +1553,20 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
                     result = tool.run(**tool_args)
                 elif callable(tool):
                     # Funciones directas (común en el sistema de skills)
-                    result = tool(**tool_args)
+                    import inspect
+                    sig = inspect.signature(tool)
+                    injected_args = tool_args.copy()
+                    
+                    if 'llm_service' in sig.parameters:
+                        injected_args['llm_service'] = self
+                    if 'terminal_ui' in sig.parameters:
+                        injected_args['terminal_ui'] = getattr(self, 'terminal_ui', None)
+                    if 'interrupt_queue' in sig.parameters:
+                        injected_args['interrupt_queue'] = getattr(self, 'interrupt_queue', None)
+                    if 'approval_handler' in sig.parameters and hasattr(self, 'tool_manager') and hasattr(self.tool_manager, 'approval_handler'):
+                        injected_args['approval_handler'] = self.tool_manager.approval_handler
+                        
+                    result = tool(**injected_args)
                 else:
                     raise Exception(f"La herramienta '{getattr(tool, 'name', tool.__class__.__name__)}' no es ejecutable.")
 

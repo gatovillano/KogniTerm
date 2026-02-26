@@ -1923,3 +1923,46 @@ También se eliminó la skill de prueba generada automáticamente (`disk_usage_a
 
 2. `kogniterm/terminal/command_approval_handler.py`
    - Se reparó el enrutamiento para `file_operations`, dividiendo las respuestas afirmativas hacia `_delete_file` o `_write_file` con el argumento explicitado `confirm=True`.
+
+---
+
+## 25-02-2026 Estabilización de UI en Redimensionamiento de Ventana y Publicación v0.3.4
+
+**Descripción**: Se mejoró la estabilidad de la interfaz de usuario basada en Rich al cambiar el tamaño de la ventana de la terminal. Se actualizó el manejo de la señal `SIGWINCH` para que la consola de Rich y el prompt de `prompt_toolkit` se redibujaran dinámicamente.
+
+### Cambios Implementados
+
+- **Punto 1**: Se mejoró el método `handle_resize` en `kogniterm/terminal/terminal_ui.py` para que recree la consola de Rich con el nuevo ancho/alto y active `soft_wrap=True` globalmente en la consola, evitando que el texto se desborde de los bordes de los paneles.
+- **Punto 2**: Se añadió en `kogniterm/terminal/kogniterm_app.py` la llamada a `prompt_session.app.invalidate()` tras el redimensionamiento, forzando a `prompt_toolkit` a redibujar la barra de herramientas y el prompt en las nuevas dimensiones.
+- **Punto 3**: Se ajustó el cálculo del ancho de los paneles de confirmación para que sean `console.width - 4` en lugar de `console.width`, evitando que el padding externo cause desbordamiento.
+- **Punto 4**: Se corrigió un `TypeError` introducido al intentar usar el argumento inexistente `soft_wrap` en la clase `Panel` de Rich; se eliminó ese argumento ya que el ajuste se gestiona a nivel de consola.
+- **Punto 5**: Se actualizó la versión del paquete de `0.3.3` a `0.3.4` en `pyproject.toml` y se publicó exitosamente en PyPI: <https://pypi.org/project/kogniterm/0.3.4/>
+
+---
+
+## 25-02-2026 Refinamiento Visual Avanzado del Entorno KogniTerm
+
+**Descripción**: Se implementaron un conjunto de mejoras estéticas y dinámicas en la consola interactiva de KogniTerm para ofrecer una experiencia en la terminal mucho más premium, estilizada e informativa.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/visual_components.py`](kogniterm/terminal/visual_components.py)
+   - Adición de las funciones `create_system_status_dashboard` y `get_bottom_toolbar_tokens`.
+   - Modificación de elementos decorativos como `create_thought_bubble` eliminando el uso de `box=None` para evitar incompatibilidades con `Live` de Python Rich durante renderizaciones asíncronas.
+2. [`kogniterm/terminal/kogniterm_app.py`](kogniterm/terminal/kogniterm_app.py)
+   - Integración nativa del progreso de indexación hacia la barra de herramientas.
+   - Envío de información de red dinámica y proveedores del sistema (`llm_service.model_name`) a los componentes de front-end de la terminal.
+3. [`kogniterm/terminal/terminal_ui.py`](kogniterm/terminal/terminal_ui.py)
+   - Renovación radical de `print_welcome_banner` para incluir el estado completo en Dashboard y redacción descriptiva estandarizada. 
+
+#### **📋 Cambios Específicos**
+
+1. **Toolbar Inteligente Mejorada**: Se alteraron los consejos ("Salir" por "Interrumpir") y se agregó un sistema dinámico para la indexación donde el usuario recibe un progreso animado (`[██████░░░░] 60%`).
+2. **Dashboard de Sistema Realista**: KogniTerm dejó de mostrar "OpenAI" escrito a fuego para inyectar realmente los componentes que el sistema lee dinámicamente como proveedor del LLM en los distintos flujos.
+3. **Resolución de Bloqueos de 'rich'**: Prevención completa el `AttributeError: 'NoneType' object has no attribute 'substitute'` al renderizar burbujas animadas (Thoughts), garantizando cero roturas durante largas explicaciones o pensamiento profundo.
+
+#### **🎯 Beneficios de la Mejora**
+✅ **UI/UX Altamente Atractiva**: Apariencia y animaciones premium en un entorno CLI clásico.
+✅ **Transparencia en Estado**: El usuario tiene al alcance de un vistazo la confirmación del proveedor LLM que dicta las respuestas, y un feedback amigable cuando se indexen archivos.

@@ -59,8 +59,7 @@ class CommandExecutor:
                 cwd=cwd
             )
 
-            # Informar al usuario cómo interrumpir
-            yield "💡 Tip: Presiona ESC, Ctrl+C o Ctrl+D para interrumpir el comando.\n\n"
+            # Iniciar el proceso del comando en el PTY (sin mostrar el Tip)
 
             # Bucle principal de E/S
             while self.process.poll() is None:
@@ -72,51 +71,60 @@ class CommandExecutor:
                     break
 
                 try:
-                    # Usar select para esperar E/S en el PTY o en stdin
-                    readable_fds, _, _ = select.select([master_fd, sys.stdin.fileno()], [], [])
+                    # Usar select para esperar E/S en el PTY o en stdin con un timeout pequeño
+                    # El timeout permite que el bucle verifique poll() periódicamente incluso sin actividad
+                    readable_fds, _, _ = select.select([master_fd, sys.stdin.fileno()], [], [], 0.1)
 
                     # Manejar la salida del comando
                     if master_fd in readable_fds:
                         try:
-                            output = os.read(master_fd, 1024).decode(errors='replace')
+                            output = os.read(master_fd, 4096).decode(errors='replace')
                             if output:
-                                # Sin límite de longitud - mostrar toda la salida
                                 output_buffer += output
-                                sys.stdout.write(output) # Imprimir para interactividad en tiempo real
-                                sys.stdout.flush() # Asegurar que se imprime inmediatamente
-                                yield output # Ceder la salida para acumular en full_command_output
-                            else:
-                                # Si no hay salida, y el proceso sigue vivo, esperamos un poco
-                                time.sleep(0.01) # Pequeño retardo para evitar bucle busy-wait
+                                sys.stdout.write(output)
+                                sys.stdout.flush()
+                                yield output
                         except OSError:
-                            # Error al leer, probablemente el proceso terminó abruptamente
                             break
-                    else:
-                        # Si no hay nada que leer de master_fd, esperamos un poco
-                        time.sleep(0.01)
 
                     # Manejar la entrada del usuario
                     if sys.stdin.fileno() in readable_fds:
                         user_input = os.read(sys.stdin.fileno(), 1024)
                         if user_input:
-                            # Detectar Ctrl+C (\x03), Ctrl+D (\x04) o ESC (\x1b) para interrumpir
-                            # Para ESC, verificamos que sea exactamente un byte para no romper secuencias de escape (flechas, etc.)
                             if b'\x03' in user_input or b'\x04' in user_input or user_input == b'\x1b':
                                 key_name = "Ctrl+C" if b'\x03' in user_input else ("Ctrl+D" if b'\x04' in user_input else "ESC")
                                 self.terminate()
-                                # Propagar la interrupción a la cola global si existe
                                 if interrupt_queue:
                                     interrupt_queue.put(True)
                                 yield f"\n\n⚠️  Comando interrumpido por el usuario ({key_name}).\n"
                                 break
-                            # Reenviar la entrada al comando
                             os.write(master_fd, user_input)
 
                 except select.error as e:
-                    # EINTR es una interrupción de llamada al sistema, a menudo por un redimensionamiento de ventana
                     if e.args[0] == 4: # EINTR
                         continue
-                    raise # Relanzar otras excepciones de select
+                    raise
+
+            # --- Drenaje final del PTY ---
+            # Una vez que el proceso termina, puede quedar salida pendiente en el puerto PTY.
+            # Hacemos una lectura final no bloqueante para asegurar que capturamos todo.
+            try:
+                # Esperar un momento muy corto para que terminen de llegar los últimos bytes
+                time.sleep(0.05)
+                while True:
+                    # Usar select con timeout 0 para verificar si hay algo más sin bloquear
+                    r, _, _ = select.select([master_fd], [], [], 0)
+                    if not r:
+                        break
+                    output = os.read(master_fd, 4096).decode(errors='replace')
+                    if output:
+                        sys.stdout.write(output)
+                        sys.stdout.flush()
+                        yield output
+                    else:
+                        break
+            except (OSError, select.error):
+                pass
 
             # Esperar a que el proceso termine completamente
             self.process.wait()

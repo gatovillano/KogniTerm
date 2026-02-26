@@ -48,6 +48,7 @@ def get_system_message(llm_service: LLMService) -> SystemMessage:
     - Las herramientas creadas con `skill_factory` aparecen en tu **esquema de herramientas** y DEBES invocarlas igual que `execute_command` o `file_operations`: **directamente por su nombre** (ej. `nombre_skill(param=valor)`).
     - **NUNCA uses `execute_command` ni `call_agent` para ejecutar una skill que ya está en tu arsenal.**
     - Si acabas de crear una skill y no aparece en tu lista, usa `refresh_tools` una vez y luego invócala directamente.
+10. **Memoria y Proactividad**: Eres el guardián del contexto. Usa proactivamente las herramientas de memoria (`memory_init`, `memory_append`, `memory_summarize`) para guardar decisiones clave, preferencias del usuario o progreso importante del proyecto. NO esperes a que el usuario te lo pida. Escribe en tu memoria cuando percibas que se ha logrado un hito, o cuando haya información valiosa.
 """
     
     # Solo añadir la instrucción de pensar si el modelo NO es de razonamiento nativo
@@ -468,17 +469,47 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 except Exception as e:
                     logger.warning(f"Error al obtener descripción de acción para {tool_call['name']}: {e}")
 
+            # CASO ESPECIAL: execute_command
+            # No ejecutamos los comandos de terminal a través de executor.submit/execute_single_tool
+            # porque eso los ejecutaría de forma silenciosa primero, bloqueando al agente.
+            # En su lugar, simplemente los marcamos para confirmación y dejamos que la terminal
+            # (KogniTermApp + CommandApprovalHandler) maneje la ejecución interactiva real.
+            if tool_name == "execute_command":
+                state.command_to_confirm = tool_args['command']
+                state.tool_call_id_to_confirm = tool_call['id']
+                # Añadimos un mensaje de "Ejecutando..." para feedback visual
+                try:
+                    from kogniterm.terminal.themes import Icons, ColorPalette
+                    from rich.panel import Panel
+                    from rich.text import Text
+                    
+                    cmd_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Preparando comando de terminal:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+                    if bajada:
+                        cmd_label.append("\n  ")
+                        cmd_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
+                    
+                    terminal_ui.console.print(cmd_label)
+                except ImportError:
+                    terminal_ui.console.print(f"\n[bold blue]🛠️ Preparando comando:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
+                
+                # Para execute_command, no necesitamos enviar una tarea al executor
+                continue
+
             # Mejorar el mensaje de ejecución de herramienta con iconos y colores temáticos
             try:
                 from kogniterm.terminal.themes import Icons, ColorPalette
-                terminal_ui.console.print(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+                from rich.panel import Panel
+                from rich.text import Text
+                
+                tool_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
                 if bajada:
-                    terminal_ui.console.print(f"[italic {ColorPalette.TEXT_SECONDARY}]   └─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]")
+                    tool_label.append("\n  ")
+                    tool_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
+                
+                terminal_ui.console.print(tool_label)
             except ImportError:
                 # Fallback al mensaje original
                 terminal_ui.console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
-                if bajada:
-                    terminal_ui.console.print(f"[italic grey]   └─ {bajada}[/italic grey]")
             futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
 
         for future in as_completed(futures):
@@ -601,15 +632,14 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
             else:
                 tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-                # Lógica para confirmación si es execute_command
+                # Lógica para herramientas que requieren confirmación
                 tool_call_info = next(tc for tc in last_message.tool_calls if tc['id'] == tool_id)
                 tool_name = tool_call_info['name']
                 tool_args = tool_call_info['args']
-                if tool_name == "execute_command":
-                    state.command_to_confirm = tool_args['command']
-                    state.tool_call_id_to_confirm = tool_id
-                else:
-                    # Lógica para herramientas que requieren confirmación
+                
+                # Para herramientas que no son execute_command (que ya manejamos arriba), 
+                # verificamos si requieren confirmación basada en su output JSON
+                if tool_name != "execute_command":
                     try:
                         json_output = json.loads(content)
                         should_confirm = False
@@ -624,6 +654,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             if json_output.get("status") == "requires_confirmation":
                                 should_confirm = True
                                 confirmation_data = json_output
+                        
                         if should_confirm and confirmation_data:
                             state.file_update_diff_pending_confirmation = confirmation_data
                             state.tool_pending_confirmation = tool_name
