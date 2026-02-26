@@ -1,9 +1,9 @@
 [project]
 name = "kogniterm"
-version = "0.3.4"
+version = "0.3.5"
 description = "KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀"
 authors = [
-    { name = "Gato Villano", email = "gato@example.com" }
+    { name = "Gato Villano", email = "stola@disroot.org" }
 ]
 dependencies = [
     "python-dotenv",

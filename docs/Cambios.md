@@ -38,7 +38,7 @@
 ✅ **Consistencia de mensajes**: El sistema de rewind mantiene consistencia entre API history y UI messages
 ✅ **Manejo de conversaciones largas**: Sistema de condensación de contexto
 ✅ **Tracking de costos**: Mantiene el costo total de API aunque los mensajes se eliminen
-✅ **Arquitectura escalable**: Patrón similar a KiloCode para futuras integraciones
+✅ **Arquitectura scalables**: Patrón similar a KiloCode para futuras integraciones
 
 ---
 
@@ -1966,3 +1966,14 @@ También se eliminó la skill de prueba generada automáticamente (`disk_usage_a
 #### **🎯 Beneficios de la Mejora**
 ✅ **UI/UX Altamente Atractiva**: Apariencia y animaciones premium en un entorno CLI clásico.
 ✅ **Transparencia en Estado**: El usuario tiene al alcance de un vistazo la confirmación del proveedor LLM que dicta las respuestas, y un feedback amigable cuando se indexen archivos.
+
+---
+
+## 26-02-26 Actualización de Versión 0.3.5 y Publicación en PyPI
+**Descripción**: Se ha preparado y publicado la versión 0.3.5 de KogniTerm en PyPI, incluyendo la actualización de la información de contacto del autor.
+
+- **Punto 1**: Actualización de la versión a `0.3.5` en `pyproject.toml` y `kogniterm/__init__.py`.
+- **Punto 2**: Cambio del correo electrónico del autor a `stola@disroot.org` en la configuración del proyecto.
+- **Punto 3**: Construcción exitosa de los paquetes de distribución (`sdist` y `wheel`) utilizando el entorno virtual `venv`.
+- **Punto 4**: Publicación exitosa en PyPI mediante `twine` utilizando el token de autenticación proporcionado por el usuario.
+- **Punto 5**: Verificación de la disponibilidad de la nueva versión en la URL oficial: https://pypi.org/project/kogniterm/0.3.5/
