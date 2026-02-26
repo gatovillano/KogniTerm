@@ -79,7 +79,9 @@ class CommandApprovalHandler:
             'whoami', 'date', 'head', 'tail', 'wc', 'diff', 'cd', 'tree', 
             'history', 'ps', 'top', 'htop', 'man', 'help', 'which', 'type',
             'echo', 'printf', 'stat', 'du', 'df', 'free', 'uname', 'hostname',
-            'uptime', 'jobs', 'bg', 'fg', 'clear'
+            'uptime', 'jobs', 'bg', 'fg', 'clear', 'git status', 'git diff',
+            'git log', 'git branch', 'git remote -v', 'git show --stat',
+            'cat', 'env', 'grep', 'ls', 'ls -la', 'ls -l', 'ls -R'
         }
 
         # Verificar redirecciones de salida que podrían sobrescribir archivos
@@ -100,7 +102,12 @@ class CommandApprovalHandler:
             if not tokens:
                 continue
                 
+            # Manejar comandos de varios tokens (ej: 'git status')
             cmd = tokens[0]
+            if cmd == "git" and len(tokens) > 1:
+                cmd_full = f"{tokens[0]} {tokens[1]}"
+                if cmd_full in SAFE_COMMANDS:
+                    continue
             
             # Manejar asignaciones de variables al inicio (ej: VAR=val cmd)
             # Si el comando contiene =, asumimos que es una asignación y miramos el siguiente token si existe

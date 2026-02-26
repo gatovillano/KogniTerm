@@ -178,7 +178,7 @@ def create_info_panel(
         border_style=border_color,
         expand=expand,
         padding=(1, 2),
-        box=None if status == "minimal" else None # Podemos usar diferentes estilos de caja aquí
+        box=None if status == "minimal" else None
     )
     
     return Padding(panel, padding)

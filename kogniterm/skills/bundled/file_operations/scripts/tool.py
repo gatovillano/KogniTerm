@@ -35,7 +35,11 @@ def file_operations(
     content: Optional[str] = None,
     paths: Optional[List[str]] = None,
     recursive: bool = False,
-    confirm: bool = False
+    confirm: bool = False,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+    destination: Optional[str] = None,
+    pattern: Optional[str] = None
 ) -> str | Dict[str, Any]:
     """
     Realiza operaciones CRUD en archivos y directorios.
@@ -56,7 +60,7 @@ def file_operations(
 
     try:
         if operation == "read_file":
-            return _read_file(path)
+            return _read_file(path, start_line, end_line)
         elif operation == "write_file":
             return _write_file(path, content, confirm)
         elif operation == "delete_file":
@@ -67,6 +71,16 @@ def file_operations(
             return _read_many_files(paths or [])
         elif operation == "create_directory":
             return _create_directory(path)
+        elif operation == "move_file":
+            return _move_file(path, destination, confirm)
+        elif operation == "copy_file":
+            return _copy_file(path, destination, confirm)
+        elif operation == "append_file":
+            return _append_file(path, content, confirm)
+        elif operation == "get_file_info":
+            return _get_file_info(path)
+        elif operation == "search_in_file":
+            return _search_in_file(path, pattern)
         else:
             return f"Operación no soportada: {operation}"
     except FileNotFoundError as e:
@@ -77,8 +91,8 @@ def file_operations(
         return f"Error en la operación '{operation}': {e}"
 
 
-def _read_file(path: str) -> Dict[str, Any]:
-    """Lee un archivo y devuelve su contenido."""
+def _read_file(path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> Dict[str, Any]:
+    """Lee un archivo y devuelve su contenido. Puede leer una sección si se indican start_line y end_line (1-indexed)."""
     if not path:
         return {"error": "Path no proporcionado"}
 
@@ -86,8 +100,27 @@ def _read_file(path: str) -> Dict[str, Any]:
 
     try:
         with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return {"file_path": path, "content": content}
+            lines = f.readlines()
+            total_lines = len(lines)
+            
+        if start_line is not None or end_line is not None:
+            start = max(0, (start_line or 1) - 1)
+            end = min(total_lines, (end_line or total_lines))
+            
+            if start >= total_lines or start >= end:
+                content = ""
+            else:
+                content = "".join(lines[start:end])
+                
+            return {
+                "file_path": path, 
+                "content": content,
+                "lines_read": f"{start + 1}-{end}",
+                "total_lines": total_lines
+            }
+
+        content = "".join(lines)
+        return {"file_path": path, "content": content, "total_lines": total_lines}
     except FileNotFoundError:
         return {"error": f"El archivo '{path}' no fue encontrado."}
     except Exception as e:
@@ -243,6 +276,156 @@ def _create_directory(path: str) -> str:
         return f"Error al crear el directorio '{path}': {e}"
 
 
+def _move_file(path: str, destination: str, confirm: bool = False) -> str | Dict[str, Any]:
+    """Mueve o renombra un archivo o directorio."""
+    if not path or not destination:
+        return "Error: Path o destination no proporcionados"
+
+    path = path.strip().replace('@', '')
+    destination = destination.strip().replace('@', '')
+
+    if not confirm:
+        return {
+            "status": "requires_confirmation",
+            "action_description": f"mover/renombrar '{path}' a '{destination}'",
+            "operation": "file_operations",
+            "args": {
+                "operation": "move_file",
+                "path": path,
+                "destination": destination,
+                "confirm": True
+            },
+            "diff": f"- {path}\n+ {destination}"
+        }
+
+    try:
+        parent_dir = os.path.dirname(destination)
+        if parent_dir and not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+        shutil.move(path, destination)
+        return {"status": "success", "message": f"Movido exitosamente a: {destination}"}
+    except Exception as e:
+        return f"Error al mover '{path}': {e}"
+
+
+def _copy_file(path: str, destination: str, confirm: bool = False) -> str | Dict[str, Any]:
+    """Copia un archivo o directorio de forma recursiva."""
+    if not path or not destination:
+        return "Error: Path o destination no proporcionados"
+
+    path = path.strip().replace('@', '')
+    destination = destination.strip().replace('@', '')
+
+    if not confirm:
+        return {
+            "status": "requires_confirmation",
+            "action_description": f"copiar '{path}' a '{destination}'",
+            "operation": "file_operations",
+            "args": {
+                "operation": "copy_file",
+                "path": path,
+                "destination": destination,
+                "confirm": True
+            },
+            "diff": f"+ Copiar a: {destination}"
+        }
+
+    try:
+        if os.path.isdir(path):
+            shutil.copytree(path, destination, dirs_exist_ok=True)
+        else:
+            parent_dir = os.path.dirname(destination)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+            shutil.copy2(path, destination)
+        return {"status": "success", "message": f"Copiado exitosamente a: {destination}"}
+    except Exception as e:
+        return f"Error al copiar '{path}': {e}"
+
+
+def _append_file(path: str, content: str, confirm: bool = False) -> str | Dict[str, Any]:
+    """Añade contenido al final de un archivo."""
+    if not path:
+        return "Error: Path no proporcionado"
+    if content is None:
+        return "Error: Contenido no proporcionado"
+
+    path = path.strip().replace('@', '')
+
+    if not confirm:
+        return {
+            "status": "requires_confirmation",
+            "action_description": f"añadir contenido a '{path}'",
+            "operation": "file_operations",
+            "args": {
+                "operation": "append_file",
+                "path": path,
+                "content": content,
+                "confirm": True
+            },
+            "diff": f"+ {content[:200]}..."
+        }
+
+    try:
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(content)
+        return {"status": "success", "message": f"Contenido añadido exitosamente a: {path}"}
+    except Exception as e:
+        return f"Error al añadir a '{path}': {e}"
+
+
+def _get_file_info(path: str) -> Dict[str, Any]:
+    """Obtiene metadatos de un archivo o directorio."""
+    if not path:
+        return {"error": "Path no proporcionado"}
+
+    path = path.strip().replace('@', '')
+
+    if not os.path.exists(path):
+        return {"error": f"La ruta '{path}' no existe."}
+
+    try:
+        stat_info = os.stat(path)
+        return {
+            "path": path,
+            "is_dir": os.path.isdir(path),
+            "size_bytes": stat_info.st_size,
+            "size_mb": round(stat_info.st_size / (1024 * 1024), 2),
+            "created": stat_info.st_ctime,
+            "modified": stat_info.st_mtime
+        }
+    except Exception as e:
+        return {"error": f"Error al obtener información de '{path}': {e}"}
+
+
+def _search_in_file(path: str, pattern: str) -> Dict[str, Any]:
+    """Busca una cadena de regex en un archivo."""
+    import re
+    if not path or not pattern:
+        return {"error": "Path o pattern no proporcionados"}
+
+    path = path.strip().replace('@', '')
+
+    if not os.path.isfile(path):
+        return {"error": f"El archivo '{path}' no existe o es un directorio."}
+
+    matches = []
+    try:
+        regex = re.compile(pattern)
+        with open(path, 'r', encoding='utf-8') as f:
+            for i, line in enumerate(f, 1):
+                if regex.search(line):
+                    matches.append({"line_number": i, "content": line.rstrip()})
+                    if len(matches) >= 100:
+                        matches.append({"line_number": -1, "content": "...(más de 100 coincidencias, truncado)"})
+                        break
+        return {"file_path": path, "pattern": pattern, "matches": matches, "total_matches": len([m for m in matches if m['line_number'] != -1]) + (1 if len(matches) > 100 else 0)}
+    except re.error as e:
+        return {"error": f"Regex inválida '{pattern}': {e}"}
+    except Exception as e:
+        return {"error": f"Error al buscar en '{path}': {e}"}
+
+
 def get_action_description(operation: str, path: Optional[str] = None, paths: Optional[List[str]] = None, **kwargs) -> str:
     """Devuelve una descripción legible de la acción que realiza la herramienta."""
     operation = operation.lower().strip()
@@ -262,6 +445,16 @@ def get_action_description(operation: str, path: Optional[str] = None, paths: Op
         return f"Leyendo {count} archivos..."
     elif operation == "create_directory":
         return f"Creando el directorio {path}..."
+    elif operation == "move_file":
+        return f"Moviendo {path} a {kwargs.get('destination', 'nuevo destino')}..."
+    elif operation == "copy_file":
+        return f"Copiando {path} a {kwargs.get('destination', 'nuevo destino')}..."
+    elif operation == "append_file":
+        return f"Añadiendo contenido a {path}..."
+    elif operation == "get_file_info":
+        return f"Obteniendo información de {path}..."
+    elif operation == "search_in_file":
+        return f"Buscando patrón en {path}..."
     return f"Realizando operación {operation}..."
 
 
@@ -272,7 +465,7 @@ parameters_schema = {
         "operation": {
             "type": "string",
             "description": "La operación a realizar",
-            "enum": ["read_file", "write_file", "delete_file", "list_directory", "read_many_files", "create_directory"]
+            "enum": ["read_file", "write_file", "delete_file", "list_directory", "read_many_files", "create_directory", "move_file", "copy_file", "append_file", "get_file_info", "search_in_file"]
         },
         "path": {
             "type": "string",
@@ -291,6 +484,22 @@ parameters_schema = {
             "type": "boolean",
             "description": "Listar recursivamente (para list_directory)",
             "default": False
+        },
+        "start_line": {
+            "type": "integer",
+            "description": "Línea de inicio para leer (1-indexed, opcional, para read_file)"
+        },
+        "end_line": {
+            "type": "integer",
+            "description": "Línea de fin para leer (1-indexed, opcional, para read_file)"
+        },
+        "destination": {
+            "type": "string",
+            "description": "Ruta destino (requerido para move_file y copy_file)"
+        },
+        "pattern": {
+            "type": "string",
+            "description": "Patrón Regex o texto a buscar (requerido para search_in_file)"
         }
     },
     "required": ["operation"]

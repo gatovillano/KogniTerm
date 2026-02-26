@@ -377,7 +377,8 @@ class KogniTermApp:
             style=custom_style,
             key_bindings=combined_key_bindings,
             bottom_toolbar=self._get_bottom_toolbar, # Añadir bottom_toolbar
-            refresh_interval=0.5 # Refrescar la UI cada 0.5s para actualizar la barra
+            refresh_interval=0.5, # Refrescar la UI cada 0.5s para actualizar la barra
+            erase_when_done=True
         )
         
         # Ahora podemos crear CommandApprovalHandler
@@ -432,8 +433,10 @@ class KogniTermApp:
         """Maneja la señal de redimensionamiento de la ventana."""
         if hasattr(self, 'terminal_ui'):
             self.terminal_ui.handle_resize()
-            # Opcionalmente, podríamos imprimir un mensaje invisible para forzar el reflow
-            # sys.stdout.write("\033[A\033[K") # No, esto podría ensuciar la terminal
+            # Forzar el redibujado de prompt_toolkit para que recalculen posiciones
+            if hasattr(self, 'prompt_session') and self.prompt_session.app:
+                # invalidate() provoca que la UI se redibuje en el siguiente ciclo
+                self.prompt_session.app.invalidate()
 
 
     def _get_bottom_toolbar(self):

@@ -142,7 +142,7 @@ def _get_kernel_instance() -> Optional[KogniTermKernel]:
     return _kernel_instance
 
 
-def python_executor(code: str) -> Generator[str, None, None]:
+def python_executor(code: str, terminal_ui: Any = None) -> Generator[str, None, None]:
     """
     Ejecuta código Python en un kernel de Jupyter.
 
@@ -196,12 +196,49 @@ def python_executor(code: str) -> Generator[str, None, None]:
                     formatted_output.append(display_line)
         
         if formatted_output:
-            yield "\n".join(formatted_output)
+            final_output = "\n".join(formatted_output)
+            
+            if terminal_ui:
+                from rich.panel import Panel
+                from kogniterm.terminal.themes import ColorPalette
+                terminal_ui.console.print(Panel(
+                    final_output,
+                    title=f"[bold {ColorPalette.SECONDARY}]🐍 Salida de Python[/]",
+                    border_style=ColorPalette.SECONDARY,
+                    expand=False
+                ))
+            
+            yield final_output
         else:
+            if terminal_ui:
+                from rich.panel import Panel
+                from kogniterm.terminal.themes import ColorPalette
+                terminal_ui.console.print(Panel(
+                    "Sin salida discernible.",
+                    title=f"[bold {ColorPalette.SECONDARY}]🐍 Salida de Python[/]",
+                    border_style=ColorPalette.SECONDARY,
+                    expand=False
+                ))
             yield "PythonExecutor: No se recibió salida discernible."
     elif "error" in raw_output:
+        if terminal_ui:
+            from rich.panel import Panel
+            terminal_ui.console.print(Panel(
+                raw_output['error'],
+                title=f"[bold red]🐍 Error de Python[/]",
+                border_style="red",
+                expand=False
+            ))
         yield f"Error en el kernel de Python: {raw_output['error']}"
     else:
+        if terminal_ui:
+            from rich.panel import Panel
+            terminal_ui.console.print(Panel(
+                "Sin salida discernible.",
+                title=f"[bold yellow]🐍 Salida de Python[/]",
+                border_style="yellow",
+                expand=False
+            ))
         yield "PythonExecutor: No se recibió salida discernible."
 
 

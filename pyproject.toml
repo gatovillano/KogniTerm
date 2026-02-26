@@ -1,6 +1,6 @@
 [project]
 name = "kogniterm"
-version = "0.3.3"
+version = "0.3.4"
 description = "KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀"
 authors = [
     { name = "Gato Villano", email = "gato@example.com" }

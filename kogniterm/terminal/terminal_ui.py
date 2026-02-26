@@ -38,7 +38,7 @@ class TerminalUI:
         self.interrupt_queue = queue.Queue()
         self.kb = KeyBindings()
         # Configurar escape_delay=0 para que la tecla Esc se detecte instantáneamente
-        self.prompt_session = PromptSession(key_bindings=self.kb, input_processors=[], erase_when_done=False)
+        self.prompt_session = PromptSession(key_bindings=self.kb, input_processors=[], erase_when_done=True)
         # Nota: El retraso de escape se configura globalmente o en el objeto de entrada si es necesario,
         # pero prompt_toolkit suele responder bien si el binding es directo.
 
@@ -63,18 +63,20 @@ class TerminalUI:
         # Obtener dimensiones actuales de forma explícita usando shutil
         size = shutil.get_terminal_size()
         
-        # En lugar de solo recrear, podemos intentar actualizar la existente
-        # para que cualquier referencia mantenida por otros componentes se mantenga.
+        # Actualizar la consola existente si es posible para mantener el estado
+        # Rich detecta automáticamente el ancho si no se especifica, pero aquí lo forzamos
+        # para asegurar consistencia tras la señal SIGWINCH.
         self.console.width = size.columns
         self.console.height = size.lines
         
-        # Forzamos que Rich re-detecte si es necesario, aunque asignar width es directo
-        # Re-inicializamos para asegurar que el tema y todo esté en su lugar con el nuevo ancho
+        # Opcionalmente, recreamos con el nuevo tamaño si hay problemas de buffers
+        # Pero mantenemos el tema original.
         self.console = Console(
-            theme=get_kogniterm_theme(), 
-            width=size.columns, 
+            theme=get_kogniterm_theme(),
+            width=size.columns,
             height=size.lines,
-            force_terminal=True
+            force_terminal=True,
+            soft_wrap=True # Habilitar soft_wrap global para evitar desestructurar paneles
         )
         
         # Si hay procesos de streaming activos, esto asegurará que el próximo chunk use el nuevo ancho.
@@ -203,7 +205,7 @@ class TerminalUI:
                     content,
                     border_style=border_style,
                     title=f"{Icons.WARNING} {title}",
-                    width=min(self.console.width, 100),  # Limitar el ancho del panel
+                    width=min(self.console.width - 4, 100),  # Ajustar dinámicamente al ancho menos padding
                     expand=False
                 ),
                 (1, 2)
