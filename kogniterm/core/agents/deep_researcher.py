@@ -97,32 +97,22 @@ def planning_node(state: DeepResearchState, llm_service: LLMService):
         state.research_plan = [last_message]
         state.current_focus = last_message
 
-    # Mejorar la visualización del plan con una tabla
     try:
-        from kogniterm.terminal.visual_components import create_info_panel
         from kogniterm.terminal.themes import ColorPalette, Icons
-        from rich.table import Table
         
-        table = Table(
-            title=f"[bold {ColorPalette.SECONDARY}]{Icons.RESEARCH} Plan de Ejecución Inmediata[/]",
-            border_style=ColorPalette.SECONDARY,
-            header_style=f"bold {ColorPalette.PRIMARY_LIGHT}",
-            show_header=True,
-            box=None
-        )
-        table.add_column("Fase", style="dim", width=4)
-        table.add_column("Tarea de Investigación", style="italic")
+        # Visualización minimalista del plan
+        plan_text = Text()
+        plan_text.append(f"\n{Icons.RESEARCH} ", style=ColorPalette.SECONDARY)
+        plan_text.append("Plan de investigación: ", style="bold")
+        plan_text.append(f"{len(state.research_plan)} objetivos\n", style="dim")
         
         for i, tarea in enumerate(state.research_plan):
-            table.add_row(f"{i+1:02d}", tarea)
+            plan_text.append(f"  {i+1}. ", style="dim")
+            plan_text.append(f"{tarea}\n", style="italic")
             
-        console.print(Padding(table, (1, 4)))
+        console.print(Padding(plan_text, (0, 4)))
     except ImportError:
-        console.print(Panel(
-            "\n".join([f"• {p}" for p in state.research_plan]),
-            title="[bold blue]🗺️ Plan de Investigación[/bold blue]",
-            border_style="blue"
-        ))
+        console.print(f"\n[dim]• Plan: {', '.join(state.research_plan)}[/dim]")
     
     return state
 
@@ -131,24 +121,26 @@ def research_node(state: DeepResearchState, llm_service: LLMService, interrupt_q
     state.iteration_count += 1
     focus = state.current_focus or "General"
     
-    console.print(f"\n[bold magenta]🔍 Investigando: {focus} (Iteración {state.iteration_count}/{state.max_iterations})[/bold magenta]")
+    # Notificación minimalista de iteración
+    try:
+        from kogniterm.terminal.themes import ColorPalette
+        status_text = Text()
+        status_text.append("🔍 ", style=ColorPalette.SECONDARY)
+        status_text.append("Foco: ", style="dim")
+        status_text.append(focus, style="italic")
+        status_text.append(f" ({state.iteration_count}/{state.max_iterations})", style="dim")
+        console.print(Padding(status_text, (1, 4)))
+    except ImportError:
+        console.print(f"\n[dim]🔍 {focus} ({state.iteration_count}/{state.max_iterations})[/dim]")
     
     # Aquí llamamos al modelo para que use herramientas
     messages = [SystemMessage(content=get_deep_research_system_prompt(llm_service))] + state.messages
     messages.append(HumanMessage(content=f"Enfócate ahora en investigar: {focus}. Utiliza herramientas si es necesario."))
     
-    # Reutilizamos la lógica de invoke de llm_service que ya maneja streaming y visualización
-    # Pero para no duplicar código, usaremos un bucle simplificado aquí que se integre con el grafo
-    
-    # Nota: Este nodo en LangGraph suele llamar al LLM y luego pasar al nodo de herramientas.
-    # Para mantenerlo "Deep", permitiremos que este nodo de 'research' sea un mini-bucle ReAct.
-    
-    return state # Por ahora solo marcamos el inicio, la lógica real de herramientas irá en los saltos condicionales
+    return state
 
 def synthesis_node(state: DeepResearchState, llm_service: LLMService):
     """Compila todos los hallazgos en el reporte final."""
-    console.print("\n[bold green]📝 Sintetizando reporte final técnico...[/bold green]")
-    
     all_findings_summary = ""
     for idx, finding in enumerate(state.findings):
         all_findings_summary += f"### Hallazgo {idx+1}: {finding.get('focus')}\n{finding.get('content')}\n\n"
@@ -172,27 +164,17 @@ def synthesis_node(state: DeepResearchState, llm_service: LLMService):
     
     # Recolectar la respuesta y mostrarla visualmente
     full_content = ""
-    try:
-        from kogniterm.terminal.visual_components import create_gradient_panel
-        from kogniterm.terminal.themes import Gradients
-    except ImportError:
-        create_gradient_panel = None
-
-    with Live(refresh_per_second=10) as live:
+    
+    from rich.status import Status
+    with Status("[dim]Sintetizando reporte final...[/dim]", spinner="dots") as status:
         for part in response:
             if isinstance(part, AIMessage):
-                full_content = part.content
+                final_ai_message = part
             elif isinstance(part, str):
                 full_content += part
             
-            if create_gradient_panel:
-                live.update(create_gradient_panel(
-                    full_content, 
-                    title="INFORME DE INVESTIGACIÓN TÉCNICA", 
-                    gradient=Gradients.PURPLE_BLUE
-                ))
-            else:
-                live.update(Panel(Markdown(full_content), title="🔬 Informe de Deep Research"))
+    # Mostrar el resultado final de forma limpia
+    console.print(Padding(Markdown(f"## 🔬 Informe de Investigación\n\n{full_content}"), (1, 4)))
             
     state.messages.append(AIMessage(content=f"## 🔬 Informe de Deep Research\n\n{full_content}"))
     return state
@@ -200,7 +182,7 @@ def synthesis_node(state: DeepResearchState, llm_service: LLMService):
 # --- Implementación principal conceptualmente basada en agentes previos pero con lógica mejorada ---
 
 def call_deep_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
-    """Llamada al LLM con visualización premium y burbuja de pensamiento."""
+    """Llamada al LLM con visualización minimalista."""
     # Inyectar el prompt de Deep Research al principio si no está
     messages = [SystemMessage(content=get_deep_research_system_prompt(llm_service))] + state.messages
     
@@ -209,38 +191,39 @@ def call_deep_model_node(state: AgentState, llm_service: LLMService, interrupt_q
     final_ai_message = None
     text_streamed = False
 
-    # Importar componentes visuales premium
+    # Importar componentes visuales
     try:
-        from kogniterm.terminal.visual_components import (
-            create_processing_spinner, 
-            create_thought_bubble, 
-            create_animated_spinner
-        )
+        from kogniterm.terminal.visual_components import create_animated_spinner
         from kogniterm.terminal.themes import ColorPalette, Icons
         spinner = create_animated_spinner("Investigando", style="dots")
+        
+        def create_minimal_thought(content):
+            return Padding(Panel(
+                Markdown(content), 
+                title=f"{Icons.THINKING} Razonamiento", 
+                border_style="dim blue",
+                padding=(0, 1)
+            ), (1, 4))
+            
     except ImportError:
         from rich.spinner import Spinner
-        spinner = Spinner("dots", text="🔍 Investigando...")
-        class Icons: THINKING = "🤔"; RESEARCH = "🔍"
-        class ColorPalette: PRIMARY_LIGHT = "cyan"; SECONDARY = "magenta"
-        def create_thought_bubble(content, title="Pensando...", icon="🤔", color="cyan"):
-            return Padding(Panel(Markdown(content) if isinstance(content, str) else content, title=f"{icon} {title}", border_style=f"dim {color}"), (1, 4))
+        spinner = Spinner("dots", text="[dim]Investigando...[/dim]")
+        class Icons: THINKING = "•"; RESEARCH = "•"
+        class ColorPalette: PRIMARY_LIGHT = "white"; SECONDARY = "white"
+        def create_minimal_thought(content):
+            return Padding(f"[dim]Pensando: {content[:100]}...[/dim]", (1, 6))
 
-    # Usar Live para una experiencia fluida
-    with Live(spinner, refresh_per_second=10) as live:
+    # Usar Live para una experiencia fluida pero discreta
+    with Live(spinner, refresh_per_second=10, transient=True) as live:
         def update_display():
             renderables = []
-            # 1. Mostrar razonamiento en la burbuja (si tenemos contenido)
-            if full_thinking_content:
-                renderables.append(create_thought_bubble(
-                    full_thinking_content, 
-                    title="KogniDeep Search - Razonando", 
-                    icon=Icons.THINKING,
-                    color="magenta" # Color distintivo para Research
-                ))
             
-            # 2. Mostrar la respuesta que se va generando
-            if full_response_content:
+            # Solo mostrar razonamiento si es relevante
+            if full_thinking_content:
+                renderables.append(create_minimal_thought(full_thinking_content))
+            
+            # Solo mostrar respuesta si hay contenido sustancial (no tool calls)
+            if full_response_content and len(full_response_content.strip()) > 0:
                 renderables.append(Padding(Markdown(full_response_content), (0, 4)))
             
             if not renderables:
