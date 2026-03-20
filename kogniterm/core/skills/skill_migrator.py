@@ -102,7 +102,7 @@ class SkillMigrator:
         # Iterar sobre todos los archivos .py en tools/
         for tool_file in self.tools_path.glob('*.py'):
             # Saltar archivos especiales
-            if tool_file.name.startswith('_') or tool_file.name == 'tool_manager.py':
+            if tool_file.name.startswith('_'):
                 continue
 
             try:

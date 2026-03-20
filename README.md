@@ -7,51 +7,216 @@
 
 A diferencia de otros asistentes, KogniTerm no depende de las capacidades nativas de "Tool Calling" de los modelos. Gracias a su **Motor de Parseo Universal**, es capaz de otorgar capacidades agénticas a prácticamente cualquier LLM (DeepSeek, Llama 3, Mistral, etc.), interpretando sus intenciones directamente desde el lenguaje natural.
 
-## ✨ Características Principales
+## 🎯 Punto de Entrada
 
-### 🧠 Arquitectura Multi-Agente Especializada
+**⚠️ IMPORTANTE**: El punto de entrada principal del proyecto es `kogniterm/terminal/terminal.py` (404 líneas). El archivo `kogniterm/main.py` es una redirección obsoleta y no debe utilizarse para ejecución directa.
 
-KogniTerm orquesta un equipo de expertos digitales, cada uno con un rol y personalidad definidos:
+```bash
+# Ejecución correcta
+python -m kogniterm.terminal.terminal
 
-* **🕵️ ResearcherAgent (El Detective)**:
-  * **Rol**: Experto en comprensión y análisis.
-  * **Misión**: Lee tu código, investiga documentación y explica sistemas complejos sin riesgo de romper nada.
-  * **Cuándo usarlo**: "Explícame cómo funciona X", "Analiza este error", "Investiga la arquitectura".
+# O usando el entry point configurado en pyproject.toml
+kogniterm
+```
 
-* **👨‍💻 CodeAgent (El Desarrollador Senior)**:
-  * **Rol**: Ingeniero de software enfocado en calidad.
-  * **Principios**: Calidad sobre velocidad, verificación constante y seguridad.
-  * **Misión**: Escribe, refactoriza y parchea código. Siempre verifica el contenido antes de editar y busca minimizar errores.
-  * **Cuándo usarlo**: "Refactoriza esta función", "Crea un script para...", "Arregla el bug en main.py".
+## 🧠 Arquitectura Interna Profunda
 
-* **🤖 BashAgent (El Operador)**:
-  * **Rol**: Tu interfaz principal y orquestador.
-  * **Misión**: Maneja la terminal, ejecuta comandos del sistema y sabe exactamente a qué especialista delegar cada tarea.
+KogniTerm implementa una arquitectura modular y escalable con los siguientes componentes centrales:
 
-### 🌐 Compatibilidad Universal (The "Any-Model" Engine)
+### 🔄 **AgentState** (170 líneas)
+Sistema de estado global que orquesta toda la sesión:
+- **MessageManager**: Gestión de mensajes entre agente y usuario, incluyendo formato y serialización
+- **HistoryManager**: Persistencia de historial con soporte para compresión y recuperación
+- **Detección de Race Conditions**: Sincronización para acceso concurrente a recursos compartidos
+- **Interrupt Queue**: Sistema de prioridades para interrupciones y señales
 
-KogniTerm rompe las barreras de los proveedores. Su sistema de **Parseo de Herramientas Híbrido** permite:
+### 🤖 **Agentes Especializados**
 
-* **Soporte Nativo**: OpenAI, Anthropic, Google Gemini.
-* **Soporte Extendido**: **DeepSeek**, **SiliconFlow**, **Nex-AGI**, y modelos locales (Ollama).
-* **Text-to-Tool**: Si un modelo no soporta llamadas a funciones, KogniTerm detecta patrones en su texto (JSON, XML, YAML, o lenguaje natural) y ejecuta las herramientas correspondientes. ¡Haz agéntico a cualquier modelo!
+#### **BashAgent** (796 líneas) - Orquestador Principal
+- **Streaming de respuestas**: Salida en tiempo real con renderizado progresivo
+- **Detección de bucles**: Identifica y previene ciclos infinitos en comandos
+- **Confirmaciones diferidas**: Permite postergar aprobaciones de acciones destructivas
+- **Delegación inteligente**: Decide dinámicamente a qué especialista enviar cada tarea
 
-### 🛠 Herramientas de Potencia Industrial
+#### **CodeAgent** (446 líneas) - Ingeniero de Software
+- **Validación Markdown**: Asegura que el código generado esté en bloques代码 markdown
+- **Verificación pre-edición**: Lee y valida archivos antes de modificarlos
+- **Principios de calidad**: Prioriza robustez sobre velocidad
+- **Contexto de archivos**: Capacidad para referenciar múltiples archivos simultáneamente
 
-* **Sistema de Archivos Seguro**: Lectura recursiva inteligente, búsquedas con `grep` y edición atómica.
-* **RAG Local (Indexado de Código)**: Convierte tu base de código en una base de conocimiento consultable.
-* **Búsqueda Web**: Acceso a internet para documentación actualizada y resolución de errores en tiempo real.
-* **Intérprete Python Persistente**: Un entorno REPL para cálculos, procesamiento de datos y lógica compleja.
+#### **ResearcherAgent** (El Detective)
+- **Análisis estático**: Examina código sin ejecutarlo
+- **Comprensión de arquitectura**: Identifica patrones y relaciones entre módulos
+- **Explicaciones didácticas**: Traduce conceptos técnicos a lenguaje accesible
 
-### 🛡 Seguridad y Control
+### ⚙️ **SkillManager** (642 líneas) - Framework de Habilidades
+Sistema modular para extender funcionalidades:
 
-* **Human-in-the-loop**: Confirmación explícita antes de comandos destructivos o ediciones de archivos.
-* **Modo Auto-Aprobación (`-y`)**: Para automatización supervisada.
-* **Visualización de Diffs**: Revisa exactamente qué cambiará en tu código antes de aplicarlo.
+- **Carga dinámica JIT**: Las skills se cargan solo cuando se necesitan por primera vez
+- **Validación estricta**: Cada skill debe implementar un esquema de parámetros `parameters_schema`
+- **27 skills bundled**: Incluyendo `file_operations`, `execute_command`, `code_analysis`, etc.
+- **Registro automático**: Las skills creadas con `skill_factory` se integran automáticamente
+- **Directorio `scripts/`**: Skills personalizadas pueden almacenarse como scripts externos
+- **Documentación integrada**: Cada skill genera su propio `SKILL.md` automáticamente
 
-## 🎬 Demo
+Ejemplo de skill personalizada:
+```python
+skill_factory(
+    skill_name="mi_tool",
+    description="Mi herramienta personalizada",
+    tool_code="""
+def mi_tool(**kwargs):
+    param1 = kwargs.get('param1')
+    # Lógica personalizada
+    return f"Resultado: {param1}"
+parameters_schema = {
+    "type": "object",
+    "properties": {
+        "param1": {"type": "string", "description": "Parámetro de ejemplo"}
+    },
+    "required": ["param1"]
+}
+""",
+    instructions="Instrucciones detalladas en Markdown..."
+)
+```
 
-![Demo](kogniterm/kogniterm.gif)
+### 🧠 **LLMService** (1648 líneas) - Motor de Lenguaje
+- **MultiProviderManager**: Soporte unificado para múltiples proveedores
+- **Soporte nativo**: OpenAI, Anthropic, Google Gemini
+- **Soporte extendido**: DeepSeek, SiliconFlow, Nex-AGI, Ollama (modelos locales)
+- **Text-to-Tool universal**: Convierte respuestas en texto plano (JSON, XML, YAML, lenguaje natural) en ejecuciones de herramientas
+- **Rate limiting**: Control de cuota por proveedor
+- **Conversión de herramientas**: Transforma el formato nativo de cada modelo al formato interno unificado
+
+### 🗂 **RAG: Indexado de Código** (333 líneas)
+Sistema de recuperación semántica para comprender la base de código completa:
+
+- **CodebaseIndexer**: Indexador inteligente con chunking adaptativo
+- **Exclusiones .gitignore**: Respeta automáticamente archivos ignorados
+- **Embeddings vectoriales**: Almacena representaciones semánticas para búsqueda por similitud
+- **Overlap inteligente**: Solapamiento configurable entre chunks para mantener contexto
+- **Progreso visual**: Barra de progreso durante indexación masiva
+- **Actualización incremental**: Re-indexa solo archivos modificados
+- **Consultas contextuales**: Los agentes pueden preguntar "¿Cómo se relaciona X con Y?" cruzando archivos
+
+Uso:
+```bash
+kogniterm index .          # Indexar directorio actual
+kogniterm index --exclude "*.log"  # Exclusiones personalizadas
+```
+
+## 🛡 Seguridad Robusta
+
+KogniTerm implementa múltiples capas de seguridad:
+
+### **Human-in-the-Loop**
+- **Confirmación explícita**: Antes de cualquier comando destructivo (`rm`, `dd`, etc.)
+- **Edición atómica**: Los archivos se escriben completos, no línea por línea
+- **Vista previa de diffs**: Revisa exactamente qué cambiará antes de aplicar
+- **Modo `-y`**: Aprobación automática para automatización supervisada
+
+### **Detección de Comportamientos Peligrosos**
+- **Bucles infinitos**: BashAgent detecta patrones repetitivos en comandos
+- **Race conditions**: AgentState sincroniza acceso a recursos compartidos
+- **Campos de confirmación específicos**: Algunas acciones requieren escribir "CONFIRM" explícitamente
+- **Límites de ejecución**: Timeout y restricciones de recursos en comandos
+
+### **Validación de Entradas**
+- **Esquemas JSON**: Todas las herramientas definen `parameters_schema` estricto
+- **Sanitización**: Escape de caracteres especiales en argumentos
+- **Permisos de archivos**: Verifica permisos antes de operaciones críticas
+
+## ⚙️ Configuración Avanzada
+
+### **Gestión de Proveedores Múltiples**
+```bash
+# Configurar múltiples API keys
+kogniterm keys set openrouter sk-or-v1-...
+kogniterm keys set google AIzaSy...
+kogniterm keys set openai sk-...
+
+# Cambiar modelo dinámicamente
+kogniterm models use openrouter/deepseek/deepseek-chat
+kogniterm models use google/gemini-2.0-flash-exp
+kogniterm models current  # Ver modelo activo
+```
+
+### **Rate Limiting y Cuotas**
+- Configuración por proveedor en `~/.config/kogniterm/config.yaml`
+- Límites automáticos para evitar sobrecostos
+- Retroceso exponencial en errores 429
+
+### **Conversión Universal de Herramientas**
+El sistema puede interpretar intenciones de cualquier modelo:
+- **Modelos con Tool Calling**: Usan formato nativo (OpenAI, Anthropic)
+- **Modelos sin Tool Calling**: Parsean JSON/XML/YAML o lenguaje natural
+- **Fallback inteligente**: Si el parseo falla, se pide aclaración al usuario
+
+## 🎮 Experiencia Interactiva
+
+### **Comandos Mágicos (`%`)**
+- **`%models`**: Menú interactivo para cambiar modelo en caliente
+- **`%help`**: Panel de ayuda navegable
+- **`%reset`**: Limpia contexto y comienza de cero
+- **`%undo`**: Deshace la última acción
+- **`%compress`**: Resume historial para ahorrar tokens
+
+### **Referencias Inteligentes (`@`)**
+```text
+(kogniterm) › ¿Qué hace la función process en @core/logic.py?
+```
+Autocompletado de archivos al instante.
+
+## 🗂 Estructura del Proyecto
+
+```
+kogniterm/
+├── terminal/
+│   └── terminal.py          # 🎯 Punto de entrada principal (404 líneas)
+├── agents/
+│   ├── bash_agent.py        # Orquestador (796 líneas)
+│   ├── code_agent.py        # Desarrollador (446 líneas)
+│   └── researcher_agent.py  # Detective
+├── core/
+│   ├── agent_state.py       # Estado global (170 líneas)
+│   ├── skill_manager.py     # Framework de skills (642 líneas)
+│   └── llm_service.py       # Motor LLM (1648 líneas)
+├── rag/
+│   └── codebase_indexer.py  # Indexador semántico (333 líneas)
+├── skills/                  # Skills built-in y personalizadas
+├── scripts/                 # Skills externas (JIT)
+└── docs/                    # Documentación técnica extensa
+```
+
+## 📚 Documentación Técnica
+
+Para entender a fondo la arquitectura, consulta:
+
+### 🏗 **Arquitectura y Diseño**
+- [Visión General](docs/overview.md)
+- [Arquitectura del Sistema](docs/arquitectura_documentacion.md)
+- [Módulos del Sistema](docs/modules.md)
+- [Diagrama de Flujo](docs/flow_diagram.md)
+
+### 🧩 **Componentes Específicos**
+- [Gestor de Historial](docs/history_manager_documentation.md)
+- [Herramienta de Creación de Planes](docs/plan_creation_tool.md)
+- [Archivos CLI de Gemini](docs/gemini_cli_files.md)
+
+### 🧠 **Sistema RAG**
+- [Propuesta de RAG](docs/rag_codebase_proposal.md)
+- [Plan de Implementación](docs/rag_implementation_plan.md)
+- [Estado de Implementación](docs/rag_implementation_status.md)
+
+### 🛠 **Sistema de Skills**
+- [Guía de Skills](docs/SKILL.md) - Cómo crear y extender habilidades
+- [Especificación de Esquemas](docs/skill_schema_specification.md)
+
+### 📝 **Registros**
+- [Registro de Cambios](docs/Cambios.md)
+- [Registro de Errores y Soluciones](docs/registro_errores_soluciones.md)
+- [Log de Desarrollo](docs/development_log.md)
 
 ## 🚀 Instalación
 
@@ -98,20 +263,16 @@ kogniterm models use google/gemini-2.0-flash-exp
 kogniterm models current
 ```
 
-## 🎮 Experiencia Interactiva
-
-Una vez dentro de `kogniterm`, tienes superpoderes:
+## 🎮 Comandos Mágicos y Referencias
 
 ### Comandos Mágicos (`%`)
-
-* **`%models`**: Abre un **menú interactivo** para cambiar de modelo en caliente sin reiniciar la sesión.
-* **`%help`**: Panel de ayuda navegable.
-* **`%reset`**: Limpia el contexto y comienza de cero.
-* **`%undo`**: ¿El modelo se equivocó? Deshaz la última acción.
-* **`%compress`**: Resume el historial para ahorrar tokens manteniendo lo importante.
+- **`%models`**: Abre un menú interactivo para cambiar de modelo en caliente sin reiniciar la sesión.
+- **`%help`**: Panel de ayuda navegable.
+- **`%reset`**: Limpia el contexto y comienza de cero.
+- **`%undo`**: Deshace la última acción del agente.
+- **`%compress`**: Resume el historial para ahorrar tokens manteniendo lo importante.
 
 ### Referencias Inteligentes (`@`)
-
 Inyecta contexto de archivos directamente en tu prompt:
 
 ```text
@@ -127,45 +288,15 @@ Para preguntas sobre la arquitectura global de tu proyecto:
 ```bash
 # Indexar el directorio actual
 kogniterm index .
+
+# Indexar con exclusiones personalizadas
+kogniterm index . --exclude "*.log" --exclude "node_modules"
 ```
 
-Esto permite a los agentes entender relaciones entre archivos que no han leído explícitamente.
-
-## 📚 Documentación
-
-Explora la documentación detallada para entender a fondo KogniTerm:
-
-### 🤝 Colaboración
-
-* [Guía de Contribución](CONTRIBUTING.md)
-* [Código de Conducta](CODE_OF_CONDUCT.md)
-
-### 🏗 Arquitectura y Diseño
-
-* [Visión General](docs/overview.md)
-* [Arquitectura del Sistema](docs/arquitectura_documentacion.md)
-* [Módulos del Sistema](docs/modules.md)
-* [Diagrama de Flujo](docs/flow_diagram.md)
-
-### 🧩 Componentes y Herramientas
-
-* [Gestor de Historial](docs/history_manager_documentation.md)
-* [Herramienta de Creación de Planes](docs/plan_creation_tool.md)
-* [Archivos CLI de Gemini](docs/gemini_cli_files.md)
-
-### 🧠 Sistema RAG (Indexado)
-
-* [Propuesta de RAG](docs/rag_codebase_proposal.md)
-* [Plan de Implementación](docs/rag_implementation_plan.md)
-* [Estado de Implementación](docs/rag_implementation_status.md)
-
-### 📝 Registros
-
-* [Registro de Cambios](docs/Cambios.md)
-* [Registro de Errores y Soluciones](docs/registro_errores_soluciones.md)
-* [Log de Desarrollo](docs/development_log.md)
+Esto permite a los agentes entender relaciones entre archivos que no han leído explícitamente, gracias al sistema RAG con chunking inteligente, exclusiones .gitignore y embeddings vectoriales.
 
 ---
+
 *Desarrollado por Gatovillano*
 
 ---

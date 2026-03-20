@@ -144,6 +144,3 @@ tests/verify_truncate_fix.py
 tests/verify_truncate_fix_simple.py
 tests/core/skills/test_action_description_injection.py
 tests/core/skills/test_skill_manager.py
-venv/bin/dumppdf.py
-venv/bin/jp.py
-venv/bin/pdf2txt.py

@@ -1,6 +1,5 @@
 assets
 data-gym-cache
-dist
 docs
 kogniterm
 kogniterm-desktop

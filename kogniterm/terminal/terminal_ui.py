@@ -149,13 +149,115 @@ class TerminalUI:
                 self.print_message(f"Confirmación de actualización para '{file_path}': Denegado.", style="yellow")
             
             return {"tool_message_content": tool_message_content, "approved": run_update}
-
         except json.JSONDecodeError:
             self.print_message("Error: La salida de la herramienta no es un JSON válido para la confirmación de actualización.", style="red")
             return {"tool_message_content": "Error al procesar la confirmación de actualización de archivo.", "approved": False}
         except Exception as e:
             self.print_message(f"Error inesperado al manejar la confirmación de actualización de archivo: {e}", style="red")
             return {"tool_message_content": f"Error inesperado: {e}", "approved": False}
+
+    async def ask_approval_async(
+        self,
+        message: str,
+        title: str = "Aprobación Requerida",
+        diff_content: str = "",
+        file_path: str = "",
+    ) -> bool:
+        """
+        Versión asíncrona para solicitar aprobación.
+        En CLI usa prompt_async, en TUI usa un modal.
+        """
+        self.print_confirmation_panel(
+            f"**{message}**\n\n{diff_content}" if diff_content else message,
+            title,
+            'yellow'
+        )
+        approval_input = await self.prompt_session.prompt_async("¿Deseas proceder? (s/n): ")
+        return (approval_input or "").lower().strip() == 's'
+
+    def ask_approval_sync(
+        self,
+        message: str,
+        title: str = "Aprobación Requerida",
+        diff_content: str = "",
+        file_path: str = "",
+    ) -> bool:
+        """
+        Versión síncrona para solicitar aprobación.
+        En CLI usa input(), en TUI bloquea el hilo worker hasta respuesta.
+        """
+        if self.is_tty:
+            self.print_confirmation_panel(
+                f"**{message}**\n\n{diff_content}" if diff_content else message,
+                title,
+                'yellow'
+            )
+            approval_input = input("¿Deseas proceder? (s/n): ")
+        else:
+            # Fallback (usualmente sobreescrito en TUI)
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # No podemos bloquear el hilo del loop
+                    return False 
+                else:
+                    approval_input = loop.run_until_complete(self.prompt_session.prompt_async("¿Deseas proceder? (s/n): "))
+            except:
+                approval_input = input("¿Deseas proceder? (s/n): ")
+        
+        return (approval_input or "").lower().strip() == 's'
+
+    def ask_approval_sync(
+        self,
+        message: str,
+        title: str = "Aprobación Requerida",
+        diff_content: str = "",
+        file_path: str = "",
+    ) -> bool:
+        """
+        Versión síncrona para solicitar aprobación.
+        En CLI usa input(), en TUI bloquea el hilo worker hasta respuesta.
+        """
+        self.print_confirmation_panel(
+            f"**{message}**\n\n{diff_content}" if diff_content else message,
+            title,
+            'yellow'
+        )
+        if self.is_tty:
+            approval_input = input("¿Deseas proceder? (s/n): ")
+        else:
+            # Fallback a un bucle sobre prompt_async si no estamos en TUI pero sí en un loop
+            # Pero en TerminalUI sync usualmente es para CLI real.
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Esto es peligroso en el loop principal, pero útil en hilos
+                    from concurrent.futures import Future
+                    future = Future()
+                    def _do_prompt():
+                        try:
+                            res = loop.run_until_complete(self.prompt_session.prompt_async("¿Deseas proceder? (s/n): "))
+                            future.set_result(res)
+                        except Exception as e:
+                            future.set_exception(e)
+                    # Nota: run_until_complete no puede llamarse desde el hilo del loop.
+                    # Este método suele sobreescribirse en adaptadores (como TUI).
+                    return False 
+                else:
+                    approval_input = loop.run_until_complete(self.prompt_session.prompt_async("¿Deseas proceder? (s/n): "))
+            except:
+                approval_input = input("¿Deseas proceder? (s/n): ")
+        
+        return (approval_input or "").lower().strip() == 's'
+
+    def set_terminal_cursor(self, active: bool, executor=None):
+        """
+        Activa o desactiva el cursor visual de terminal en la UI.
+        Sobreescrito en adaptadores que lo soporten (TUI).
+        """
+        pass
 
     def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False):
         """
@@ -279,7 +381,7 @@ class TerminalUI:
         banner = create_welcome_banner(
             banner_text,
             subtitle=get_random_motivational_message(),
-            gradient=Gradients.PRIMARY
+            color=ColorPalette.PRIMARY
         )
         self.console.print(banner)
         

@@ -10,11 +10,14 @@ Este módulo implementa un sistema modular de skills que permite:
 """
 
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, get_type_hints
 import yaml
 import importlib.util
 import sys
 import logging
+import json
+import queue
+import inspect
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -320,7 +323,13 @@ class SkillManager:
     def __init__(
         self,
         base_path: Optional[Path] = None,
-        user_skills_path: Optional[Path] = None
+        user_skills_path: Optional[Path] = None,
+        llm_service=None,
+        interrupt_queue: Optional[queue.Queue] = None,
+        terminal_ui=None,
+        embeddings_service=None,
+        vector_db_manager=None,
+        approval_handler=None
     ):
         """
         Inicializa el SkillManager.
@@ -328,9 +337,23 @@ class SkillManager:
         Args:
             base_path: Ruta base del proyecto (kogniterm/)
             user_skills_path: Ruta de skills de usuario (~/.kogniterm/skills)
+            llm_service: Instancia de LLMService
+            interrupt_queue: Cola de interrupción
+            terminal_ui: Interfaz de terminal
+            embeddings_service: Servicio de embeddings
+            vector_db_manager: Gestor de base de datos vectorial
+            approval_handler: Manejador de aprobación de comandos
         """
         self.base_path = base_path or Path(__file__).parent.parent.parent
         self.user_skills_path = user_skills_path or Path.home() / '.kogniterm' / 'skills'
+
+        # Contexto compartido
+        self.llm_service = llm_service
+        self.interrupt_queue = interrupt_queue
+        self.terminal_ui = terminal_ui
+        self.embeddings_service = embeddings_service
+        self.vector_db_manager = vector_db_manager
+        self.approval_handler = approval_handler
 
         # Rutas de skills por nivel
         self.bundled_path = self.base_path / 'skills' / 'bundled'
@@ -640,3 +663,124 @@ class SkillManager:
             'tools': [getattr(t, 'name', t.__class__.__name__) for t in skill.tools],
             'path': str(skill.path)
         }
+
+    def refresh_skills(self, agent_context: Optional[dict] = None, force: bool = False):
+        """
+        Re-escanea los directorios de skills y carga las nuevas encontradas
+        o actualiza las existentes en el registro de herramientas.
+        """
+        # Si ya tenemos herramientas y no se fuerza, evitar refresco costoso
+        if not force and self.tool_registry:
+            logger.debug("Omitiendo refresco de skills (ya cargadas). Use force=True si es necesario.")
+            return True
+            
+        logger.info("Refrescando sistema de skills...")
+        
+        # Limpiar registros para forzar recarga limpia
+        self.loaded_skills = set()
+        self.tool_registry = {}
+        
+        # 1. Re-descubrir skills
+        self.discover_all_skills()
+        
+        # 2. Cargar todas las skills descubiertas
+        for skill_name in self.skills:
+            self.load_skill(skill_name, agent_context)
+        
+        # 3. Invalidar la caché del LLMService para que regenere los esquemas
+        if self.llm_service:
+            self.llm_service.litellm_tools = None
+            logger.info("Caché de herramientas de LLMService invalidada.")
+        
+        logger.info(f"Refresco completado. Total herramientas: {len(self.tool_registry)}")
+        return True
+
+    def get_tools_for_llm(self, agent_context: dict = None) -> List[Dict[str, Any]]:
+        """
+        Devuelve lista de herramientas en formato compatible con LLM.
+        
+        Returns:
+            Lista de diccionarios con: name, description, skill, security_level, parameters
+        """
+        tools_metadata = []
+
+        for tool_name, tool_info in self.tool_registry.items():
+            tool = tool_info['tool']
+            metadata = {
+                'name': tool_name,
+                'description': getattr(tool, 'description', ''),
+                'skill': tool_info['skill'],
+                'security_level': tool_info['security_level'],
+                'sandbox_required': tool_info['sandbox_required'],
+                'permissions': tool_info.get('permissions', [])
+            }
+            # Extraer schema de parámetros
+            if hasattr(tool, 'parameters_schema'):
+                metadata['parameters'] = tool.parameters_schema
+            elif hasattr(tool, 'run') and hasattr(tool.run, '__annotations__'):
+                # Inferir desde type hints
+                metadata['parameters'] = self._infer_schema_from_hints(tool.run)
+            elif callable(tool) and hasattr(tool, '__annotations__'):
+                metadata['parameters'] = self._infer_schema_from_hints(tool)
+
+            tools_metadata.append(metadata)
+
+        return tools_metadata
+
+    def _infer_schema_from_hints(self, func) -> Optional[Dict[str, Any]]:
+        """Infiere schema de parámetros desde type hints (simplificado)."""
+        try:
+            sig = inspect.signature(func)
+            type_hints = get_type_hints(func)
+
+            properties = {}
+            required = []
+
+            for param_name, param in sig.parameters.items():
+                if param_name in ['self', 'cls', 'llm_service', 'terminal_ui', 'interrupt_queue', 'approval_handler']:
+                    continue
+
+                param_type = type_hints.get(param_name, str)
+                type_str = self._type_to_json_schema(param_type)
+
+                properties[param_name] = {
+                    'type': type_str,
+                    'description': ''  # Podríamos extraer docstring
+                }
+
+                if param.default == inspect.Parameter.empty:
+                    required.append(param_name)
+
+            return {
+                'type': 'object',
+                'properties': properties,
+                'required': required
+            }
+        except Exception:
+            return None
+
+    def _type_to_json_schema(self, typ) -> str:
+        """Convierte tipo Python a JSON Schema type."""
+        type_map = {
+            str: 'string',
+            int: 'integer',
+            float: 'number',
+            bool: 'boolean',
+            list: 'array',
+            dict: 'object'
+        }
+        return type_map.get(typ, 'string')
+
+    def set_agent_state(self, agent_state):
+        """Inyecta el estado del agente en todas las herramientas que lo soporten."""
+        for tool_info in self.tool_registry.values():
+            tool = tool_info['tool']
+            if hasattr(tool, 'agent_state'):
+                tool.agent_state = agent_state
+            # También para clases
+            elif isinstance(tool, type) and hasattr(tool, 'agent_state'):
+                tool.agent_state = agent_state
+
+    def get_tools(self) -> List[Any]:
+        """Devuelve lista de todas las herramientas (objetos/funciones) registradas."""
+        return [info['tool'] for info in self.tool_registry.values()]

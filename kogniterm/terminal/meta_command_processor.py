@@ -30,7 +30,25 @@ class MetaCommandProcessor:
         self.llm_service = llm_service
         self.agent_state = agent_state
         self.terminal_ui = terminal_ui
-        self.kogniterm_app = kogniterm_app # Referencia a la instancia de KogniTermApp
+        self.kogniterm_app = kogniterm_app
+
+    async def _show_radiolist(self, title, text, values, default=None):
+        if hasattr(self.terminal_ui, "ask_radiolist_async"):
+            return await self.terminal_ui.ask_radiolist_async(title, text, values, default)
+        from prompt_toolkit.shortcuts import radiolist_dialog
+        return await radiolist_dialog(title=title, text=text, values=values, default=default).run_async()
+
+    async def _show_input(self, title, text, password=False):
+        if hasattr(self.terminal_ui, "ask_input_async"):
+            return await self.terminal_ui.ask_input_async(title, text, password)
+        from prompt_toolkit.shortcuts import input_dialog
+        return await input_dialog(title=title, text=text, password=password).run_async()
+
+    async def _show_message(self, title, text):
+        if hasattr(self.terminal_ui, "ask_message_async"):
+            return await self.terminal_ui.ask_message_async(title, text)
+        from prompt_toolkit.shortcuts import message_dialog
+        return await message_dialog(title=title, text=text).run_async()
 
     async def process_meta_command(self, user_input: str) -> bool:
         """
@@ -38,6 +56,9 @@ class MetaCommandProcessor:
         Returns True if a meta-command was processed, False otherwise.
         """
         if user_input.lower().strip() in ['%salir', 'salir', 'exit']:
+            if hasattr(self.kogniterm_app, 'exit'):
+                self.kogniterm_app.exit()
+                return True
             sys.exit()
 
         if user_input.lower().strip() == '%reset':
@@ -52,8 +73,11 @@ class MetaCommandProcessor:
             self.agent_state.messages = self.llm_service.conversation_history.copy()
             
             # Limpiar la pantalla de la terminal
-            os.system('cls' if os.name == 'nt' else 'clear')
-            self.kogniterm_app.terminal_ui.print_welcome_banner() # Volver a imprimir el banner de bienvenida
+            if hasattr(self.terminal_ui, "clear_chat"):
+                self.terminal_ui.clear_chat()
+            else:
+                os.system('cls' if os.name == 'nt' else 'clear')
+                self.terminal_ui.print_welcome_banner() # Volver a imprimir el banner de bienvenida
             self.terminal_ui.print_message(f"Conversación reiniciada.", style="green")
             return True
 
@@ -79,29 +103,44 @@ class MetaCommandProcessor:
             except Exception as e:
                 self.terminal_ui.print_message(f"Error al inicializar el contexto del espacio de trabajo: {e} ❌", style="red")
             return True
-
+            
+        if user_input.lower().strip().startswith('%mouse'):
+            if hasattr(self, 'kogniterm_app') and hasattr(self.kogniterm_app, 'action_toggle_mouse'):
+                self.kogniterm_app.action_toggle_mouse()
+            else:
+                self.terminal_ui.print_message("El comando %mouse solo está disponible en la interfaz TUI.", style="yellow")
+            return True
+            
         if user_input.lower().strip().startswith('%theme') or user_input.lower().strip().startswith('%tema'):
             parts = user_input.strip().split()
+            theme_name = None
             if len(parts) > 1:
                 theme_name = parts[1].lower()
+            else:
+                from kogniterm.terminal.themes import _THEMES
+                theme_options = [(name, f"Tema {name}") for name in _THEMES.keys()]
+                theme_name = await self._show_radiolist(
+                    title="🎨 Seleccionar Tema de Color",
+                    text="Elige un tema para personalizar la apariencia de KogniTerm:",
+                    values=theme_options
+                )
+                
+            if theme_name:
                 try:
-                    set_kogniterm_theme(theme_name)
-                    # Update console theme if necessary
-                    if hasattr(self.terminal_ui, 'refresh_theme'):
-                         self.terminal_ui.refresh_theme()
+                    # Aplicar a la TUI si estamos en ella
+                    if hasattr(self, 'kogniterm_app') and hasattr(self.kogniterm_app, 'apply_theme'):
+                        self.kogniterm_app.apply_theme(theme_name)
+                    else:
+                        set_kogniterm_theme(theme_name)
+                        self.terminal_ui.print_welcome_banner()
                     
                     # Persistir el tema globalmente
                     config_manager = ConfigManager()
                     config_manager.set_global_config("theme", theme_name)
                     
-                    self.terminal_ui.print_message(f"Tema cambiado a '{theme_name}' y guardado como preferencia global. ✨", style="green")
-                    # Reprint banner to show off new colors
-                    self.terminal_ui.print_welcome_banner()
                 except ValueError:
                      self.terminal_ui.print_message(f"Tema '{theme_name}' no encontrado.", style="red")
                      self._show_themes_table()
-            else:
-                self._show_themes_table()
             return True
 
 
@@ -210,19 +249,20 @@ class MetaCommandProcessor:
                 ("%compress [force]", "🗜️ Comprimir Historial (Usa 'force' si excede límites)"),
                 ("%theme", "🎨 Cambiar Tema (Ver lista de temas disponibles)"),
                 ("%session", "🗂️ Gestión de Sesiones (list, save, load, new, delete)"),
+                ("%mouse", "🖱️ Alternar Ratón (Activa/Desactiva selección nativa)"),
                 ("%init", "📁 Inicializar Contexto (Indexar archivos clave)"),
                 ("%salir", "🚪 Salir de KogniTerm"),
             ]
             
-            selected_command = await radiolist_dialog(
+            selected_command = await self._show_radiolist(
                 title="Menú de Ayuda KogniTerm",
                 text="Selecciona un comando para ejecutarlo o ver más información:",
                 values=help_options
-            ).run_async()
+            )
 
             if selected_command:
                 # Ejecutar comandos directos
-                if selected_command in ["%models", "%provider", "%keys", "%reset", "%compress", "%undo", "%salir"]:
+                if selected_command in ["%models", "%provider", "%keys", "%reset", "%compress", "%undo", "%mouse", "%salir"]:
                     # Llamada recursiva para procesar el comando seleccionado
                     return await self.process_meta_command(selected_command)
                 
@@ -256,16 +296,36 @@ class MetaCommandProcessor:
                 self.terminal_ui.print_message("⚠️ Modo FORCE activado: se truncará el historial si excede los límites de tokens.", style="bold red")
             
             summary = self.llm_service.summarize_conversation_history(force_truncate=force)
-            
-            if summary.startswith("Error") or summary.startswith("No se pudo"):
-                self.terminal_ui.print_message(summary, style="red")
-                if "RateLimitError" in summary or "quota" in summary.lower():
+
+            # Validar el resumen: error explícito, o string vacío (fallo silencioso del LLM)
+            summary_failed = (
+                not summary
+                or summary.startswith("Error")
+                or summary.startswith("No se pudo")
+            )
+
+            if summary_failed:
+                error_msg = summary if summary else "No se pudo generar el resumen (el modelo devolvió una respuesta vacía)."
+                self.terminal_ui.print_message(error_msg, style="red")
+                if "RateLimitError" in error_msg or "quota" in error_msg.lower():
                     self.terminal_ui.print_message("\n💡 Tip: El modelo ha alcanzado su límite de cuota. Prueba usando [bold]%compress force[/bold] para resumir solo la parte más reciente que quepa en el límite.", style="cyan")
             else:
-                self.llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
-                self.agent_state.messages = self.llm_service.conversation_history
-                self.llm_service._save_history(self.llm_service.conversation_history) # Guardar historial comprimido
-                self.terminal_ui.console.print(Panel(Markdown(f"Historial comprimido exitosamente:\n{summary}"), border_style="green", title="[bold green]Historial Comprimido[/bold green]"))
+                # Reemplazar el historial: SOLO system message + resumen
+                new_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
+                self.llm_service.conversation_history = new_history
+                # Usar .copy() para que agent_state tenga su propia lista independiente
+                self.agent_state.messages = new_history.copy()
+                # Persistir el historial comprimido en disco
+                self.llm_service._save_history(self.llm_service.conversation_history)
+
+                # Si estamos en la TUI, limpiar el chat log visualmente y mostrar solo el resumen
+                if hasattr(self.terminal_ui, "clear_chat"):
+                    self.terminal_ui.clear_chat()
+                    self.terminal_ui.print_message("🗜️ **Historial comprimido.** Solo queda el resumen en el contexto:", style="green")
+                    self.terminal_ui.print_message(summary)
+                else:
+                    # Terminal clásica: panel Rich como antes
+                    self.terminal_ui.console.print(Panel(Markdown(f"Historial comprimido exitosamente:\n{summary}"), border_style="green", title="[bold green]Historial Comprimido[/bold green]"))
             return True
 
         if user_input.lower().strip() == '%models':
@@ -412,12 +472,12 @@ class MetaCommandProcessor:
             for model_id, model_label in target_list:
                 values.append((model_id, model_label))
             
-            selected_model = await radiolist_dialog(
+            selected_model = await self._show_radiolist(
                 title=f"Seleccionar Modelo de IA ({len(values)} disponibles)",
-                text=f"Modelo actual: {current_model}\nProveedor: {current_provider.capitalize()}\n\nEscribe para buscar/filtrar en la lista:",
+                text=f"Modelo actual: {current_model}\nProveedor: {current_provider.capitalize()}\n\nEscribe para buscar/filtrar en la lista (clásico):",
                 values=values,
                 default=current_model if any(m[0] == current_model for m in values) else None
-            ).run_async()
+            )
 
             if selected_model:
                 if selected_model != current_model:
@@ -434,9 +494,9 @@ class MetaCommandProcessor:
                                     gemini_pure_name = selected_model.replace("gemini/", "")
                                     set_key(dotenv_path, "GEMINI_MODEL", gemini_pure_name)
                                     os.environ["GEMINI_MODEL"] = gemini_pure_name
-                                    # Limpiar LITELLM_MODEL para evitar conflictos al reiniciar
-                                    unset_key(dotenv_path, "LITELLM_MODEL")
-                                    if "LITELLM_MODEL" in os.environ: del os.environ["LITELLM_MODEL"]
+                                    # SIEMPRE establecer LITELLM_MODEL para consistencia
+                                    set_key(dotenv_path, "LITELLM_MODEL", selected_model)
+                                    os.environ["LITELLM_MODEL"] = selected_model
                                 else:
                                     # Para otros proveedores (OpenRouter, OpenAI, etc.)
                                     set_key(dotenv_path, "LITELLM_MODEL", selected_model)
@@ -469,11 +529,11 @@ class MetaCommandProcessor:
                 ("anthropic", "🎭 Anthropic (Claude)"),
             ]
 
-            selected_provider = await radiolist_dialog(
+            selected_provider = await self._show_radiolist(
                 title="Seleccionar Proveedor de LLM",
                 text="Selecciona el proveedor que deseas utilizar. Esto actualizará tu configuración predeterminada:",
                 values=providers
-            ).run_async()
+            )
 
             if selected_provider:
                 self.terminal_ui.print_message(f"Cambiando proveedor a: {selected_provider.capitalize()}...", style="yellow")
@@ -562,35 +622,45 @@ class MetaCommandProcessor:
             
             all_keys = sorted(list(set(common_keys + current_env_keys)))
             
+            is_tui = getattr(self.terminal_ui, "is_tui", False)
             for key in all_keys:
                 val = os.environ.get(key, "")
                 if val:
                     # Enmascarar valor: mostrar solo inicio y fin
                     masked = f"{val[:4]}...{val[-4:]}" if len(val) > 8 else "****"
-                    status = f'✅ <style fg="cyan">{masked}</style>'
+                    if is_tui:
+                        status = f'✅ [cyan]{masked}[/cyan]'
+                    else:
+                        status = f'✅ <style fg="cyan">{masked}</style>'
                 else:
-                    status = '❌ <style fg="#888888">No configurada</style>'
+                    if is_tui:
+                        status = '❌ [dim]No configurada[/dim]'
+                    else:
+                        status = '❌ <style fg="#888888">No configurada</style>'
                 
-                # Usar HTML para que prompt_toolkit renderice los estilos
-                options.append((key, HTML(f'{key:<20} | {status}')))
+                if is_tui:
+                    options.append((key, f'{key:<20} | {status}'))
+                else:
+                    # Usar HTML para que prompt_toolkit renderice los estilos
+                    options.append((key, HTML(f'{key:<20} | {status}')))
             
             options.append(("CUSTOM", "➕ Añadir otra variable..."))
             options.append(("BACK", "⬅️  Volver"))
             
-            selected_key = await radiolist_dialog(
+            selected_key = await self._show_radiolist(
                 title="Gestión de API Keys / Variables de Entorno",
                 text=f"Archivo: {os.path.basename(dotenv_path)}\nSelecciona una llave para editarla o eliminarla:",
                 values=options
-            ).run_async()
+            )
             
             if not selected_key or selected_key == "BACK":
                 break
                 
             if selected_key == "CUSTOM":
-                custom_name = await input_dialog(
+                custom_name = await self._show_input(
                     title="Nueva Variable",
                     text="Introduce el nombre de la variable (ej: MY_SERVICE_KEY):"
-                ).run_async()
+                )
                 if custom_name:
                     selected_key = custom_name.strip().upper()
                 else:
@@ -600,7 +670,7 @@ class MetaCommandProcessor:
             current_val = os.environ.get(selected_key, "")
             masked_val = f"{current_val[:4]}...{current_val[-4:]}" if len(current_val) > 8 else ("****" if current_val else "Vacío")
             
-            action = await radiolist_dialog(
+            action = await self._show_radiolist(
                 title=f"Acción para {selected_key}",
                 text=f"Variable: {selected_key}\nValor actual: {masked_val}",
                 values=[
@@ -608,24 +678,24 @@ class MetaCommandProcessor:
                     ("DELETE", "🗑️  Eliminar llave"),
                     ("CANCEL", "🚫 Cancelar")
                 ]
-            ).run_async()
+            )
             
             if action == "SET":
-                new_val = await input_dialog(
+                new_val = await self._show_input(
                     title=f"Establecer {selected_key}",
                     text=f"Introduce el valor para {selected_key}:",
                     password=True
-                ).run_async()
+                )
                 
                 if new_val is not None: # Permitir valor vacío si el usuario pulsa OK
                     new_val = new_val.strip() # Limpiar espacios y saltos de línea que pueden truncar la clave
                     
                     # Validación de seguridad: no permitir guardar API Keys en LITELLM_MODEL
                     if selected_key == "LITELLM_MODEL" and new_val.startswith("AIza"):
-                        await message_dialog(
+                        await self._show_message(
                             title="⚠️ Error de Configuración",
                             text=f"Parece que estás intentando guardar una API Key en LITELLM_MODEL.\nEsta variable debe contener el nombre del modelo (ej: google/gemini-1.5-flash), no la clave.\n\nLa clave debe ir en GOOGLE_API_KEY o OPENROUTER_API_KEY."
-                        ).run_async()
+                        )
                         continue
 
                     try:
@@ -640,21 +710,21 @@ class MetaCommandProcessor:
                             
                         key_len = len(new_val)
                         masked_preview = f"{new_val[:4]}...{new_val[-4:]}" if key_len > 8 else "****"
-                        await message_dialog(
+                        await self._show_message(
                             title="Éxito", 
                             text=f"Llave {selected_key} guardada correctamente.\nLongitud: {key_len} caracteres.\nVista previa: {masked_preview}"
-                        ).run_async()
+                        )
                     except Exception as e:
-                        await message_dialog(title="Error", text=f"No se pudo guardar la llave: {e}").run_async()
+                        await self._show_message(title="Error", text=f"No se pudo guardar la llave: {e}")
             
             elif action == "DELETE":
                 try:
                     unset_key(dotenv_path, selected_key)
                     if selected_key in os.environ:
                         del os.environ[selected_key]
-                    await message_dialog(title="Éxito", text=f"Llave {selected_key} eliminada del archivo y del entorno.").run_async()
+                    await self._show_message(title="Éxito", text=f"Llave {selected_key} eliminada del archivo y del entorno.")
                 except Exception as e:
-                    await message_dialog(title="Error", text=f"No se pudo eliminar la llave: {e}").run_async()
+                    await self._show_message(title="Error", text=f"No se pudo eliminar la llave: {e}")
 
     def _show_themes_table(self):
         """Muestra una tabla con los temas disponibles y sus colores."""
@@ -721,11 +791,11 @@ class MetaCommandProcessor:
             
             options.append(("BACK", "⬅️  Volver"))
 
-            choice = await radiolist_dialog(
+            choice = await self._show_radiolist(
                 title="Configuración de Embeddings",
                 text=f"Proveedor actual: {current_provider}\nModelo actual: {current_model}\n\nSelecciona una opción:",
                 values=options
-            ).run_async()
+            )
 
             if not choice or choice == "BACK":
                 break
@@ -738,12 +808,12 @@ class MetaCommandProcessor:
                     ("ollama", "🦙 Ollama - Contenedor Externo (Requiere Ollama corriendo)"),
                 ]
                 
-                new_provider = await radiolist_dialog(
+                new_provider = await self._show_radiolist(
                     title="Seleccionar Proveedor de Embeddings",
                     text="Elige el proveedor que deseas utilizar:",
                     values=providers,
                     default=current_provider
-                ).run_async()
+                )
 
                 if new_provider and new_provider != current_provider:
                     config_manager.set_global_config("embeddings_provider", new_provider)
@@ -753,10 +823,10 @@ class MetaCommandProcessor:
                         current_model = "BAAI/bge-small-en-v1.5"
                         config_manager.set_global_config("embeddings_model", current_model)
                     
-                    await message_dialog(
+                    await self._show_message(
                         title="Éxito",
                         text=f"Proveedor de embeddings cambiado a: {new_provider}\n\nNota: Es posible que necesites reiniciar KogniTerm para aplicar los cambios en el servicio activo."
-                    ).run_async()
+                    )
 
             elif choice == "MODEL" and current_provider == "fastembed":
                 # Lista de modelos populares en fastembed
@@ -767,17 +837,17 @@ class MetaCommandProcessor:
                     ("sentence-transformers/all-MiniLM-L6-v2", "MiniLM-L6-v2 - Clásico y ligero"),
                 ]
                 
-                new_model = await radiolist_dialog(
+                new_model = await self._show_radiolist(
                     title="Seleccionar Modelo Local (FastEmbed)",
                     text="Selecciona el modelo que se descargará y usará localmente:",
                     values=models,
                     default=current_model
-                ).run_async()
+                )
 
                 if new_model and new_model != current_model:
                     config_manager.set_global_config("embeddings_model", new_model)
                     current_model = new_model
-                    await message_dialog(
+                    await self._show_message(
                         title="Éxito",
                         text=f"Modelo local cambiado a: {new_model}\n\nNota: La primera vez que lo uses, se descargará automáticamente."
-                    ).run_async()
+                    )

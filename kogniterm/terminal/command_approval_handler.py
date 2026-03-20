@@ -122,7 +122,7 @@ class CommandApprovalHandler:
                 
         return True
 
-    async def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
+    def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
                                  tool_name: Optional[str] = None, raw_tool_output: Optional[str] = None,
                                  original_tool_args: Optional[Dict[str, Any]] = None) -> dict:
@@ -187,42 +187,45 @@ class CommandApprovalHandler:
         elif is_file_update_confirmation:
             logger.debug("DEBUG: is_file_update_confirmation es True. Preparando panel de diff.")
             panel_title = f'[bold]Confirmación de Actualización:[/bold] [cyan]{file_path}[/cyan]'
-            if tool_name in ["file_operations", "file_operations_tool"] and original_tool_args and original_tool_args.get("operation") == "delete_file":
-                # Si es una operación de eliminación, mostrar solo la ruta del archivo
-                panel_content_markdown = Markdown(
-                    f"""**Eliminación de Archivo Requerida:**\n{message}\n\n**Archivo a eliminar:**\n```\n{file_path}\n```\n"""
-                )
-                self.terminal_ui.console.print(
-                    Panel(
-                        panel_content_markdown,
-                        border_style='yellow',
-                        title=panel_title,
-                        padding=(0, 2, 0, 2)
-                    ),
-                    soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
-                )
-            else:
-                # Usar DiffRenderer para visualización mejorada
-                diff_table = self.diff_renderer.render_diff_from_string(diff_content, file_path)
-                
-                # Construir el contenido del panel con el mensaje y el diff renderizado
-                # Usar Markdown para el mensaje para que se renderice correctamente (**texto**)
-                panel_content = Group(
-                    Markdown(f"**Actualización de Archivo Requerida:**\n{message}\n"),
-                    diff_table
-                )
-                
-                self.terminal_ui.console.print(
-                    Panel(
-                        panel_content,
-                        border_style='yellow',
-                        title=panel_title,
-                        padding=(0, 2, 0, 2)
-                    ),
-                    soft_wrap=False,
-                    overflow="fold",
-                    highlight=False, markup=True, end="\n"
-                )
+            
+            # Solo imprimir el panel rich si NO estamos en TUI mode, ya que la TUI tiene su propio widget interactivo
+            if not getattr(self.terminal_ui, "is_tui", False):
+                if tool_name in ["file_operations", "file_operations_tool"] and original_tool_args and original_tool_args.get("operation") == "delete_file":
+                    # Si es una operación de eliminación, mostrar solo la ruta del archivo
+                    panel_content_markdown = Markdown(
+                        f"""**Eliminación de Archivo Requerida:**\n{message}\n\n**Archivo a eliminar:**\n```\n{file_path}\n```\n"""
+                    )
+                    self.terminal_ui.console.print(
+                        Panel(
+                            panel_content_markdown,
+                            border_style='yellow',
+                            title=panel_title,
+                            padding=(0, 2, 0, 2)
+                        ),
+                        soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
+                    )
+                else:
+                    # Usar DiffRenderer para visualización mejorada
+                    diff_table = self.diff_renderer.render_diff_from_string(diff_content, file_path)
+                    
+                    # Construir el contenido del panel con el mensaje y el diff renderizado
+                    # Usar Markdown para el mensaje para que se renderice correctamente (**texto**)
+                    panel_content = Group(
+                        Markdown(f"**Actualización de Archivo Requerida:**\n{message}\n"),
+                        diff_table
+                    )
+                    
+                    self.terminal_ui.console.print(
+                        Panel(
+                            panel_content,
+                            border_style='yellow',
+                            title=panel_title,
+                            padding=(0, 2, 0, 2)
+                        ),
+                        soft_wrap=False,
+                        overflow="fold",
+                        highlight=False, markup=True, end="\n"
+                    )
         elif is_user_confirmation and confirmation_prompt:
             explanation_text = confirmation_prompt
             panel_title = 'Confirmación de Usuario Requerida'
@@ -315,31 +318,25 @@ class CommandApprovalHandler:
             run_action = True
             self.terminal_ui.print_message("Acción auto-aprobada.", style="yellow")
         else:
-            while True:
-                # logger.debug("DEBUG: Esperando input de aprobación del usuario...")
-                try:
-                    approval_input = await self.prompt_session.prompt_async("¿Deseas ejecutar esta acción? (s/n): ")
-                    # logger.debug(f"DEBUG: Input de aprobación recibido: {approval_input}")
-                except Exception as e:
-                    logger.error(f"ERROR: Excepción al solicitar input de aprobación: {e}", exc_info=True)
-                    approval_input = "n" # Asumir denegación en caso de error
-                
-                if approval_input is None:
-                    # logger.debug("DEBUG: approval_input es None. Asumiendo denegación.")
-                    # Si el usuario interrumpe el prompt (ej. Ctrl+D), asumimos que deniega.
-                    approval_input = "n"
-                else:
-                    approval_input = approval_input.lower().strip()
-                    # logger.debug(f"DEBUG: approval_input procesado: {approval_input}")
+            # Solicitar aprobación de forma síncrona según el adaptador (TUI o CLI)
+            approval_message = message if message else explanation_text
+            if not approval_message:
+                approval_message = "Confirmación requerida para proceder."
+            
+            # Pasar parámetros detallados según el tipo
+            diff_to_pass = diff_content
+            file_path_to_pass = file_path
+            
+            if not is_file_update_confirmation and command_to_execute:
+                 diff_to_pass = command_to_execute
+                 file_path_to_pass = "bash"
 
-                if approval_input == 's':
-                    run_action = True
-                    break
-                elif approval_input == 'n':
-                    run_action = False
-                    break
-                else:
-                    self.terminal_ui.print_message("Respuesta no válida. Por favor, responde 's' o 'n'.", style="red")
+            run_action = self.terminal_ui.ask_approval_sync(
+                message=approval_message,
+                title=panel_title,
+                diff_content=diff_to_pass,
+                file_path=file_path_to_pass,
+            )
 
         # 5. Ejecutar el comando y manejar la salida (o procesar la confirmación del usuario)
         tool_message_content = ""
@@ -392,7 +389,11 @@ class CommandApprovalHandler:
                             original_tool_args.get("path", file_path),
                             original_tool_args.get("content", "")
                         )
-                        tool_message_content = file_ops_result
+                        # Asegurar que el contenido sea un string para el ToolMessage
+                        if isinstance(file_ops_result, dict):
+                            tool_message_content = json.dumps(file_ops_result)
+                        else:
+                            tool_message_content = str(file_ops_result)
                     else:
                         # Para la skill file_operations
                         if op_type == "delete_file":
@@ -408,11 +409,11 @@ class CommandApprovalHandler:
                                 original_tool_args.get("content", ""),
                                 confirm=True
                             )
-                        # Ensure we extract message if a dict is returned
+                        # Asegurar que el contenido sea un string para el ToolMessage
                         if isinstance(file_ops_result, dict):
-                            tool_message_content = file_ops_result.get("message", str(file_ops_result))
+                            tool_message_content = json.dumps(file_ops_result)
                         else:
-                            tool_message_content = file_ops_result
+                            tool_message_content = str(file_ops_result)
                 
                 # NO imprimir mensaje de confirmación aquí - el ToolMessage en el historial es suficiente
             elif is_user_confirmation:
@@ -434,10 +435,16 @@ class CommandApprovalHandler:
                         self.terminal_ui.console.print(f"[bold cyan]🔧 Ejecutando:[/bold cyan] [yellow]{command_to_execute}[/yellow]")
                         self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
 
+                    # Activar modo terminal interactiva y cursor antes de ejecutar
+                    self.terminal_ui.set_terminal_cursor(True, self.command_executor)
+
                     for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
-                        # NO imprimir aquí - command_executor ya imprime a stdout para interactividad
-                        # self.terminal_ui.print_stream(output_chunk)
+                        # Imprimir en tiempo real en la TUI vía adapter
+                        self.terminal_ui.print_stream(output_chunk)
                         full_command_output += output_chunk
+                    
+                    # Desactivar modo terminal al finalizar
+                    self.terminal_ui.set_terminal_cursor(False)
                     
                     # Separador visual después del comando con temas
                     if THEMES_AVAILABLE:
@@ -502,31 +509,7 @@ class CommandApprovalHandler:
         # 8. Devolver el estado actualizado y el contenido del ToolMessage
         return {"messages": self.agent_state.messages, "tool_message_content": tool_message_content, "approved": run_action, "command_output": full_command_output}
 
-    def handle_approval(self, action_description: str, diff: Optional[str] = None) -> bool:
-        """
-        Versión síncrona y simplificada para ser llamada desde herramientas de CrewAI.
-        Maneja internamente el bucle de eventos asíncronos.
-        """
-        import asyncio
-        import nest_asyncio
-        nest_asyncio.apply()
-
-        # Crear un objeto de respuesta simulado para handle_command_approval
-        raw_output = {
-            "status": "requires_confirmation",
-            "action_description": action_description,
-            "diff": diff,
-            "path": action_description.split("'")[1] if "'" in action_description else "archivo"
-        }
-
-        try:
-            loop = asyncio.get_event_loop()
-            result = loop.run_until_complete(self.handle_command_approval(
-                command_to_execute="",
-                raw_tool_output=raw_output,
-                is_file_update_confirmation=True  # Establecer True para evitar auto-aprobación
-            ))
-            return result.get("approved", False)
-        except Exception as e:
-            logger.error(f"Error en handle_approval: {e}")
-            return False
+    # La función handle_approval (síncrona) ha sido eliminada por ser peligrosa
+    # y causar crashes al usar loops anidados en hilos worker.
+    # El flujo de confirmación ahora es puramente asíncrono y se maneja
+    # burbujeando el estado al hilo principal TUI.

@@ -127,8 +127,10 @@ def create_info_panel(
     status: str = "info",
     icon: Optional[str] = None,
     expand: bool = False,
-    padding: tuple = (1, 2)
+    padding: tuple = (1, 0)
 ) -> Padding:
+
+
     """
     Crea un panel informativo con estilo consistente.
     
@@ -188,41 +190,41 @@ def create_thought_bubble(
     content: Union[str, RenderableType],
     title: str = "Pensamiento del Agente",
     icon: str = Icons.THINKING,
-    color: str = ColorPalette.PRIMARY_LIGHT
+    color: str = ColorPalette.GRAY_600
 ) -> Padding:
     """
-    Crea una 'burbuja de pensamiento' estilizada para el agente.
-    
-    Args:
-        content: Contenido del pensamiento
-        title: Título de la burbuja
-        icon: Icono a mostrar
-        color: Color principal de la burbuja
-        
-    Returns:
-        Padding: Burbuja de pensamiento formateada
+    Crea una 'burbuja de pensamiento' minimalista y discreta con letra opaca.
     """
     if isinstance(content, str):
         content = Markdown(content)
         
+    # Envolver el contenido en un Group con estilo dim/gris para que sea más opaco
+    from rich.console import Group
+    styled_content = Group(content)
+    
     panel = Panel(
-        content,
-        title=f"[bold {color}]{icon} {title}[/bold {color}]",
-        border_style=f"dim {color}",
-        padding=(1, 2),
-        subtitle=f"[dim]KogniTerm Intelligence[/dim]",
-        subtitle_align="right"
+        styled_content,
+        title=f"{icon} {title}",
+        border_style=ColorPalette.GRAY_700,
+        style=f"dim {ColorPalette.GRAY_500}", # Aplicar estilo dim y gris algo más claro
+        padding=(0, 2),
+        expand=True
     )
     
-    return Padding(panel, (1, 4))
+    return Padding(panel, (1, 0))
+
+
+
 
 
 def create_gradient_panel(
     content: Union[str, RenderableType],
     title: str,
     gradient: List[str] = None,
-    padding: tuple = (1, 2)
+    padding: tuple = (1, 0)
 ) -> Padding:
+
+
     """
     Crea un panel con un título en gradiente.
     
@@ -262,35 +264,145 @@ def create_warning_box(message: str, title: str = "Advertencia") -> Padding:
     return create_info_panel(message, title=title, status="warning")
 
 
-def create_tool_output_panel(tool_name: str, output: str) -> Padding:
+def create_tool_output_panel(tool_name: str, output: str, is_markdown: Optional[bool] = None) -> Padding:
     """
-    Crea un panel estilizado para mostrar la salida de una herramienta con formato Markdown.
+    Crea un panel estilizado para mostrar la salida de una herramienta.
     
     Args:
         tool_name: Nombre de la herramienta ejecutada
-        output: Salida de la herramienta (será renderizada como Markdown)
+        output: Salida de la herramienta
+        is_markdown: Si True, renderiza como Markdown. Si None, intenta autodetectar.
         
     Returns:
         Padding: Panel con la salida formateada
     """
-    # Limpiar la salida si es necesario (ej: quitar prefijos de CrewAI)
-    clean_output = output
-    if "Action Output:" in output:
-        clean_output = output.split("Action Output:", 1)[1].strip()
+    # Limpiar la salida de ruidos terminales comunes
+    clean_output = output.replace('\r\n', '\n').replace('\r', '').strip()
+    if not clean_output:
+        clean_output = "(sin salida)"
     
-    # Crear el contenido Markdown
-    content = Markdown(clean_output)
+    if "Action Output:" in clean_output:
+        clean_output = clean_output.split("Action Output:", 1)[1].strip()
     
-    # Crear el panel
+    # Autodetección básica si is_markdown es None
+    if is_markdown is None:
+        if "Ejecución de Comando" in tool_name or tool_name == "bash":
+            is_markdown = False
+        else:
+            is_markdown = True
+
+    # Crear el contenido según el tipo
+    if is_markdown:
+        content = Markdown(clean_output)
+    else:
+        # Usar un style=Normal discreto para evitar problemas de herencia
+        content = Text(clean_output, style="normal")
+    
+    # Crear el panel con estilo robusto
+    from rich import box
     panel = Panel(
         content,
         title=f"[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Tool Output: {tool_name}[/bold {ColorPalette.SECONDARY}]",
+        title_align="left",
         border_style=ColorPalette.SECONDARY,
-        padding=(1, 2),
+        box=box.ROUNDED,
+        padding=(0, 2), # Padding interno idéntico al panel de pensamiento para alinear texto
         expand=True
     )
     
-    return Padding(panel, (1, 4))
+    # IMPORTANTE: No usar padding lateral aquí si la TUI/CSS ya lo añade.
+    # Solo añadimos un margen vertical mínimo para separación.
+    return Padding(panel, (1, 0))
+
+
+def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 15) -> Padding:
+    """
+    Crea un panel estilizado para mostrar la salida de una terminal.
+    Mantiene una altura fija y hace que el texto emerja desde abajo hacia arriba.
+    
+    Args:
+        tool_name: Nombre de la herramienta (ej. 'Ejecución de Comando')
+        output: Salida de la herramienta en texto plano.
+        max_lines: Número máximo de líneas a mostrar en el panel.
+        
+    Returns:
+        Padding: Panel con la salida formateada como pseudo-terminal.
+    """
+    # Limpiar y separar líneas emulando un terminal básico (para \r y ANSI clear-line)
+    clean_lines = []
+    
+    # Textual Text no maneja \r, por lo que las animaciones de carga
+    # añadirían lineas infinitas. Emulamos tomando el último segmento del retorno de carro.
+    for raw_line in output.split('\n'):
+        if '\r' in raw_line:
+            parts = raw_line.split('\r')
+            # Tomamos la última parte (sobrescribe la visualización original)
+            last_part = parts[-1] 
+            # Limpiamos secuencias comunes de 'Clear to end of line' usadas junto al \r
+            last_part = last_part.replace('\x1b[K', '').replace('\033[K', '')
+            clean_lines.append(last_part)
+        else:
+            clean_lines.append(raw_line)
+            
+    # Eliminar lineas vacías al final que puedan hacer parpadear la altura
+    while clean_lines and not clean_lines[-1].strip():
+        clean_lines.pop()
+        
+    lines = clean_lines
+        
+    # Obtener sólo las últimas max_lines
+    if len(lines) > max_lines:
+        display_lines = lines[-max_lines:]
+    else:
+        # Añadir padding superior si hay menos líneas que el máximo 
+        # para forzar la alineación hacia abajo.
+        # IMPORTANTE: Usamos un espacio " " en lugar de "" para evitar que 
+        # Text.from_ansi ignore las lineas vacías iniciales, forzando la alineación abajo.
+        padding_lines = max_lines - len(lines)
+        display_lines = [" "] * padding_lines + lines
+        
+    formatted_content = "\n".join(display_lines)
+    
+    # Si la salida estaba vacía, poner un indicador al final
+    if not lines:
+        formatted_content = "\n".join([""] * (max_lines - 1) + ["(sin salida)"])
+        
+    from rich.text import Text
+    # Usar Text.from_ansi para preservar los colores del comando (ej. CMake, GCC, Pip)
+    # y prohibir text_wrap para garantizar que el panel nunca crezca verticalmente por líneas largas
+    content = Text.from_ansi(formatted_content, style="normal", no_wrap=True, overflow="crop")
+
+    from rich.table import Table
+    from rich import box
+    
+    # Usar una Tabla en lugar de un Panel para máxima robustez en los bordes
+    table = Table(
+        box=box.ROUNDED, 
+        show_header=False, 
+        expand=True, 
+        border_style=ColorPalette.GRAY_700,
+        padding=(0, 0),
+        title=None,
+        caption=None
+    )
+    table.add_column()
+    
+    # Fila 1: Título (sin emoji para evitar errores de ancho)
+    table.add_row(Text(f" Terminal: {tool_name} ", style=f"bold {ColorPalette.SECONDARY}"))
+    
+    # Fila 2: Separador
+    from rich.rule import Rule
+    table.add_row(Rule(style=ColorPalette.GRAY_700))
+    
+    # Fila 3: Contenido con padding lateral
+    table.add_row(Padding(content, (0, 1)))
+    
+    # Envolver en un panel de altura fija para mantener la estética de terminal
+    return Padding(table, (1, 0))
+
+ 
+
+
 
 
 # ============================================================================
@@ -365,59 +477,72 @@ def create_status_message(message: str, status: str = "info") -> Text:
 def create_welcome_banner(
     ascii_art: str,
     subtitle: Optional[str] = None,
-    gradient: List[str] = None
+    gradient: List[str] = None,
+    color: Optional[str] = None
 ) -> Group:
     """
-    Crea un banner de bienvenida con arte ASCII y degradado suave carácter por carácter.
+    Crea un banner de bienvenida con arte ASCII, soportando degradado o color sólido.
     
     Args:
         ascii_art: Arte ASCII para el banner
         subtitle: Subtítulo opcional
         gradient: Gradiente de colores personalizado
+        color: Color sólido opcional (si se proporciona, ignora el gradiente)
         
     Returns:
         Group: Grupo de renderables para el banner
     """
-    if gradient is None:
-        gradient = Gradients.get_current_gradient()
-    
     # Dividir el arte ASCII en líneas
     lines = ascii_art.strip().split('\n')
     
-    # Calcular el total de caracteres en todas las líneas para el degradado
-    total_chars = sum(len(line) for line in lines)
-    
-    # Crear líneas con degradado suave aplicado carácter por carácter
     banner_lines = []
-    char_count = 0
     
-    for line in lines:
-        line_text = Text()
-        for char in line:
-            # Calcular la posición de este carácter en el degradado total (0.0 a 1.0)
-            position = char_count / max(total_chars - 1, 1)
-            
-            # Interpolar el color para este carácter
-            color = _interpolate_gradient_color(gradient, position)
-            
-            # Añadir el carácter con su color interpolado
-            line_text.append(char, style=color)
-            char_count += 1
+    if color:
+        # Usar color sólido
+        for line in lines:
+            line_text = Text(line.rstrip(), style=color)
+            banner_lines.append(line_text)
+    else:
+        # Usar degradado (lógica original)
+        if gradient is None:
+            gradient = Gradients.get_current_gradient()
         
-        line_text.justify = "center"
-        banner_lines.append(line_text)
+        # Calcular el total de caracteres en todas las líneas para el degradado
+        total_chars = sum(len(line) for line in lines)
+        
+        char_count = 0
+        for line in lines:
+            line_text = Text()
+            stripped_line = line.rstrip()
+            for char in stripped_line:
+                # Calcular la posición de este carácter en el degradado total (0.0 a 1.0)
+                position = char_count / max(total_chars - 1, 1)
+                
+                # Interpolar el color para este carácter
+                interp_color = _interpolate_gradient_color(gradient, position)
+                
+                # Añadir el carácter con su color interpolado
+                line_text.append(char, style=interp_color)
+                char_count += 1
+            
+            banner_lines.append(line_text)
     
     # Crear el grupo de renderables
-    renderables = [Text("")]  # Línea en blanco superior
-    renderables.extend(banner_lines)
+    content = []
+    if banner_lines:
+        # Envolvemos las líneas en un Align para que cada una se centre o el grupo se centre
+        # Usamos Align.center(Group) para centrar el bloque. 
+        # Pero si queremos que cada línea esté centrada, las envolvemos individualmente.
+        # Por ahora el usuario pide "el banner este centrado", el bloque es mejor.
+        content.append(Group(*banner_lines))
     
     if subtitle:
-        renderables.append(Text(""))  # Línea en blanco
-        renderables.append(Text(subtitle, style=TextStyles.SUBTITLE, justify="center"))
+        content.append(Text(""))  # Línea en blanco
+        content.append(Text(subtitle, style=TextStyles.SUBTITLE, justify="center"))
     
-    renderables.append(Text(""))  # Línea en blanco inferior
-    
-    return Group(*renderables)
+    # Retornar el grupo envuelto en Align para asegurar el centrado absoluto
+    banner_group = Padding(Group(*content), (1, 0))
+    return Align.center(banner_group)
 
 
 def _interpolate_gradient_color(gradient: List[str], position: float) -> str:

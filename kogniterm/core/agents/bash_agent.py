@@ -7,6 +7,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMe
 import google.genai as genai
 from rich.console import Console, Group
 from rich.panel import Panel
+from rich.text import Text
 import functools
 from rich.markup import escape # Nueva importación
 import sys # Nueva importación
@@ -57,8 +58,8 @@ def get_system_message(llm_service: LLMService) -> SystemMessage:
     
     return SystemMessage(content=base_content)
 
-# Para mantener compatibilidad con imports si los hay, aunque ahora usaremos la función
-SYSTEM_MESSAGE = get_system_message(LLMService(use_multi_provider=False)) if 'LLMService' in globals() else None
+# Para mantener compatibilidad con imports si los hay, aunque ahora usaremos la función get_system_message
+SYSTEM_MESSAGE = None
 
 from kogniterm.core.exceptions import UserConfirmationRequired # Importación correcta
 
@@ -93,11 +94,11 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
         if tool_name == "plan_creation_tool":
             if "Aprobado" in tool_message_content:
                 success_message = f"El plan '{tool_args.get('plan_title', 'generado')}' fue aprobado por el usuario. El agente puede proceder con la ejecución de los pasos."
-                state.messages.append(AIMessage(content=success_message))
+                state.add_message(AIMessage(content=success_message))
                 console.print(f"[green]✨ {success_message}[/green]")
             else:
                 denied_message = f"El plan '{tool_args.get('plan_title', 'generado')}' fue denegado por el usuario. El agente debe revisar la estrategia."
-                state.messages.append(AIMessage(content=denied_message))
+                state.add_message(AIMessage(content=denied_message))
                 console.print(f"[yellow]⚠️ {denied_message}[/yellow]")
         elif tool_name and tool_args:
             console.print(f"[bold blue]🛠️ Re-ejecutando herramienta '{tool_name}' tras aprobación:[/bold blue]")
@@ -115,16 +116,21 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
                     # Si el content es None, significa que el LLM no lo proporcionó, lo cual es un error.
                     if tool_args.get("content") is None:
                         error_output = "Error: El contenido a actualizar no puede ser None."
-                        state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+                        state.add_message(ToolMessage(content=error_output, tool_call_id=tool_id))
                         console.print(f"[bold red]❌ {error_output}[/bold red]")
                         state.reset_tool_confirmation()
                         return state
     
                 try:
                     raw_tool_output = llm_service._invoke_tool_with_interrupt(tool, tool_args)
-                    tool_output_str = str(raw_tool_output)
+                    # ASEGURAR QUE EL CONTENIDO SEA STRING
+                    if isinstance(raw_tool_output, (dict, list)):
+                        tool_output_str = json.dumps(raw_tool_output)
+                    else:
+                        tool_output_str = str(raw_tool_output)
+                    
                     tool_messages = [ToolMessage(content=tool_output_str, tool_call_id=tool_id)]
-                    state.messages.extend(tool_messages)
+                    state.add_messages(tool_messages)
                     console.print(f"[green]✨ Herramienta '{tool_name}' re-ejecutada con éxito.[/green]")
     
 
@@ -134,20 +140,20 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
                     return state # Terminar la ejecución de herramientas y volver al input del usuario
                 except Exception as e:
                     error_output = f"Error al re-ejecutar la herramienta {tool_name} tras aprobación: {e}"
-                    state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+                    state.add_message(ToolMessage(content=error_output, tool_call_id=tool_id))
                     console.print(f"[bold red]❌ {error_output}[/bold red]")
             else:
                 error_output = f"Error: Herramienta '{tool_name}' no encontrada para re-ejecución."
-                state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+                state.add_message(ToolMessage(content=error_output, tool_call_id=tool_id))
                 console.print(f"[bold red]❌ {error_output}[/bold red]")
         else:
             error_output = "Error: No se encontró información de la herramienta pendiente para re-ejecución."
-            state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
+            state.add_message(ToolMessage(content=error_output, tool_call_id=tool_id))
             console.print(f"[bold red]❌ {error_output}[/bold red]")
     else:
         console.print("[bold yellow]⚠️ Confirmación de usuario recibida: Denegado.[/bold yellow]")
         tool_output_str = f"Operación denegada por el usuario: {state.tool_pending_confirmation or state.tool_code_tool_name}"
-        state.messages.append(ToolMessage(content=tool_output_str, tool_call_id=tool_id))
+        state.add_message(ToolMessage(content=tool_output_str, tool_call_id=tool_id))
 
     state.reset_tool_confirmation() # Limpiar el estado de confirmación
     state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
@@ -159,6 +165,9 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
     Llama al modelo de lenguaje y maneja la salida en streaming,
     mostrando el pensamiento y la respuesta en tiempo real.
     """
+    # Resetear flag de parada al inicio del nodo
+    state.stop_requested = False
+    
     # Usar la consola de terminal_ui si está disponible, de lo contrario usar la global
     current_console = terminal_ui.console if terminal_ui else console
     
@@ -168,7 +177,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
         if all(tc['name'] == last_calls[0]['name'] and tc['args_hash'] == last_calls[0]['args_hash'] for tc in last_calls):
             current_console.print("[bold red]🚨 ¡BUCLE CRÍTICO DETECTADO! El agente está repitiendo la misma acción exactamente.[/bold red]")
             error_msg = "He detectado que estoy en un bucle infinito repitiendo la misma acción. Deteniendo para evitar consumo innecesario. Por favor, intenta reformular tu petición o revisa los logs."
-            state.messages.append(AIMessage(content=error_msg))
+            state.add_message(AIMessage(content=error_msg))
             # Activar la bandera de bucle crítico para terminar el flujo
             state.critical_loop_detected = True
             # Limpiar el historial de llamadas a herramientas para evitar que la advertencia se repita
@@ -195,7 +204,6 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
     except ImportError:
         # Fallback al spinner original si hay problemas de importación
         from rich.spinner import Spinner
-        from rich.text import Text
         spinner = Spinner("dots", text=Text("🤖 Procesando...", style="cyan"))
         # Definir fallbacks para evitar NameError
         class ColorPalette:
@@ -208,41 +216,80 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
             THINKING = "🤔"
             TOOL = "🛠️"
         
-        def create_thought_bubble(content, title="Pensando...", icon="🤔", color="cyan"):
+        def create_thought_bubble(content, title="Pensando...", icon="🤔", color="grey"):
             from rich.panel import Panel
             from rich.markdown import Markdown
             from rich.padding import Padding
             if isinstance(content, str):
                 content = Markdown(content)
-            return Padding(Panel(content, title=f"{icon} {title}", border_style=f"dim {color}"), (1, 4))
+            return Padding(Panel(content, title=f"[dim]{icon} {title}[/dim]", border_style="dim grey", style="dim grey"), (1, 4))
+
 
     # Usar Live para actualizar el contenido en tiempo real
     # Iniciamos con el spinner
     
-    # Iniciar KeyboardHandler para detectar ESC durante la generación
-    kh = KeyboardHandler(interrupt_queue)
-    kh.start()
+    # Iniciar KeyboardHandler para detectar ESC durante la generación (solo en CLI)
+    is_tui = getattr(terminal_ui, "is_tui", False)
+    kh = None
+    if not is_tui:
+        kh = KeyboardHandler(interrupt_queue)
+        kh.start()
     
     try:
-        with Live(spinner, console=current_console, screen=False, refresh_per_second=10) as live:
+        import contextlib
+        # Solo usar rich.Live si NO estamos en la TUI
+        if not is_tui:
+            live_context = Live(spinner, console=current_console, screen=False, refresh_per_second=10)
+        else:
+            @contextlib.contextmanager
+            def dummy_live(): 
+                yield type('DummyLive', (), {'update': lambda self, x: None})()
+            live_context = dummy_live()
+
+        with live_context as live:
+            # Color de fondo del TUI (debe coincidir con CSS Screen background)
+            TUI_BG = ColorPalette.GRAY_900
+
             def update_live_display():
                 """Función auxiliar para actualizar el display de forma consistente."""
                 renderables = []
                 
                 # 1. Mostrar pensamiento si existe
                 if full_thinking_content:
-                    renderables.append(create_thought_bubble(full_thinking_content, title="KogniTerm Pensando..."))
+                    if is_tui:
+                        # En TUI: construir Panel con fondo explícito y letra opaca (gris/dim)
+                        thinking_content = Markdown(full_thinking_content) if isinstance(full_thinking_content, str) else full_thinking_content
+                        thought_panel = Panel(
+                            thinking_content,
+                            title=f"{Icons.THINKING} KogniTerm Pensando...",
+                            border_style=ColorPalette.GRAY_700,
+                            style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                            padding=(0, 2),
+                            expand=True
+                        )
+
+
+
+                        renderables.append(thought_panel)
+                    else:
+                        renderables.append(create_thought_bubble(full_thinking_content, title="KogniTerm Pensando..."))
                 
                 # 2. Añadir respuesta si existe
                 if full_response_content:
+                    if full_thinking_content:
+                        renderables.append(Text(""))  # Separación entre pensamiento y respuesta
                     renderables.append(Markdown(full_response_content))
                 
-                # 3. Si no hay nada aún, mostrar el spinner inicial
-                if not renderables:
-                    live.update(spinner)
+                if is_tui:
+                    group = Group(*renderables)
+                    final_renderable = Padding(group, (0, 4))
+                    terminal_ui.update_live(final_renderable)
                 else:
-                    # Envolver en Padding para añadir margen lateral (sangría)
-                    live.update(Padding(Group(*renderables), (0, 4)))
+                    final_renderable = Padding(Group(*renderables), (0, 4)) if renderables else spinner
+                    if not renderables:
+                        live.update(spinner)
+                    else:
+                        live.update(final_renderable)
 
             interrupcion_detectada = False
             for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
@@ -278,17 +325,28 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
             if final_ai_message_from_llm and not text_streamed and final_ai_message_from_llm.content:
                 full_response_content = final_ai_message_from_llm.content
                 update_live_display()
-            else:
+            elif not text_streamed and not full_thinking_content:
+                # Si no hubo nada de nada, al menos actualizar una vez
                 update_live_display()
+
+            # En TUI, cerramos el streaming para consolidar el mensaje en el log
+            if is_tui:
+                # Importante: Solo consolidamos si hubo contenido real para evitar bloques vacíos
+                if text_streamed or full_thinking_content or (final_ai_message_from_llm and final_ai_message_from_llm.content):
+                    terminal_ui.stop_live()
+                else:
+                    # Si no hubo nada, simplemente esconder el live display sin consolidar
+                    self._safe_call(terminal_ui.app.hide_live_display)
     finally:
-        kh.stop()
+        if kh:
+            kh.stop()
 
 
     # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
 
     # Usar directamente el AIMessage del LLMService para evitar duplicación de contenido
     if final_ai_message_from_llm:
-        state.messages.append(final_ai_message_from_llm)
+        state.add_message(final_ai_message_from_llm)
 
         # Si la herramienta es 'execute_command', establecemos command_to_confirm
         command_to_execute = None
@@ -316,7 +374,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
     else:
         # Fallback si por alguna razón no se obtuvo un AIMessage (poco probable con llm_service.py)
         error_message = "El modelo no proporcionó una respuesta AIMessage válida después de procesar los chunks."
-        state.messages.append(AIMessage(content=error_message))
+        state.add_message(AIMessage(content=error_message))
         # Guardar historial explícitamente
         llm_service._save_history(state.messages)
         return {"messages": state.messages}
@@ -387,18 +445,18 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
         processed_tool_output = full_tool_output
 
         # --- Refresco automático de herramientas ---
-        # Si la herramienta es 'refresh_tools', forzar al ToolManager a recargar
-        if tool_name == 'refresh_tools' and hasattr(llm_service, 'tool_manager'):
-            logger.info("Detectada llamada a refresh_tools. Disparando ToolManager.refresh_skills().")
-            llm_service.tool_manager.refresh_skills()
+        # Si la herramienta es 'refresh_tools', forzar al SkillManager a recargar
+        if tool_name == 'refresh_tools' and hasattr(llm_service, 'skill_manager'):
+            logger.info("Detectada llamada a refresh_tools. Disparando SkillManager.refresh_skills().")
+            llm_service.skill_manager.refresh_skills()
 
         # Si la herramienta es 'skill_factory' y terminó con éxito, refrescar el arsenal
         # automáticamente para que la nueva skill quede disponible en el siguiente turno.
-        if tool_name == 'skill_factory' and hasattr(llm_service, 'tool_manager'):
+        if tool_name == 'skill_factory' and hasattr(llm_service, 'skill_manager'):
             logger.info("Detectada creación de skill via skill_factory. Disparando refresh automático.")
             try:
-                llm_service.tool_manager.refresh_skills()
-                new_tool_names = list(llm_service.tool_manager.tool_map.keys())
+                llm_service.skill_manager.refresh_skills()
+                new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
                 logger.info(f"Arsenal actualizado. Herramientas disponibles: {new_tool_names}")
                 # Añadir al output la lista de herramientas para que el LLM sepa qué puede invocar
                 processed_tool_output += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
@@ -415,9 +473,9 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
 
 def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None, command_approval_handler=None):
     """Ejecuta las herramientas solicitadas por el modelo."""
-    # Obtener command_approval_handler del llm_service.tool_manager si no se pasó directamente
-    if command_approval_handler is None and hasattr(llm_service, 'tool_manager') and hasattr(llm_service.tool_manager, 'approval_handler'):
-        command_approval_handler = llm_service.tool_manager.approval_handler
+    # Obtener command_approval_handler del llm_service.skill_manager si no se pasó directamente
+    if command_approval_handler is None and hasattr(llm_service, 'skill_manager') and hasattr(llm_service.skill_manager, 'approval_handler'):
+        command_approval_handler = llm_service.skill_manager.approval_handler
     
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -428,8 +486,9 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
     # Iniciar KeyboardHandler si no hay herramientas interactivas (como execute_command)
     # execute_command ya maneja su propia interactividad y detección de ESC.
     has_interactive_tool = any(tc['name'] == 'execute_command' for tc in last_message.tool_calls)
+    is_tui = getattr(terminal_ui, "is_tui", False)
     kh = None
-    if not has_interactive_tool:
+    if not has_interactive_tool and not is_tui:
         kh = KeyboardHandler(interrupt_queue)
         kh.start()
         
@@ -456,6 +515,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             if interrupt_queue and not interrupt_queue.empty():
                 interrupt_queue.get()
                 terminal_ui.console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
+                state.stop_requested = True
                 state.reset_temporary_state()
                 executor.shutdown(wait=False)
                 return state
@@ -477,46 +537,81 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             if tool_name == "execute_command":
                 state.command_to_confirm = tool_args['command']
                 state.tool_call_id_to_confirm = tool_call['id']
-                # Añadimos un mensaje de "Ejecutando..." para feedback visual
+                # Feedback visual de preparación de comando
                 try:
                     from kogniterm.terminal.themes import Icons, ColorPalette
-                    from rich.panel import Panel
                     from rich.text import Text
-                    
-                    cmd_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Preparando comando de terminal:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
-                    if bajada:
-                        cmd_label.append("\n  ")
-                        cmd_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
-                    
-                    terminal_ui.console.print(cmd_label)
+                    if is_tui:
+                        # En TUI: notificación izquierda con acción en segunda línea
+                        terminal_ui.print_tool_notification(tool_call['name'], bajada)
+                    else:
+                        cmd_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Preparando comando de terminal:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+                        if bajada:
+                            cmd_label.append("\n  ")
+                            cmd_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
+                        terminal_ui.console.print(cmd_label)
                 except ImportError:
                     terminal_ui.console.print(f"\n[bold blue]🛠️ Preparando comando:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
                 
-                # Para execute_command, no necesitamos enviar una tarea al executor
-                continue
+                # IMPORTANTE: Si hay execute_command, salir del loop de tools y devolver
+                # sin ejecutar nada más en paralelo. Previene comandos ejecutándose
+                # simultáneamente o en background mientras el modal está abierto.
+                executor.shutdown(wait=False)
+                return {
+                    "messages": state.messages,
+                    "command_to_confirm": state.command_to_confirm,
+                    "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                }
 
-            # Mejorar el mensaje de ejecución de herramienta con iconos y colores temáticos
+
+            # Mensaje de ejecución con iconos y colores temáticos
             try:
                 from kogniterm.terminal.themes import Icons, ColorPalette
-                from rich.panel import Panel
                 from rich.text import Text
-                
-                tool_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
-                if bajada:
-                    tool_label.append("\n  ")
-                    tool_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
-                
-                terminal_ui.console.print(tool_label)
+                if is_tui:
+                    # En TUI: notificación izquierda con acción en segunda línea
+                    terminal_ui.print_tool_notification(tool_call['name'], bajada)
+                else:
+                    tool_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
+                    if bajada:
+                        tool_label.append("\n  ")
+                        tool_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
+                    terminal_ui.console.print(tool_label)
             except ImportError:
-                # Fallback al mensaje original
                 terminal_ui.console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
+            logger.info(f"Agente: Enviando herramienta '{tool_call['name']}' al executor.")
             futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
 
+        logger.info(f"Agente: Esperando resultados de {len(futures)} herramientas.")
         for future in as_completed(futures):
-            tool_id, content, exception = future.result()
+            try:
+                tool_id, content, exception = future.result()
+                logger.info(f"Agente: Herramienta con ID {tool_id} completada.")
+            except Exception as e:
+                logger.error(f"Error al obtener resultado del future: {e}")
+                continue
             if exception:
                 if isinstance(exception, UserConfirmationRequired):
-                    # IMPORTANTE: Manejar la confirmación DIRECTAMENTE sin involucrar al LLM
+                    # SI ESTAMOS EN TUI: Burbujear la petición al hilo principal
+                    # Esto evita el uso de loops anidados (nest_asyncio) en hilos worker
+                    # que causan cierres silenciosos.
+                    if terminal_ui and getattr(terminal_ui, "is_tui", False):
+                        logger.info(f"Agente: Postergando confirmación de '{exception.tool_name}' para el hilo principal TUI.")
+                        state.tool_pending_confirmation = exception.tool_name
+                        state.tool_args_pending_confirmation = exception.tool_args
+                        state.tool_call_id_to_confirm = tool_id
+                        state.file_update_diff_pending_confirmation = exception.raw_tool_output
+                        
+                        executor.shutdown(wait=False)
+                        return {
+                            "messages": state.messages,
+                            "tool_pending_confirmation": exception.tool_name,
+                            "tool_args_pending_confirmation": exception.tool_args,
+                            "tool_call_id_to_confirm": tool_id,
+                            "file_update_diff_pending_confirmation": exception.raw_tool_output
+                        }
+
+                    # MODO CLI (O NO-TUI): Manejar la confirmación DIRECTAMENTE sin involucrar al LLM
                     # Esto evita que el LLM genere texto antes de que el usuario pueda confirmar
                     
                     # Preparar raw_output para el handler
@@ -601,16 +696,22 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             )
                             content = edit_result
                         
+                        # ASEGURAR QUE EL CONTENIDO SEA STRING
+                        if isinstance(content, (dict, list)):
+                            content = json.dumps(content)
+                        else:
+                            content = str(content)
+
                         tool_message = ToolMessage(content=content, tool_call_id=tool_id)
                         tool_messages.append(tool_message)
-                        state.messages.append(tool_message)
+                        state.add_message(tool_message)
                         terminal_ui.print_message("✅ Acción ejecutada por el usuario.", style="green")
                     else:
                         # Usuario denegó
                         content = f"Operación cancelada por el usuario: {exception.message}"
                         tool_message = ToolMessage(content=content, tool_call_id=tool_id)
                         tool_messages.append(tool_message)
-                        state.messages.append(tool_message)
+                        state.add_message(tool_message)
                         terminal_ui.print_message("❌ Acción cancelada por el usuario.", style="yellow")
                     
                     executor.shutdown(wait=False)
@@ -620,13 +721,13 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     }
                 elif isinstance(exception, InterruptedError):
                     terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
+                    state.stop_requested = True
                     state.reset_temporary_state()
                     executor.shutdown(wait=False)
                     llm_service._save_history(state.messages)
                     return {
                         "messages": state.messages,
-                        "command_to_confirm": None,
-                        "tool_call_id_to_confirm": None
+                        "stop_requested": True
                     }
                 else:
                     tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
@@ -661,7 +762,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             state.tool_args_pending_confirmation = tool_args
                             state.tool_call_id_to_confirm = tool_id
                             executor.shutdown(wait=False)
-                            state.messages.extend(tool_messages)
+                            state.add_messages(tool_messages)
                             llm_service._save_history(state.messages)
                             return {
                                 "messages": state.messages,
@@ -674,7 +775,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                         pass
 
         executor.shutdown(wait=True)
-        state.messages.extend(tool_messages)
+        state.add_messages(tool_messages)
         
         # Guardar historial explícitamente al finalizar la ejecución de herramientas
         llm_service._save_history(state.messages)
@@ -697,15 +798,18 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
 
 def should_continue(state: AgentState) -> str:
     """Decide si continuar llamando a herramientas o finalizar."""
-    # Si se detectó un bucle crítico, terminar el flujo inmediatamente
-    if state.critical_loop_detected:
+    # Si se detectó un bucle crítico o parada solicitada, terminar el flujo inmediatamente
+    if state.critical_loop_detected or state.stop_requested:
         return END
     
     last_message = state.messages[-1]
     
-    # Si hay un comando pendiente de confirmación, siempre terminamos el grafo aquí
-    # para que la terminal lo maneje.
-    if state.command_to_confirm or state.file_update_diff_pending_confirmation:
+    # Si hay una herramienta o comando pendiente de confirmación, siempre terminamos el grafo aquí
+    # para que la terminal o la UI puedan manejar la interacción.
+    if (state.command_to_confirm or 
+        state.file_update_diff_pending_confirmation or 
+        state.tool_pending_confirmation or 
+        state.tool_code_to_confirm):
         return END
 
     # Si el último mensaje del AI tiene tool_calls, ejecutar herramientas
@@ -737,6 +841,14 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
         }
     )
 
-    bash_agent_graph.add_edge("execute_tool", "call_model")
+    bash_agent_graph.add_conditional_edges(
+        "execute_tool",
+        should_continue,
+        {
+            "call_model": "call_model",
+            "execute_tool": "execute_tool",
+            END: END
+        }
+    )
 
     return bash_agent_graph.compile()

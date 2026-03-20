@@ -68,6 +68,7 @@ Requires-Dist: tiktoken
 Requires-Dist: requests
 Requires-Dist: crewai
 Requires-Dist: fastembed
+Requires-Dist: textual
 Provides-Extra: dev
 Requires-Dist: radon; extra == "dev"
 Requires-Dist: pylint; extra == "dev"
