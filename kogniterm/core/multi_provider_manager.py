@@ -249,10 +249,18 @@ class MultiProviderManager:
         **kwargs
     ):
         """
-        Ejecuta una solicitud con el proveedor primario.
-        Sin fallback automático a otros proveedores.
+        Ejecuta una solicitud con el proveedor adecuado.
+        Prioriza el proveedor si el prefijo del modelo coincide.
         """
-        provider = self.get_primary_provider()
+        # Intentar detectar proveedor por prefijo (ej: 'gemini/...' -> google)
+        provider = None
+        if "/" in model_name:
+            prefix = model_name.split("/")[0]
+            provider = next((p for p in self.get_available_providers() if p.model_prefix == prefix), None)
+        
+        # Si no hay coincidencia por prefijo, usar el primario por prioridad
+        if not provider:
+            provider = self.get_primary_provider()
         
         if not provider:
             raise ValueError("No hay proveedores configurados disponibles. Revisa tus API Keys.")

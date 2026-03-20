@@ -144,36 +144,51 @@ litellm.set_verbose = False
 litellm.suppress_debug_info = True # Nueva bandera para evitar mensajes de ayuda
 litellm.add_fastapi_middleware = False # Evitar ruidos innecesarios
 
-if openrouter_api_key and litellm_model:
-    # Usar OpenRouter
-    # Si el modelo no tiene el prefijo openrouter/, añadirlo
-    if not litellm_model.startswith("openrouter/"):
-        model_name = f"openrouter/{litellm_model}"
-    else:
-        model_name = litellm_model
+# Configuración inicial de modelo y proveedor
+model_to_use = litellm_model or (f"gemini/{gemini_model}" if gemini_model else "google/gemini-1.5-flash")
 
-    # Actualizar el environment
-    os.environ["LITELLM_MODEL"] = model_name
-    os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
-
-    # Cabeceras básicas para OpenRouter
-    litellm.headers = {
-        "HTTP-Referer": "https://github.com/gatovillano/KogniTerm",
-        "X-Title": "KogniTerm"
-    }
-
-    # Configuración específica para OpenRouter
-    litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
-
-    print(f"🤖 Configuración activa: OpenRouter ({model_name})")
-elif google_api_key and gemini_model:
-    # Usar Google AI Studio
-    os.environ["LITELLM_MODEL"] = f"gemini/{gemini_model}" # Asegurarse de que sea gemini/gemini-1.5-flash
-    os.environ["LITELLM_API_KEY"] = google_api_key
-    litellm.api_base = None # Asegurarse de que no haya un api_base de Vertex AI
-    print(f"🤖 Configuración activa: Google AI Studio ({gemini_model})")
+# Detectar si es Gemini nativo o OpenRouter
+if model_to_use.startswith("gemini/") or "gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower():
+    # Preferir Google nativo si hay key
+    if google_api_key:
+        if not model_to_use.startswith("gemini/"):
+            model_to_use = f"gemini/{model_to_use.split('/')[-1]}"
+        os.environ["LITELLM_MODEL"] = model_to_use
+        os.environ["LITELLM_API_KEY"] = google_api_key
+        litellm.api_base = None
+        litellm.headers = {}
+        print(f"🤖 Configuración activa: Google AI Studio ({model_to_use})")
+    elif openrouter_api_key:
+        # Fallback a OpenRouter si no hay key de Google pero sí de OR
+        if not model_to_use.startswith("openrouter/"):
+            model_to_use = f"openrouter/{model_to_use}"
+        os.environ["LITELLM_MODEL"] = model_to_use
+        os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
+        os.environ["LITELLM_API_KEY"] = openrouter_api_key
+        litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
+        litellm.headers = {"HTTP-Referer": "https://github.com/gatovillano/KogniTerm", "X-Title": "KogniTerm"}
+        print(f"🤖 Configuración activa: OpenRouter ({model_to_use})")
 else:
-    print("⚠️  ADVERTENCIA: No se encontraron credenciales válidas para OpenRouter ni Google AI Studio. Asegúrate de configurar OPENROUTER_API_KEY/LITELLM_MODEL o GOOGLE_API_KEY/GEMINI_MODEL en tu archivo .env", file=sys.stderr)
+    # Otros modelos o OpenRouter explícito
+    if openrouter_api_key:
+        if not ("/" in model_to_use) and not model_to_use.startswith("openrouter/"):
+            model_to_use = f"openrouter/{model_to_use}"
+        os.environ["LITELLM_MODEL"] = model_to_use
+        os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
+        os.environ["LITELLM_API_KEY"] = openrouter_api_key
+        litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
+        litellm.headers = {"HTTP-Referer": "https://github.com/gatovillano/KogniTerm", "X-Title": "KogniTerm"}
+        print(f"🤖 Configuración activa: OpenRouter ({model_to_use})")
+    elif google_api_key:
+        # Último fallback a Google
+        if not model_to_use.startswith("gemini/"):
+            model_to_use = f"gemini/{model_to_use}"
+        os.environ["LITELLM_MODEL"] = model_to_use
+        os.environ["LITELLM_API_KEY"] = google_api_key
+        litellm.api_base = None
+        print(f"🤖 Configuración activa: Google AI Studio ({model_to_use})")
+    else:
+        print("⚠️ ADVERTENCIA: No se encontraron credenciales válidas. Configura OPENROUTER_API_KEY o GOOGLE_API_KEY.", file=sys.stderr)
 
 from .exceptions import UserConfirmationRequired # Importar la excepción
 import tiktoken # Importar tiktoken
@@ -187,8 +202,6 @@ from .history_manager import HistoryManager
 class LLMService:
     def __init__(self, interrupt_queue: Optional[queue.Queue] = None, use_multi_provider: bool = True):
         # print("DEBUG: Iniciando LLMService.__init__...")
-        # print("DEBUG: Iniciando LLMService.__init__...")
-        from .tools.tool_manager import ToolManager
         
         # Inicializar MultiProviderManager
         self.use_multi_provider = use_multi_provider
@@ -205,7 +218,14 @@ class LLMService:
             logger.warning(f"Se detectó una API Key en LITELLM_MODEL ('{self.model_name[:8]}...'). Corrigiendo a 'google/gemini-1.5-flash'.")
             self.model_name = "google/gemini-1.5-flash"
             
-        self.api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        # Determinar API Key de forma inteligente según el modelo inicial
+        if self.model_name.startswith("gemini/"):
+            self.api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("openrouter/"):
+            self.api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        else:
+            self.api_key = os.environ.get("LITELLM_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+
         self.interrupt_queue = interrupt_queue
         self.stop_generation_flag = False
         from .embeddings_service import EmbeddingsService
@@ -222,21 +242,21 @@ class LLMService:
 
         # print("DEBUG: Inicializando SkillManager...")
         from .skills.skill_manager import SkillManager
-        self.skill_manager = SkillManager()
-        
-        # print("DEBUG: Inicializando ToolManager...")
-        self.tool_manager = ToolManager(
-            llm_service=self, 
-            embeddings_service=self.embeddings_service, 
-            vector_db_manager=self.vector_db_manager,
-            skill_manager=self.skill_manager
+        self.skill_manager = SkillManager(
+            llm_service=self,
+            interrupt_queue=self.interrupt_queue,
+            embeddings_service=self.embeddings_service,
+            vector_db_manager=self.vector_db_manager
         )
-        # print("DEBUG: Cargando herramientas...")
-        self.tool_manager.load_tools()
+        # print("DEBUG: Cargando skills...")
+        self.skill_manager.discover_all_skills()
+        for skill_name in self.skill_manager.skills:
+            self.skill_manager.load_skill(skill_name)
+            
         # print("DEBUG: Generando esquemas de herramientas...")
-        self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in self.tool_manager.get_tools()]
+        self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in self.skill_manager.get_tools()]
         self.tool_schemas = []
-        for tool in self.tool_manager.get_tools():
+        for tool in self.skill_manager.get_tools():
             schema = {}
             if hasattr(tool, 'args_schema') and tool.args_schema is not None:
                 if hasattr(tool.args_schema, 'schema'):
@@ -246,7 +266,7 @@ class LLMService:
             elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
                 schema = tool.parameters_schema
             self.tool_schemas.append(schema)
-        self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.tool_manager.get_tools()}
+        self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.skill_manager.get_tools()}
         # Tools will be converted at runtime based on the actual model being used
         self.litellm_tools = None
         self.max_conversation_tokens = 128000 # Gemini 1.5 Flash context window
@@ -512,20 +532,23 @@ class LLMService:
             return self._generate_short_id()
 
         if isinstance(message, HumanMessage):
-            return {"role": "user", "content": message.content}
+            content = message.content
+            if not isinstance(content, str):
+                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+            return {"role": "user", "content": content}
         elif isinstance(message, AIMessage):
             tool_calls = getattr(message, 'tool_calls', [])
             content = message.content
-            if isinstance(content, list):
-                # Handle cases where content is a list of dicts (e.g. from a tool call)
-                content = json.dumps(content)
+            if not isinstance(content, str):
+                # Handle cases where content is a list/dict of objects (e.g. from a tool call or reasoning)
+                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
 
             msg = {"role": "assistant", "content": content or "..."}
             
             # Preservar razonamiento para OpenRouter/LiteLLM
             reasoning = message.additional_kwargs.get("reasoning_content") or getattr(message, 'reasoning_content', None)
             if reasoning:
-                msg["reasoning_content"] = reasoning
+                msg["reasoning_content"] = str(reasoning)
 
             if tool_calls:
                 serialized_tool_calls = []
@@ -551,16 +574,26 @@ class LLMService:
             return msg
         elif isinstance(message, ToolMessage):
             content = message.content
-            if isinstance(content, list):
-                content = json.dumps(content)
+            # ASEGURAR SIEMPRE QUE EL CONTENIDO SEA STRING PARA EL LLM
+            if not isinstance(content, str):
+                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+            
             if not content or not str(content).strip():
                 content = "Operación completada (sin salida)."
             
             tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
             return {"role": "tool", "content": content, "tool_call_id": tc_id}
         elif isinstance(message, SystemMessage):
-            return {"role": "system", "content": message.content}
-        return {"role": "user", "content": str(message)}
+            content = message.content
+            if not isinstance(content, str):
+                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+            return {"role": "system", "content": content}
+        
+        # Fallback para cualquier otro tipo de mensaje
+        content = getattr(message, 'content', str(message))
+        if not isinstance(content, str):
+            content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+        return {"role": "user", "content": content}
 
     def _truncate_messages(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         # Implementación de truncamiento de mensajes
@@ -606,11 +639,11 @@ class LLMService:
         return self.history_manager._load_history()
 
     def get_tools(self) -> List[BaseTool]:
-        return self.tool_manager.get_tools()
+        return self.skill_manager.get_tools()
 
     def register_tool(self, tool_instance: BaseTool):
         """Registra una herramienta dinámicamente y actualiza las estructuras internas."""
-        self.tool_manager.register_tool(tool_instance)
+        self.skill_manager.register_tool(tool_instance)
         # Actualizar las estructuras internas de LLMService
         self.tool_map[tool_instance.name] = tool_instance
         self.tool_names.append(tool_instance.name)
@@ -621,7 +654,7 @@ class LLMService:
         if self.litellm_tools is None:
             logger.info(f"🔧 Convirtiendo herramientas para modelo: {self.model_name}")
             converted_tools = []
-            for tool in self.tool_manager.get_tools():
+            for tool in self.skill_manager.get_tools():
                 converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
                 logger.info(f"✅ Herramienta convertida: {tool.name} -> {converted.get('type', 'standard')}")
                 converted_tools.append(converted)
@@ -630,25 +663,44 @@ class LLMService:
         return self.litellm_tools
 
     def set_model(self, model_name: str):
-        """Cambia el modelo actual en tiempo de ejecución."""
+        """Cambia el modelo actual en tiempo de ejecución de forma robusta."""
         self.model_name = model_name
         os.environ["LITELLM_MODEL"] = model_name
         
-        # Invalidar caché de herramientas para que se regeneren con el formato correcto para el nuevo modelo
+        # Invalidar caché de herramientas
         self.litellm_tools = None
         
-        # Actualizar configuración de LiteLLM si es necesario (ej: OpenRouter)
+        # Lógica de configuración específica por proveedor
         if model_name.startswith("openrouter/"):
-            litellm_model = model_name
-            # Asegurarse de que la API Key de OpenRouter esté configurada si cambiamos a un modelo OpenRouter
-            if not os.environ.get("OPENROUTER_API_KEY"):
-                logger.warning("Cambiando a modelo OpenRouter pero OPENROUTER_API_KEY no está definida.")
+            key = os.environ.get("OPENROUTER_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+            
+            litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://openrouter.ai/api/v1"
+            litellm.headers = {
+                "HTTP-Referer": "https://github.com/gatovillano/KogniTerm",
+                "X-Title": "KogniTerm"
+            }
+            logger.info(f"🌐 Cambiado a OpenRouter: {model_name}")
+            
         elif model_name.startswith("gemini/"):
-             # Asegurarse de que la API Key de Google esté configurada
-            if not os.environ.get("GOOGLE_API_KEY"):
-                 logger.warning("Cambiando a modelo Gemini pero GOOGLE_API_KEY no está definida.")
+            key = os.environ.get("GOOGLE_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+            
+            litellm.api_base = None  # Crucial para que no intente usar OpenRouter
+            litellm.headers = {}
+            logger.info(f"🤖 Cambiado a Google Nativo: {model_name}")
+            
+        else:
+            # Otros proveedores genéricos
+            litellm.api_base = os.environ.get("LITELLM_API_BASE")
+            litellm.headers = {}
+            logger.info(f"🔄 Cambiado a modelo: {model_name}")
 
-        logger.info(f"🔄 Modelo cambiado dinámicamente a: {model_name}")
+        logger.info(f"✅ Estado de LiteLLM actualizado satisfactoriamente.")
 
     def _initialize_memory(self):
         """Inicializa la memoria si no existe."""
@@ -943,17 +995,35 @@ class LLMService:
             logger.debug("DEBUG: litellm.completion llamada exitosa, procesando chunks...")
             end_time = time.perf_counter()
             self.call_timestamps.append(time.time())
+            start_time = time.time()
+            last_chunk_time = time.time()
+            chunk_timeout = 60 # 60 segundos entre chunks
+            overall_timeout = 300 # 5 minutos total
+            
             for chunk in response_generator:
+                current_time = time.time()
+                
+                # Detectar estancamiento entre chunks
+                if current_time - last_chunk_time > chunk_timeout:
+                    logger.warning(f"Estancamiento detectado: {current_time - last_chunk_time:.1f}s sin chunks.")
+                
+                last_chunk_time = current_time
+                
+                # Detectar timeout total de la solicitud
+                if current_time - start_time > overall_timeout:
+                    logger.error(f"Timeout total de {overall_timeout}s alcanzado en el stream.")
+                    yield f"\n\n⚠️ Error: Tiempo de espera agotado ({overall_timeout}s). La conexión se ha cerrado.\n"
+                    break
+
                 # Verificar la cola de interrupción
                 if interrupt_queue and not interrupt_queue.empty():
                     while not interrupt_queue.empty(): # Vaciar la cola
                         interrupt_queue.get_nowait()
                     self.stop_generation_flag = True
-                    print("DEBUG: Interrupción detectada desde la cola.", file=sys.stderr) # Para depuración
+                    logger.info("Interrupción detectada desde la cola.")
                     break # Salir del bucle de chunks
 
                 if self.stop_generation_flag:
-                    # print("DEBUG: Generación detenida por bandera.", file=sys.stderr)
                     break
 
                 choices = getattr(chunk, 'choices', None)
@@ -1430,6 +1500,11 @@ class LLMService:
             history_text.append(f"### {role}:\n{content}")
 
         flat_history = "\n\n".join(history_text)
+        
+        # Prevenir errores de contexto excedido (HTTP 400) en modelos pequeños gratuitos
+        max_history_chars = 12000
+        if len(flat_history) > max_history_chars:
+            flat_history = "... [Contenido antiguo truncado para resumen] ...\n\n" + flat_history[-max_history_chars:]
 
         # 2. Crear un único mensaje de usuario con todo el historial y las instrucciones
         summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior. 
@@ -1455,9 +1530,6 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             "stream": False,
             # Añadir reintentos para errores 503 y otros errores de servidor
             "num_retries": 3,
-            "retry_strategy": "exponential_backoff_retry",
-            "tools": [], # CRÍTICO: Asegurar que no se pasen herramientas para la resumirización
-            "tool_choice": "none", # CRÍTICO: Forzar al modelo a no usar herramientas
         }
         if "top_p" in litellm_generation_params:
             summary_completion_kwargs["top_p"] = litellm_generation_params["top_p"]
@@ -1508,7 +1580,7 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
 
     def get_tool(self, tool_name: str) -> Optional[Any]:
         """Encuentra y devuelve una herramienta por su nombre (soporta BaseTool y Callables)."""
-        return self.tool_manager.get_tool(tool_name)
+        return self.skill_manager.get_tool(tool_name)
 
     def close(self):
         """Libera recursos y cierra conexiones de servicios internos."""
@@ -1563,17 +1635,29 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
                         injected_args['terminal_ui'] = getattr(self, 'terminal_ui', None)
                     if 'interrupt_queue' in sig.parameters:
                         injected_args['interrupt_queue'] = getattr(self, 'interrupt_queue', None)
-                    if 'approval_handler' in sig.parameters and hasattr(self, 'tool_manager') and hasattr(self.tool_manager, 'approval_handler'):
-                        injected_args['approval_handler'] = self.tool_manager.approval_handler
+                    if 'approval_handler' in sig.parameters and hasattr(self, 'skill_manager') and hasattr(self.skill_manager, 'approval_handler'):
+                        injected_args['approval_handler'] = self.skill_manager.approval_handler
                         
                     result = tool(**injected_args)
                 else:
                     raise Exception(f"La herramienta '{getattr(tool, 'name', tool.__class__.__name__)}' no es ejecutable.")
 
                 if isinstance(result, dict) and result.get("status") == "requires_confirmation":
+                    # Intentar obtener el nombre más descriptivo posible
+                    # 1. 'operation' en el dict de respuesta (común en skills)
+                    # 2. Atributo 'name' del objeto herramienta
+                    # 3. Nombre de la función (__name__)
+                    # 4. Fallback genérico
+                    inferred_tool_name = (
+                        result.get("operation") or 
+                        getattr(tool, 'name', None) or 
+                        getattr(tool, '__name__', None) or 
+                        tool.__class__.__name__
+                    )
+
                     raise UserConfirmationRequired(
                         message=result.get("action_description", "Confirmación requerida"),
-                        tool_name=result.get("operation", getattr(tool, 'name', tool.__class__.__name__)),
+                        tool_name=inferred_tool_name,
                         tool_args=result.get("args", tool_args),
                         raw_tool_output=result
                     )

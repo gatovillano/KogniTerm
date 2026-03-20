@@ -36,6 +36,7 @@ class AgentState:
     search_memory: List[Dict[str, Any]] = field(default_factory=list) # ¡Nuevo campo para la memoria de búsqueda!
     tool_call_history: deque = field(default_factory=lambda: deque(maxlen=5)) # Historial de llamadas a herramientas para detección de bucles
     critical_loop_detected: bool = False # Bandera para indicar que se detectó un bucle crítico y se debe terminar el flujo
+    stop_requested: bool = False # Nueva bandera para indicar interrupción y detener el grafo
 
     # Añadir un campo para la ruta del archivo de historial
     history_file_path: str = field(default_factory=lambda: os.path.join(os.getcwd(), ".kogniterm", "history.json"))
@@ -99,8 +100,26 @@ class AgentState:
         import logging
         logging.getLogger(__name__).info("[AgentState] MessageManager inicializado")
 
+    def add_message(self, message: BaseMessage):
+        """Añade un mensaje delegando al MessageManager si está disponible, o a la lista local."""
+        if self.message_manager:
+            self.message_manager.add_message(message)
+            self.message_manager.sync_to_agent_state()
+        else:
+            self.messages.append(message)
+
+    def add_messages(self, temp_messages: List[BaseMessage]):
+        """Añade múltiples mensajes delegando al MessageManager."""
+        if self.message_manager:
+            for msg in temp_messages:
+                self.message_manager.add_message(msg)
+            self.message_manager.sync_to_agent_state()
+        else:
+            self.messages.extend(temp_messages)
+
 
     def __post_init__(self):
+
         # Si se pasó history_for_api pero no messages, sincronizar
         if self.history_for_api is not None and not self.messages:
             self.messages = self.history_for_api

@@ -61,42 +61,93 @@ DEEP_CODER_SYSTEM_PROMPT = get_deep_coder_system_prompt(LLMService(use_multi_pro
 
 # --- Nodo de Razonamiento para el Deep Coder ---
 
-def call_deep_coder_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
-    """Llamada al LLM con el nuevo prompt de Deep Coder."""
+def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
+    """Llamada al LLM con el nuevo prompt de Deep Coder y soporte para TUI/CLI."""
+    current_console = terminal_ui.console if terminal_ui else console
+    is_tui = getattr(terminal_ui, "is_tui", False)
+
     messages = [SystemMessage(content=get_deep_coder_system_prompt(llm_service))] + state.messages
     
     full_response_content = ""
     full_thinking_content = ""
     final_ai_message = None
+    text_streamed = False
+
+    # Iniciar KeyboardHandler para detectar ESC (solo CLI)
+    kh = None
+    if not is_tui:
+        from kogniterm.terminal.keyboard_handler import KeyboardHandler
+        kh = KeyboardHandler(interrupt_queue)
+        kh.start()
     
-    # Visualización estilo Deep Thinking
-    with Live(refresh_per_second=10) as live:
-        for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
-            if isinstance(part, AIMessage):
-                final_ai_message = part
-            elif isinstance(part, str):
-                if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
-                    prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
-                    full_thinking_content += part[len(prefix):]
-                    live.update(Padding(Panel(
-                        Markdown(full_thinking_content), 
-                        title=f"{Icons.THINKING} [bold {ColorPalette.PRIMARY_LIGHT}]DeepCoder Razonando...[/]", 
-                        border_style=ColorPalette.PRIMARY_LIGHT,
-                        dim=True
-                    ), (0, 4)))
-                else:
-                    full_response_content += part
-                    # Mostrar pensamiento finalizado arriba y respuesta abajo
-                    renderables = []
-                    if full_thinking_content:
+    try:
+        import contextlib
+        if not is_tui:
+            live_context = Live(console=current_console, screen=False, refresh_per_second=10)
+        else:
+            @contextlib.contextmanager
+            def dummy_live(): 
+                yield type('DummyLive', (), {'update': lambda self, x: None})()
+            live_context = dummy_live()
+
+        with live_context as live:
+            TUI_BG = ColorPalette.GRAY_900 if 'ColorPalette' in globals() else "#1e1e1e"
+
+            def update_display():
+                renderables = []
+                if full_thinking_content:
+                    if is_tui:
+                        thinking_content = Markdown(full_thinking_content)
+                        thought_panel = Panel(
+                            thinking_content,
+                            title=f"{Icons.THINKING} DeepCoder Razonando...",
+                            border_style=ColorPalette.GRAY_700,
+                            style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                            padding=(0, 2),
+                        )
+
+                        renderables.append(thought_panel)
+                    else:
                         renderables.append(Panel(
-                            Markdown(full_thinking_content),
-                            title=f"{Icons.SUCCESS} [bold grey]Arquitectura y Planificación Completada[/]",
-                            border_style="grey50",
+                            Markdown(full_thinking_content), 
+                            title=f"{Icons.THINKING} [bold {ColorPalette.PRIMARY_LIGHT}]DeepCoder Razonando...[/]", 
+                            border_style=ColorPalette.PRIMARY_LIGHT,
+                            padding=(0, 1),
                             dim=True
                         ))
+                
+                if full_response_content:
+                    if full_thinking_content:
+                        renderables.append(Text(""))
                     renderables.append(Markdown(full_response_content))
-                    live.update(Padding(Group(*renderables), (0, 4)))
+                
+                if is_tui:
+                    group = Group(*renderables)
+                    terminal_ui.update_live(Padding(group, (0, 4)))
+                else:
+                    final_renderable = Padding(Group(*renderables), (0, 4)) if renderables else Text("Pensando...", style="dim")
+                    live.update(final_renderable)
+
+            for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
+                if isinstance(part, AIMessage):
+                    final_ai_message = part
+                elif isinstance(part, str):
+                    if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
+                        prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
+                        full_thinking_content += part[len(prefix):]
+                        update_display()
+                    else:
+                        full_response_content += part
+                        text_streamed = True
+                        update_display()
+                
+                if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
+                    break
+
+            if is_tui:
+                terminal_ui.stop_live()
+    finally:
+        if kh: kh.stop()
 
     if final_ai_message:
         if not final_ai_message.content and full_response_content:
@@ -114,8 +165,8 @@ def create_deep_coder(llm_service: LLMService, terminal_ui: Any = None, interrup
     workflow = StateGraph(AgentState)
 
     # Nodos principales
-    workflow.add_node("call_model", functools.partial(call_deep_coder_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
-    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
+    workflow.add_node("call_model", functools.partial(call_deep_coder_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
+    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
 
     # Definir flujo
     workflow.set_entry_point("call_model")

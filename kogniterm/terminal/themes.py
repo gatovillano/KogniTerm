@@ -16,18 +16,20 @@ from rich.style import Style
 
 _THEMES = {
     "default": {
-        "PRIMARY_LIGHTEST": "#e9d5ff",
-        "PRIMARY_LIGHTER": "#d8b4fe",
-        "PRIMARY_LIGHT": "#c084fc",
-        "PRIMARY": "#a855f7",
-        "PRIMARY_DARK": "#9333ea",
-        "PRIMARY_DARKER": "#7e22ce",
-        "SECONDARY_LIGHT": "#67e8f9",
-        "SECONDARY": "#06b6d4",
-        "SECONDARY_DARK": "#0891b2",
-        "ACCENT_PINK": "#f472b6",
-        "ACCENT_BLUE": "#60a5fa",
-        "ACCENT_GREEN": "#4ade80",
+        "PRIMARY_LIGHTEST": "#f9fafb",
+        "PRIMARY_LIGHTER": "#f3f4f6",
+        "PRIMARY_LIGHT": "#e5e7eb",
+        "PRIMARY": "#9ca3af",
+        "PRIMARY_DARK": "#4b5563",
+        "PRIMARY_DARKER": "#374151",
+        "PRIMARY_DARKEST": "#1f2937",
+        "SECONDARY": "#9ca3af",
+        "SECONDARY_LIGHT": "#d1d5db",
+        "SECONDARY_DARK": "#374151",
+        "ACCENT": "#6b7280",
+        "ACCENT_PINK": "#9ca3af",
+        "ACCENT_BLUE": "#d1d5db",
+        "ACCENT_GREEN": "#6b7280",
         "SUCCESS": "#10b981",
         "SUCCESS_LIGHT": "#34d399",
         "WARNING": "#f59e0b",
@@ -50,6 +52,10 @@ _THEMES = {
         "TEXT_SECONDARY": "#d1d5db",
         "TEXT_MUTED": "#9ca3af",
         "TEXT_DIM": "#6b7280",
+        "GRADIENT_PRIMARY": [
+            "#ffffff", "#fafafa", "#f5f5f5", "#f0f0f0", "#e5e5e5", "#d4d4d4", 
+            "#a3a3a3", "#737373", "#525252", "#404040", "#262626", "#171717", "#0a0a0a"
+        ]
     },
     "ocean": {
         "PRIMARY_LIGHTEST": "#cffafe",
@@ -266,7 +272,45 @@ _THEMES = {
         "TEXT_SECONDARY": "#bd93f9",
         "TEXT_MUTED": "#6272a4",
         "TEXT_DIM": "#44475a",
-    }
+    },
+    "light": {
+        "PRIMARY_LIGHTEST": "#f1f5f9",
+        "PRIMARY_LIGHTER": "#cbd5e1",
+        "PRIMARY_LIGHT": "#94a3b8",
+        "PRIMARY": "#475569",
+        "PRIMARY_DARK": "#334155",
+        "PRIMARY_DARKER": "#1e293b",
+        "PRIMARY_DARKEST": "#0f172a",
+        "SECONDARY": "#475569",
+        "SECONDARY_LIGHT": "#334155",
+        "SECONDARY_DARK": "#cbd5e1",
+        "ACCENT": "#64748b",
+        "ACCENT_PINK": "#27272a",
+        "ACCENT_BLUE": "#1e293b",
+        "ACCENT_GREEN": "#3f3f46",
+        "SUCCESS": "#059669",
+        "SUCCESS_LIGHT": "#10b981",
+        "WARNING": "#d97706",
+        "WARNING_LIGHT": "#f59e0b",
+        "ERROR": "#dc2626",
+        "ERROR_LIGHT": "#ef4444",
+        "INFO": "#2563eb",
+        "INFO_LIGHT": "#3b82f6",
+        "GRAY_50": "#f8fafc",
+        "GRAY_100": "#f1f5f9",
+        "GRAY_200": "#e2e8f0",
+        "GRAY_300": "#cbd5e1",
+        "GRAY_400": "#94a3b8",
+        "GRAY_500": "#64748b",
+        "GRAY_600": "#475569",
+        "GRAY_700": "#334155",
+        "GRAY_800": "#f1f5f9",
+        "GRAY_900": "#ffffff",
+        "TEXT_PRIMARY": "#0f172a",
+        "TEXT_SECONDARY": "#334155",
+        "TEXT_MUTED": "#475569",
+        "TEXT_DIM": "#64748b",
+    },
 }
 
 
@@ -330,7 +374,20 @@ class ColorPalette:
     @classmethod
     def set_theme(cls, theme_name: str):
         """Cambia el tema actual."""
+        # Soporte para detección automática del tema default
+        if theme_name == "default":
+            try:
+                scheme = detect_terminal_theme()
+                if scheme == "light":
+                    theme_name = "light"
+            except Exception:
+                # Si falla la detección, permanecemos en default (dark)
+                pass
+
         if theme_name not in _THEMES:
+            # Fallback seguro
+            if theme_name != "default":
+                return cls.set_theme("default")
             raise ValueError(f"Tema '{theme_name}' no encontrado.")
         
         theme = _THEMES[theme_name]
@@ -531,22 +588,14 @@ class Gradients:
     
     # Gradiente original con pasos intermedios (tonos de morado y lila)
     PRIMARY = [
-        "#d1c4e9",  # Light Lilac (original)
-        "#cebee7",  # Intermedio
-        "#cbb8e5",  # Intermedio
-        "#c5b7e0",  # Original
-        "#c0b1dc",  # Intermedio
-        "#bcabda",  # Intermedio
-        "#b9aad7",  # Original
-        "#b5a4d4",  # Intermedio
-        "#b19fd1",  # Intermedio
-        "#ad9dce",  # Original
-        "#aa97cb",  # Intermedio
-        "#a694c8",  # Intermedio
-        "#a190c5",  # Original
-        "#9e8ac1",  # Intermedio
-        "#9a87bf",  # Intermedio
-        "#9583bc",  # Original (final)
+        "#f3f4f6", # Gray 100
+        "#e5e7eb", # Gray 200
+        "#d1d5db", # Gray 300
+        "#9ca3af", # Gray 400
+        "#6b7280", # Gray 500
+        "#4b5563", # Gray 600
+        "#374151", # Gray 700
+        "#1f2937", # Gray 800
     ]
     
     # Gradiente de éxito (verde)
@@ -598,6 +647,26 @@ class Gradients:
         "#00d3d3",
         "#39ff14", # Lima
     ]
+
+    OCEAN = [
+        "#00d2ff", # Azul claro
+        "#3a7bd5", # Azul medio
+        "#004e92", # Azul oscuro
+    ]
+
+    MATRIX = [
+        "#00ff00", # Verde brillante
+        "#008f11", # Verde medio
+        "#003b00", # Verde oscuro
+    ]
+
+    SUNSET = [
+        "#ff512f", # Naranja quemado
+        "#dd2476", # Rosa oscuro
+        "#f09819", # Ámbar
+        "#ff512f",
+    ]
+
 
     NEBULA = [
         "#4a148c", # Morado oscuro
@@ -688,3 +757,70 @@ def set_kogniterm_theme(theme_name: str):
         theme_name: Nombre del tema a aplicar.
     """
     ColorPalette.set_theme(theme_name)
+
+def detect_terminal_theme() -> str:
+    """
+    Detecta si la terminal está en modo claro u oscuro.
+    
+    Returns:
+        str: 'light' o 'dark'
+    """
+    import os
+    import sys
+    import select
+    
+    # 1. Intentar por variables de entorno (rápido)
+    colorfgbg = os.environ.get("COLORFGBG")
+    if colorfgbg:
+        try:
+            parts = colorfgbg.split(";")
+            if len(parts) >= 2:
+                bg = int(parts[1])
+                # Típicamente 0-7 son oscuros, 8-15 son claros en paletas de 16 colores
+                if bg >= 7:
+                    return "light"
+                else:
+                    return "dark"
+        except (ValueError, IndexError):
+            pass
+
+    # 2. Intentar por secuencias de escape OSC 11 (preciso pero requiere TTY)
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        import termios
+        import tty
+        
+        fd = sys.stdin.fileno()
+        try:
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                # Query background color
+                sys.stdout.write("\x1b]11;?\x1b\\")
+                sys.stdout.flush()
+                
+                # Leer respuesta con timeout corto
+                response = ""
+                while True:
+                    if select.select([sys.stdin], [], [], 0.05)[0]:
+                        char = sys.stdin.read(1)
+                        response += char
+                        if char in ("\x07", "\\"): # Terminadores OSC o ST
+                            break
+                        if len(response) > 50:
+                            break
+                    else:
+                        break
+                
+                if "rgb:" in response:
+                    rgb_part = response.split("rgb:")[1].split("\x1b")[0].split("\x07")[0]
+                    r, g, b = [int(x, 16) for x in rgb_part.split("/")]
+                    # Heurística de luminancia (0-65535)
+                    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 65535
+                    return "light" if luminance > 0.5 else "dark"
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            pass
+
+    # Por defecto asumimos oscuro (estética original de KogniTerm)
+    return "dark"

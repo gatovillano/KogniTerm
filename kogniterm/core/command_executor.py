@@ -7,150 +7,222 @@ import termios
 import time
 import tty
 import queue
-from typing import Optional
+import shlex
+from typing import Optional, Generator, Any
 from .config import settings
 
 class CommandExecutor:
-    def __init__(self):
-        self.process = None
+    def __init__(self) -> None:
+        """Initializes the CommandExecutor with process and PTY pipe setup."""
+        self.process: Optional[subprocess.Popen] = None
+        self.terminal_ui: Any = None # To be linked later
+        # Pipe para inyectar entrada al PTY desde la TUI
+        self._input_pipe_read, self._input_pipe_write = os.pipe()
+        
+        # Atributos para sesión persistente
+        self._persistent_master_fd: Optional[int] = None
+        self._persistent_slave_fd: Optional[int] = None
+        self._persistent_shell_process: Optional[subprocess.Popen] = None
+        self._last_command_done_marker = "##KOGNITERM_DONE_MARKER##"
 
-    def execute(self, command, cwd=None, interrupt_queue: Optional[queue.Queue] = None):
+    def execute(self, command: str, cwd: Optional[str] = None, 
+                interrupt_queue: Optional[queue.Queue] = None, 
+                cols: int = 80, rows: int = 24) -> Generator[str, None, None]:
         """
-        Ejecuta un comando en un pseudo-terminal (PTY), permitiendo la comunicación interactiva.
-        Captura la salida del comando y la cede (yields) en tiempo real.
-        También captura la entrada del usuario desde stdin y la reenvía al comando.
+        Ejecuta un comando en un pseudo-terminal (PTY) y cede la salida en tiempo real.
+        Utiliza una sesión persistente para mantener el estado (como sudo o variables de entorno).
 
         Args:
-            command (str): El comando a ejecutar.
-            cwd (str, optional): El directorio de trabajo para el comando. Defaults to None.
+            command: El comando de shell a ejecutar.
+            cwd: El directorio de trabajo para el comando.
+            interrupt_queue: Una cola para recibir señales de interrupción (Ctrl+C).
+            cols: Número de columnas de la terminal virtual.
+            rows: Número de filas de la terminal virtual.
+
+        Yields:
+            Cada fragmento de texto de la salida estándar/error del comando.
         """
-        MAX_OUTPUT_LENGTH = settings.max_output_length # Usar valor de configuración
-        output_buffer = "" # Buffer para acumular la salida
+        is_tui = getattr(getattr(self, 'terminal_ui', None), 'is_tui', False)
+        
+        # Inicializar sesión persistente si no existe
+        if self._persistent_shell_process is None or self._persistent_shell_process.poll() is not None:
+            self._start_persistent_session(cwd)
+            
+        master_fd = self._persistent_master_fd
+        self.process = self._persistent_shell_process
 
-        # Guardar la configuración original de la terminal
+        # Ajustar dimensiones del PTY para que coincidan con la TUI
         try:
-            old_settings = termios.tcgetattr(sys.stdin.fileno())
-        except termios.error as e:
-            # Si no se ejecuta en una terminal real, no se puede continuar con el modo interactivo.
-            # Se podría implementar un fallback a un modo no interactivo aquí si fuera necesario.
-            yield f"Error: No se pudo obtener la configuración de la terminal ({e}). Ejecución no interactiva no implementada."
-            return
+            import fcntl
+            import struct
+            buf = struct.pack('HHHH', rows, cols, 0, 0)
+            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, buf)
+            # También enviar via shell por si acaso
+            os.write(master_fd, f"stty rows {rows} cols {cols}\n".encode())
+        except:
+            pass
 
-        master_fd, slave_fd = pty.openpty()
+        # 0. Limpiar buffer de entrada/salida previo para evitar desincronización
+        # Esto evita que residuos de comandos anteriores (o el prompt oculto) 
+        # se mezclen con el output del comando actual.
+        try:
+            while True:
+                r, _, _ = select.select([master_fd], [], [], 0.0)
+                if r:
+                    os.read(master_fd, 8192)
+                else:
+                    break
+        except:
+            pass
+
+        # Enviar el comando al shell persistente
+        # Usamos un marcador muy robusto para saber cuándo termina el comando
+        marker = f"echo '{self._last_command_done_marker}'"
+        full_cmd = f"{command} ; {marker}\n"
+        os.write(master_fd, full_cmd.encode())
 
         try:
-            # Poner la terminal del usuario en modo "raw"
-            # Esto pasa todas las teclas directamente al proceso sin procesarlas
-            tty.setraw(sys.stdin.fileno())
-
-            # Si el comando contiene 'sudo', envolverlo con 'script -qc' para manejar la solicitud de contraseña
-            if command.strip().startswith("sudo "):
-                command = f"script -qc '{command}' /dev/null"
-                
-            # Iniciar el proceso del comando en el PTY
-            self.process = subprocess.Popen(
-                command,
-                shell=True,
-                stdin=slave_fd,
-                stdout=slave_fd,
-                stderr=slave_fd,
-                close_fds=True,
-                preexec_fn=os.setsid,  # Create a new process session
-                cwd=cwd
-            )
-
-            # Iniciar el proceso del comando en el PTY (sin mostrar el Tip)
-
-            # Bucle principal de E/S
-            while self.process.poll() is None:
-                # Verificar si hay una señal de interrupción en la cola
+            search_buffer = ""
+            while True:
+                # Verificar interrupción
                 if interrupt_queue and not interrupt_queue.empty():
-                    interrupt_queue.get() # Consumir la señal de interrupción
-                    self.terminate()
-                    yield "\n\n⚠️  Comando interrumpido por el usuario (ESC).\n"
+                    interrupt_queue.get()
+                    os.write(master_fd, b"\x03") # Ctrl+C al shell
+                    yield "\n\n⚠️  Comando interrumpido por el usuario.\n"
                     break
 
-                try:
-                    # Usar select para esperar E/S en el PTY o en stdin con un timeout pequeño
-                    # El timeout permite que el bucle verifique poll() periódicamente incluso sin actividad
-                    readable_fds, _, _ = select.select([master_fd, sys.stdin.fileno()], [], [], 0.1)
+                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.1)
 
-                    # Manejar la salida del comando
-                    if master_fd in readable_fds:
-                        try:
-                            output = os.read(master_fd, 4096).decode(errors='replace')
-                            if output:
-                                output_buffer += output
-                                sys.stdout.write(output)
-                                sys.stdout.flush()
-                                yield output
-                        except OSError:
-                            break
-
-                    # Manejar la entrada del usuario
-                    if sys.stdin.fileno() in readable_fds:
-                        user_input = os.read(sys.stdin.fileno(), 1024)
-                        if user_input:
-                            if b'\x03' in user_input or b'\x04' in user_input or user_input == b'\x1b':
-                                key_name = "Ctrl+C" if b'\x03' in user_input else ("Ctrl+D" if b'\x04' in user_input else "ESC")
-                                self.terminate()
-                                if interrupt_queue:
-                                    interrupt_queue.put(True)
-                                yield f"\n\n⚠️  Comando interrumpido por el usuario ({key_name}).\n"
+                if master_fd in readable_fds:
+                    try:
+                        output = os.read(master_fd, 4096).decode(errors='replace')
+                        if output:
+                            search_buffer += output
+                            
+                            # Caso 1: El marcador completo está en el buffer
+                            if self._last_command_done_marker in search_buffer:
+                                parts = search_buffer.split(self._last_command_done_marker, 1)
+                                chunk = parts[0]
+                                
+                                # Limpiar ruidos terminales y el eco del comando echo
+                                marker_echo = f"echo '{self._last_command_done_marker}'"
+                                chunk = chunk.replace(marker_echo, "")
+                                chunk = chunk.replace('\r\n', '\n').replace('\r', '')
+                                
+                                if chunk: yield chunk
                                 break
-                            os.write(master_fd, user_input)
-
-                except select.error as e:
-                    if e.args[0] == 4: # EINTR
-                        continue
-                    raise
-
-            # --- Drenaje final del PTY ---
-            # Una vez que el proceso termina, puede quedar salida pendiente en el puerto PTY.
-            # Hacemos una lectura final no bloqueante para asegurar que capturamos todo.
-            try:
-                # Esperar un momento muy corto para que terminen de llegar los últimos bytes
-                time.sleep(0.05)
-                while True:
-                    # Usar select con timeout 0 para verificar si hay algo más sin bloquear
-                    r, _, _ = select.select([master_fd], [], [], 0)
-                    if not r:
+                            
+                            # Caso 2: El buffer no contiene el inicio de un posible marcador
+                            # (ni '##' ni parte de 'echo '...). Podemos soltarlo todo.
+                            marker_start_1 = "##"
+                            marker_start_2 = "echo '"
+                            
+                            idx1 = search_buffer.find(marker_start_1)
+                            idx2 = search_buffer.find(marker_start_2)
+                            
+                            # split_idx será el primer punto donde podría empezar un marcador
+                            split_idx = -1
+                            if idx1 != -1 and idx2 != -1:
+                                split_idx = min(idx1, idx2)
+                            elif idx1 != -1:
+                                split_idx = idx1
+                            elif idx2 != -1:
+                                split_idx = idx2
+                                
+                            if split_idx == -1:
+                                # No hay rastro de marcadores, soltar todo el buffer
+                                yield search_buffer.replace('\r\n', '\n').replace('\r', '')
+                                search_buffer = ""
+                            elif split_idx > 0:
+                                # Hay rastro de marcador más adelante, soltar lo que hay antes
+                                to_yield = search_buffer[:split_idx]
+                                search_buffer = search_buffer[split_idx:]
+                                yield to_yield.replace('\r\n', '\n').replace('\r', '')
+                            
+                            # Si search_buffer empieza con un posible marcador (split_idx == 0),
+                            # solo soltamos si el buffer crece demasiado (margen de seguridad)
+                            # para no bloquear la salida si alguien escribe '##' sin ser el marcador.
+                            marker_len = len(self._last_command_done_marker)
+                            marker_echo_len = len(f"echo '{self._last_command_done_marker}'")
+                            safe_margin = max(marker_len, marker_echo_len) + 10
+                            
+                            if len(search_buffer) > safe_margin:
+                                # No es el marcador (demasiado largo), soltar un trozo
+                                to_yield = search_buffer[:-safe_margin]
+                                search_buffer = search_buffer[-safe_margin:]
+                                yield to_yield.replace('\r\n', '\n').replace('\r', '')
+                    except OSError:
+                        if search_buffer:
+                            # Limpiar eco residual
+                            search_buffer = search_buffer.replace(f"echo '{self._last_command_done_marker}'", "")
+                            search_buffer = search_buffer.replace('\r\n', '\n').replace('\r', '')
+                            if search_buffer: yield search_buffer
                         break
-                    output = os.read(master_fd, 4096).decode(errors='replace')
-                    if output:
-                        sys.stdout.write(output)
-                        sys.stdout.flush()
-                        yield output
-                    else:
-                        break
-            except (OSError, select.error):
-                pass
-
-            # Esperar a que el proceso termine completamente
-            self.process.wait()
+                if self._input_pipe_read in readable_fds:
+                    injected_input = os.read(self._input_pipe_read, 1024)
+                    if injected_input:
+                        os.write(master_fd, injected_input)
 
         finally:
-            # Si aún hay contenido en el buffer y no se ha cedido (por ejemplo, si el comando terminó antes de truncar)
-            # if output_buffer:
-            #    yield output_buffer
+            self.process = None
 
-            # CRÍTICO: Restaurar siempre la configuración original de la terminal
-            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
+    def _start_persistent_session(self, cwd=None):
+        """Inicia un shell persistente en un PTY."""
+        self._persistent_master_fd, self._persistent_slave_fd = pty.openpty()
+        
+        # Configurar terminal slave para NO tener eco (modo robusto)
+        try:
+            attrs = termios.tcgetattr(self._persistent_slave_fd)
+            attrs[3] = attrs[3] & ~termios.ECHO # Desactivar ECHO
+            termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
+        except Exception:
+            pass
+
+        # Usar 'bash' como shell persistente
+        self._persistent_shell_process = subprocess.Popen(
+            ["bash", "--login"],
+            stdin=self._persistent_slave_fd,
+            stdout=self._persistent_slave_fd,
+            stderr=self._persistent_slave_fd,
+            close_fds=True,
+            preexec_fn=os.setsid,
+            cwd=cwd or os.getcwd(),
+            env=os.environ.copy()
+        )
+        # Consumir el banner inicial del shell
+        time.sleep(0.5)
+        try:
+            # Desactivar eco y silenciar el PROMPT para que no se filtre en la TUI
+            # El prompt vacío (PS1="") es vital para una salida limpia en paneles
+            os.write(self._persistent_master_fd, b"stty -echo\n")
+            os.write(self._persistent_master_fd, b"export PS1=''\n")
+
             
-            # Cerrar los descriptores de archivo
-            os.close(master_fd)
-            os.close(slave_fd)
-            self.process = None # Reset process
+            time.sleep(0.3)
+            # Leer todo el buffer inicial para dejar la terminal limpia (banners, mensajes de login, etc)
+            while True:
+                r, _, _ = select.select([self._persistent_master_fd], [], [], 0.1)
+                if r:
+                    os.read(self._persistent_master_fd, 8192)
+                else:
+                    break
+        except:
+            pass
 
     def terminate(self):
-        if self.process and self.process.poll() is None:
+        """Interrumpe el comando actual enviando SIGINT al grupo de procesos."""
+        if self._persistent_shell_process:
             import signal
             try:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                # Process might have just finished
+                os.killpg(os.getpgid(self._persistent_shell_process.pid), signal.SIGINT)
+            except:
                 pass
-            except Exception as e:
-                # It's good to log this, but for now, we'll just ignore it
-                # as the main goal is to not crash the interpreter itself.
-                pass
+
+    def write_input(self, data: str):
+        """Envía texto al proceso actual a través del pipe de entrada."""
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+        try:
+            os.write(self._input_pipe_write, data)
+        except Exception:
+            pass

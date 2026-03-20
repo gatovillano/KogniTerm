@@ -135,8 +135,11 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     state.tool_call_id_to_confirm = None
     return state
 
-def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
-    """Llama al LLM (CodeAgent)."""
+def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
+    """Llama al LLM (CodeAgent) con soporte para TUI/CLI."""
+    current_console = terminal_ui.console if terminal_ui else console
+    is_tui = getattr(terminal_ui, "is_tui", False)
+
     
     # --- Lógica de Detección de Bucles ---
     if len(state.tool_call_history) >= 4:
@@ -165,36 +168,80 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
         from rich.spinner import Spinner
         spinner = Spinner("dots", text="🤖 CodeAgent pensando...")
 
-    with Live(spinner, console=console, screen=False, refresh_per_second=10) as live:
-        for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
-            if isinstance(part, AIMessage):
-                final_ai_message = part
-            elif isinstance(part, str):
-                if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
-                    prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
-                    thinking_chunk = part[len(prefix):]
-                    full_thinking_content += thinking_chunk
-                    thinking_panel = Panel(
-                        Markdown(full_thinking_content),
-                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} CodeAgent Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
-                        border_style=ColorPalette.PRIMARY_LIGHT,
-                        padding=(0, 1),
-                        dim=True
-                    )
-                    live.update(Padding(thinking_panel, (0, 4)))
-                else:
-                    full_response_content += part
-                    renderables = []
-                    if full_thinking_content:
+    # Iniciar KeyboardHandler para detectar ESC (solo CLI)
+    kh = None
+    if not is_tui:
+        from kogniterm.terminal.keyboard_handler import KeyboardHandler
+        kh = KeyboardHandler(interrupt_queue)
+        kh.start()
+
+    try:
+        import contextlib
+        if not is_tui:
+            live_context = Live(spinner, console=current_console, screen=False, refresh_per_second=10)
+        else:
+            @contextlib.contextmanager
+            def dummy_live(): 
+                yield type('DummyLive', (), {'update': lambda self, x: None})()
+            live_context = dummy_live()
+
+        with live_context as live:
+            TUI_BG = ColorPalette.GRAY_900 if 'ColorPalette' in globals() else "#1e1e1e"
+
+            def update_display():
+                renderables = []
+                if full_thinking_content:
+                    if is_tui:
+                        thinking_content = Markdown(full_thinking_content)
+                        thought_panel = Panel(
+                            thinking_content,
+                            title=f"{Icons.THINKING} CodeAgent Pensando...",
+                            border_style=ColorPalette.GRAY_700,
+                            style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                            padding=(0, 2),
+                        )
+
+                        renderables.append(thought_panel)
+                    else:
                         renderables.append(Panel(
                             Markdown(full_thinking_content),
-                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Razonamiento finalizado[/bold {ColorPalette.PRIMARY_LIGHT}]",
-                            border_style=ColorPalette.GRAY_600,
+                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} CodeAgent Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                            border_style=ColorPalette.PRIMARY_LIGHT,
                             padding=(0, 1),
                             dim=True
                         ))
+                
+                if full_response_content:
+                    if full_thinking_content:
+                        renderables.append(Text(""))
                     renderables.append(Markdown(full_response_content))
-                    live.update(Padding(Group(*renderables), (0, 4)))
+                
+                if is_tui:
+                    group = Group(*renderables)
+                    terminal_ui.update_live(Padding(group, (0, 4)))
+                else:
+                    final_renderable = Padding(Group(*renderables), (0, 4)) if renderables else spinner
+                    live.update(final_renderable)
+
+            for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
+                if isinstance(part, AIMessage):
+                    final_ai_message = part
+                elif isinstance(part, str):
+                    if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
+                        prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
+                        full_thinking_content += part[len(prefix):]
+                        update_display()
+                    else:
+                        full_response_content += part
+                        update_display()
+                
+                if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
+                    break
+
+            if is_tui:
+                terminal_ui.stop_live()
+    finally:
+        if kh: kh.stop()
 
     if final_ai_message:
         if not final_ai_message.content and full_response_content:
@@ -224,22 +271,32 @@ def _is_markdown_content(text: str) -> bool:
     # Si tiene al menos un indicador fuerte, lo tratamos como markdown
     return any(markdown_indicators)
 
-def execute_single_tool(tc, llm_service, interrupt_queue):
-    """Ejecuta una herramienta individual con verbosidad."""
+def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
+    """Ejecuta una herramienta individual con verbosidad adaptada a TUI/CLI."""
     tool_name = tc['name']
     tool_args = tc['args']
     tool_id = tc['id']
+    is_tui = getattr(terminal_ui, "is_tui", False)
     
-    # Mostrar qué se está ejecutando
-    args_json = json.dumps(tool_args, indent=2, ensure_ascii=False)
-    console.print(Panel(
-        Syntax(args_json, "json", theme="monokai", line_numbers=False),
-        title=f"[bold cyan]🛠️ Ejecutando: {tool_name}[/bold cyan]",
-        border_style="cyan",
-        padding=(0, 2)
-    ))
-    
+    # Notificación de inicio
     tool = llm_service.get_tool(tool_name)
+    bajada = ""
+    if tool and hasattr(tool, 'get_action_description'):
+        try:
+            bajada = tool.get_action_description(**tool_args)
+        except: pass
+        
+    if is_tui:
+        terminal_ui.print_tool_notification(tool_name, bajada)
+    else:
+        args_json = json.dumps(tool_args, indent=2, ensure_ascii=False)
+        console.print(Panel(
+            Syntax(args_json, "json", theme="monokai", line_numbers=False),
+            title=f"[bold cyan]🛠️ Ejecutando: {tool_name}[/bold cyan]",
+            border_style="cyan",
+            padding=(0, 2)
+        ))
+    
     if not tool:
         return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
 
@@ -262,19 +319,22 @@ def execute_single_tool(tc, llm_service, interrupt_queue):
             is_truncated = False
         
         # Renderizar el resultado
-        if is_markdown:
-            # Renderizar como markdown
-            content_renderable = Markdown(display_output)
+        if not is_tui:
+            if is_markdown:
+                content_renderable = Markdown(display_output)
+            else:
+                content_renderable = Text(display_output)
+            
+            console.print(Panel(
+                content_renderable,
+                title=f"[bold green]✅ Resultado de {tool_name}[/bold green]" + (" (truncado)" if is_truncated else ""),
+                border_style="green",
+                padding=(0, 2)
+            ))
         else:
-            # Mostrar como texto plano
-            content_renderable = Text(display_output)
-        
-        console.print(Panel(
-            content_renderable,
-            title=f"[bold green]✅ Resultado de {tool_name}[/bold green]" + (" (truncado)" if is_truncated else ""),
-            border_style="green",
-            padding=(0, 2)
-        ))
+            # En TUI, el resultado se mostrará vía ToolMessage en el log central
+            # No necesitamos imprimirlo aquí manualmente para evitar duplicados feos
+            pass
         
         return tool_id, output_str, None
     except UserConfirmationRequired as e:
@@ -288,8 +348,30 @@ def execute_single_tool(tc, llm_service, interrupt_queue):
         console.print(f"[bold red]❌ Error en {tool_name}: {e}[/bold red]")
         return tool_id, f"Error en {tool_name}: {e}", e
 
-def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
-    """Nodo de ejecución de herramientas."""
+def is_destructive_command(command: str) -> bool:
+    """
+    Determina si un comando de terminal es potencialmente destructivo.
+    """
+    cmd_lower = command.lower().strip()
+    
+    # Patrones de comandos peligrosos
+    destructive_patterns = [
+        'rm -rf', 'rm -r ', 'rm -f ',
+        'dd if=', 'mkfs', 'mke2fs',
+        'chmod 777', 'chmod -r 777',
+        'chown -r', 'chown -R',
+        '> /dev/sd', # Escritura directa a disco
+        'git reset --hard', 'git clean -fd', 'git clean -fx',
+        'docker rm', 'docker rmi', 'docker system prune', 'docker volume rm',
+        'pip uninstall', 'npm uninstall', 'yarn remove',
+        'shutdown', 'reboot', 'halt', 'poweroff'
+    ]
+    
+    return any(pattern in cmd_lower for pattern in destructive_patterns)
+
+def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
+    """Nodo de ejecución de herramientas con soporte para TUI."""
+
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return state
@@ -298,8 +380,10 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
     executor = ThreadPoolExecutor(max_workers=5)
     futures = []
     
-    # Mostrar encabezado de fase de análisis
-    console.print(Padding(Text("💻 Fase de Implementación: Ejecutando herramientas...", style="bold magenta underline"), (1, 0)))
+    # Mostrar encabezado solo en CLI
+    is_tui = getattr(terminal_ui, "is_tui", False)
+    if not is_tui:
+        console.print(Padding(Text("💻 Fase de Implementación: Ejecutando herramientas...", style="bold magenta underline"), (1, 0)))
 
     for tool_call in last_message.tool_calls:
         # Registrar la llamada a la herramienta en el historial para detección de bucles
@@ -316,9 +400,33 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, interrupt_queu
 
         if interrupt_queue and not interrupt_queue.empty():
             interrupt_queue.get()
-            state.reset_temporary_state()
+            state.clear_tool_call_history() # Limpiar historial si se interrumpe
             return state
-        futures.append(executor.submit(execute_single_tool, tool_call, llm_service, interrupt_queue))
+            
+        # CASO ESPECIAL: execute_command con comandos destructivos
+        if tool_name == "execute_command":
+            command = tool_args.get('command', '')
+            if is_destructive_command(command):
+                # Feedback visual de preparación de comando destructivo
+                bajada = f"Comando detectado como POTENCIALMENTE DESTRUCTIVO: {command}"
+                if is_tui:
+                    terminal_ui.print_tool_notification(tool_name, bajada)
+                else:
+                    console.print(f"\n[bold red]⚠️  Comando destructivo detectado:[/bold red] [yellow]{command}[/yellow]")
+                
+                # Establecer estado para confirmación en la UI
+                state.command_to_confirm = command
+                state.tool_call_id_to_confirm = tool_call['id']
+                
+                # IMPORTANTE: Si hay un comando destructivo, salir y esperar confirmación
+                executor.shutdown(wait=False)
+                return {
+                    "messages": state.messages,
+                    "command_to_confirm": state.command_to_confirm,
+                    "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                }
+
+        futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
 
     for future in as_completed(futures):
         tool_id, content, exception = future.result()
@@ -364,8 +472,8 @@ def should_continue(state: AgentState) -> str:
 def create_code_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None):
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
-    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
+    workflow.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
+    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
 
     workflow.set_entry_point("call_model")
 

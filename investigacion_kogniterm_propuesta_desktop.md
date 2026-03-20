@@ -157,11 +157,11 @@ Tauri es un framework alternativo que utiliza el motor web del sistema (Webkit e
 
 #### 3.3.1 Rendimiento y Uso de Recursos
 
-- **Electron**: 
+- **Electron**:
   - Ventaja: Desarrollado con tecnologías web familiares.
   - Desventaja: Alto consumo de memoria y CPU debido a Chromium.
-  
-- **Tauri**: 
+
+- **Tauri**:
   - Ventaja: Menor consumo de recursos y mejor rendimiento.
   - Desventaja: Requiere más conocimiento de Rust y WebAssembly.
 
@@ -183,15 +183,15 @@ Tauri es un framework alternativo que utiliza el motor web del sistema (Webkit e
 #### 3.3.5 Ecosistema y Comunidad
 
 - **Electron**: Comunidad grande, muchos paquetes y herramientas disponibles.
-- **Tauri: Comunidad en crecimiento, pero con menos recursos disponibles.**
+- **Tauri**: Comunidad en crecimiento, pero con menos recursos disponibles.
 
 #### 3.3.6 Compatibilidad con KogniTerm
 
-- **Electron**: 
+- **Electron**:
   - Ventaja: Fácil integración con Python a través de Pyodide o web APIs.
   - Desventaja: Alto consumo de recursos para una aplicación de terminal.
-  
-- **Tauri**: 
+
+- **Tauri**:
   - Ventaja: Mejor rendimiento para una aplicación de terminal.
   - Desventaja: Mayor complejidad para integrar Python.
 
@@ -520,6 +520,6 @@ Esta propuesta proporciona una base sólida para el desarrollo de un cliente des
 
 ---
 
-**Fecha de Generación**: 2025-06-17  
-**Versión**: 1.0  
+**Fecha de Generación**: 2025-06-17
+**Versión**: 1.0
 **Autor**: ResearcherCrew - KogniTerm Investigation Team

@@ -65,8 +65,10 @@ DEEP_RESEARCH_SYSTEM_PROMPT = get_deep_research_system_prompt(LLMService(use_mul
 
 # --- Nodos del Grafo ---
 
-def planning_node(state: DeepResearchState, llm_service: LLMService):
+def planning_node(state: DeepResearchState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
     """Genera un plan de investigación inicial."""
+    current_console = terminal_ui.console if terminal_ui else console
+
     last_message = state.messages[-1].content
     
     prompt = f"""Basado en la siguiente consulta: '{last_message}'
@@ -110,14 +112,16 @@ def planning_node(state: DeepResearchState, llm_service: LLMService):
             plan_text.append(f"  {i+1}. ", style="dim")
             plan_text.append(f"{tarea}\n", style="italic")
             
-        console.print(Padding(plan_text, (0, 4)))
+        current_console.print(Padding(plan_text, (0, 4)))
     except ImportError:
-        console.print(f"\n[dim]• Plan: {', '.join(state.research_plan)}[/dim]")
+        current_console.print(f"\n[dim]• Plan: {', '.join(state.research_plan)}[/dim]")
     
     return state
 
-def research_node(state: DeepResearchState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
+def research_node(state: DeepResearchState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
     """Ejecuta herramientas para el foco actual."""
+    current_console = terminal_ui.console if terminal_ui else console
+
     state.iteration_count += 1
     focus = state.current_focus or "General"
     
@@ -129,9 +133,9 @@ def research_node(state: DeepResearchState, llm_service: LLMService, interrupt_q
         status_text.append("Foco: ", style="dim")
         status_text.append(focus, style="italic")
         status_text.append(f" ({state.iteration_count}/{state.max_iterations})", style="dim")
-        console.print(Padding(status_text, (1, 4)))
+        current_console.print(Padding(status_text, (1, 4)))
     except ImportError:
-        console.print(f"\n[dim]🔍 {focus} ({state.iteration_count}/{state.max_iterations})[/dim]")
+        current_console.print(f"\n[dim]🔍 {focus} ({state.iteration_count}/{state.max_iterations})[/dim]")
     
     # Aquí llamamos al modelo para que use herramientas
     messages = [SystemMessage(content=get_deep_research_system_prompt(llm_service))] + state.messages
@@ -139,8 +143,10 @@ def research_node(state: DeepResearchState, llm_service: LLMService, interrupt_q
     
     return state
 
-def synthesis_node(state: DeepResearchState, llm_service: LLMService):
+def synthesis_node(state: DeepResearchState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
     """Compila todos los hallazgos en el reporte final."""
+    current_console = terminal_ui.console if terminal_ui else console
+
     all_findings_summary = ""
     for idx, finding in enumerate(state.findings):
         all_findings_summary += f"### Hallazgo {idx+1}: {finding.get('focus')}\n{finding.get('content')}\n\n"
@@ -174,15 +180,18 @@ def synthesis_node(state: DeepResearchState, llm_service: LLMService):
                 full_content += part
             
     # Mostrar el resultado final de forma limpia
-    console.print(Padding(Markdown(f"## 🔬 Informe de Investigación\n\n{full_content}"), (1, 4)))
+    current_console.print(Padding(Markdown(f"## 🔬 Informe de Investigación\n\n{full_content}"), (1, 4)))
             
     state.messages.append(AIMessage(content=f"## 🔬 Informe de Deep Research\n\n{full_content}"))
     return state
 
 # --- Implementación principal conceptualmente basada en agentes previos pero con lógica mejorada ---
 
-def call_deep_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
-    """Llamada al LLM con visualización minimalista."""
+def call_deep_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
+    """Llama al LLM de Deep Research con soporte completo para TUI/CLI."""
+    current_console = terminal_ui.console if terminal_ui else console
+    is_tui = getattr(terminal_ui, "is_tui", False)
+
     # Inyectar el prompt de Deep Research al principio si no está
     messages = [SystemMessage(content=get_deep_research_system_prompt(llm_service))] + state.messages
     
@@ -193,56 +202,90 @@ def call_deep_model_node(state: AgentState, llm_service: LLMService, interrupt_q
 
     # Importar componentes visuales
     try:
-        from kogniterm.terminal.visual_components import create_animated_spinner
+        from kogniterm.terminal.visual_components import create_processing_spinner
         from kogniterm.terminal.themes import ColorPalette, Icons
-        spinner = create_animated_spinner("Investigando", style="dots")
-        
-        def create_minimal_thought(content):
-            return Padding(Panel(
-                Markdown(content), 
-                title=f"{Icons.THINKING} Razonamiento", 
-                border_style="dim blue",
-                padding=(0, 1)
-            ), (1, 4))
-            
+        spinner = create_processing_spinner()
     except ImportError:
         from rich.spinner import Spinner
         spinner = Spinner("dots", text="[dim]Investigando...[/dim]")
-        class Icons: THINKING = "•"; RESEARCH = "•"
-        class ColorPalette: PRIMARY_LIGHT = "white"; SECONDARY = "white"
-        def create_minimal_thought(content):
-            return Padding(f"[dim]Pensando: {content[:100]}...[/dim]", (1, 6))
+        class Icons: THINKING = "🤔"; RESEARCH = "🔍"
+        class ColorPalette: PRIMARY_LIGHT = "cyan"; SECONDARY = "blue"; GRAY_800 = "#333333"; GRAY_600 = "#666666"; GRAY_900 = "#1e1e1e"
 
-    # Usar Live para una experiencia fluida pero discreta
-    with Live(spinner, refresh_per_second=10, transient=True) as live:
-        def update_display():
-            renderables = []
-            
-            # Solo mostrar razonamiento si es relevante
-            if full_thinking_content:
-                renderables.append(create_minimal_thought(full_thinking_content))
-            
-            # Solo mostrar respuesta si hay contenido sustancial (no tool calls)
-            if full_response_content and len(full_response_content.strip()) > 0:
-                renderables.append(Padding(Markdown(full_response_content), (0, 4)))
-            
-            if not renderables:
-                live.update(spinner)
-            else:
-                live.update(Group(*renderables))
+    # Iniciar KeyboardHandler para detectar ESC (solo CLI)
+    kh = None
+    if not is_tui:
+        from kogniterm.terminal.keyboard_handler import KeyboardHandler
+        kh = KeyboardHandler(interrupt_queue)
+        kh.start()
 
-        for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
-            if isinstance(part, AIMessage):
-                final_ai_message = part
-            elif isinstance(part, str):
-                if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
-                    prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
-                    full_thinking_content += part[len(prefix):]
-                    update_display()
+    try:
+        import contextlib
+        if not is_tui:
+            live_context = Live(spinner, console=current_console, screen=False, refresh_per_second=10)
+        else:
+            @contextlib.contextmanager
+            def dummy_live(): 
+                yield type('DummyLive', (), {'update': lambda self, x: None})()
+            live_context = dummy_live()
+
+        with live_context as live:
+            TUI_BG = ColorPalette.GRAY_900 if 'ColorPalette' in globals() else "#1e1e1e"
+
+            def update_display():
+                renderables = []
+                if full_thinking_content:
+                    if is_tui:
+                        thinking_content = Markdown(full_thinking_content)
+                        thought_panel = Panel(
+                            thinking_content,
+                            title=f"{Icons.THINKING} KogniResearcher Pensando...",
+                            border_style=ColorPalette.GRAY_700,
+                            style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                            padding=(0, 2),
+                        )
+
+                        renderables.append(thought_panel)
+                    else:
+                        renderables.append(Panel(
+                            Markdown(full_thinking_content),
+                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Investigación en curso...[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                            border_style=ColorPalette.PRIMARY_LIGHT,
+                            padding=(0, 1),
+                            dim=True
+                        ))
+                
+                if full_response_content:
+                    if full_thinking_content:
+                        renderables.append(Text(""))
+                    renderables.append(Markdown(full_response_content))
+                
+                if is_tui:
+                    group = Group(*renderables)
+                    terminal_ui.update_live(Padding(group, (0, 4)))
                 else:
-                    full_response_content += part
-                    text_streamed = True
-                    update_display()
+                    final_renderable = Padding(Group(*renderables), (0, 4)) if renderables else spinner
+                    live.update(final_renderable)
+
+            for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
+                if isinstance(part, AIMessage):
+                    final_ai_message = part
+                elif isinstance(part, str):
+                    if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
+                        prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
+                        full_thinking_content += part[len(prefix):]
+                        update_display()
+                    else:
+                        full_response_content += part
+                        text_streamed = True
+                        update_display()
+                
+                if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
+                    break
+
+            if is_tui:
+                terminal_ui.stop_live()
+    finally:
+        if kh: kh.stop()
 
     if final_ai_message:
         # Asegurar que el contenido procesado se guarde en el mensaje
@@ -258,8 +301,12 @@ def create_deep_researcher(llm_service: LLMService, terminal_ui: Any = None, int
     
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("call_model", functools.partial(call_deep_model_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
-    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, interrupt_queue=interrupt_queue))
+    workflow.add_node("planning", functools.partial(planning_node, llm_service=llm_service, terminal_ui=terminal_ui))
+    workflow.add_node("research", functools.partial(research_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
+    workflow.add_node("synthesis", functools.partial(synthesis_node, llm_service=llm_service, terminal_ui=terminal_ui))
+    
+    workflow.add_node("call_model", functools.partial(call_deep_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
+    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
 
     workflow.set_entry_point("call_model")
 

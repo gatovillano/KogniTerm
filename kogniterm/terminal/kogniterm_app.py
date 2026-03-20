@@ -62,8 +62,8 @@ class FileCompleter(Completer):
         # "docs/", "examples/", "tests/", # Comentar si se quieren incluir estos directorios
     ]
 
-    def __init__(self, tool_manager, workspace_directory: str, show_indicator: bool = True):
-        self.tool_manager = tool_manager
+    def __init__(self, skill_manager, workspace_directory: str, show_indicator: bool = True):
+        self.skill_manager = skill_manager
         self.workspace_directory = workspace_directory
         self.show_indicator = show_indicator
         self._cached_files: Optional[List[str]] = None
@@ -295,7 +295,11 @@ class FileCompleter(Completer):
     def dispose(self):
         """Detiene el FileSystemWatcher y el ThreadPoolExecutor cuando la aplicación se cierra."""
         if self._executor:
-            self._executor.shutdown(wait=True)
+            # wait=False prevents hanging if threads are blocked
+            if sys.version_info >= (3, 9):
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            else:
+                self._executor.shutdown(wait=False)
             # print("ThreadPoolExecutor de autocompletado detenido.")
 
 
@@ -326,7 +330,7 @@ class KogniTermApp:
         self.session_manager = SessionManager(self.workspace_directory or os.getcwd())
 
         # Inicializar FileCompleter con el workspace_directory
-        self.completer = FileCompleter(tool_manager=self.llm_service.tool_manager, workspace_directory=self.workspace_directory, show_indicator=False)
+        self.completer = FileCompleter(skill_manager=self.llm_service.skill_manager, workspace_directory=self.workspace_directory, show_indicator=False)
         
         # Estado de indexación para la barra de progreso
         self.indexing_status = None
@@ -393,9 +397,9 @@ class KogniTermApp:
             file_operations_tool
         )
         
-        # Inyectar el manejador en el ToolManager y en CallAgentTool para que CrewAI pueda usarlo
-        if hasattr(self.llm_service, 'tool_manager'):
-            self.llm_service.tool_manager.approval_handler = self.command_approval_handler
+        # Inyectar el manejador en el SkillManager y en CallAgentTool para que CrewAI pueda usarlo
+        if hasattr(self.llm_service, 'skill_manager'):
+            self.llm_service.skill_manager.approval_handler = self.command_approval_handler
             call_agent_tool = self.llm_service.get_tool("call_agent")
             if call_agent_tool:
                 call_agent_tool.approval_handler = self.command_approval_handler
@@ -669,7 +673,7 @@ class KogniTermApp:
                         raw_tool_output_dict = self.agent_state.file_update_diff_pending_confirmation
                         confirmation_message = raw_tool_output_dict.get("action_description", "Se requiere confirmación.")
                         
-                        approval_result = await self.command_approval_handler.handle_command_approval(
+                        approval_result = self.command_approval_handler.handle_command_approval(
                             command_to_execute=f"confirm_action('{confirmation_message}')",
                             auto_approve=self.auto_approve,
                             is_user_confirmation=False,
@@ -694,7 +698,7 @@ class KogniTermApp:
                         command_to_execute = self.agent_state.command_to_confirm
                         self.agent_state.command_to_confirm = None # Limpiar
                         
-                        approval_result = await self.command_approval_handler.handle_command_approval(
+                        approval_result = self.command_approval_handler.handle_command_approval(
                             command_to_execute, self.auto_approve
                         )
                         
@@ -727,7 +731,7 @@ class KogniTermApp:
                                     self.terminal_ui.console.print(f"[cyan]STDOUT:[/cyan] {item['text']}")
                                 elif item['type'] == 'error':
                                     self.terminal_ui.console.print(f"[red]ERROR ({item['ename']}):[/red] {item['evalue']}")
-                                    self.terminal_ui.console.print(f"[red]TRACEBACK:[/red]\n{"".join(item['traceback'])}")
+                                    self.terminal_ui.console.print(f"[red]TRACEBACK:[/red]\n{''.join(item['traceback'])}")
                                 elif item['type'] == 'execute_result':
                                     data_str = item['data'].get('text/plain', str(item['data']))
                                     self.terminal_ui.console.print(f"[green]RESULTADO:[/green] {data_str}")

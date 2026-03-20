@@ -589,18 +589,30 @@ class HistoryManager:
         cleaned_history = []
         for i, msg in enumerate(target_history):
             if isinstance(msg, ToolMessage):
-                # Mantener solo si el ID es válido o si es el par inmediato del anterior
+                # Mantener solo si el ID es válido
                 if msg.tool_call_id in valid_tool_call_ids:
                     cleaned_history.append(msg)
-                elif not msg.tool_call_id and i > 0 and isinstance(target_history[i-1], AIMessage) and target_history[i-1].tool_calls:
-                    cleaned_history.append(msg)
+                # O si es execute_command (el fallback común) y hay un AIMessage previo con tools
+                elif msg.tool_call_id == 'execute_command' or not msg.tool_call_id:
+                    # Buscar hacia atrás el AIMessage más cercano con tool_calls
+                    has_recent_ai_call = False
+                    for prev_msg in reversed(target_history[:i]):
+                        if isinstance(prev_msg, AIMessage) and prev_msg.tool_calls:
+                            has_recent_ai_call = True
+                            break
+                        if isinstance(prev_msg, HumanMessage): # No saltar sobre mensajes del usuario
+                            break
+                    
+                    if has_recent_ai_call:
+                        cleaned_history.append(msg)
                 continue
             
-            # Omitir AIMessages vacíos al final
+            # Omitir AIMessages vacíos al final (a menos que tengan tool_calls)
             if i == len(target_history) - 1 and isinstance(msg, AIMessage) and not msg.content and not msg.tool_calls:
                 continue
                 
             cleaned_history.append(msg)
+
 
         # PASADA 2: Cálculo de longitud y decisión de resumen/truncamiento
         total_length = sum(self._get_message_length(msg) for msg in cleaned_history)

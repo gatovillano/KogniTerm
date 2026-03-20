@@ -1,1 +1,0 @@
-Archivo de prueba creado con file_operations.

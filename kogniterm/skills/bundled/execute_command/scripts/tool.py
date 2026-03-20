@@ -8,12 +8,14 @@ Provee funcionalidad para ejecutar comandos bash y obtener su salida.
 import os
 import shlex
 import subprocess
+import selectors
+import time
 from typing import Optional, Generator, Any
 
 
 # Metadata de la herramienta
 name = "execute_command"
-description = "Ejecuta un comando bash y devuelve su salida."
+description = "Ejecuta un comando bash y devuelve su salida en tiempo real."
 
 
 def execute_command(
@@ -22,7 +24,7 @@ def execute_command(
     shell: bool = True
 ) -> Generator[str, None, None]:
     """
-    Ejecuta un comando en la terminal y devuelve su salida.
+    Ejecuta un comando en la terminal y produce su salida en tiempo real.
 
     Args:
         command: El comando a ejecutar
@@ -30,11 +32,7 @@ def execute_command(
         shell: Usar shell=True (default: True)
 
     Yields:
-        str: Salida del comando (stdout o stderr)
-
-    Raises:
-        subprocess.TimeoutExpired: Si el comando excede el timeout
-        Exception: Otros errores de ejecución
+        str: Fragmentos de la salida del comando (stdout o stderr)
     """
     # Validación de comandos peligrosos
     dangerous_patterns = [
@@ -47,9 +45,7 @@ def execute_command(
     command_lower = command.lower().strip()
     for pattern in dangerous_patterns:
         if pattern in command_lower:
-            yield f"⚠️  Comando potencialmente peligroso detectado: {pattern}\n"
-            yield "Este comando requiere aprobación manual del usuario.\n"
-            # No ejecutar, devolver warning
+            yield f"⚠️  Comando potencialmente peligroso detectado: {pattern}\nEste comando requiere aprobación manual del usuario.\n"
             return
 
     # Interceptar comandos 'cd' para cambiar directorio de trabajo
@@ -69,34 +65,68 @@ def execute_command(
             yield f"Error al cambiar de directorio: {e}\n"
             return
 
-    # Ejecutar comando normal
+    # Ejecutar comando con Popen para permitir streaming y potencial interactividad
     try:
-        # Usar shell=True por defecto para permitir pipes, redirects, etc.
-        # Pero validar contra comandos peligrosos
-        result = subprocess.run(
+        process = subprocess.Popen(
             command if shell else shlex.split(command),
             shell=shell,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE,
             text=True,
-            timeout=timeout
+            bufsize=1,  # Line buffered
+            universal_newlines=True
         )
 
-        if result.stdout:
-            yield result.stdout
-        if result.stderr:
-            yield f"[stderr] {result.stderr}"
+        sel = selectors.DefaultSelector()
+        sel.register(process.stdout, selectors.EVENT_READ)
+        sel.register(process.stderr, selectors.EVENT_READ)
 
-    except subprocess.TimeoutExpired:
-        yield f"Error: Timeout después de {timeout} segundos\n"
+        start_time = time.time()
+        
+        while sel.get_map():
+            # Verificar timeout total
+            if time.time() - start_time > timeout:
+                process.kill()
+                yield f"\nError: Timeout después de {timeout} segundos\n"
+                break
+
+            events = sel.select(timeout=1)
+            for key, mask in events:
+                line = key.fileobj.readline()
+                if not line:
+                    sel.unregister(key.fileobj)
+                    continue
+                
+                if key.fileobj is process.stdout:
+                    # Permitir interactividad: si el caller usa .send(data),
+                    # data se escribe en stdin del proceso.
+                    input_data = yield line
+                    if input_data and process.stdin:
+                        process.stdin.write(input_data + ("\n" if not input_data.endswith("\n") else ""))
+                        process.stdin.flush()
+                else:
+                    yield f"[stderr] {line}"
+            
+            # Si el proceso terminó y no hay más eventos, salir
+            if process.poll() is not None and not events:
+                # Una última comprobación de si quedan datos en los pipes que no leyó el selector
+                # (aunque con readline y line buffering el selector debería haberlos captado)
+                break
+
+        # Limpieza final
+        process.stdout.close()
+        process.stderr.close()
+        process.stdin.close()
+        
     except Exception as e:
         yield f"Error al ejecutar comando: {str(e)}\n"
 
 
-# Función alternativa para ejecución síncrona (retorna string completo)
+# Función que retorna el string completo consumiendo el generador
 def execute_command_sync(command: str, timeout: int = 30) -> str:
     """
-    Versión síncrona de execute_command.
-    Retorna el resultado completo como string.
+    Versión síncrona de execute_command que consume el generador.
     """
     output = []
     for chunk in execute_command(command, timeout):

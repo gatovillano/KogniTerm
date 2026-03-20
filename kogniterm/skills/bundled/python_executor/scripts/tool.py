@@ -8,8 +8,10 @@ Provee funcionalidad para ejecutar código Python de forma interactiva con kerne
 import time
 import threading
 import queue
-import sys
+import logging
 from typing import Generator, Optional, Any
+
+logger = logging.getLogger(__name__)
 
 _jupyter_client_available = False
 try:
@@ -41,8 +43,14 @@ class KogniTermKernel:
             print("Error: No se puede iniciar el kernel. jupyter_client no está disponible.")
             return
         try:
-            self.km = KernelManager(kernel_name='kogniterm_venv')
-            self.km.start_kernel()
+            try:
+                self.km = KernelManager(kernel_name='kogniterm_venv')
+                self.km.start_kernel()
+            except Exception as e:
+                print(f"Kernel 'kogniterm_venv' no disponible ({e}), usando kernel por defecto...")
+                self.km = KernelManager()
+                self.km.start_kernel()
+                
             self.kc = self.km.client()
             self.kc.start_channels()
 
@@ -75,11 +83,15 @@ class KogniTermKernel:
         if not self.kc:
             return {"error": "El kernel no está iniciado."}
 
-        self.execution_complete_event.clear()
-        self.current_execution_outputs = []
-        msg_id = self.kc.execute(code)
-
+        start_wait = time.time()
+        max_wait = 300 # 5 minutos de timeout por defecto para el kernel
+        
         while not self.execution_complete_event.is_set():
+            # Comprobar timeout de seguridad total
+            if time.time() - start_wait > max_wait:
+                self.current_execution_outputs.append({"type": "error", "ename": "Timeout", "evalue": f"El kernel de Jupyter no respondió después de {max_wait} segundos.", "traceback": []})
+                break
+                
             try:
                 msg = self.output_queue.get(timeout=0.1)
                 msg_type = msg['header']['msg_type']
@@ -99,7 +111,8 @@ class KogniTermKernel:
             except Exception as e:
                 self.current_execution_outputs.append({"error": f"Error al procesar mensaje de salida: {e}"})
                 break
-        print("Ejecución de código completada.")
+        
+        logger.info(f"Ejecución de código completada (exitosa o via timeout).")
         return {"result": self.current_execution_outputs}
 
     def stop_kernel(self):

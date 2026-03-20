@@ -11,7 +11,7 @@ from rich.text import Text
 logger = logging.getLogger(__name__)
 
 from kogniterm.core.llm_service import LLMService
-from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, SYSTEM_MESSAGE
+from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, get_system_message
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import Dict, Any, Optional
 import queue # Importar queue
@@ -31,19 +31,22 @@ class AgentInteractionManager:
         self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
         self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue, command_approval_handler) # Pasar command_approval_handler
         
+        # Obtener el SYSTEM_MESSAGE dinámico para este llm_service
+        current_system_message = get_system_message(self.llm_service)
+        
         # Asegurarse de que el SYSTEM_MESSAGE esté siempre al principio del historial.
-        if not self.agent_state.messages or not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == SYSTEM_MESSAGE.content):
-            if self.agent_state.messages and not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == SYSTEM_MESSAGE.content):
-                self.agent_state.messages.insert(0, SYSTEM_MESSAGE)
+        if not self.agent_state.messages or not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == current_system_message.content):
+            if self.agent_state.messages and not (isinstance(self.agent_state.messages[0], SystemMessage) and self.agent_state.messages[0].content == current_system_message.content):
+                self.agent_state.messages.insert(0, current_system_message)
             elif not self.agent_state.messages:
-                self.agent_state.messages.append(SYSTEM_MESSAGE)
+                self.agent_state.messages.append(current_system_message)
         
         # Filtrar cualquier SYSTEM_MESSAGE duplicado del historial si ya lo hemos añadido
-        system_message_count = sum(1 for msg in self.agent_state.messages if isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content)
+        system_message_count = sum(1 for msg in self.agent_state.messages if isinstance(msg, SystemMessage) and msg.content == current_system_message.content)
         if system_message_count > 1:
             first_system_message_index = -1
             for i, msg in enumerate(self.agent_state.messages):
-                if isinstance(msg, SystemMessage) and msg.content == SYSTEM_MESSAGE.content:
+                if isinstance(msg, SystemMessage) and msg.content == current_system_message.content:
                     if first_system_message_index == -1:
                         first_system_message_index = i
                     else:
@@ -59,16 +62,14 @@ class AgentInteractionManager:
         # Inyectar contexto dinámico del directorio de trabajo actual
         current_working_directory = os.getcwd()
         
-        # Buscar si ya existe un SystemMessage de contexto dinámico previo y eliminarlo
-        # para evitar acumulación de mensajes de contexto obsoletos
-        messages_to_keep = []
-        for msg in self.agent_state.messages:
-            # Mantener todos los mensajes excepto los SystemMessages de contexto dinámico previos
+        # Mantener los mensajes existentes pero limpiar contextos dinámicos previos in-place
+        i = 0
+        while i < len(self.agent_state.messages):
+            msg = self.agent_state.messages[i]
             if isinstance(msg, SystemMessage) and "📂 **Directorio de Trabajo Actual:**" in msg.content:
-                continue  # Saltar este mensaje (eliminarlo)
-            messages_to_keep.append(msg)
-        
-        self.agent_state.messages = messages_to_keep
+                self.agent_state.messages.pop(i)
+            else:
+                i += 1
         
         # Crear el mensaje de contexto dinámico
         context_message = SystemMessage(content=f"""
@@ -78,17 +79,14 @@ Este es el directorio en el que estás trabajando actualmente. Todas las rutas r
 Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
 """)
         
-        # Insertar el contexto justo después del SYSTEM_MESSAGE principal (índice 1)
-        # para que esté disponible para el agente pero no interfiera con el mensaje principal
-        if len(self.agent_state.messages) > 1:
-            self.agent_state.messages.insert(1, context_message)
-        else:
-            self.agent_state.messages.append(context_message)
+        # Insertar el contexto en una posición segura (justo después del sistema principal)
+        # Si el historial ya tiene un sistema en el índice 0, lo ponemos en el 1.
+        insertion_idx = 0
+        if self.agent_state.messages and isinstance(self.agent_state.messages[0], SystemMessage):
+            insertion_idx = 1
+        self.agent_state.messages.insert(insertion_idx, context_message)
 
         sys.stderr.flush()
-        
-        # Ya no iniciamos el KeyboardHandler aquí globalmente para evitar conflictos con comandos interactivos.
-        # Se manejará granularmente dentro de los nodos del agente (call_model_node, etc.)
         
         try:
             # Ejecutar invoke sin timeout
@@ -105,25 +103,27 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
         self.agent_state.tool_code_tool_args = final_state_dict.get('tool_code_tool_args')
         self.agent_state.file_update_diff_pending_confirmation = final_state_dict.get('file_update_diff_pending_confirmation')
 
-        # Si hay una confirmación de archivo pendiente, la información ya está en final_state_dict
-        # y será manejada por KogniTermApp.
+        # Actualizar los mensajes in-place siempre para evitar pérdida de referencias
+        if 'messages' in final_state_dict:
+            self.agent_state.messages[:] = final_state_dict['messages']
 
-        # Si no hay confirmación pendiente, actualizar los mensajes del agente
-        if not self.agent_state.file_update_diff_pending_confirmation:
-            self.agent_state.messages = final_state_dict['messages']
         
-        # Capturar el tool_call_id del último AIMessage si existe
-        last_ai_message = None
-        for msg in reversed(self.agent_state.messages):
-            if isinstance(msg, AIMessage):
-                last_ai_message = msg
-                break
-        
-        if last_ai_message and last_ai_message.tool_calls:
-            # Asumiendo que solo hay una tool_call por AIMessage para simplificar
-            self.agent_state.tool_call_id_to_confirm = last_ai_message.tool_calls[0]['id']
+        # 1. Intentar capturar del final_state_dict (prioridad si el agente lo estableció explícitamente)
+        if 'tool_call_id_to_confirm' in final_state_dict and final_state_dict['tool_call_id_to_confirm']:
+            self.agent_state.tool_call_id_to_confirm = final_state_dict['tool_call_id_to_confirm']
         else:
-            self.agent_state.tool_call_id_to_confirm = None
+            # 2. Fallback: capturar del último AIMessage si tiene tool_calls
+            last_ai_message = None
+            for msg in reversed(self.agent_state.messages):
+                if isinstance(msg, AIMessage):
+                    last_ai_message = msg
+                    break
+            
+            if last_ai_message and last_ai_message.tool_calls:
+                # Asumiendo que solo hay una tool_call por AIMessage para simplificar
+                self.agent_state.tool_call_id_to_confirm = last_ai_message.tool_calls[0]['id']
+            else:
+                self.agent_state.tool_call_id_to_confirm = None
         
         return final_state_dict
 

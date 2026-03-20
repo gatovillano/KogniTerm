@@ -30,6 +30,7 @@ tiktoken
 requests
 crewai
 fastembed
+textual
 
 [dev]
 radon
