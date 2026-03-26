@@ -44,6 +44,9 @@ class DummyConsole:
         if getattr(self, "_in_live", False):
             return
             
+        # Determinar si es un print con end="" (streaming)
+        is_streaming = kwargs.get("end") == ""
+            
         # Support printing directly to the ChatLog instead of standard output
         for arg in args:
             if isinstance(arg, (str, bytes)):
@@ -51,10 +54,16 @@ class DummyConsole:
                 try:
                     if isinstance(arg, bytes):
                         arg = arg.decode('utf-8')
-                    arg = Text.from_markup(arg)
+                    # No usar markup en streaming para evitar problemas de parsing parcial
+                    if not is_streaming:
+                        arg = Text.from_markup(arg)
                 except Exception:
                     pass
-            self.tui_ui._safe_call(self.tui_ui.app.chat_log.write_message, arg)
+            
+            if is_streaming:
+                self.tui_ui._safe_call(self.tui_ui.app.chat_log.write_stream, str(arg))
+            else:
+                self.tui_ui._safe_call(self.tui_ui.app.chat_log.write_message, arg)
 
     def set_live(self, live):
         self._in_live = True
@@ -111,6 +120,13 @@ class TextualTerminalUI:
                     pass  # Fallback a write_agent_message si el markup falla
             self._safe_call(self.app.chat_log.write_agent_message, message)
 
+    def print_stream(self, text: str):
+        """
+        Imprime un fragmento de texto en la consola sin añadir nueva línea,
+        y limpia el buffer inmediatamente (streaming real).
+        """
+        self.write_stream_to_chat(text)
+
     def write_stream_to_chat(self, content: str):
         """Imprime contenido en streaming directamente al chat log con manejo de cursor."""
         if not content:
@@ -122,13 +138,17 @@ class TextualTerminalUI:
              # pero podemos escribir el contenido nuevo y el cursor se moverá al final.
              pass
 
-        self.app.chat_log.write_stream(content)
+        self._safe_call(self.app.chat_log.write_stream, content)
         
         # El cursor se redibujará en el siguiente tick del timer si está activo
 
     def update_live(self, renderable):
         """Actualiza el contenido en streaming."""
         self._safe_call(self.app.update_live_display, renderable)
+
+    def update_terminal_output(self, tool_name: str, output: str):
+        """Actualiza específicamente la terminal con soporte de cursor."""
+        self._safe_call(self.app.update_terminal_output, tool_name, output)
 
     def stop_live(self):
         """Finaliza el streaming y consolida el mensaje."""
@@ -161,7 +181,7 @@ class TextualTerminalUI:
 
     def set_terminal_cursor(self, active: bool, executor=None):
         """Activa o desactiva el cursor visual de terminal en la TUI."""
-        self.app.set_terminal_cursor(active, executor)
+        self._safe_call(self.app.set_terminal_cursor, active, executor)
 
     def handle_resize(self):
         pass
@@ -503,6 +523,8 @@ class KogniTermTUI(App):
         self._cursor_active = False
         self._cursor_frame = 0
         self._cursor_timer = None
+        self._last_terminal_tool_name = ""
+        self._last_terminal_output = ""
 
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
@@ -1001,17 +1023,15 @@ class KogniTermTUI(App):
             # Limpiar rastro de cursor (RichLog es append-only, así que simplemente dejamos de imprimirlo)
 
     def _update_cursor(self):
-        """Actualiza el parpadeo del cursor."""
+        """Actualiza el parpadeo del cursor redibujando la terminal."""
         if not self._cursor_active:
             return
             
         self._cursor_frame = (self._cursor_frame + 1) % 2
-        cursor_char = "▒" if self._cursor_frame == 0 else " "
         
-        # En RichLog no podemos "borrar", así que esto es una simulación visual básica
-        # Para que sea real, necesitaríamos un widget dedicado por comando.
-        # Por ahora, solo lo pintamos si hubo actividad reciente.
-        pass
+        # Redibujar la terminal con el nuevo estado del frame si hay algo guardado
+        if self._last_terminal_tool_name:
+            self.update_terminal_output(self._last_terminal_tool_name, self._last_terminal_output)
 
     @work(thread=True)
     def process_agent_request(self, user_input: str):
@@ -1259,7 +1279,7 @@ class KogniTermTUI(App):
             self._stop_spinner()
         
         # Solo quitar el borde si aún lo tiene (evita repaints innecesarios de estilos)
-        if self.live_display.styles.border_left is not None:
+        if hasattr(self.live_display, 'styles') and self.live_display.styles.border_left is not None:
              self.live_display.styles.border_left = None
         
         self._last_live_renderable = renderable
@@ -1271,9 +1291,23 @@ class KogniTermTUI(App):
         self.live_display.update(renderable)
         
         # CRÍTICO: Para que parezca que el texto nuevo empuja el historial hacia arriba
-        # (en lugar de verse como si creciera hacia arriba superponiéndose), forzamos
-        # al chat_log a hacer scroll hasta el final después de que se recalcule el layout.
         self.call_after_refresh(self.chat_log.scroll_end, animate=False)
+
+    def update_terminal_output(self, tool_name: str, output: str, show_cursor: bool = None):
+        """
+        Actualiza el panel de terminal con soporte para cursor parpadeante.
+        """
+        # Guardar para el timer de parpadeo
+        self._last_terminal_tool_name = tool_name
+        self._last_terminal_output = output
+        
+        if show_cursor is None:
+            # Pestañeo: visible en frame 0, invisible en frame 1
+            show_cursor = self._cursor_active and (self._cursor_frame == 0)
+            
+        from kogniterm.terminal.visual_components import create_terminal_output_panel
+        panel = create_terminal_output_panel(tool_name, output, show_cursor=show_cursor)
+        self.update_live_display(panel)
 
     def hide_live_display(self):
         """Oculta el widget de streaming y mueve el contenido al log permanente."""

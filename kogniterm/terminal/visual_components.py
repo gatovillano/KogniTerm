@@ -315,7 +315,7 @@ def create_tool_output_panel(tool_name: str, output: str, is_markdown: Optional[
     return Padding(panel, (1, 0))
 
 
-def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 15) -> Padding:
+def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 15, show_cursor: bool = False) -> Padding:
     """
     Crea un panel estilizado para mostrar la salida de una terminal.
     Mantiene una altura fija y hace que el texto emerja desde abajo hacia arriba.
@@ -324,6 +324,7 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 1
         tool_name: Nombre de la herramienta (ej. 'Ejecución de Comando')
         output: Salida de la herramienta en texto plano.
         max_lines: Número máximo de líneas a mostrar en el panel.
+        show_cursor: Si se debe mostrar un cursor al final de la última línea.
         
     Returns:
         Padding: Panel con la salida formateada como pseudo-terminal.
@@ -345,27 +346,30 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 1
             clean_lines.append(raw_line)
             
     # Eliminar lineas vacías al final que puedan hacer parpadear la altura
-    while clean_lines and not clean_lines[-1].strip():
+    while clean_lines and not clean_lines[-1].strip() and len(clean_lines) > 1:
         clean_lines.pop()
         
     lines = clean_lines
+    
+    # Añadir cursor si se solicita
+    if show_cursor and lines:
+        lines[-1] += "▒"
         
-    # Obtener sólo las últimas max_lines
-    if len(lines) > max_lines:
-        display_lines = lines[-max_lines:]
+    # Si la salida está vacía, mostrar un indicador
+    if not lines or (len(lines) == 1 and not lines[0].strip()):
+        display_lines = [" (esperando salida...)"]
+        if show_cursor: display_lines = ["▒"]
     else:
-        # Añadir padding superior si hay menos líneas que el máximo 
-        # para forzar la alineación hacia abajo.
-        # IMPORTANTE: Usamos un espacio " " en lugar de "" para evitar que 
-        # Text.from_ansi ignore las lineas vacías iniciales, forzando la alineación abajo.
-        padding_lines = max_lines - len(lines)
-        display_lines = [" "] * padding_lines + lines
+        # Obtener sólo las últimas max_lines
+        if len(lines) > max_lines:
+            display_lines = lines[-max_lines:]
+        else:
+            # Añadir padding superior si hay menos líneas que el máximo 
+            # para forzar la alineación hacia abajo.
+            padding_lines = max_lines - len(lines)
+            display_lines = [" "] * padding_lines + lines
         
     formatted_content = "\n".join(display_lines)
-    
-    # Si la salida estaba vacía, poner un indicador al final
-    if not lines:
-        formatted_content = "\n".join([""] * (max_lines - 1) + ["(sin salida)"])
         
     from rich.text import Text
     # Usar Text.from_ansi para preservar los colores del comando (ej. CMake, GCC, Pip)

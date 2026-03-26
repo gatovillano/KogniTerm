@@ -65,62 +65,80 @@ def execute_command(
             yield f"Error al cambiar de directorio: {e}\n"
             return
 
-    # Ejecutar comando con Popen para permitir streaming y potencial interactividad
+    # Ejecutar comando con PTY para permitir streaming, colores e interactividad real
+    import pty
+    import select
+    
     try:
+        master_fd, slave_fd = pty.openpty()
+        
+        # Iniciar proceso con el slave_fd como stdout/stderr/stdin
         process = subprocess.Popen(
             command if shell else shlex.split(command),
             shell=shell,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            stdin=subprocess.PIPE,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            stdin=slave_fd,
             text=True,
-            bufsize=1,  # Line buffered
-            universal_newlines=True
+            bufsize=1,
+            universal_newlines=True,
+            preexec_fn=os.setsid  # Crear un nuevo grupo de procesos
         )
-
-        sel = selectors.DefaultSelector()
-        sel.register(process.stdout, selectors.EVENT_READ)
-        sel.register(process.stderr, selectors.EVENT_READ)
-
+        
+        # Cerrar el slave_fd en el proceso padre ya que lo usará el hijo
+        os.close(slave_fd)
+        
         start_time = time.time()
         
-        while sel.get_map():
+        while True:
             # Verificar timeout total
-            if time.time() - start_time > timeout:
-                process.kill()
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                try:
+                    os.killpg(os.getpgid(process.pid), 15) # SIGTERM
+                except:
+                    process.kill()
                 yield f"\nError: Timeout después de {timeout} segundos\n"
                 break
 
-            events = sel.select(timeout=1)
-            for key, mask in events:
-                line = key.fileobj.readline()
-                if not line:
-                    sel.unregister(key.fileobj)
-                    continue
-                
-                if key.fileobj is process.stdout:
-                    # Permitir interactividad: si el caller usa .send(data),
-                    # data se escribe en stdin del proceso.
-                    input_data = yield line
-                    if input_data and process.stdin:
-                        process.stdin.write(input_data + ("\n" if not input_data.endswith("\n") else ""))
-                        process.stdin.flush()
-                else:
-                    yield f"[stderr] {line}"
+            # Usar select para esperar datos del PTY sin bloquear demasiado
+            # para poder chequear el timeout y señales de interrupción.
+            r, _, _ = select.select([master_fd], [], [], 0.1)
             
-            # Si el proceso terminó y no hay más eventos, salir
-            if process.poll() is not None and not events:
-                # Una última comprobación de si quedan datos en los pipes que no leyó el selector
-                # (aunque con readline y line buffering el selector debería haberlos captado)
-                break
+            if master_fd in r:
+                try:
+                    data = os.read(master_fd, 8192).decode(errors='replace')
+                    if not data:
+                        break
+                    
+                    # Yield data y permitir recibir input vía .send()
+                    input_data = yield data
+                    
+                    if input_data:
+                        # Si recibimos input, lo enviamos al PTY
+                        if isinstance(input_data, str):
+                            os.write(master_fd, input_data.encode())
+                        else:
+                            os.write(master_fd, input_data)
+                except OSError:
+                    # El PTY se cerró o hay error
+                    break
+            
+            # Si el proceso terminó y no hay más datos, salir
+            if process.poll() is not None:
+                # Hacer una última lectura para capturar el remanente
+                r, _, _ = select.select([master_fd], [], [], 0.05)
+                if not r:
+                    break
 
         # Limpieza final
-        process.stdout.close()
-        process.stderr.close()
-        process.stdin.close()
+        try:
+            os.close(master_fd)
+        except:
+            pass
         
     except Exception as e:
-        yield f"Error al ejecutar comando: {str(e)}\n"
+        yield f"Error al ejecutar comando con PTY: {str(e)}\n"
 
 
 # Función que retorna el string completo consumiendo el generador
