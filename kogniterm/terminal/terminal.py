@@ -147,7 +147,7 @@ async def _main_async():
     llm_service_instance = LLMService() # Usar el project_context inicializado
     command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
     agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
-    llm_service_instance.tool_manager.set_agent_state(agent_state_instance) # Vincular estado del agente a las herramientas
+    llm_service_instance.skill_manager.set_agent_state(agent_state_instance) # Vincular estado del agente a las herramientas
 
     app = KogniTermTUI(
         llm_service=llm_service_instance,

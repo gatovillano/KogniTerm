@@ -3936,3 +3936,158 @@ Se ha implementado `file_editor.py` que provee la herramienta `sophisticated_edi
 ✅ **Estabilidad**: Se resolvieron los fallos de carga que impedían el uso de herramientas de archivos.
 ✅ **Modularidad**: Estructura de código más consistente en todo el ecosistema de skills.
 ✅ **Agilidad**: El agente ahora tiene un conjunto coordinado de herramientas para navegar y validar el código del proyecto.
+
+---
+
+## 20-03-2026 Corrección de Error de Sintaxis en github.py
+
+**Descripción**: Se corrigió un `SyntaxError` en la herramienta GitHub causado por el uso incorrecto de comillas triples escapadas en f-strings.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/skills/bundled/web_tools/scripts/github.py`](kogniterm/skills/bundled/web_tools/scripts/github.py)
+   - Se eliminaron los backslashes innecesarios en `f\"\"\"` que causaban el error `unexpected character after line continuation character` en múltiples líneas (173, 175, 177, 180, 183, 190, 192).
+
+#### 🧪 Verificación Realizada
+- Se ejecutó `python3 -m py_compile` sobre el archivo modificado, confirmando que no existen errores de sintaxis y que el módulo puede ser cargado correctamente.
+
+#### 🔧 Corrección de Error de Inicialización (AttributeError) en terminal.py
+- **Problema**: La aplicación se cerraba abruptamente después de mostrar la configuración debido a un acceso a `.tool_manager` en lugar de `.skill_manager` tras la refactorización de skills.
+- **Cambio**: Se actualizó `kogniterm/terminal/terminal.py` para usar el atributo correcto `.skill_manager`.
+- **Limpieza**: Se actualizó `kogniterm/core/tools/__init__.py` para reflejar la migración al sistema de skills.
+
+#### 🧪 Verificación Realizada
+- Se validó el inicio de la aplicación mediante un script de depuración, confirmando que el TUI se carga correctamente y el error de atributo ha desaparecido.
+
+---
+
+## 20-03-2026 Solución a Ejecución Silenciosa y Habilitación de Entrada en Tiempo Real
+
+**Descripción**: Se ha corregido el problema por el cual los comandos de terminal se ejecutaban "en silencio" en la TUI y no permitían la interacción del usuario (entrada de datos). Se ha optimizado la entrega de salida en tiempo real y se ha habilitado la redirección de entrada desde la caja de chat hacia el comando activo.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - **Nuevo método `print_stream`**: Implementado en `TextualTerminalUI` para permitir que la lógica de ejecución envíe fragmentos de texto directamente al chat sin añadir saltos de línea automáticos.
+   - **Mejora en `DummyConsole`**: Se actualizó el método `print` para detectar el parámetro `end=""` y usar `write_stream` en lugar de `write_message`, evitando saltos de línea y formateo innecesario en salidas continuas de terminal.
+
+2. [`kogniterm/core/command_executor.py`](kogniterm/core/command_executor.py)
+   - **Refactorización del bucle de ejecución**: Se optimizó la lógica de filtrado de marcadores (`##KOGNITERM_DONE_MARKER##`). Ahora el buffer solo retiene lo mínimo indispensable que podría ser el inicio de un marcador, liberando el resto de la salida instantáneamente.
+   - **Reducción de Latencia**: Se ajustó el timeout de `select.select` de 0.1s a 0.05s para una respuesta táctil más fluida.
+   - **Manejo de Marcadores Inteligente**: El sistema ya no "adivina" si un marcador está por venir basándose en prefijos largos, sino que busca activamente los caracteres de inicio (`#`, `e`) para decidir qué yieldear.
+   - **Logging**: Se añadió un logger para facilitar la depuración futura de la ejecución de comandos.
+
+### **🎯 Beneficios**
+
+✅ **Salida en Tiempo Real**: Los comandos como `apt`, `pip` o scripts con sleeps muestran su progreso inmediatamente.
+✅ **Interactividad**: El usuario puede ver prompts (ej: "Enter password", "Are you sure? [y/N]") y responder usando la caja de entrada de KogniTerm.
+✅ **Salida Limpia**: Se mantiene la ocultación de los marcadores internos de sincronización sin sacrificar la velocidad.
+✅ **Experiencia de Terminal Real**: La TUI ahora se comporta mucho más como una terminal interactiva real dentro del flujo de chat.
+
+#### **🧪 Verificación Realizada**
+- Se validó la lógica de streaming mediante pruebas de concepto que simulan comandos lentos y prompts de entrada.
+- Se verificó que el adaptador TUI ahora soporta correctamente todos los métodos requeridos por el `CommandApprovalHandler`.
+
+---
+
+## 21-03-2026 Terminal Interactiva y Salida PTY en Tiempo Real
+
+**Descripción**: Se ha mejorado significativamente la experiencia de la terminal en KogniTerm TUI, permitiendo la ejecución de comandos interactivos (como `sudo`) y la visualización de la salida en tiempo real mediante paneles dedicados.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/skills/bundled/execute_command/scripts/tool.py`](kogniterm/skills/bundled/execute_command/scripts/tool.py)
+   - **Soporte PTY Nativo**: Refactorizado para usar `pty.openpty()` en lugar de pipes estándar.
+   - **Interactividad Real**: Permite el envío de entrada (`.send()`) al proceso en ejecución.
+   - **Soporte de Colores**: Al emular un terminal real, los comandos (como `ls`) ahora muestran colores ANSI automáticamente.
+
+2. [`kogniterm/terminal/command_approval_handler.py`](kogniterm/terminal/command_approval_handler.py)
+   - **Paneles en Tiempo Real**: Ahora usa `terminal_ui.update_live()` con `create_terminal_output_panel()` durante la ejecución.
+   - **Feedback Visual Mejorado**: La salida del comando aparece en un panel vertical que maneja `\r` (retornos de carro) y se desplaza automáticamente.
+
+3. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - **Gestión de Live Display**: Mejoras en la consolidación de contenido desde el panel de streaming al log permanente del chat.
+
+#### 🎯 Beneficios
+
+✅ **Comandos Interactivos**: Ahora es posible ingresar la contraseña de `sudo` o responder a prompts interactivos directamente desde el chat.
+✅ **Salida Fluida**: Los comandos que usan animaciones de carga o barras de progreso en la terminal se ven correctamente gracias al manejo de `\r`.
+✅ **Estética Premium**: El panel de terminal dedicado proporciona una experiencia visual más profesional y "wow".
+✅ **Consistencia**: La skill de ejecución de comandos ahora se comporta igual que una terminal real en cualquier contexto.
+
+### �� Verificación Realizada
+
+- **Test de PTY**: Se verificó mediante [`tests/test_pty_skill.py`](tests/test_pty_skill.py) que la skill captura colores ANSI y permite interactividad mediante el método `.send()`.
+- **Pruebas de Interfaz**: Se validó el flujo de aprobación y ejecución en la TUI, confirmando que el panel aparece y desaparece correctamente.
+
+
+---
+
+## 21-03-2026 (Corrección) Solución a Salida de Terminal Vacía
+
+**Descripción**: Se corrigió un problema donde la salida de la terminal no aparecía en la TUI bajo ciertas condiciones (especialmente con comandos interactivos).
+
+### Cambios Implementados
+
+1. **Preservación de Carriage Returns**: Se modificó `CommandExecutor.execute` para que NO elimine los caracteres `\r`. Esto asegura que los prompts interactivos y las animaciones de terminal se reciban íntegramente.
+2. **Feedback de Espera**: Se actualizó `visual_components.py` para que el panel muestre "(esperando salida...)" en lugar de un espacio vacío masivo cuando se inicia un comando, permitiendo saber que el sistema está escuchando al PTY.
+3. **Optimización de Buffer**: Se ajustó la lógica de yielding de fragmentos para ser más agresiva, permitiendo que prompts cortos aparezcan inmediatamente en la pantalla.
+
+
+---
+
+## 21-03-2026 (Refinamiento Final) Optimización de Interactividad PTY
+
+**Descripción**: Se han realizado ajustes finales en el motor de ejecución para garantizar que ningún prompt o salida pequeña se quede bloqueada en el búfer de seguridad.
+
+### Mejoras Específicas
+
+1. **Vaciado Permisivo de Búfer**: Si el PTY no tiene datos nuevos por más de 0.05s, el sistema ahora vuelca inmediatamente cualquier contenido pendiente en el búfer al panel visual, a menos que sea el marcador de finalización. Esto resuelve el retraso en prompts cortos como `[sudo]` o `Password:`.
+2. **Visualización Inmediata del Panel**: Se ha forzado a la interfaz a mostrar el panel de terminal en el mismo instante en que se aprueba el comando, eliminando cualquier periodo de inactividad visual inicial.
+
+
+---
+
+## 21-03-2026 (Corrección Bugs) Error de Variable Local y Estabilidad
+
+**Descripción**: Se corrigió un error fatal introducido durante las pruebas de depuración.
+
+### Cambios Realizados
+
+1. **Corrección de UnboundLocalError**: Se eliminó una definición local de `logger` en `CommandApprovalHandler.py` que causaba el fallo del hilo del agente al intentar registrar logs.
+2. **Estabilización de Hilos**: Se aseguró que el uso del sistema de logging sea consistente en todos los módulos de ejecución.
+
+
+---
+
+## 23-03-2026 Restauración de Salida en Tiempo Real e Interactividad de Terminal
+
+**Descripción**: Se han corregido problemas críticos que impedían la visualización en tiempo real de la salida de la terminal y la interactividad con comandos que requieren entrada del usuario (como prompts de contraseñas o confirmaciones) en la TUI.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [`kogniterm/core/command_executor.py`](kogniterm/core/command_executor.py)
+    *   **Mejora de Yielding**: Se reestructuró la lógica de generación de salida para asegurar que los fragmentos de texto se envíen a la UI incluso cuando no hay datos nuevos llegando (necesario para prompts interactivos).
+    *   **Refinamiento de Filtrado**: Se afinó la lógica que oculta los marcadores internos (`##KOGNITERM_DONE_MARKER##`) para evitar retener texto legítimo que accidentalmente empiece con caracteres similares (como la letra 'e').
+    *   **Corrección de Flujo**: Se movió el bloque de yielding interactivo fuera de la comprobación de lectura del PTY para manejar correctamente los estados de espera del proceso.
+
+2.  [`kogniterm/terminal/terminal_ui.py`](kogniterm/terminal/terminal_ui.py)
+    *   **Nuevos Métodos**: Se añadieron stubs para `update_live()` y `stop_live()` en la clase base para soportar el flujo de streaming en diferentes adaptadores de UI.
+
+3.  [`kogniterm/terminal/command_approval_handler.py`](kogniterm/terminal/command_approval_handler.py)
+    *   **Consolidación de Salida**: Se añadió la llamada a `self.terminal_ui.stop_live()` tras la ejecución de comandos. Esto asegura que la salida del "panel de terminal" se mueva correctamente al historial permanente del chat al finalizar el comando.
+
+#### **🎯 Beneficios**
+
+✅ **Salida Realista**: Los comandos ahora muestran su progreso caracter a caracter en la TUI.
+✅ **Interactividad Total**: Es posible responder a prompts de terminal (ej: `sudo`, `read`) directamente desde el cuadro de entrada de la TUI.
+✅ **Historial Limpio**: Al terminar un comando, su salida se integra perfectamente en el log de mensajes para referencia futura.
+✅ **Robustez**: Se eliminaron condiciones de carrera y bloqueos potenciales en el manejo del buffer de salida.

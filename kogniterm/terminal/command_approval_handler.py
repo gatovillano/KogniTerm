@@ -438,13 +438,28 @@ class CommandApprovalHandler:
                     # Activar modo terminal interactiva y cursor antes de ejecutar
                     self.terminal_ui.set_terminal_cursor(True, self.command_executor)
 
+                    from kogniterm.terminal.visual_components import create_terminal_output_panel
+                    
+                    # Forzar aparición del panel inmediatamente para feedback visual
+                    # (Mostrará "esperando salida..." gracias a la lógica en visual_components)
+                    initial_panel = create_terminal_output_panel("Ejecución de Comando", "", max_lines=15)
+                    self.terminal_ui.update_live(initial_panel)
+                    
+                    full_command_output = ""
+                    
+                    # Debug: log de inicio de ejecución
+                    logger.info(f"Iniciando ejecución de: {command_to_execute}")
+
                     for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
-                        # Imprimir en tiempo real en la TUI vía adapter
-                        self.terminal_ui.print_stream(output_chunk)
-                        full_command_output += output_chunk
+                        if output_chunk:
+                            logger.info(f"Chunk recibido ({len(output_chunk)} bytes)")
+                            full_command_output += output_chunk
+                            # Actualizar la terminal a través del nuevo método que soporta cursor
+                            self.terminal_ui.update_terminal_output("Ejecución de Comando", full_command_output)
                     
                     # Desactivar modo terminal al finalizar
                     self.terminal_ui.set_terminal_cursor(False)
+                    self.terminal_ui.stop_live()
                     
                     # Separador visual después del comando con temas
                     if THEMES_AVAILABLE:

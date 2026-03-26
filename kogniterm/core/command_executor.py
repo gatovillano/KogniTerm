@@ -8,8 +8,11 @@ import time
 import tty
 import queue
 import shlex
+import logging
 from typing import Optional, Generator, Any
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 class CommandExecutor:
     def __init__(self) -> None:
@@ -75,14 +78,36 @@ class CommandExecutor:
         except:
             pass
 
+        # --- Gestión de ECHO temporal ---
+        # Desactivamos ECHO mientras enviamos el comando y el marcador para que no 
+        # se 'escuchen' a sí mismos. Lo reactivaremos justo después.
+        try:
+            attrs = termios.tcgetattr(self._persistent_slave_fd)
+            attrs[3] &= ~termios.ECHO
+            termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
+        except: pass
+
         # Enviar el comando al shell persistente
         # Usamos un marcador muy robusto para saber cuándo termina el comando
         marker = f"echo '{self._last_command_done_marker}'"
         full_cmd = f"{command} ; {marker}\n"
         os.write(master_fd, full_cmd.encode())
 
+        # Reactivar ECHO para que el usuario pueda interactuar con el comando
+        try:
+            attrs[3] |= termios.ECHO
+            termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
+        except: pass
+
         try:
             search_buffer = ""
+            # Definir marcadores y prefijos que queremos ocultar (eco del comando de finalización)
+            marker_to_hide = self._last_command_done_marker
+            echo_cmd_to_hide = f"echo '{marker_to_hide}'"
+            
+            # Longitud de seguridad para no retener buffer innecesariamente
+            max_prefix_len = max(len(marker_to_hide), len(echo_cmd_to_hide)) + 2
+            
             while True:
                 # Verificar interrupción
                 if interrupt_queue and not interrupt_queue.empty():
@@ -91,73 +116,52 @@ class CommandExecutor:
                     yield "\n\n⚠️  Comando interrumpido por el usuario.\n"
                     break
 
-                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.1)
+                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.05)
 
                 if master_fd in readable_fds:
                     try:
-                        output = os.read(master_fd, 4096).decode(errors='replace')
-                        if output:
-                            search_buffer += output
-                            
-                            # Caso 1: El marcador completo está en el buffer
-                            if self._last_command_done_marker in search_buffer:
-                                parts = search_buffer.split(self._last_command_done_marker, 1)
-                                chunk = parts[0]
-                                
-                                # Limpiar ruidos terminales y el eco del comando echo
-                                marker_echo = f"echo '{self._last_command_done_marker}'"
-                                chunk = chunk.replace(marker_echo, "")
-                                chunk = chunk.replace('\r\n', '\n').replace('\r', '')
-                                
-                                if chunk: yield chunk
+                        # Leer fragmento del PTY
+                        data = os.read(master_fd, 4096).decode(errors='replace')
+                        if not data:
+                            break
+                        
+                        search_buffer += data
+                        
+                        # Si el marcador de fin aparece completo, hemos terminado
+                        if marker_to_hide in search_buffer:
+                            parts = search_buffer.split(marker_to_hide)
+                            final_output = parts[0]
+                            # Limpiar restos de \r y yield final
+                            if final_output:
+                                clean_output = final_output.replace('\r\n', '\n')
+                                if clean_output: yield clean_output
+                            break
+                        
+                        # Yield preventivo: Soltar todo lo que no sea un posible inicio del marcador.
+                        # Buscamos el sufijo más largo del buffer que sea prefijo del marcador.
+                        marker_prefix_len = 0
+                        for i in range(min(len(search_buffer), len(marker_to_hide)), 0, -1):
+                            if marker_to_hide.startswith(search_buffer[-i:]):
+                                marker_prefix_len = i
                                 break
+                        
+                        if marker_prefix_len < len(search_buffer):
+                            to_yield = search_buffer[:-marker_prefix_len] if marker_prefix_len > 0 else search_buffer
+                            search_buffer = search_buffer[-marker_prefix_len:] if marker_prefix_len > 0 else ""
                             
-                            # Caso 2: El buffer no contiene el inicio de un posible marcador
-                            # (ni '##' ni parte de 'echo '...). Podemos soltarlo todo.
-                            marker_start_1 = "##"
-                            marker_start_2 = "echo '"
+                            clean_to_yield = to_yield.replace('\r\n', '\n') # Solo normalizar saltos de línea, preservar \r
+                            if clean_to_yield:
+                                yield clean_to_yield
                             
-                            idx1 = search_buffer.find(marker_start_1)
-                            idx2 = search_buffer.find(marker_start_2)
-                            
-                            # split_idx será el primer punto donde podría empezar un marcador
-                            split_idx = -1
-                            if idx1 != -1 and idx2 != -1:
-                                split_idx = min(idx1, idx2)
-                            elif idx1 != -1:
-                                split_idx = idx1
-                            elif idx2 != -1:
-                                split_idx = idx2
-                                
-                            if split_idx == -1:
-                                # No hay rastro de marcadores, soltar todo el buffer
-                                yield search_buffer.replace('\r\n', '\n').replace('\r', '')
-                                search_buffer = ""
-                            elif split_idx > 0:
-                                # Hay rastro de marcador más adelante, soltar lo que hay antes
-                                to_yield = search_buffer[:split_idx]
-                                search_buffer = search_buffer[split_idx:]
-                                yield to_yield.replace('\r\n', '\n').replace('\r', '')
-                            
-                            # Si search_buffer empieza con un posible marcador (split_idx == 0),
-                            # solo soltamos si el buffer crece demasiado (margen de seguridad)
-                            # para no bloquear la salida si alguien escribe '##' sin ser el marcador.
-                            marker_len = len(self._last_command_done_marker)
-                            marker_echo_len = len(f"echo '{self._last_command_done_marker}'")
-                            safe_margin = max(marker_len, marker_echo_len) + 10
-                            
-                            if len(search_buffer) > safe_margin:
-                                # No es el marcador (demasiado largo), soltar un trozo
-                                to_yield = search_buffer[:-safe_margin]
-                                search_buffer = search_buffer[-safe_margin:]
-                                yield to_yield.replace('\r\n', '\n').replace('\r', '')
                     except OSError:
-                        if search_buffer:
-                            # Limpiar eco residual
-                            search_buffer = search_buffer.replace(f"echo '{self._last_command_done_marker}'", "")
-                            search_buffer = search_buffer.replace('\r\n', '\n').replace('\r', '')
-                            if search_buffer: yield search_buffer
                         break
+                
+                # Yield lo que queda en el buffer si no hay datos nuevos y no parece inicio de marcador
+                if search_buffer and master_fd not in readable_fds:
+                    if not marker_to_hide.startswith(search_buffer):
+                        yield search_buffer
+                        search_buffer = ""
+
                 if self._input_pipe_read in readable_fds:
                     injected_input = os.read(self._input_pipe_read, 1024)
                     if injected_input:
@@ -170,10 +174,12 @@ class CommandExecutor:
         """Inicia un shell persistente en un PTY."""
         self._persistent_master_fd, self._persistent_slave_fd = pty.openpty()
         
-        # Configurar terminal slave para NO tener eco (modo robusto)
+        # Dejar ECHO activado por defecto para permitir que el usuario vea lo que escribe 
+        # en sesiones interactivas. El PTY se encargará de ocultar entradas (como passwords)
+        # si el programa ejecutado así lo solicita.
         try:
             attrs = termios.tcgetattr(self._persistent_slave_fd)
-            attrs[3] = attrs[3] & ~termios.ECHO # Desactivar ECHO
+            attrs[3] = attrs[3] | termios.ECHO # Asegurar ECHO activado
             termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
         except Exception:
             pass
@@ -192,9 +198,8 @@ class CommandExecutor:
         # Consumir el banner inicial del shell
         time.sleep(0.5)
         try:
-            # Desactivar eco y silenciar el PROMPT para que no se filtre en la TUI
+            # Desactivar el PROMPT para que no se filtre en la TUI
             # El prompt vacío (PS1="") es vital para una salida limpia en paneles
-            os.write(self._persistent_master_fd, b"stty -echo\n")
             os.write(self._persistent_master_fd, b"export PS1=''\n")
 
             

@@ -170,26 +170,26 @@ def github(action: str, repo_name: Optional[str] = None, path: Optional[str] = "
         repo = _get_repo(g, repo_name)
 
         if action == 'get_repo_info':
-            return f\"\"\"Obteniendo información del repositorio: {repo.full_name}...\n\n### Información del Repositorio: {repo.name}\n- **Descripción:** {repo.description}\n- **URL:** {repo.html_url}\n- **Estrellas:** {repo.stargazers_count} ⭐\"\"\"
+            return f"""Obteniendo información del repositorio: {repo.full_name}...\n\n### Información del Repositorio: {repo.name}\n- **Descripción:** {repo.description}\n- **URL:** {repo.html_url}\n- **Estrellas:** {repo.stargazers_count} ⭐"""
         elif action == 'list_contents':
-            return f\"\"\"Listando contenidos en '{path}' del repositorio '{repo.full_name}'...\n\n\"\"\" + _list_contents(repo, str(path))
+            return f"""Listando contenidos en '{path}' del repositorio '{repo.full_name}'...\n\n""" + _list_contents(repo, str(path))
         elif action == 'read_file':
-            return f\"\"\"Leyendo archivo '{path}' del repositorio '{repo.full_name}'...\n\n\"\"\" + _get_file_content(repo, str(path))
+            return f"""Leyendo archivo '{path}' del repositorio '{repo.full_name}'...\n\n""" + _get_file_content(repo, str(path))
         elif action == 'read_directory':
             # Non-recursive read, just list contents and get content for files
-            output = f\"\"\"### Contenido de '{path}' en '{repo.full_name}'\n\"\"\"
+            output = f"""### Contenido de '{path}' en '{repo.full_name}'\n"""
             contents = repo.get_contents(str(path))
             if not isinstance(contents, list):  # Es un solo archivo
-                return f\"\"\"Leyendo directorio '{path}' del repositorio '{repo.full_name}'...\n\n\"\"\" + _get_file_content(repo, str(path))
+                return f"""Leyendo directorio '{path}' del repositorio '{repo.full_name}'...\n\n""" + _get_file_content(repo, str(path))
             for content in contents:
                 if content.type == "file":
                     output += f"- Archivo: {content.path}\n"
                     output += _get_file_content(repo, content.path) + "\n"
                 else:
                     output += f"- Directorio: {content.path}\n"
-            return f\"\"\"Leyendo directorio '{path}' del repositorio '{repo.full_name}'...\n\n\"\"\" + output
+            return f"""Leyendo directorio '{path}' del repositorio '{repo.full_name}'...\n\n""" + output
         elif action == 'read_recursive_directory':
-            return f\"\"\"Leyendo directorio recursivamente '{path}' del repositorio '{repo.full_name}'...\n\n\"\"\" + _read_directory_recursive(repo, str(path))
+            return f"""Leyendo directorio recursivamente '{path}' del repositorio '{repo.full_name}'...\n\n""" + _read_directory_recursive(repo, str(path))
         else:
             return f"Error: Acción de GitHub '{action}' no reconocida."
     except ValueError as e:

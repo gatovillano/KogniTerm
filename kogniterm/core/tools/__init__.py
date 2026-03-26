@@ -1,2 +1,2 @@
-# Carpeta de herramientas (Sincronizada con el sistema de Skills)
-# Solo tool_manager.py permanece aquí como orquestador.
+# Carpeta de herramientas (Migrada al sistema de Skills en /skills)
+# Este directorio queda para compatibilidad o futuras herramientas core.
