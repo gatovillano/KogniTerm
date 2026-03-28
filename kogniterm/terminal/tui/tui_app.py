@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from textual.app import App, ComposeResult
 from textual import work
-from textual.widgets import Input, ListView, ListItem, Label
+from textual.widgets import Input, ListView, ListItem, Label, ProgressBar
 from textual.containers import Vertical, Horizontal
 from textual import events
 from langchain_core.messages import HumanMessage
@@ -387,23 +387,29 @@ class KogniTermTUI(App):
         content-align: left top;
         padding: 0;
     }
-    #footer_right {
-        width: 1fr;
-        content-align: right top;
-        padding: 0;
-        display: block;
-    }
-    #command_popup {
-        layer: popup;
-        dock: bottom;
-        margin-bottom: 7;
-        width: 30;
-        height: auto;
-        max-height: 10;
-        background: #2a2a2a;
-        border: solid #4b5563;
-        display: none;
-    }
+     #footer_right {
+         width: 1fr;
+         content-align: right top;
+         padding: 0;
+         display: block;
+     }
+     #indexing_progress {
+         width: 85%;
+         max-width: 180;
+         height: 1;
+         display: none;
+     }
+     #command_popup {
+         layer: popup;
+         dock: bottom;
+         margin-bottom: 7;
+         width: 30;
+         height: auto;
+         max-height: 10;
+         background: #2a2a2a;
+         border: solid #4b5563;
+         display: none;
+     }
     #live_display {
         width: 85%;
         max-width: 180;
@@ -565,6 +571,8 @@ class KogniTermTUI(App):
         yield self.command_popup
         
         with Vertical(id="bottom_container"):
+            self.progress_bar = ProgressBar(show_eta=False, show_percentage=True, id="indexing_progress")
+            yield self.progress_bar
             with Horizontal(id="input_container"):
                 yield ChatInput()
             yield StatusFooter(model_name=self.llm_service.model_name)
@@ -686,6 +694,236 @@ class KogniTermTUI(App):
             splash_input.focus()
         except Exception:
             pass
+
+    async def _check_and_prompt_indexing(self):
+        """Verifica el estado de indexación del workspace y actúa en consecuencia."""
+        workspace = self.workspace_directory or os.getcwd()
+
+        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+
+        # Verificar si ya hay datos indexados (ChromaDB puede ser lento, usar thread)
+        try:
+            def _check_indexed():
+                vector_db = VectorDBManager(workspace)
+                result = vector_db.is_indexed()
+                vector_db.close()
+                return result
+            already_indexed = await asyncio.to_thread(_check_indexed)
+        except Exception:
+            already_indexed = False
+
+        if not already_indexed:
+            # ── Primera vez: preguntar si desea indexar ────────────────
+            from kogniterm.terminal.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            if config_manager.get_config("index_prompt_declined"):
+                return
+
+            try:
+                indexer = CodebaseIndexer(workspace)
+                code_files = await asyncio.to_thread(indexer.list_code_files, workspace)
+                if not code_files:
+                    return
+            except Exception:
+                return
+
+            from kogniterm.terminal.tui.components.settings_modals import TextualConfirmModal
+            total_files = len(code_files)
+            result = await self.push_screen_wait(
+                TextualConfirmModal(
+                    title="Indexar Directorio",
+                    text=(
+                        f"Este directorio no ha sido indexado.\n\n"
+                        f"Se encontraron [bold]{total_files}[/bold] archivos de código.\n\n"
+                        f"¿Deseas indexar y vectorizar el contenido\n"
+                        f"para mejorar la búsqueda de contexto?"
+                    ),
+                    confirm_label="Indexar",
+                    cancel_label="Ahora no"
+                )
+            )
+
+            if result:
+                await self._run_indexing(workspace)
+            else:
+                config_manager.set_global_config("index_prompt_declined", True)
+        else:
+            # ── Ya indexado: verificar cambios incrementales ──────────
+            try:
+                def _get_changes():
+                    indexer = CodebaseIndexer(workspace)
+                    return indexer.get_changed_files()
+                changes = await asyncio.to_thread(_get_changes)
+                n_changed = len(changes["changed"])
+                n_new = len(changes["new"])
+                n_deleted = len(changes["deleted"])
+                total_diff = n_changed + n_new + n_deleted
+
+                if total_diff == 0:
+                    return
+
+                # Construir resumen de cambios
+                parts = []
+                if n_new:
+                    parts.append(f"[bold]{n_new}[/bold] nuevos")
+                if n_changed:
+                    parts.append(f"[bold]{n_changed}[/bold] modificados")
+                if n_deleted:
+                    parts.append(f"[bold]{n_deleted}[/bold] eliminados")
+                summary = ", ".join(parts)
+
+                from kogniterm.terminal.tui.components.settings_modals import TextualConfirmModal
+                result = await self.push_screen_wait(
+                    TextualConfirmModal(
+                        title="Actualizar Índice",
+                        text=(
+                            f"Se detectaron cambios en el directorio:\n\n"
+                            f"Archivos {summary}\n\n"
+                            f"¿Deseas actualizar el índice?"
+                        ),
+                        confirm_label="Actualizar",
+                        cancel_label="Ignorar"
+                    )
+                )
+
+                if result:
+                    await self._run_incremental_indexing(workspace, changes)
+            except Exception as e:
+                logger.error(f"Error verificando cambios en índice: {e}")
+
+    async def _run_indexing(self, workspace: str):
+        """Ejecuta la indexación completa del workspace."""
+        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+
+        self.tui_ui.print_message("🔍 Iniciando indexación del directorio...", style="cyan")
+        self.is_processing = True
+        self._start_spinner()
+
+        try:
+            indexer = CodebaseIndexer(workspace)
+            vector_db = VectorDBManager(workspace)
+
+            code_files = await asyncio.to_thread(indexer.list_code_files, workspace)
+            total_files = len(code_files)
+            self.progress_bar.display = True
+            self.progress_bar.total = total_files
+            self.progress_bar.progress = 0
+
+            all_chunks = []
+            for i, file_path in enumerate(code_files):
+                file_chunks = await asyncio.to_thread(indexer.chunk_file, file_path)
+                texts = [c['content'] for c in file_chunks]
+                embeddings = []
+                for text in texts:
+                    try:
+                        emb = await asyncio.to_thread(indexer.embeddings_service.generate_embeddings, [text])
+                        embeddings.extend(emb)
+                    except Exception as e:
+                        logger.error(f"Embedding error in {file_path}: {e}")
+                        embeddings.append(None)
+                for j, chunk in enumerate(file_chunks):
+                    if j < len(embeddings) and embeddings[j]:
+                        chunk['embedding'] = embeddings[j]
+                        all_chunks.append(chunk)
+                self.progress_bar.progress = i + 1
+
+            if all_chunks:
+                vector_db.clear_collection()
+                vector_db.add_chunks(all_chunks)
+                file_state = await asyncio.to_thread(indexer.build_current_file_state)
+                indexer._save_file_state(file_state)
+                self.tui_ui.print_message(
+                    f"✅ Indexación completada: {len(all_chunks)} bloques de código almacenados.",
+                    style="green"
+                )
+            else:
+                self.tui_ui.print_message("⚠️ No se generaron bloques de código.", style="yellow")
+
+            vector_db.close()
+        except Exception as e:
+            logger.error(f"Error durante la indexación: {e}")
+            self.tui_ui.print_message(f"❌ Error durante la indexación: {e}", style="red")
+        finally:
+            self.is_processing = False
+            self._stop_spinner()
+            self.progress_bar.display = False
+
+    async def _run_incremental_indexing(self, workspace: str, changes: Dict[str, List[str]]):
+        """Ejecuta indexación incremental solo para archivos con cambios."""
+        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+
+        n_new = len(changes["new"])
+        n_changed = len(changes["changed"])
+        n_deleted = len(changes["deleted"])
+        total_steps = n_deleted + n_changed + n_new + 1
+
+        self.tui_ui.print_message(f"🔄 Actualizando índice ({total_steps} pasos)...", style="cyan")
+        self.is_processing = True
+        self._start_spinner()
+
+        try:
+            indexer = CodebaseIndexer(workspace)
+            vector_db = VectorDBManager(workspace)
+
+            self.progress_bar.display = True
+            self.progress_bar.total = total_steps
+            self.progress_bar.progress = 0
+
+            step = 0
+
+            for file_path in changes["changed"] + changes["deleted"]:
+                vector_db.delete_by_file_path(file_path)
+                step += 1
+                self.progress_bar.progress = step
+
+            files_to_index = changes["changed"] + changes["new"]
+            all_chunks = []
+            for file_path in files_to_index:
+                file_chunks = await asyncio.to_thread(indexer.chunk_file, file_path)
+                texts = [c['content'] for c in file_chunks]
+                embeddings = []
+                for text in texts:
+                    try:
+                        emb = await asyncio.to_thread(indexer.embeddings_service.generate_embeddings, [text])
+                        embeddings.extend(emb)
+                    except Exception as e:
+                        logger.error(f"Error generando embedding: {e}")
+                        embeddings.append(None)
+                for j, chunk in enumerate(file_chunks):
+                    if j < len(embeddings) and embeddings[j]:
+                        chunk['embedding'] = embeddings[j]
+                        all_chunks.append(chunk)
+                step += 1
+                self.progress_bar.progress = step
+
+            if all_chunks:
+                vector_db.add_chunks(all_chunks)
+
+            file_state = await asyncio.to_thread(indexer.build_current_file_state)
+            indexer._save_file_state(file_state)
+            step += 1
+            self.progress_bar.progress = step
+
+            parts = []
+            if n_new: parts.append(f"{n_new} nuevos")
+            if n_changed: parts.append(f"{n_changed} actualizados")
+            if n_deleted: parts.append(f"{n_deleted} eliminados")
+
+            self.tui_ui.print_message(
+                f"✅ Índice actualizado: {', '.join(parts)}.",
+                style="green"
+            )
+            vector_db.close()
+        except Exception as e:
+            logger.error(f"Error durante actualización incremental: {e}")
+            self.tui_ui.print_message(f"❌ Error actualizando índice: {e}", style="red")
+        finally:
+            self.is_processing = False
+            self._stop_spinner()
+            self.progress_bar.display = False
 
     async def on_input_changed(self, event: Input.Changed):
         value = event.value

@@ -242,10 +242,14 @@ class CommandApprovalModal(ModalScreen[bool]):
     #btn-yes {
         min-width: 10;
         margin: 0 1;
+        height: 3;
+        min-height: 3;
     }
     #btn-no {
         min-width: 10;
         margin: 0 1;
+        height: 3;
+        min-height: 3;
     }
     """
 

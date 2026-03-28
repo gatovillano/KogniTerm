@@ -156,6 +156,14 @@ class VectorDBManager:
             logger.error(f"Error searching vector DB: {e}")
             return []
 
+    def delete_by_file_path(self, file_path: str):
+        """Deletes all chunks associated with a specific file path."""
+        try:
+            self.collection.delete(where={"file_path": file_path})
+            logger.info(f"Deleted chunks for file: {file_path}")
+        except Exception as e:
+            logger.error(f"Error deleting chunks for {file_path}: {e}")
+
     def clear_collection(self):
         """Deletes all items in the collection."""
         try:

@@ -6,6 +6,7 @@ import os
 import subprocess
 import asyncio
 import threading
+import fnmatch
 from textual import events
 
 from kogniterm.terminal.message_history import get_message_history
@@ -61,21 +62,62 @@ class KogniTermSuggester(Suggester):
         threading.Thread(target=self._load_files, daemon=True).start()
         threading.Thread(target=self._load_containers, daemon=True).start()
 
+    EXCLUDE_PATTERNS = [
+        "build/", "venv/", ".git/", "__pycache__/", "kogniterm.egg-info/", "src/",
+        "*/build/*", "*/venv/*", "*/.git/*", "*/__pycache__/*", "*/kogniterm.egg-info/*", "*/src/*",
+        ".*/", "*/.*/",
+        "*.pyc", "*.tmp", "*.log", ".env", ".DS_Store", "*.swp", "*.bak", "*.old", "*.fuse_hidden*",
+        "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", ".pytest_cache/",
+    ]
+
     def _load_files(self):
         try:
-            from kogniterm.skills.bundled.file_operations.scripts.tool import _list_directory
-            output = _list_directory(path=os.getcwd(), recursive=True)
-            if isinstance(output, str):
-                self._cached_files = [item.strip() for item in output.split('\n') if item.strip()]
+            workspace = os.getcwd()
+            all_items = []
+            for root, dirs, files in os.walk(workspace):
+                # No entrar en directorios ocultos
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+                rel_root = os.path.relpath(root, workspace)
+                if rel_root == ".":
+                    rel_root = ""
+                # Añadir directorios con slash final
+                for d in dirs:
+                    rel_path = os.path.join(rel_root, d) + os.sep if rel_root else d + os.sep
+                    all_items.append(rel_path)
+                # Añadir archivos (excluir ocultos)
+                for f in files:
+                    if not f.startswith('.'):
+                        rel_path = os.path.join(rel_root, f) if rel_root else f
+                        all_items.append(rel_path)
+            # Filtrar con EXCLUDE_PATTERNS usando fnmatch
+            filtered = []
+            for item in all_items:
+                if not any(fnmatch.fnmatch(item, pat) for pat in self.EXCLUDE_PATTERNS):
+                    filtered.append(item)
+            self._cached_files = filtered
         except Exception:
-            pass
+            self._cached_files = []
 
     def _load_containers(self):
         try:
-            result = subprocess.run(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, text=True)
-            self._cached_containers = [c.strip() for c in result.stdout.split('\n') if c.strip()]
+            # Obtener nombre, estado e imagen de contenedores (todos, incluyendo parados)
+            result = subprocess.run(
+                ["docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}|{{.Image}}"],
+                capture_output=True, text=True
+            )
+            containers = []
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    parts = line.split('|', 2)
+                    if len(parts) >= 3:
+                        containers.append({
+                            'name': parts[0].strip(),
+                            'status': parts[1].strip(),
+                            'image': parts[2].strip()
+                        })
+            self._cached_containers = containers
         except Exception:
-            pass
+            self._cached_containers = []
 
     async def get_suggestion(self, value: str) -> str | None:
         if not value:
@@ -124,7 +166,8 @@ class KogniTermSuggester(Suggester):
             parts = current_word.split(':')
             search_container = parts[-1]
             if self._cached_containers:
-                matches = [c for c in self._cached_containers if search_container.lower() in c.lower()]
+                names = [c['name'] for c in self._cached_containers]
+                matches = [n for n in names if search_container.lower() in n.lower()]
                 if matches:
                     best_match = next((m for m in matches if m.lower().startswith(search_container.lower())), matches[0])
                     if best_match.lower().startswith(search_container.lower()):

@@ -21,6 +21,7 @@ import uuid # Importar uuid
 
 # Importar DiffRenderer para visualización mejorada de diffs
 from kogniterm.utils.diff_renderer import DiffRenderer
+from kogniterm.terminal.visual_components import create_terminal_output_panel
 
 # Importar temas para mejorar visuales
 try:
@@ -422,33 +423,14 @@ class CommandApprovalHandler:
             else:
                 full_command_output = ""
                 try:
-                    # Separador visual antes del comando con temas
-                    if THEMES_AVAILABLE:
-                        separator_line = create_separator()
-                        self.terminal_ui.console.print(separator_line)
-                        self.terminal_ui.console.print(f"[bold {ColorPalette.SECONDARY}]{Icons.GEAR} Ejecutando:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{command_to_execute}[/{ColorPalette.SECONDARY_LIGHT}]")
-                        self.terminal_ui.console.print(separator_line)
-                    else:
-                        # Fallback al separador original
-                        separator = "━" * 80
-                        self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
-                        self.terminal_ui.console.print(f"[bold cyan]🔧 Ejecutando:[/bold cyan] [yellow]{command_to_execute}[/yellow]")
-                        self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
-
                     # Activar modo terminal interactiva y cursor antes de ejecutar
                     self.terminal_ui.set_terminal_cursor(True, self.command_executor)
 
-                    from kogniterm.terminal.visual_components import create_terminal_output_panel
-                    
-                    # Forzar aparición del panel inmediatamente para feedback visual
-                    # (Mostrará "esperando salida..." gracias a la lógica en visual_components)
+                    # Mostrar panel inmediatamente para feedback visual
                     initial_panel = create_terminal_output_panel("Ejecución de Comando", "", max_lines=15)
                     self.terminal_ui.update_live(initial_panel)
                     
                     full_command_output = ""
-                    
-                    # Debug: log de inicio de ejecución
-                    logger.info(f"Iniciando ejecución de: {command_to_execute}")
 
                     for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
                         if output_chunk:
@@ -463,15 +445,10 @@ class CommandApprovalHandler:
                     
                     # Separador visual después del comando con temas
                     if THEMES_AVAILABLE:
-                        separator_line = create_separator()
-                        self.terminal_ui.console.print(separator_line)
-                        self.terminal_ui.console.print(f"[bold {ColorPalette.SUCCESS}]{Icons.SUCCESS} Comando completado[/bold {ColorPalette.SUCCESS}]")
-                        self.terminal_ui.console.print(separator_line)
+                        self.terminal_ui.console.print(f"\n[bold {ColorPalette.SUCCESS}]{Icons.SUCCESS} Comando completado[/bold {ColorPalette.SUCCESS}]\n")
                     else:
                         # Fallback al separador original
-                        self.terminal_ui.console.print(f"\n[cyan]{separator}[/cyan]")
-                        self.terminal_ui.console.print(f"[bold green]✓ Comando completado[/bold green]")
-                        self.terminal_ui.console.print(f"[cyan]{separator}[/cyan]\n")
+                        self.terminal_ui.console.print(f"\n[bold green]✓ Comando completado[/bold green]\n")
                     
                     
                     # Truncamiento desactivado - mostrar salida completa

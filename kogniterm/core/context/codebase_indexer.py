@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import json
 import fnmatch
 from typing import List, Dict, Any
 from kogniterm.terminal.config_manager import ConfigManager
@@ -331,3 +332,82 @@ class CodebaseIndexer:
             logger.warning(f"Skipped {len(all_chunks) - len(valid_chunks)} chunks due to missing or empty embeddings.")
             
         return valid_chunks
+
+    # ── Estado de archivos indexados ──────────────────────────────────────
+
+    def _get_state_file_path(self) -> str:
+        """Returns the path to the index state file."""
+        return os.path.join(self.workspace_directory, ".kogniterm", "index_state.json")
+
+    def _load_file_state(self) -> Dict[str, Any]:
+        """Loads the stored file state from disk."""
+        state_path = self._get_state_file_path()
+        if not os.path.exists(state_path):
+            return {}
+        try:
+            with open(state_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get("indexed_files", {})
+        except (json.JSONDecodeError, IOError):
+            return {}
+
+    def _save_file_state(self, file_states: Dict[str, Any]):
+        """Saves the file state to disk."""
+        state_path = self._get_state_file_path()
+        state_dir = os.path.dirname(state_path)
+        if not os.path.exists(state_dir):
+            os.makedirs(state_dir, exist_ok=True)
+        try:
+            with open(state_path, 'w', encoding='utf-8') as f:
+                json.dump({"indexed_files": file_states}, f, indent=2)
+        except IOError as e:
+            logger.error(f"Error saving index state: {e}")
+
+    def _get_file_signature(self, file_path: str) -> Dict[str, Any]:
+        """Returns the current signature (mtime + size) of a file."""
+        try:
+            stat = os.stat(file_path)
+            return {"mtime": stat.st_mtime, "size": stat.st_size}
+        except OSError:
+            return {}
+
+    def get_changed_files(self) -> Dict[str, List[str]]:
+        """
+        Compares current files against stored state and returns changes.
+
+        Returns a dict with keys:
+            - 'changed': files that exist in both but have different mtime/size
+            - 'new': files that exist on disk but not in stored state
+            - 'deleted': files in stored state that no longer exist on disk
+        """
+        stored_state = self._load_file_state()
+        current_files = self.list_code_files(self.workspace_directory)
+
+        current_paths = set()
+        changed = []
+        new = []
+
+        for file_path in current_files:
+            abs_path = os.path.abspath(file_path)
+            current_paths.add(abs_path)
+
+            if abs_path not in stored_state:
+                new.append(abs_path)
+            else:
+                current_sig = self._get_file_signature(abs_path)
+                stored_sig = stored_state[abs_path]
+                if current_sig.get("mtime") != stored_sig.get("mtime") or current_sig.get("size") != stored_sig.get("size"):
+                    changed.append(abs_path)
+
+        deleted = [fp for fp in stored_state.keys() if fp not in current_paths]
+
+        return {"changed": changed, "new": new, "deleted": deleted}
+
+    def build_current_file_state(self) -> Dict[str, Any]:
+        """Builds a fresh file state dict for all current code files."""
+        current_files = self.list_code_files(self.workspace_directory)
+        state = {}
+        for file_path in current_files:
+            abs_path = os.path.abspath(file_path)
+            state[abs_path] = self._get_file_signature(abs_path)
+        return state
