@@ -54,12 +54,9 @@ class FileCompleter(Completer):
     EXCLUDE_PATTERNS = [
         "build/", "venv/", ".git/", "__pycache__/", "kogniterm.egg-info/", "src/",
         "*/build/*", "*/venv/*", "*/.git/*", "*/__pycache__/*", "*/kogniterm.egg-info/*", "*/src/*",
-        ".*/", "*/.*/", # Patrones para directorios ocultos en la raíz y subdirectorios
-        "*.pyc", "*.tmp", "*.log", ".env", ".DS_Store", "*.swp", "*.bak", "*.old", "*.fuse_hidden*",
-        "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", "kogniterm.egg-info/", "src/", "%.*/", ".*/",
+        ".*/", "*/.*/",
         "*.pyc", "*.tmp", "*.log", ".env", ".DS_Store", "*.swp", "*.bak", "*.old", "*.fuse_hidden*",
         "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", ".pytest_cache/",
-        # "docs/", "examples/", "tests/", # Comentar si se quieren incluir estos directorios
     ]
 
     def __init__(self, skill_manager, workspace_directory: str, show_indicator: bool = True):
@@ -110,36 +107,30 @@ class FileCompleter(Completer):
 
     def _do_load_files(self) -> List[str]:
         """Realiza la carga real de archivos de forma síncrona en un hilo secundario."""
-        # logger.debug(f"FileCompleter: Ejecutando _do_load_files en hilo: {threading.current_thread().name}")
         try:
-            # Importar funcionalidad de listado desde la skill de operaciones de archivo
-            try:
-                from kogniterm.skills.bundled.file_operations.scripts.tool import _list_directory
-                
-                output = _list_directory(
-                    path=self.workspace_directory,
-                    recursive=True
-                )
-                
-                if isinstance(output, str):
-                    raw_items = output.split('\n')
-                else:
-                    raw_items = []
-            except ImportError:
-                logger.error("FileCompleter: No se pudo importar _list_directory de la skill file_operations.")
-                return []
-                
             all_relative_items = []
-            for item in raw_items:
-                item = item.strip()
-                if item:
-                    # Ignorar directorios (terminan en /) para el completado de archivos puros si se desea, 
-                    # pero aquí los mantenemos si el patrón EXCLUDE los permite.
-                    if any(fnmatch.fnmatch(item, pattern) for pattern in self.EXCLUDE_PATTERNS):
-                        continue
-                    all_relative_items.append(item)
-            
-            # logger.debug(f"FileCompleter: Cargados {len(all_relative_items)} elementos en la caché.")
+            for root, dirs, files in os.walk(self.workspace_directory):
+                # Filtrar directorios ocultos y excluidos
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in (
+                    'venv', '__pycache__', 'node_modules', 'build', 'dist',
+                    'out', 'coverage', '.mypy_cache', '.pytest_cache',
+                    'kogniterm.egg-info', '.git',
+                )]
+                rel_root = os.path.relpath(root, self.workspace_directory)
+                if rel_root == ".":
+                    rel_root = ""
+                for d in dirs:
+                    rel_path = os.path.join(rel_root, d) + os.sep if rel_root else d + os.sep
+                    if not any(fnmatch.fnmatch(rel_path, pattern) for pattern in self.EXCLUDE_PATTERNS):
+                        all_relative_items.append(rel_path)
+                for f in files:
+                    rel_path = os.path.join(rel_root, f) if rel_root else f
+                    if not f.startswith('.') and not any(
+                        f.endswith(ext) for ext in ('.pyc', '.tmp', '.log', '.swp', '.bak', '.old')
+                    ):
+                        if not any(fnmatch.fnmatch(rel_path, pattern) for pattern in self.EXCLUDE_PATTERNS):
+                            all_relative_items.append(rel_path)
+
             with self.cache_lock:
                 self._cached_files = all_relative_items
             return all_relative_items

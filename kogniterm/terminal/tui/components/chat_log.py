@@ -56,38 +56,32 @@ class ChatLogWidget(RichLog):
         self.call_after_refresh(self.scroll_end, animate=False)
 
     def write_user_message(self, text: str):
-        """Escribe un mensaje de usuario con fondo gris claro."""
-        self.write("")
-        target_width = self._get_available_width()
-        
-        # Colores para el mensaje de usuario
-        # En tema oscuro: gris muy oscuro. En tema claro: gris muy claro.
+        """Escribe un mensaje de usuario con línea vertical izquierda en toda la altura."""
         bg_color = ColorPalette.GRAY_800
         text_color = ColorPalette.TEXT_PRIMARY
-        
-        from rich.table import Table
+        pipe_color = ColorPalette.GRAY_600
+
         from rich.text import Text
-        from rich.padding import Padding
-        
-        # Crear una tabla para simular el fondo (sin el borde izquierdo)
-        table = Table(
-            expand=True,
-            width=target_width,
-            box=None,
-            padding=0,
-            show_header=False,
-            show_edge=False,
-            style=f"on {bg_color}"
+        from rich.console import Group
+
+        lines = text.split('\n')
+        rendered_lines = []
+        for line in lines:
+            # Cada línea tiene el pipe vertical al inicio con fondo
+            line_text = Text.assemble(
+                ("┃ ", pipe_color),
+                (line, text_color),
+                style=f"on {bg_color}"
+            )
+            rendered_lines.append(line_text)
+
+        group = Group(
+            "",  # línea vacía arriba
+            *rendered_lines,
+            ""   # línea vacía abajo
         )
-        
-        # Columna única: El contenido con padding
-        table.add_column()
 
-        # Añadir la fila con el texto
-        table.add_row(Padding(Text(text, style=text_color), (1, 2)))
-
-        self.write(table)
-        self.write("")
+        self.write(group)
         self.call_after_refresh(self.scroll_end, animate=False)
 
     def write_agent_message(self, text: str):

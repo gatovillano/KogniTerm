@@ -4091,3 +4091,105 @@ Se ha implementado `file_editor.py` que provee la herramienta `sophisticated_edi
 ✅ **Interactividad Total**: Es posible responder a prompts de terminal (ej: `sudo`, `read`) directamente desde el cuadro de entrada de la TUI.
 ✅ **Historial Limpio**: Al terminar un comando, su salida se integra perfectamente en el log de mensajes para referencia futura.
 ✅ **Robustez**: Se eliminaron condiciones de carrera y bloqueos potenciales en el manejo del buffer de salida.
+
+---
+
+## 26-03-2026 Interactividad TUI Avanzada
+
+**Descripción**: Se han actualizado los componentes y la lógica de ejecución para permitir un flujo interactivo real y fluido entre la entrada del usuario en la TUI y la terminal del sistema.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+    *   **Soporte de Cursor Parpadeante**: Implementado el método `update_terminal_output` y un manejador `_update_cursor` que emula el parpadeo del cursor visual durante la ejecución interactiva persistente.
+2.  [`kogniterm/core/command_executor.py`](kogniterm/core/command_executor.py)
+    *   **Recuperación de ECHO**: Activado el modo ECHO para subprocesos para permitir el eco real del terminal nativo, desactivándolo temporalmente solo al enviar comandos internos (marcadores de final).
+    *   **Procesamiento de Saltos (`\\r`)**: Eliminado el filtro restrictivo de Carriage Returns para asegurar la representación correcta de las barras de progreso y cursores de sobrescritura de TUI.
+3.  [`kogniterm/terminal/visual_components.py`](kogniterm/terminal/visual_components.py)
+    *   **Indicador de Cursor Activo**: Ampliado `create_terminal_output_panel` para procesar el estado de cursor.
+4.  [`kogniterm/terminal/command_approval_handler.py`](kogniterm/terminal/command_approval_handler.py)
+    *   **Flujo Adaptado al TUI**: Modificado para consumir las nuevas capacidades del TerminalUI y delegar el pintado de actualizaciones.
+5.  [`kogniterm/terminal/terminal_ui.py`](kogniterm/terminal/terminal_ui.py)
+    *   **Nuevos Métodos**: Se añadió `update_terminal_output()` para soportar actualizaciones de TUI.
+
+#### **🎯 Beneficios**
+
+✅ **Feedback Inmediato**: Refleja barras de progreso exactas de herramientas de terminal como APT, Pip, Wget.
+✅ **Experiencia Genuina**: Presencia de eco de entrada y cursor visual animado que confirman el estado activo del modo consola.
+
+---
+
+## 26-03-2026 Alineación de Cuadro de Confirmación de Comandos
+
+**Descripción**: Se ajustó la alineación y el ancho del cuadro de confirmación de comandos en la TUI para que coincida visualmente con los mensajes del chat del LLM, evitando que se extienda de extremo a extremo de la pantalla.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+    *   **Contenedor de Aprobación**: Se añadió `align-horizontal: center;` al CSS de `#approval_container` para asegurar que todo el contenido se centre al igual que el registro del chat.
+2.  [`kogniterm/terminal/tui/components/inline_approval.py`](kogniterm/terminal/tui/components/inline_approval.py)
+    *   **Ancho Dinámico Consistente**: Se restringió el `width` de `100%` a `85%`, agregando `max-width: 180` y `min-width: 60`, igualando exactamente las proporciones de `#chat_log`.
+
+#### **🎯 Beneficios**
+
+✅ **Estética Mejorada**: El cuadro de confirmación ya no rompe la armonía visual extendiéndose por los márgenes vacíos.
+✅ **UX Refinada**: Evita la fatiga visual al mantener el contenido centralizado y alineado al flujo de la conversación natural del usuario.
+
+
+## 26-03-2026 Eliminar líneas de separador en terminal
+
+**Descripción**: Se han eliminado las líneas horizontales alrededor de los mensajes de ejecución y finalización de comandos en la terminal UI para una apariencia más limpia.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. `kogniterm/terminal/command_approval_handler.py`
+   - Eliminadas las líneas separadoras antes y después de los mensajes de estado del comando.
+
+---
+
+## 26-03-2026 Ocultar Eco de Comandos Internos PTY
+
+**Descripción**: Se corrigió un error que provocaba la filtración del eco del comando interno `stty` de configuración en el output del panel visual de la terminal interactiva.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. `kogniterm/core/command_executor.py`
+   - **Agrupamiento Silencioso (ECHO)**: Se delegó el redimensionado del pty (`stty rows X cols Y`) hacia dentro del bloque temporal de ejecución y desactivación de la constante de `\termios.ECHO` enviando toda la cadena junto al script principal del usuario, eliminando definitivamente cualquier fugas de las peticiones iniciales del sistema.
+
+
+## 26-03-2026 Mejoras Visuales en la Interfaz de Terminal (TUI)
+
+**Descripción**: Se han realizado ajustes visuales en la TUI Textual para mejorar la legibilidad y la experiencia de usuario durante la interacción con el LLM.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. `kogniterm/terminal/tui/tui_app.py`
+2. `kogniterm/terminal/tui/components/chat_log.py`
+
+#### **📋 Cambios Específicos**
+
+1. **Corrección del Comportamiento de "Emerger desde abajo"** (`tui_app.py`):
+   - Se ajustó el CSS del `#chat_log` cambiando `height: 1fr;` por `height: auto; max-height: 1fr;`.
+   - Esto permite que el historial de chat ocupe solo el espacio necesario en pantalla cuando no está lleno.
+   - Consecuentemente, el widget `live_display` (donde el LLM escribe en streaming) ahora se posiciona inmediatamente debajo de los mensajes anteriores en lugar de estar forzado permanentemente al fondo de la pantalla.
+
+2. **Borde Lateral Izquierdo en Mensajes de Usuario** (`chat_log.py`):
+   - Se reemplazó el estilo sin bordes por una tabla especial con la clase `Box` de la librería `rich`.
+   - Se definió un borde `LEFT_ONLY` (`┃`) personalizado para garantizar que los mensajes de usuario estén acompañados de una atractiva línea vertical en su margen izquierdo.
+   - El color del borde utiliza el color primario de la paleta (`ColorPalette.PRIMARY`) sobre el fondo estándar gris.
+
+#### **🎯 Beneficios de las Mejoras**
+
+✅ **Lectura Natural**: El stream de texto de respuestas fluye orgánicamente de arriba hacia abajo como se espera de una terminal normal.
+✅ **Mejor Distinción**: El borde lateral de los mensajes de usuario añade orden estructural y separa eficientemente las consultas humanas de las contestaciones iterativas del agente de IA.
+✅ **Limpieza Visual**: Código adaptativo para las áreas de la pantalla reduciendo los huecos vacíos excesivos.

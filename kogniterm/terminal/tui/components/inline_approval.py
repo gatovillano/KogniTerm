@@ -204,7 +204,9 @@ class InlineApprovalWidget(Widget):
 
     DEFAULT_CSS = """
     InlineApprovalWidget {
-        width: 100%;
+        width: 85%;
+        max-width: 180;
+        min-width: 60;
         height: auto;
         margin: 1 0;
         padding: 1 2;
@@ -255,17 +257,23 @@ class InlineApprovalWidget(Widget):
         border: none;
         margin-right: 1;
         width: 16;
+        height: 3;
+        min-height: 3;
     }
     #ia-btn-accept-all {
         color: #ffffff;
         border: none;
         margin-right: 1;
         width: 16;
+        height: 3;
+        min-height: 3;
     }
     #ia-btn-cancel {
         color: #ffffff;
         border: none;
         width: 16;
+        height: 3;
+        min-height: 3;
     }
     """
 

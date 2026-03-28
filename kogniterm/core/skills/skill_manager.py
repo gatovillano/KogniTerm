@@ -572,9 +572,12 @@ class SkillManager:
 
         return self.load_skill(skill_name)
 
-    def get_tool(self, tool_name: str) -> Optional[Dict[str, Any]]:
-        """Obtiene información de una herramienta por nombre."""
-        return self.tool_registry.get(tool_name)
+    def get_tool(self, tool_name: str) -> Optional[Any]:
+        """Obtiene la instancia de una herramienta por nombre."""
+        tool_info = self.tool_registry.get(tool_name)
+        if tool_info:
+            return tool_info.get('tool')
+        return None
 
     def get_skill_for_tool(self, tool_name: str) -> Optional[Skill]:
         """Obtiene la skill que provee una herramienta."""

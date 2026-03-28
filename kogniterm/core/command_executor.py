@@ -60,8 +60,6 @@ class CommandExecutor:
             import struct
             buf = struct.pack('HHHH', rows, cols, 0, 0)
             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, buf)
-            # También enviar via shell por si acaso
-            os.write(master_fd, f"stty rows {rows} cols {cols}\n".encode())
         except:
             pass
 
@@ -78,26 +76,16 @@ class CommandExecutor:
         except:
             pass
 
-        # --- Gestión de ECHO temporal ---
-        # Desactivamos ECHO mientras enviamos el comando y el marcador para que no 
-        # se 'escuchen' a sí mismos. Lo reactivaremos justo después.
-        try:
-            attrs = termios.tcgetattr(self._persistent_slave_fd)
-            attrs[3] &= ~termios.ECHO
-            termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
-        except: pass
-
         # Enviar el comando al shell persistente
-        # Usamos un marcador muy robusto para saber cuándo termina el comando
+        # Asegurar tamaño, ejecutar el comando y luego el marcador.
         marker = f"echo '{self._last_command_done_marker}'"
-        full_cmd = f"{command} ; {marker}\n"
+        full_cmd = f"stty rows {rows} cols {cols} 2>/dev/null ; {command} ; {marker}\n"
+        
+        # Filtro de echo: definiremos la cadena exacta a borrar que producirá bash readline
+        self._expected_echo = full_cmd.replace('\n', '\r\n')
+        self._echo_filtered = False
+        
         os.write(master_fd, full_cmd.encode())
-
-        # Reactivar ECHO para que el usuario pueda interactuar con el comando
-        try:
-            attrs[3] |= termios.ECHO
-            termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
-        except: pass
 
         try:
             search_buffer = ""
@@ -126,7 +114,21 @@ class CommandExecutor:
                             break
                         
                         search_buffer += data
-                        
+
+                        # Filtrar el eco del comando completo provocado por bash readline
+                        if not getattr(self, '_echo_filtered', True):
+                            expected = getattr(self, '_expected_echo', '')
+                            if expected.startswith(search_buffer) and search_buffer:
+                                # Aún estamos buffereando el eco puro del comando
+                                continue
+                            elif search_buffer.startswith(expected):
+                                # Cortamos exitosamente la cabecera exacta del comando
+                                search_buffer = search_buffer[len(expected):]
+                                self._echo_filtered = True
+                            else:
+                                # Hay divergencia en el eco rápido, dejar pasar para no truncar datos genuinos
+                                self._echo_filtered = True
+
                         # Si el marcador de fin aparece completo, hemos terminado
                         if marker_to_hide in search_buffer:
                             parts = search_buffer.split(marker_to_hide)
@@ -158,7 +160,8 @@ class CommandExecutor:
                 
                 # Yield lo que queda en el buffer si no hay datos nuevos y no parece inicio de marcador
                 if search_buffer and master_fd not in readable_fds:
-                    if not marker_to_hide.startswith(search_buffer):
+                    # Siempre que no estemos en proceso de purga de eco...
+                    if getattr(self, '_echo_filtered', True) and not marker_to_hide.startswith(search_buffer):
                         yield search_buffer
                         search_buffer = ""
 
@@ -196,14 +199,14 @@ class CommandExecutor:
             env=os.environ.copy()
         )
         # Consumir el banner inicial del shell
-        time.sleep(0.5)
+        time.sleep(0.2)
         try:
             # Desactivar el PROMPT para que no se filtre en la TUI
             # El prompt vacío (PS1="") es vital para una salida limpia en paneles
             os.write(self._persistent_master_fd, b"export PS1=''\n")
 
             
-            time.sleep(0.3)
+            time.sleep(0.1)
             # Leer todo el buffer inicial para dejar la terminal limpia (banners, mensajes de login, etc)
             while True:
                 r, _, _ = select.select([self._persistent_master_fd], [], [], 0.1)

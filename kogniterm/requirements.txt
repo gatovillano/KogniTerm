@@ -17,6 +17,7 @@ gitignore-parser
 watchdog
 litellm
 playwright
+tavily-python
 
 GitPython
 pydantic

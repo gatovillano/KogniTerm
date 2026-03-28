@@ -25,6 +25,7 @@ dependencies = [
     "watchdog",
     "litellm",
     "playwright",
+    "tavily-python",
     "GitPython",
     "pydantic",
     "pydantic-settings",
@@ -39,7 +40,7 @@ dependencies = [
     "crewai",
     "fastembed",
     "textual",
-]
+  ]
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
