@@ -163,6 +163,7 @@ class InlineApprovalWidget(Widget):
     file_path:      Ruta del archivo (mostrada en el subheader). Puede ser None.
     callback:       Función síncrona llamada con el resultado ("accept" | "accept_all" | "cancel").
     """
+    can_focus = True
 
     # ── Mensaje de decisión ──────────────────────────────────────────────────
     class Decided(Message):
@@ -325,9 +326,9 @@ class InlineApprovalWidget(Widget):
 
         # Footer con botones
         with Horizontal(id="ia-footer"):
-            yield Button("✓ Aceptar", id="ia-btn-accept")
-            yield Button("⚡ Siempre", id="ia-btn-accept-all")
-            yield Button("✕ Cancelar", id="ia-btn-cancel")
+            yield Button("✓ Aceptar", id="ia-btn-accept", variant="success")
+            yield Button("⚡ Siempre", id="ia-btn-accept-all", variant="primary")
+            yield Button("✕ Cancelar", id="ia-btn-cancel", variant="error")
 
     # ── Eventos ──────────────────────────────────────────────────────────────
 

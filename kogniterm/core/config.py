@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     
     google_api_key: Optional[str] = Field(None, validation_alias="GOOGLE_API_KEY")
     gemini_model: Optional[str] = Field(None, validation_alias="GEMINI_MODEL")
+    
+    ollama_api_base: str = Field("http://localhost:11434/v1", validation_alias="OLLAMA_API_BASE")
+    ollama_model: Optional[str] = Field(None, validation_alias="OLLAMA_MODEL")
+    ollama_cloud_api_key: Optional[str] = Field(None, validation_alias="OLLAMA_CLOUD_API_KEY")
 
     # Application Configuration
     max_output_length: int = Field(20000, description="Maximum length of command output before truncation")

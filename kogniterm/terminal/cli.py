@@ -153,7 +153,7 @@ class CLIHandler:
             return
             
         command = args[0]
-        valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm"]
+        valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm", "ollama_cloud"]
         
         if command == 'set':
             if len(args) != 3:

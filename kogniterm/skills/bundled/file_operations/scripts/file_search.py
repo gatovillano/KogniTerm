@@ -57,9 +57,20 @@ def glob_search_tool(pattern: str, path: Optional[str] = None) -> Dict[str, Any]
         if not found_files:
             return {"message": f"No se encontraron archivos con el patrón '{pattern}' en '{path}'", "files": []}
 
+        # Limitar a 100 archivos para evitar respuestas excesivas
+        max_files = 100
+        truncated = len(found_files) > max_files
+        if truncated:
+            found_files = found_files[:max_files]
+
+        message = f"Encontrados {len(found_files)} archivo(s)"
+        if truncated:
+            message += f" (mostrando primeros {max_files} de {len(found_files) + max_files})"
+
         return {
-            "message": f"Encontrados {len(found_files)} archivo(s)",
-            "files": found_files
+            "message": message,
+            "files": found_files,
+            "truncated": truncated
         }
 
     except Exception as e:

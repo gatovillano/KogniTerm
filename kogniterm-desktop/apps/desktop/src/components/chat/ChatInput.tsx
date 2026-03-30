@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Loader2, Sparkles, StopCircle } from 'lucide-react';
 
 interface ChatInputProps {
@@ -14,6 +14,62 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [suggestions, setSuggestions] = useState<{ command: string; desc: string }[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
+    const [cursorOffset, setCursorOffset] = useState<{ top: number; left: number } | null>(null);
+
+    const getCursorOffset = useCallback(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return null;
+
+        const selectionStart = textarea.selectionStart;
+
+        // Create a hidden mirror div to measure text
+        const mirror = document.createElement('div');
+        const style = window.getComputedStyle(textarea);
+
+        // Copy all relevant styles
+        mirror.style.position = 'absolute';
+        mirror.style.visibility = 'hidden';
+        mirror.style.whiteSpace = 'pre-wrap';
+        mirror.style.wordWrap = 'break-word';
+        mirror.style.overflow = 'hidden';
+        mirror.style.width = style.width;
+        mirror.style.height = style.height;
+        mirror.style.fontSize = style.fontSize;
+        mirror.style.fontFamily = style.fontFamily;
+        mirror.style.fontWeight = style.fontWeight;
+        mirror.style.lineHeight = style.lineHeight;
+        mirror.style.letterSpacing = style.letterSpacing;
+        mirror.style.padding = style.padding;
+        mirror.style.border = style.border;
+        mirror.style.boxSizing = style.boxSizing;
+
+        // Insert text up to cursor with a marker span
+        const textBeforeCursor = textarea.value.substring(0, selectionStart);
+        mirror.textContent = textBeforeCursor;
+
+        const marker = document.createElement('span');
+        marker.textContent = '|';
+        mirror.appendChild(marker);
+
+        document.body.appendChild(mirror);
+        const markerRect = marker.getBoundingClientRect();
+        const mirrorRect = mirror.getBoundingClientRect();
+        document.body.removeChild(mirror);
+
+        const scrollTop = textarea.scrollTop;
+
+        return {
+            top: markerRect.top - mirrorRect.top - scrollTop,
+            left: markerRect.left - mirrorRect.left,
+        };
+    }, []);
+
+    const updateCursorPosition = useCallback(() => {
+        const offset = getCursorOffset();
+        if (offset) {
+            setCursorOffset(offset);
+        }
+    }, [getCursorOffset]);
 
     const handleSubmit = (e?: React.FormEvent) => {
         e?.preventDefault();
@@ -61,6 +117,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
                 setSuggestions(filtered);
                 setShowSuggestions(true);
                 setSelectedIndex(0);
+                requestAnimationFrame(updateCursorPosition);
                 return;
             }
         }
@@ -114,9 +171,33 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
 
     return (
         <div className="w-full max-w-3xl mx-auto px-4 pb-6 absolute bottom-0 left-0 right-0 z-50">
+            {/* Processing Indicator */}
+            {isGenerating && (
+                <div className="flex items-center gap-2 mb-3 px-2 animate-fade-in">
+                    <div className="flex items-center justify-center h-5 w-5 rounded-full bg-indigo-500/10 border border-indigo-500/20 shadow-sm shadow-indigo-500/10">
+                        <Loader2 className="animate-spin text-indigo-400" size={12} />
+                    </div>
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.15em] drop-shadow-[0_0_8px_rgba(99,102,241,0.3)]">
+                        Procesando
+                    </span>
+                    <div className="flex gap-1 ml-1">
+                        <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                        <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                        <span className="w-1 h-1 bg-indigo-500 rounded-full animate-bounce"></span>
+                    </div>
+                </div>
+            )}
+
             {/* Command Suggestions Menu */}
             {showSuggestions && (
-                <div className="absolute bottom-full left-4 right-4 mb-2 bg-[#18181b] border border-zinc-700/50 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div
+                    className="absolute z-50 bg-[#18181b]/95 backdrop-blur-xl rounded-xl shadow-2xl shadow-black/50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200"
+                    style={{
+                        bottom: '100%',
+                        left: cursorOffset ? `${Math.min(cursorOffset.left, 400)}px` : '16px',
+                        marginBottom: cursorOffset ? `${-(cursorOffset.top + 24)}px` : '8px',
+                    }}
+                >
                     <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5">
                         <div className="px-2 py-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
                             Comandos Disponibles

@@ -5,6 +5,7 @@ Este módulo proporciona funciones y clases para crear elementos visuales
 consistentes y atractivos en la terminal usando Rich.
 """
 
+import re
 from typing import Optional, List, Union
 from rich.console import Console, Group, RenderableType
 from rich.text import Text
@@ -332,16 +333,25 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 1
     # Limpiar y separar líneas emulando un terminal básico (para \r y ANSI clear-line)
     clean_lines = []
     
-    # Textual Text no maneja \r, por lo que las animaciones de carga
-    # añadirían lineas infinitas. Emulamos tomando el último segmento del retorno de carro.
+    # Expresión regular para limpiar secuencias ANSI que Text.from_ansi no maneja
+    # (como borrar línea, mover cursor, etc.) pero preservando colores (m)
+    ansi_cleanup = re.compile(r'\x1b\[(?![0-9;]*m)[0-9;]*[a-zA-Z]')
+    
     for raw_line in output.split('\n'):
+        # Limpiar secuencias de control no soportadas
+        raw_line = ansi_cleanup.sub('', raw_line)
+        
         if '\r' in raw_line:
+            # Dividir por carriage return
             parts = raw_line.split('\r')
-            # Tomamos la última parte (sobrescribe la visualización original)
-            last_part = parts[-1] 
-            # Limpiamos secuencias comunes de 'Clear to end of line' usadas junto al \r
-            last_part = last_part.replace('\x1b[K', '').replace('\033[K', '')
-            clean_lines.append(last_part)
+            # En un terminal, cada parte sobrescribe la anterior.
+            # Tomamos la última parte que contenga texto, o la última absoluta si todas son vacías.
+            # Esto evita que 'algo\r' resulte en '' (lo cual ocultaría la línea).
+            actual_line = ""
+            for p in parts:
+                if p: 
+                    actual_line = p
+            clean_lines.append(actual_line)
         else:
             clean_lines.append(raw_line)
             
@@ -364,10 +374,8 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 1
         if len(lines) > max_lines:
             display_lines = lines[-max_lines:]
         else:
-            # Añadir padding superior si hay menos líneas que el máximo 
-            # para forzar la alineación hacia abajo.
-            padding_lines = max_lines - len(lines)
-            display_lines = [" "] * padding_lines + lines
+            # Rellenar con líneas vacías al final si queremos alto fijo (opcional)
+            display_lines = lines
         
     formatted_content = "\n".join(display_lines)
         

@@ -259,11 +259,11 @@ class CodebaseIndexer:
                 file_indexing_task = progress.add_task("[cyan]Indexing files...", total=total_files)
                 
                 for i, file_path in enumerate(code_files):
-                    progress.update(file_indexing_task, description=f"[cyan]Archivo {i+1}/{total_files}: {os.path.basename(file_path)}")
+                    progress.update(file_indexing_task, description=f"[cyan]File {i+1}/{total_files}: {os.path.basename(file_path)}")
                     
                     # Call callback if provided
                     if progress_callback:
-                        progress_callback(i + 1, total_files, f"Leyendo archivo {i+1}/{total_files}")
+                        progress_callback(i + 1, total_files, f"Reading file {i+1}/{total_files}")
                         
                     file_chunks = await asyncio.to_thread(self.chunk_file, file_path)
                     all_chunks.extend(file_chunks)
@@ -276,11 +276,11 @@ class CodebaseIndexer:
                     total_chunks = len(all_chunks)
                     
                     if texts_to_embed:
-                        embedding_task = progress.add_task("[green]Generando embeddings...", total=total_chunks)
+                        embedding_task = progress.add_task("[green]Generating embeddings...", total=total_chunks)
                         embeddings = []
                         for i, text in enumerate(texts_to_embed):
                             if progress_callback:
-                                progress_callback(i + 1, total_chunks, f"Embedding bloque {i+1}/{total_chunks}")
+                                    progress_callback(i + 1, total_chunks, f"Generating embedding {i+1}/{total_chunks}")
                             try:
                                 batch_embeddings = await asyncio.to_thread(self.embeddings_service.generate_embeddings, [text])
                                 embeddings.extend(batch_embeddings)
@@ -298,7 +298,7 @@ class CodebaseIndexer:
             # Silent mode (no progress bar)
             for i, file_path in enumerate(code_files):
                 if progress_callback:
-                    progress_callback(i, total_files, f"Indexing: {os.path.basename(file_path)}")
+                    progress_callback(i + 1, total_files, f"Indexing: {os.path.basename(file_path)}")
 
                 file_chunks = await asyncio.to_thread(self.chunk_file, file_path)
                 all_chunks.extend(file_chunks)
@@ -312,7 +312,7 @@ class CodebaseIndexer:
                     embeddings = []
                     for i, text in enumerate(texts_to_embed):
                         if progress_callback:
-                            progress_callback(i, total_chunks, f"Embedding chunk {i+1}/{total_chunks}")
+                            progress_callback(i + 1, total_chunks, f"Embedding chunk {i+1}/{total_chunks}")
                         try:
                             # Send one text at a time
                             batch_embeddings = await asyncio.to_thread(self.embeddings_service.generate_embeddings, [text])

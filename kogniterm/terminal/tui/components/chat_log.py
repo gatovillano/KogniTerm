@@ -1,4 +1,5 @@
-from textual.widgets import RichLog
+from textual.widgets import Static
+from textual.containers import VerticalScroll
 from kogniterm.terminal.themes import ColorPalette
 
 from rich.panel import Panel
@@ -9,142 +10,178 @@ from rich.markdown import Markdown
 from rich.console import Group
 from rich import box
 
-class ChatLogWidget(RichLog):
+class MessageWidget(Static):
+    """Widget para representar un mensaje individual en el chat."""
+    def __init__(self, renderable, **kwargs):
+        super().__init__(renderable, **kwargs)
+        self.can_focus = False
+
+class ChatLogWidget(VerticalScroll):
     """
-    Widget para mostrar el historial del chat usando Rich log para mayor robustez.
+    Widget para mostrar el historial del chat usando un contenedor vertical
+    que permite modificar mensajes en tiempo real (streaming).
     """
     def __init__(self, **kwargs):
-        # markup=False es CRÍTICO para prevenir crasheos al renderizar objetos Rich complejos
-        super().__init__(markup=False, wrap=True, auto_scroll=True, **kwargs)
+        super().__init__(**kwargs)
+        self._active_message_widget = None
+        self.can_focus = True
 
     def _get_available_width(self):
         """Calcula el ancho disponible real dentro del widget."""
         try:
-            # Si el widget ya tiene tamaño, usarlo (es lo más preciso)
             w = self.size.width
             if w > 0:
-                # Ya no restamos 10 porque quitamos el padding CSS manual
-                # Dejamos un margen mínimo de 2 para el scrollbar/bordes
-                return max(w - 2, 20)
+                return max(w - 4, 40) # Margen para scrollbar y bordes
             
             # Fallback a dimensiones de la aplicación
             if hasattr(self, "app") and self.app.size.width > 0:
-                return max(self.app.size.width - 2, 20)
+                # El chat log suele ocupar el 85% del ancho de la app
+                return max(int(self.app.size.width * 0.85) - 4, 40)
                 
-            # Fallback final a la terminal
-            import shutil
-            term_w = shutil.get_terminal_size().columns
-            return max(term_w - 2, 20)
+            return 78
         except:
             return 78
 
+    def write(self, renderable):
+        """Redirige a write_message para compatibilidad con RichLog."""
+        return self.write_message(renderable)
 
     def write_message(self, renderable, style=None):
-        """Escribe un elemento Rich al log asegurando que se muestre correctamente."""
-        # Añadir separación vertical
-        self.write("")
-        
+        """Escribe un elemento Rich al log."""
         if style and isinstance(renderable, str):
             renderable = Text(renderable, style=style)
         
-        self.write(renderable)
-        
-        # Añadir separación vertical después
-        self.write("")
-        
-        # Forzar scroll al final tras el próximo refresh de layout
-        self.call_after_refresh(self.scroll_end, animate=False)
+        # Si es un simple string, lo envolvemos para padding
+        if isinstance(renderable, str):
+             renderable = Text(renderable)
+             
+        widget = MessageWidget(Padding(renderable, (1, 0)))
+        self.mount(widget)
+        self.scroll_end(animate=False)
+        return widget
 
     def write_user_message(self, text: str):
-        """Escribe un mensaje de usuario con línea vertical izquierda en toda la altura."""
-        bg_color = ColorPalette.GRAY_800
-        text_color = ColorPalette.TEXT_PRIMARY
-        pipe_color = ColorPalette.GRAY_600
-
+        """Escribe un mensaje de usuario con línea vertical izquierda."""
         from rich.text import Text
-        from rich.console import Group
+        from rich.console import Console, Group
+        
+        text_color = ColorPalette.TEXT_PRIMARY
+        pipe_color = ColorPalette.PRIMARY
 
-        lines = text.split('\n')
-        rendered_lines = []
-        for line in lines:
-            # Cada línea tiene el pipe vertical al inicio con fondo
-            line_text = Text.assemble(
-                ("┃ ", pipe_color),
-                (line, text_color),
-                style=f"on {bg_color}"
-            )
-            rendered_lines.append(line_text)
-
-        group = Group(
-            "",  # línea vacía arriba
-            *rendered_lines,
-            ""   # línea vacía abajo
+        # No hacemos wrapping manual aquí si usamos Static, ya que Static maneja el wrapping.
+        # Pero queremos el pipe izquierdo en cada línea. 
+        # RichLog lo hacía manual. Aquí podemos usar un Panel con borde izquierdo solamente.
+        
+        content = Text(text, style=text_color)
+        
+        # Usamos un Panel con estilo de borde personalizado para simular el pipe
+        panel = Panel(
+            content,
+            border_style=pipe_color,
+            box=box.ASCII,
+            padding=(0, 1)
         )
+        # Nota: Rich no tiene un box.LEFT_ONLY. Usamos el Group con pipes o Panel simple.
+        # El diseño original era muy específico, vamos a recrearlo con un renderable custom.
+        
+        # Recreación del diseño con pipes:
+        available_width = self._get_available_width() - 4
+        console = Console(width=available_width)
+        
+        input_lines = text.split('\n')
+        rendered_lines = []
+        for input_line in input_lines:
+            if not input_line.strip() and not input_line:
+                rendered_lines.append(Text.assemble(("┃", pipe_color)))
+                continue
+            
+            try:
+                if "[" in input_line and "]" in input_line:
+                    t = Text.from_markup(input_line, style=text_color)
+                else:
+                    t = Text(input_line, style=text_color)
+            except Exception:
+                t = Text(input_line, style=text_color)
 
-        self.write(group)
-        self.call_after_refresh(self.scroll_end, animate=False)
+            wrapped_sublines = list(t.wrap(console, available_width))
+            if not wrapped_sublines:
+                rendered_lines.append(Text.assemble(("┃", pipe_color)))
+            else:
+                for subline in wrapped_sublines:
+                    rendered_lines.append(Text.assemble(("┃ ", pipe_color), subline))
+
+        widget = MessageWidget(Padding(Group("", *rendered_lines, ""), (1, 0)))
+        self.mount(widget)
+        
+        # Cerrar cualquier streaming activo al enviar mensaje nuevo
+        self._active_message_widget = None
+        
+        self.scroll_end(animate=False)
 
     def write_agent_message(self, text: str):
         """Escribe un mensaje de agente."""
-        if text is None:
-            text = ""
+        if text is None: text = ""
         
-        # ASEGURAR QUE EL TEXTO SEA STRING PARA EL RENDERIZADO
         if not isinstance(text, str):
             import json
-            try:
-                text = json.dumps(text, indent=2)
-            except:
-                text = str(text)
+            try: text = json.dumps(text, indent=2)
+            except: text = str(text)
         
-        # Añadir separación vertical
-        self.write("")
-            
-        # El Markdown se ajustará al ancho disponible del widget automáticamente
         markdown_content = Markdown(text)
-        
-        # Escribir directamente.
-        self.write(markdown_content)
+        widget = MessageWidget(Padding(markdown_content, (1, 0, 1, 4)))
+        self.mount(widget)
+        self.scroll_end(animate=False)
 
-        # Añadir separación vertical
-        self.write("")
-        
-        # Mantener el scroll al fondo
-        self.call_after_refresh(self.scroll_end, animate=False)
-
-    def write_stream(self, content: str):
-        """Escribe contenido de streaming al log sin separaciones verticales excesivas."""
+    def write_stream(self, content):
+        """
+        Escribe contenido de streaming al log. 
+        Si hay un mensaje activo, lo actualiza. Si no, crea uno nuevo.
+        """
         if not content:
             return
             
-        # Para streaming, escribimos directamente. RichLog maneja el scroll si auto_scroll=True.
-        # Si el contenido tiene saltos de línea, RichLog los procesará como líneas nuevas.
-        self.write(content, scroll_end=True)
+        renderable = content
+        if isinstance(content, str):
+            renderable = Padding(content, (1, 0, 1, 4))
+            
+        if self._active_message_widget is None:
+            # Crear nuevo widget para el stream. El renderable de bash_agent 
+            # ya incluye su propio padding (0, 4).
+            self._active_message_widget = MessageWidget(renderable)
+            self.mount(self._active_message_widget)
+        else:
+            self._active_message_widget.update(renderable)
+        
+        # Asegurar visibilidad
+        self.scroll_end(animate=False)
+
+    def stop_stream(self):
+        """Finaliza el streaming actual."""
+        self._active_message_widget = None
 
     def write_tool_notification(self, tool_name: str, action_desc: str = ""):
-        """Escribe notificación de herramienta alineada a la izquierda con padding del chat."""
+        """Escribe notificación de herramienta."""
         from rich.text import Text
         from kogniterm.terminal.themes import ColorPalette, Icons
         
-        # Línea 1: icono + nombre de herramienta
         line1 = Text()
         line1.append(f"{Icons.TOOL} Ejecutando herramienta: ", style=f"bold {ColorPalette.SECONDARY}")
         line1.append(tool_name, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
         
         lines = [line1]
-        
-        # Línea 2 (opcional): descripción de la acción
         if action_desc:
             line2 = Text()
             line2.append("   ↳ ", style=f"dim {ColorPalette.GRAY_600}")
             line2.append(action_desc, style=f"italic {ColorPalette.TEXT_SECONDARY}")
             lines.append(line2)
         
-        from rich.console import Group
-        self.write("")
-        self.write(Group(*lines))
+        widget = MessageWidget(Padding(Group(*lines), (1, 0)))
+        self.mount(widget)
+        self.scroll_end(animate=False)
 
-        self.write("")
-        
-        # Mantener el scroll al fondo
-        self.call_after_refresh(self.scroll_end, animate=False)
+    def clear(self):
+        """Limpia el chat log."""
+        # En VerticalScroll, para limpiar eliminamos los hijos
+        for child in list(self.children):
+            child.remove()
+        self._active_message_widget = None

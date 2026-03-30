@@ -155,7 +155,7 @@ class CommandApprovalModal(ModalScreen[bool]):
         height: auto;
         max-height: 85%;
         background: #111827;
-        border: solid #374151;
+        border: none;
     }
 
     /* ── Header con título ── */
@@ -242,14 +242,14 @@ class CommandApprovalModal(ModalScreen[bool]):
     #btn-yes {
         min-width: 10;
         margin: 0 1;
-        height: 3;
-        min-height: 3;
+        height: 1;
+        min-height: 1;
     }
     #btn-no {
         min-width: 10;
         margin: 0 1;
-        height: 3;
-        min-height: 3;
+        height: 1;
+        min-height: 1;
     }
     """
 

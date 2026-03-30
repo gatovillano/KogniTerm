@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from textual.app import App, ComposeResult
 from textual import work
-from textual.widgets import Input, ListView, ListItem, Label, ProgressBar
+from textual.widgets import Input, ListView, ListItem, Label, Button, Static
 from textual.containers import Vertical, Horizontal
 from textual import events
 from langchain_core.messages import HumanMessage
@@ -23,6 +23,79 @@ from kogniterm.terminal.tui.components.status_footer import StatusFooter, ChatIn
 from kogniterm.terminal.tui.components.command_approval_modal import CommandApprovalModal
 from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
 from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+from textual.screen import ModalScreen
+from textual.reactive import reactive
+from rich.text import Text
+
+
+# ─── Modal de confirmación para indexación ─────────────────────────────────────
+class IndexingConfirmModal(ModalScreen[bool]):
+    """Modal simple con botones Sí/No."""
+    
+    CSS = """
+    IndexingConfirmModal {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.8);
+    }
+    #modal-box {
+        width: 70;
+        max-width: 90;
+        height: auto;
+        background: #1f2937;
+        border: solid #4b5563;
+        padding: 1 2;
+    }
+    #modal-title {
+        color: #f9fafb;
+        text-style: bold;
+        width: 100%;
+        height: auto;
+        margin-bottom: 1;
+        padding: 0 1;
+    }
+    #modal-message {
+        color: #d1d5db;
+        width: 100%;
+        height: auto;
+        padding: 0 1;
+        margin-bottom: 2;
+        text-wrap: wrap;
+    }
+    #modal-buttons {
+        width: 100%;
+        height: 3;
+        align: center middle;
+    }
+    #modal-buttons Button {
+        margin: 0 2;
+        min-width: 14;
+    }
+    """
+    
+    def __init__(self, title: str, message: str):
+        super().__init__()
+        self._title = title
+        self._message = message
+    
+    def compose(self) -> ComposeResult:
+        with Vertical(id="modal-box"):
+            yield Static(self._title, id="modal-title")
+            yield Static(self._message, id="modal-message")
+            with Horizontal(id="modal-buttons"):
+                yield Button("Sí", id="btn-yes", variant="success")
+                yield Button("No", id="btn-no", variant="error")
+    
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-yes":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+    
+    def on_key(self, event: events.Key) -> None:
+        if event.key in ("y", "Y", "enter"):
+            self.dismiss(True)
+        elif event.key in ("n", "escape"):
+            self.dismiss(False)
 
 
 class DummyConsole:
@@ -87,6 +160,13 @@ class DummyConsole:
     def file(self):
         import io
         return io.StringIO()
+
+class TerminalPanel(Static):
+    """Widget de panel de terminal que permite recibir el foco para interacción directa."""
+    can_focus = True
+    
+    def on_mount(self):
+        self.tooltip = "Haz clic o usa TAB para capturar teclado y enviar comandos directos"
 
 class TextualTerminalUI:
     """Adaptador para que la lógica existente escriba en el ChatLog Textual."""
@@ -299,7 +379,7 @@ class KogniTermTUI(App):
     Screen {
         background: #1e1e1e;
         color: white;
-        layers: base approval splash popup;
+        layers: base approval splash popup overlay;
     }
 
     /* ── CHAT MODE (base layer) ─────────────────── */
@@ -308,6 +388,7 @@ class KogniTermTUI(App):
         width: 100%;
         layout: vertical;
         background: transparent;
+        align-horizontal: center;
     }
 
     #approval_container {
@@ -316,21 +397,19 @@ class KogniTermTUI(App):
         height: auto;
         width: 100%;
         layout: vertical;
+        align-horizontal: center;
         background: #1e1e1e;
         border-top: none; /* Linea divisora erradicada */
         margin-bottom: 7; /* Justo encima del bottom_container */
     }
-    #chat_container {
-        width: 100%;
-        height: 1fr;
-        align-horizontal: center;
-    }
+
     
     #chat_log {
         width: 85%;
         max-width: 180;
         min-width: 60;
-        height: 1fr;
+        height: auto;
+        max-height: 1fr;
         padding: 0;
         background: transparent;
         color: white;
@@ -342,18 +421,21 @@ class KogniTermTUI(App):
     #bottom_container {
         dock: bottom;
         height: auto;
-        padding: 0 0 2 0;
+        width: 100%;
+        layout: vertical;
+        align: center bottom;
         background: transparent;
+        padding-bottom: 2;
         display: none;
-        align-horizontal: center; /* Centrar hijos horizontalmente */
     }
+
     #input_container {
-        width: 85%; /* Ligeramente más ancho */
-        max-width: 180; 
+        width: 85%;
+        max-width: 180;
         min-width: 60;
         height: 3;
         background: #2a2a2a;
-        margin: 2 0 1 0; /* Lados en 0 porque lo centra el padre */
+        margin: 1 0;
         padding: 1 4 0 4;
         layout: horizontal;
     }
@@ -377,9 +459,9 @@ class KogniTermTUI(App):
         width: 85%;
         max-width: 180;
         min-width: 60;
-        height: 2;
+        height: 1;
         padding: 0;
-        margin: 0 0 2 0; /* Margen inferior. Lados 0 porque está centrado. */
+        margin: 0;
         layout: horizontal;
     }
     #footer_left {
@@ -387,43 +469,87 @@ class KogniTermTUI(App):
         content-align: left top;
         padding: 0;
     }
-     #footer_right {
-         width: 1fr;
-         content-align: right top;
-         padding: 0;
-         display: block;
-     }
-     #indexing_progress {
-         width: 85%;
-         max-width: 180;
-         height: 1;
-         display: none;
-     }
-     #command_popup {
-         layer: popup;
-         dock: bottom;
-         margin-bottom: 7;
-         width: 30;
-         height: auto;
-         max-height: 10;
-         background: #2a2a2a;
-         border: solid #4b5563;
-         display: none;
-     }
-    #live_display {
+    #footer_right {
+        width: 1fr;
+        content-align: right top;
+        padding: 0;
+        display: block;
+    }
+    TerminalPanel {
         width: 85%;
         max-width: 180;
         min-width: 60;
+        border: none;
         background: transparent;
-        color: white;
-        padding: 0;
-        margin: 0;
-        display: none;
         height: auto;
-        max-height: 25;
+        min-height: 0;
+        max-height: 30;
+        margin: 0;
+        padding: 0;
+        content-align: center middle;
+        text-align: center;
+        display: none;
     }
 
+    TerminalPanel:focus {
+        border: none;
+    }
 
+    TerminalPanel.interactive {
+        border-left: tall #10b981;
+        padding-left: 2;
+    }
+    #command_popup {
+        layer: popup;
+        width: 40;
+        height: auto;
+        max-height: 12;
+        background: #2a2a2a;
+        border: none;
+        padding: 0 1;
+        display: none;
+    }
+
+    #command_popup ListView {
+        background: transparent;
+    }
+
+    #command_popup ListItem {
+        background: transparent;
+        padding: 0 1;
+    }
+
+    #command_popup ListItem:hover,
+    #command_popup ListItem.-highlight {
+        background: #3a3a3a;
+    }
+
+    /* ── BARRA DE PROGRESO DE INDEXACIÓN ────────── */
+    #indexing_progress_container {
+        dock: bottom;
+        height: 2;
+        width: 100%;
+        background: #11111b;
+        border-top: solid #374151;
+        display: none;
+        layer: popup;
+    }
+    #indexing_label {
+        width: 100%;
+        height: 1;
+        color: #9ca3af;
+        text-align: center;
+        background: transparent;
+    }
+    #indexing_bar {
+        width: 100%;
+        height: 1;
+        background: transparent;
+    }
+
+    #live_display {
+        /* heredado de TerminalPanel */
+    }
 
 
     /* ── SPLASH OVERLAY (splash layer) ─────────────── */
@@ -494,6 +620,8 @@ class KogniTermTUI(App):
         self.llm_service.terminal_ui = self.tui_ui
         self.llm_service.interrupt_queue = self.tui_ui.get_interrupt_queue()
         self.is_processing = False
+        self._input_queue = []  # Cola para mensajes cuando el agente está ocupado
+        self._is_processing_queue = False
         # Estado interno del spinner animado
         self._spinner_frame = 0
         self._spinner_timer = None
@@ -531,6 +659,7 @@ class KogniTermTUI(App):
         self._cursor_timer = None
         self._last_terminal_tool_name = ""
         self._last_terminal_output = ""
+        self._completion_input = None  # Input widget para autocompletado
 
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
@@ -561,21 +690,27 @@ class KogniTermTUI(App):
             self.chat_log = ChatLogWidget(id="chat_log")
             yield self.chat_log
             
-            self.live_display = Static(id="live_display")
-            yield self.live_display
-        
         self.approval_container = Vertical(id="approval_container")
         yield self.approval_container
         
         self.command_popup = ListView(id="command_popup")
         yield self.command_popup
         
+        # Barra de progreso de indexación (docked bottom, above input)
+        with Vertical(id="indexing_progress_container"):
+            yield Static("", id="indexing_bar", markup=True)
+            yield Static("", id="indexing_label", markup=True)
+        
         with Vertical(id="bottom_container"):
-            self.progress_bar = ProgressBar(show_eta=False, show_percentage=True, id="indexing_progress")
-            yield self.progress_bar
+            # live_display ahora es un TerminalPanel enfocalbe
+            self.live_display = TerminalPanel(id="live_display")
+            yield self.live_display
+
             with Horizontal(id="input_container"):
-                yield ChatInput()
-            yield StatusFooter(model_name=self.llm_service.model_name)
+                self.chat_input = ChatInput(id="chat_input")
+                yield self.chat_input
+            self.status_footer = StatusFooter(model_name=self.llm_service.model_name)
+            yield self.status_footer
 
         # ── Splash overlay ──────────────────────────────────
         with Vertical(id="splash_overlay"):
@@ -599,6 +734,20 @@ class KogniTermTUI(App):
                     markup=True,
                 )
 
+    def update_status_footer(self, model_name: str):
+        """Actualiza la información en la barra de estado inferior y el splash."""
+        if hasattr(self, "status_footer"):
+            self.status_footer.update_model(model_name)
+            
+        # También actualizar el splash si está visible
+        try:
+            model_info = self.query_one("#splash_model_info", Static)
+            display_model = model_name.split("/")[-1]
+            from kogniterm.terminal.themes import ColorPalette
+            model_info.update(f"[{ColorPalette.TEXT_PRIMARY}]{display_model}[/{ColorPalette.TEXT_PRIMARY}]")
+        except Exception:
+            pass
+
     def on_mount(self):
         import asyncio
         self.loop = asyncio.get_running_loop()
@@ -613,6 +762,125 @@ class KogniTermTUI(App):
         # El ratón se maneja en el mount para asegurar que las secuencias se envíen.
         # force_on/off evita spam de mensajes en el inicio.
         self.call_after_refresh(lambda: self.action_toggle_mouse(force_on=self.mouse_support, force_off=not self.mouse_support))
+        
+        # Check if workspace needs indexing and prompt user
+        self.call_after_refresh(self._check_workspace_index)
+
+    def _check_workspace_index(self):
+        """Check if the workspace is indexed; if not, prompt user to index."""
+        if self.workspace_directory is None:
+            self.workspace_directory = os.getcwd()
+        try:
+            from kogniterm.core.context.vector_db_manager import VectorDBManager
+            vdb = VectorDBManager(self.workspace_directory)
+            if not vdb.is_indexed():
+                # Show confirmation modal
+                self.push_screen(
+                    IndexingConfirmModal(
+                        title="Espacio de trabajo no indexado",
+                        message="¿Desea indexar el espacio de trabajo ahora para búsquedas inteligentes? Esto puede tomar unos minutos."
+                    ),
+                    self._on_indexing_confirmation
+                )
+            vdb.close()
+        except Exception as e:
+            logger.error(f"Error checking index status: {e}")
+
+    def _on_indexing_confirmation(self, should_index: bool):
+        """Handle response from indexing confirmation modal."""
+        if should_index:
+            self._start_indexing()
+
+    def _start_indexing(self):
+        """Begin the indexing process."""
+        # Mostrar barra de progreso en la parte inferior
+        try:
+            self.query_one("#indexing_progress_container").display = True
+            self.query_one("#indexing_label").update("[#9ca3af]Indexando...[/#9ca3af]")
+            self.query_one("#indexing_bar").update("")
+        except Exception:
+            pass
+        self.run_worker(self._do_indexing)
+
+    async def _do_indexing(self):
+        """Worker that performs indexing (runs in background thread)."""
+        project_path = self.workspace_directory
+        try:
+            from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+            indexer = CodebaseIndexer(project_path)
+            chunks = await indexer.index_project(
+                project_path,
+                show_progress=False,
+                progress_callback=self._indexing_progress_callback
+            )
+            if chunks:
+                from kogniterm.core.context.vector_db_manager import VectorDBManager
+                vdb = VectorDBManager(project_path)
+                vdb.clear_collection()
+                vdb.add_chunks(chunks)
+                vdb.close()
+                self._indexing_complete(len(chunks))
+            else:
+                self._indexing_complete(0)
+        except Exception as e:
+            self._indexing_failed(str(e))
+
+    def _indexing_progress_callback(self, current: int, total: int, description: str):
+        """Handle progress updates from indexing (called from worker thread)."""
+        if total == 0:
+            return
+        self._show_indexing_progress(current, total, description)
+
+    def _show_indexing_progress(self, current: int, total: int, description: str):
+        """Update the progress bar at the bottom of the screen."""
+        try:
+            pct = int((current / total) * 100)
+            label = self.query_one("#indexing_label")
+            # Barra visual: ■■■■■■░░░░
+            filled = pct // 10
+            empty = 10 - filled
+            bar_text = f"{'[#3b82f6]■[/#3b82f6]' * filled}{'[#374151]░[/#374151]' * empty}"
+            label.update(f"Indexando {bar_text} {pct}%  {description}")
+        except Exception:
+            pass
+
+    def _indexing_complete(self, num_chunks: int):
+        """Called on main thread when indexing completes."""
+        try:
+            label = self.query_one("#indexing_label")
+            if num_chunks > 0:
+                label.update("[green]■■■■■■■■■■ 100%  Indexación completada.[/green]")
+            else:
+                label.update("[yellow]Indexación completada: no se encontraron archivos relevantes.[/yellow]")
+            # Ocultar después de 3 segundos
+            import threading
+            def hide():
+                import time
+                time.sleep(3)
+                try:
+                    self.query_one("#indexing_progress_container").display = False
+                except Exception:
+                    pass
+            threading.Thread(target=hide, daemon=True).start()
+        except Exception:
+            pass
+
+    def _indexing_failed(self, error_msg: str):
+        """Called on main thread when indexing fails."""
+        try:
+            label = self.query_one("#indexing_label")
+            label.update(f"[red]Error en la indexación: {error_msg}[/red]")
+            import threading
+            def hide():
+                import time
+                time.sleep(5)
+                try:
+                    self.query_one("#indexing_progress_container").display = False
+                except Exception:
+                    pass
+            threading.Thread(target=hide, daemon=True).start()
+        except Exception:
+            pass
 
     def action_toggle_mouse(self, force_off: bool = False, force_on: bool = False):
         """Alterna el soporte de ratón en tiempo de ejecución o lo fuerza."""
@@ -622,29 +890,16 @@ class KogniTermTUI(App):
             self.mouse_support = True
         else:
             self.mouse_support = not self.mouse_support
-            
-        try:
-            # Secuencias XTerm exhaustivas para desactivar/activar tracking (Button, Drag, Motion, SGR, URXVT)
-            if self.mouse_support:
-                # Activar tracking (1000: button, 1002: button drag, 1003: all motion, 1006: SGR mode, 1015: URXVT)
-                seq = "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?1015h"
-                if hasattr(self, "_driver"):
-                    self._driver.write(seq)
-                if not force_on:
-                    self.tui_ui.print_message("🖱️ Ratón ACTIVADO (Interacciones TUI habilitadas. Selección nativa requiere Shift o Ctrl+M para apagar)", style="cyan")
-            else:
-                # Desactivar tracking totalmente (las mismas secuencias pero con 'l')
-                seq = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l"
-                if hasattr(self, "_driver"):
-                    self._driver.write(seq)
-                # Solo imprimir mensaje si es una acción explícita (no force_off silencioso)
-                if not force_off:
-                    self.tui_ui.print_message("🖱️ Ratón DESACTIVADO (Selección nativa de terminal habilitada. Ctrl+M para reactivar clicks)", style="cyan")
-        except Exception:
-            if not force_off:
-                status = "ACTIVADO" if self.mouse_support else "DESACTIVADO"
-                self.tui_ui.print_message(f"🖱️ Ratón {status} (Error al comunicar con driver)", style="cyan")
 
+        try:
+            # En Textual 0.40+, el soporte de ratón se maneja mejor a través de las propiedades
+            # de la aplicación, pero para compatibilidad con selección nativa en terminales
+            # que no soportan Shift+Click, permitimos este toggle.
+            if not force_on and not force_off:
+                status = "ACTIVADO" if self.mouse_support else "DESACTIVADO"
+                self.tui_ui.print_message(f"🖱️ Ratón {status} (Selección nativa habilitada si está desactivado)", style="cyan")
+        except Exception:
+            pass
     def _setup_splash(self):
         """Configura el splash tras el primer layout (dimensiones y colores reales)."""
         from kogniterm.terminal.themes import ColorPalette
@@ -695,240 +950,11 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-    async def _check_and_prompt_indexing(self):
-        """Verifica el estado de indexación del workspace y actúa en consecuencia."""
-        workspace = self.workspace_directory or os.getcwd()
-
-        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
-        from kogniterm.core.context.vector_db_manager import VectorDBManager
-
-        # Verificar si ya hay datos indexados (ChromaDB puede ser lento, usar thread)
-        try:
-            def _check_indexed():
-                vector_db = VectorDBManager(workspace)
-                result = vector_db.is_indexed()
-                vector_db.close()
-                return result
-            already_indexed = await asyncio.to_thread(_check_indexed)
-        except Exception:
-            already_indexed = False
-
-        if not already_indexed:
-            # ── Primera vez: preguntar si desea indexar ────────────────
-            from kogniterm.terminal.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            if config_manager.get_config("index_prompt_declined"):
-                return
-
-            try:
-                indexer = CodebaseIndexer(workspace)
-                code_files = await asyncio.to_thread(indexer.list_code_files, workspace)
-                if not code_files:
-                    return
-            except Exception:
-                return
-
-            from kogniterm.terminal.tui.components.settings_modals import TextualConfirmModal
-            total_files = len(code_files)
-            result = await self.push_screen_wait(
-                TextualConfirmModal(
-                    title="Indexar Directorio",
-                    text=(
-                        f"Este directorio no ha sido indexado.\n\n"
-                        f"Se encontraron [bold]{total_files}[/bold] archivos de código.\n\n"
-                        f"¿Deseas indexar y vectorizar el contenido\n"
-                        f"para mejorar la búsqueda de contexto?"
-                    ),
-                    confirm_label="Indexar",
-                    cancel_label="Ahora no"
-                )
-            )
-
-            if result:
-                await self._run_indexing(workspace)
-            else:
-                config_manager.set_global_config("index_prompt_declined", True)
-        else:
-            # ── Ya indexado: verificar cambios incrementales ──────────
-            try:
-                def _get_changes():
-                    indexer = CodebaseIndexer(workspace)
-                    return indexer.get_changed_files()
-                changes = await asyncio.to_thread(_get_changes)
-                n_changed = len(changes["changed"])
-                n_new = len(changes["new"])
-                n_deleted = len(changes["deleted"])
-                total_diff = n_changed + n_new + n_deleted
-
-                if total_diff == 0:
-                    return
-
-                # Construir resumen de cambios
-                parts = []
-                if n_new:
-                    parts.append(f"[bold]{n_new}[/bold] nuevos")
-                if n_changed:
-                    parts.append(f"[bold]{n_changed}[/bold] modificados")
-                if n_deleted:
-                    parts.append(f"[bold]{n_deleted}[/bold] eliminados")
-                summary = ", ".join(parts)
-
-                from kogniterm.terminal.tui.components.settings_modals import TextualConfirmModal
-                result = await self.push_screen_wait(
-                    TextualConfirmModal(
-                        title="Actualizar Índice",
-                        text=(
-                            f"Se detectaron cambios en el directorio:\n\n"
-                            f"Archivos {summary}\n\n"
-                            f"¿Deseas actualizar el índice?"
-                        ),
-                        confirm_label="Actualizar",
-                        cancel_label="Ignorar"
-                    )
-                )
-
-                if result:
-                    await self._run_incremental_indexing(workspace, changes)
-            except Exception as e:
-                logger.error(f"Error verificando cambios en índice: {e}")
-
-    async def _run_indexing(self, workspace: str):
-        """Ejecuta la indexación completa del workspace."""
-        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
-        from kogniterm.core.context.vector_db_manager import VectorDBManager
-
-        self.tui_ui.print_message("🔍 Iniciando indexación del directorio...", style="cyan")
-        self.is_processing = True
-        self._start_spinner()
-
-        try:
-            indexer = CodebaseIndexer(workspace)
-            vector_db = VectorDBManager(workspace)
-
-            code_files = await asyncio.to_thread(indexer.list_code_files, workspace)
-            total_files = len(code_files)
-            self.progress_bar.display = True
-            self.progress_bar.total = total_files
-            self.progress_bar.progress = 0
-
-            all_chunks = []
-            for i, file_path in enumerate(code_files):
-                file_chunks = await asyncio.to_thread(indexer.chunk_file, file_path)
-                texts = [c['content'] for c in file_chunks]
-                embeddings = []
-                for text in texts:
-                    try:
-                        emb = await asyncio.to_thread(indexer.embeddings_service.generate_embeddings, [text])
-                        embeddings.extend(emb)
-                    except Exception as e:
-                        logger.error(f"Embedding error in {file_path}: {e}")
-                        embeddings.append(None)
-                for j, chunk in enumerate(file_chunks):
-                    if j < len(embeddings) and embeddings[j]:
-                        chunk['embedding'] = embeddings[j]
-                        all_chunks.append(chunk)
-                self.progress_bar.progress = i + 1
-
-            if all_chunks:
-                vector_db.clear_collection()
-                vector_db.add_chunks(all_chunks)
-                file_state = await asyncio.to_thread(indexer.build_current_file_state)
-                indexer._save_file_state(file_state)
-                self.tui_ui.print_message(
-                    f"✅ Indexación completada: {len(all_chunks)} bloques de código almacenados.",
-                    style="green"
-                )
-            else:
-                self.tui_ui.print_message("⚠️ No se generaron bloques de código.", style="yellow")
-
-            vector_db.close()
-        except Exception as e:
-            logger.error(f"Error durante la indexación: {e}")
-            self.tui_ui.print_message(f"❌ Error durante la indexación: {e}", style="red")
-        finally:
-            self.is_processing = False
-            self._stop_spinner()
-            self.progress_bar.display = False
-
-    async def _run_incremental_indexing(self, workspace: str, changes: Dict[str, List[str]]):
-        """Ejecuta indexación incremental solo para archivos con cambios."""
-        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
-        from kogniterm.core.context.vector_db_manager import VectorDBManager
-
-        n_new = len(changes["new"])
-        n_changed = len(changes["changed"])
-        n_deleted = len(changes["deleted"])
-        total_steps = n_deleted + n_changed + n_new + 1
-
-        self.tui_ui.print_message(f"🔄 Actualizando índice ({total_steps} pasos)...", style="cyan")
-        self.is_processing = True
-        self._start_spinner()
-
-        try:
-            indexer = CodebaseIndexer(workspace)
-            vector_db = VectorDBManager(workspace)
-
-            self.progress_bar.display = True
-            self.progress_bar.total = total_steps
-            self.progress_bar.progress = 0
-
-            step = 0
-
-            for file_path in changes["changed"] + changes["deleted"]:
-                vector_db.delete_by_file_path(file_path)
-                step += 1
-                self.progress_bar.progress = step
-
-            files_to_index = changes["changed"] + changes["new"]
-            all_chunks = []
-            for file_path in files_to_index:
-                file_chunks = await asyncio.to_thread(indexer.chunk_file, file_path)
-                texts = [c['content'] for c in file_chunks]
-                embeddings = []
-                for text in texts:
-                    try:
-                        emb = await asyncio.to_thread(indexer.embeddings_service.generate_embeddings, [text])
-                        embeddings.extend(emb)
-                    except Exception as e:
-                        logger.error(f"Error generando embedding: {e}")
-                        embeddings.append(None)
-                for j, chunk in enumerate(file_chunks):
-                    if j < len(embeddings) and embeddings[j]:
-                        chunk['embedding'] = embeddings[j]
-                        all_chunks.append(chunk)
-                step += 1
-                self.progress_bar.progress = step
-
-            if all_chunks:
-                vector_db.add_chunks(all_chunks)
-
-            file_state = await asyncio.to_thread(indexer.build_current_file_state)
-            indexer._save_file_state(file_state)
-            step += 1
-            self.progress_bar.progress = step
-
-            parts = []
-            if n_new: parts.append(f"{n_new} nuevos")
-            if n_changed: parts.append(f"{n_changed} actualizados")
-            if n_deleted: parts.append(f"{n_deleted} eliminados")
-
-            self.tui_ui.print_message(
-                f"✅ Índice actualizado: {', '.join(parts)}.",
-                style="green"
-            )
-            vector_db.close()
-        except Exception as e:
-            logger.error(f"Error durante actualización incremental: {e}")
-            self.tui_ui.print_message(f"❌ Error actualizando índice: {e}", style="red")
-        finally:
-            self.is_processing = False
-            self._stop_spinner()
-            self.progress_bar.display = False
-
     async def on_input_changed(self, event: Input.Changed):
         value = event.value
         if not value:
             self.command_popup.display = False
+            self._completion_input = None
             return
 
         # Obtener el suggester para acceder a las listas cacheadas
@@ -938,6 +964,7 @@ class KogniTermTUI(App):
         words = value.split()
         if not words:
             self.command_popup.display = False
+            self._completion_input = None
             return
             
         current_word = words[-1]
@@ -956,7 +983,11 @@ class KogniTermTUI(App):
             
         if trigger:
             self.command_popup.display = True
+            self._completion_input = event.input  # Guardar referencia al input
             await self.command_popup.clear()
+            
+            # Posicionar el popup horizontalmente donde está el cursor del input
+            self._reposition_popup(event.input, value)
             
             matches = []
             if trigger == "%":
@@ -971,19 +1002,146 @@ class KogniTermTUI(App):
                 from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
                 if isinstance(suggester, KogniTermSuggester):
                     containers = getattr(suggester, "_cached_containers", []) or []
-                    matches = [c for c in containers if search_term.lower() in c.lower()]
+                    # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
+                    matches = [c for c in containers if search_term.lower() in c['name'].lower()][:12]  # Limitar a 12
 
             for match in matches:
-                item = ListItem(Label(match))
-                item.command_text = match
+                # match puede ser string (comandos %) o dict (contenedores)
+                if isinstance(match, dict):
+                    display = f"{match['name']} ({match['status']})"
+                    command_text = match['name']
+                else:
+                    display = match
+                    command_text = match
+                item = ListItem(Label(display))
+                item.command_text = command_text
                 self.command_popup.append(item)
                 
             if not matches:
                 self.command_popup.display = False
+                self._completion_input = None
         else:
             self.command_popup.display = False
+            self._completion_input = None
+
+    def _reposition_popup(self, input_widget: "Input", current_value: str) -> None:
+        """Posiciona el popup justo debajo del cursor actual en el input."""
+        try:
+            screen_h = self.size.height
+            screen_w = self.size.width
+
+            # Posición del widget input en la pantalla
+            input_region = input_widget.region
+            # El input_container tiene padding: 1 4 0 4, descontamos el padding izquierdo (4)
+            try:
+                input_container = self.query_one("#input_container")
+                container_region = input_container.region
+                # El input está dentro del contenedor centrado
+                input_x = container_region.x + 4  # padding-left del input_container
+            except Exception:
+                input_x = input_region.x
+
+            # Posición horizontal del cursor = longitud del texto escrito hasta ahora
+            # (cada carácter ocupa 1 columna en la terminal)
+            cursor_col = len(current_value)
+            popup_x = input_x + cursor_col
+
+            # Asegurar que el popup no se salga de la pantalla por la derecha
+            popup_w = 40  # ancho del popup definido en CSS
+            if popup_x + popup_w > screen_w:
+                popup_x = max(0, screen_w - popup_w)
+
+            # Posición vertical: justo encima del input (el popup sube desde abajo del input)
+            # El input está en el bottom_container (docked bottom)
+            # Calculamos la fila Y donde termina el popup (bottom del popup = top del input)
+            input_row = input_region.y  # fila donde empieza el input
+            popup_h = min(12, 4)  # estimación conservadora del alto del popup
+            popup_y = max(0, input_row - popup_h)
+
+            self.command_popup.styles.offset = (popup_x, popup_y)
+        except Exception:
+            # Fallback: posición por defecto cerca del input
+            pass
+
+    def _apply_completion(self, selected_text: str, input_widget: Input, current_val: str):
+        """Aplica la completación al input y cierra el popup."""
+        if current_val.lstrip().startswith("%"):
+            input_widget.value = selected_text + " "
+        else:
+            words = current_val.split()
+            if words:
+                last_word = words[-1]
+                prefix = ""
+                if "@" in last_word:
+                    prefix = last_word.split("@")[0] + "@"
+                elif ":" in last_word:
+                    prefix = last_word.split(":")[0] + ":"
+                words[-1] = prefix + selected_text
+                input_widget.value = " ".join(words) + " "
+        input_widget.cursor_position = len(input_widget.value)
+        input_widget.focus()
+        self.command_popup.display = False
+        self._completion_input = None
+
+    def on_list_view_selected(self, event: ListView.Selected):
+        """Maneja selección con Enter o clic en el popup."""
+        if event.list_view.id != "command_popup":
+            return
+        if event.item and hasattr(event.item, "command_text"):
+            selected_text = event.item.command_text
+            # Usar el input guardado
+            input_widget = self._completion_input
+            if not input_widget or not hasattr(input_widget, "value"):
+                try:
+                    input_widget = self.query_one(Input)
+                except:
+                    input_widget = None
+            if input_widget and hasattr(input_widget, "value"):
+                self._apply_completion(selected_text, input_widget, input_widget.value)
+            event.prevent_default()
 
     def on_key(self, event: events.Key):
+        # 1. Prioridad: Si el panel de terminal está enfocado y hay un proceso interactivo,
+        # enviar TODAS las teclas directamente al PTY (incluyendo flechas, etc.)
+        if self.focused and self.focused.id == "live_display" and self.interactive_executor:
+            # No procesar escape aquí, permitir que escape quite el foco
+            if event.key == "escape":
+                self.chat_input.focus()
+                event.prevent_default()
+                return
+
+            # Mapeo de teclas de Textual a secuencias PTY
+            key_map = {
+                "enter": "\n",
+                "backspace": "\b",
+                "tab": "\t",
+                "up": "\x1b[A",
+                "down": "\x1b[B",
+                "right": "\x1b[C",
+                "left": "\x1b[D",
+                "home": "\x1b[H",
+                "end": "\x1b[F",
+                "delete": "\x1b[3~",
+                "pageup": "\x1b[5~",
+                "pagedown": "\x1b[6~",
+            }
+            
+            # Manejar Ctrl+Letra
+            if event.key.startswith("ctrl+"):
+                char = event.key.split("+")[1]
+                if len(char) == 1:
+                    # 'a' es 1, 'b' es 2... 'z' es 26
+                    code = ord(char.lower()) - ord('a') + 1
+                    self.interactive_executor.write_input(bytes([code]))
+                    event.prevent_default()
+                    return
+
+            to_send = key_map.get(event.key, event.character)
+            if to_send:
+                self.interactive_executor.write_input(to_send)
+                event.prevent_default()
+                return
+
         if event.key == "escape":
             if self.is_processing:
                 self.tui_ui.get_interrupt_queue().put(True)
@@ -992,6 +1150,7 @@ class KogniTermTUI(App):
                 return
             elif self.command_popup.display:
                 self.command_popup.display = False
+                self._completion_input = None
                 event.prevent_default()
                 return
 
@@ -999,6 +1158,23 @@ class KogniTermTUI(App):
             if event.key == "down":
                 self.command_popup.action_cursor_down()
                 event.prevent_default()
+            elif event.key == "up":
+                self.command_popup.action_cursor_up()
+                event.prevent_default()
+            elif event.key == "enter":
+                if self.command_popup.highlighted_child:
+                    item = self.command_popup.highlighted_child
+                    if hasattr(item, "command_text"):
+                        selected_text = item.command_text
+                        input_widget = self._completion_input
+                        if not input_widget or not hasattr(input_widget, "value"):
+                            try:
+                                input_widget = self.query_one(Input)
+                            except:
+                                input_widget = None
+                        if input_widget and hasattr(input_widget, "value"):
+                            self._apply_completion(selected_text, input_widget, input_widget.value)
+                        event.prevent_default()
             elif event.key == "up":
                 self.command_popup.action_cursor_up()
                 event.prevent_default()
@@ -1074,8 +1250,11 @@ class KogniTermTUI(App):
         event.input.value = ""
         
         # Bloquear nuevo input si ya hay una petición en curso
-        # para evitar que múltiples workers corran en paralelo
+        # PERO permitir encolar mensajes para mejor UX
         if self.is_processing:
+            from kogniterm.terminal.themes import ColorPalette
+            self.chat_log.write_user_message(f"{user_input} [italic {ColorPalette.TEXT_SECONDARY}](En cola...)[/]")
+            self._input_queue.append(user_input)
             return
         
         self.run_worker(self._handle_input_async(user_input))
@@ -1193,6 +1372,12 @@ class KogniTermTUI(App):
 
     def write_stream_to_chat(self, content: str):
         """Método para escribir streaming desde hilos externos."""
+        # Si recibimos contenido, ocultamos el spinner de procesamiento inferior
+        if self.live_display.display:
+            try:
+                self.call_from_thread(self._stop_spinner)
+            except Exception:
+                pass
         self.chat_log.write_stream(content)
 
 
@@ -1204,10 +1389,9 @@ class KogniTermTUI(App):
         from rich.text import Text
         from kogniterm.terminal.themes import ColorPalette
         self._spinner_frame = 0
-        # self.live_display.styles.border_left = ("tall", ColorPalette.PRIMARY) # ELIMINADO para no tener barra vertical
         self.live_display.display = True # Asegurar que sea visible
         self.live_display.update(
-            Text(f" {self.SPINNER_FRAMES[0]} Procesando...", style=f"bold {ColorPalette.PRIMARY}")
+            Text(f"{self.SPINNER_FRAMES[0]} Procesando...", style=f"bold {ColorPalette.PRIMARY}")
         )
         if self._spinner_timer:
             self._spinner_timer.stop()
@@ -1218,23 +1402,33 @@ class KogniTermTUI(App):
 
     def _tick_spinner(self):
         """Avanza un frame del spinner (ejecutado por el timer del main thread)."""
-        # Solo animar si no hay contenido real (si hay contenido el timer ya fue parado)
-        if not self.is_processing:
+        # IMPORTANTE: Si el timer ya no existe o no estamos procesando, salir.
+        # Esto evita que el spinner sobrescriba contenido real que acaba de llegar
+        # por una colisión de eventos en el loop principal.
+        if not self.is_processing or self._spinner_timer is None:
             self._stop_spinner()
             return
+
         self._spinner_frame = (self._spinner_frame + 1) % len(self.SPINNER_FRAMES)
         from rich.text import Text
         from kogniterm.terminal.themes import ColorPalette
         frame = self.SPINNER_FRAMES[self._spinner_frame]
+        
+        # Asegurar visibilidad si estamos animando
+        if not self.live_display.display:
+            self.live_display.display = True
+
         self.live_display.update(
             Text(f"{frame} Procesando...", style=f"bold {ColorPalette.PRIMARY}")
         )
 
     def _stop_spinner(self):
-        """Detiene el spinner (ejecutar desde main thread)."""
+        """Detiene el spinner y limpia la referencia al timer."""
         if self._spinner_timer:
             self._spinner_timer.stop()
             self._spinner_timer = None
+        # Cuando se detiene el spinner, finalizamos cualquier stream en el log
+        self.chat_log.stop_stream()
 
     def set_terminal_cursor(self, active: bool, executor=None):
         """Activa o desactiva el simulador de cursor en el chat log."""
@@ -1245,11 +1439,13 @@ class KogniTermTUI(App):
         try:
             chat_input = self.query_one(ChatInput)
             if active:
-                chat_input.placeholder = "Terminal Interactiva (Escribe y pulsa Enter)..."
-                chat_input.styles.color = "#00ff00" # Verde terminal
+                chat_input.placeholder = "Terminal Interactiva (Escribe abajo o HAZ CLIC en el panel para modo directo)..."
+                chat_input.styles.color = "#10b981" # Verde esmeralda para modo activo
+                self.live_display.add_class("interactive")
             else:
                 chat_input.placeholder = "Escribe un mensaje..."
                 chat_input.styles.color = "white"
+                self.live_display.remove_class("interactive")
         except:
             pass
 
@@ -1301,7 +1497,6 @@ class KogniTermTUI(App):
                 # Caso A: Comando de terminal (Bash)
                 if self.agent_state.command_to_confirm:
                     command = self.agent_state.command_to_confirm
-                    self.tui_ui.print_message(f"[bold yellow]Confirmación requerida para comando:[/bold yellow] {command}")
                     
                     # Bloquear el hilo worker hasta que el usuario decida en la TUI
                     approved = self.ask_for_approval_sync(
@@ -1347,8 +1542,6 @@ class KogniTermTUI(App):
                     elif isinstance(diff_info, str):
                         diff_content = diff_info
 
-                    self.tui_ui.print_message(f"[bold yellow]Confirmación requerida para herramienta '{tool_name}':[/bold yellow] {message}")
-                    
                     # Bloquear el hilo worker hasta que el usuario decida en la TUI
                     approved = self.ask_for_approval_sync(
                         message=message,
@@ -1388,6 +1581,15 @@ class KogniTermTUI(App):
             self.is_processing = False
             # Asegurar que el spinner se detenga siempre al terminar
             self.call_from_thread(self._stop_spinner)
+            # Procesar el siguiente mensaje en la cola si existe
+            self.call_from_thread(self._process_queue)
+
+    def _process_queue(self):
+        """Procesa el siguiente mensaje en la cola si el agente está libre."""
+        if self._input_queue and not self.is_processing:
+            next_message = self._input_queue.pop(0)
+            # Volver a llamar a handle_input_async para el siguiente mensaje
+            self.run_worker(self._handle_input_async(next_message))
 
     async def push_screen_wait(self, screen) -> Any:
         """Helper asíncrono para pushear una pantalla y esperar su resultado."""
@@ -1511,25 +1713,24 @@ class KogniTermTUI(App):
         return future.result()
 
     def update_live_display(self, renderable):
-        """Actualiza el widget de streaming en tiempo real."""
-        # Detener spinner cuando llega contenido real
+        """Actualiza el widget de streaming en tiempo real directamente en el chat log."""
+        # Detener spinner INMEDIATAMENTE cuando llega contenido real.
         if self._spinner_timer:
             self._stop_spinner()
         
-        # Solo quitar el borde si aún lo tiene (evita repaints innecesarios de estilos)
-        if hasattr(self.live_display, 'styles') and self.live_display.styles.border_left is not None:
-             self.live_display.styles.border_left = None
-        
         self._last_live_renderable = renderable
         
-        # Solo activar display si no lo estaba
-        if not self.live_display.display:
-            self.live_display.display = True
-            
-        self.live_display.update(renderable)
+        # Enviar al chat log para streaming en sitio
+        self.chat_log.write_stream(renderable)
         
-        # CRÍTICO: Para que parezca que el texto nuevo empuja el historial hacia arriba
-        self.call_after_refresh(self.chat_log.scroll_end, animate=False)
+        # Opcional: auto-scroll si el usuario está cerca del final
+        try:
+            log = self.chat_log
+            current_scroll = log.scroll_position
+            # En VerticalScroll el scroll es algo diferente, pero scroll_end funciona igual
+            self.chat_log.scroll_end(animate=False)
+        except Exception:
+            pass
 
     def update_terminal_output(self, tool_name: str, output: str, show_cursor: bool = None):
         """
@@ -1548,15 +1749,19 @@ class KogniTermTUI(App):
         self.update_live_display(panel)
 
     def hide_live_display(self):
-        """Oculta el widget de streaming y mueve el contenido al log permanente."""
+        """Finaliza el streaming en el chat log."""
+        # Asegurar que el spinner se detenga
         self._stop_spinner()
-        if self.live_display.display:
-            # Al terminar, pasamos el contenido final al log de Rich para el historial
-            renderable = getattr(self, "_last_live_renderable", "")
-            if renderable:  # Solo persistir si había contenido real (no el spinner)
-                self.chat_log.write_message(renderable)
-            self.live_display.display = False
-            self.live_display.update("")
-            self._last_live_renderable = None
-            # Scroll al final una vez que el contenido fue consolidado al log
-            self.chat_log.scroll_end(animate=False)
+        
+        # NOTA: Ya no movemos contenido del live_display al log porque EL STREAMING SUCEDE EN EL LOG.
+        # Solo marcamos el fin del stream actual en el ChatLogWidget.
+        self.chat_log.stop_stream()
+        
+        self._last_live_renderable = None
+        
+        # Reset de estado de terminal para evitar fugas visuales
+        self._last_terminal_tool_name = ""
+        self._last_terminal_output = ""
+        
+        # Scroll al final
+        self.chat_log.scroll_end(animate=False)

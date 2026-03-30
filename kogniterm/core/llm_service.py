@@ -134,6 +134,9 @@ litellm_api_base = os.getenv("LITELLM_API_BASE")
 google_api_key = os.getenv("GOOGLE_API_KEY")
 gemini_model = os.getenv("GEMINI_MODEL")
 
+ollama_api_base = os.getenv("OLLAMA_API_BASE")
+ollama_api_key = os.getenv("OLLAMA_API_KEY")
+
 # Configuración global de LiteLLM para máxima compatibilidad
 litellm.drop_params = True 
 litellm.modify_params = False 
@@ -693,6 +696,28 @@ class LLMService:
             litellm.api_base = None  # Crucial para que no intente usar OpenRouter
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a Google Nativo: {model_name}")
+            
+        elif model_name.startswith("ollama/"):
+            # Priorizar OLLAMA_API_BASE para local/custom
+            api_base = os.environ.get("OLLAMA_API_BASE")
+            cloud_key = os.environ.get("OLLAMA_CLOUD_API_KEY")
+            
+            if api_base:
+                litellm.api_base = api_base
+                self.api_key = os.environ.get("OLLAMA_API_KEY") or "ollama"
+                logger.info(f"🦙 Cambiado a Ollama Local/Custom: {model_name} en {api_base}")
+            elif cloud_key:
+                self.api_key = cloud_key
+                litellm.api_base = os.environ.get("OLLAMA_CLOUD_API_BASE") or "https://ollama.com"
+                logger.info(f"☁️ Cambiado a Ollama Cloud: {model_name}")
+            else:
+                # Fallback a local por defecto si no hay nada configurado pero se pide ollama/
+                litellm.api_base = "http://localhost:11434/v1"
+                self.api_key = "ollama"
+                logger.info(f"🦙 Cambiado a Ollama Local (default): {model_name}")
+            
+            os.environ["LITELLM_API_KEY"] = self.api_key
+            litellm.headers = {}
             
         else:
             # Otros proveedores genéricos

@@ -110,6 +110,7 @@ class ProviderConfig:
     model_prefix: str
     api_key_env: str
     api_base: Optional[str] = None
+    api_base_env: Optional[str] = None
     priority: int = 100  # Menor = mayor prioridad
     enabled: bool = True
     timeout_seconds: int = 120
@@ -120,9 +121,37 @@ class ProviderConfig:
         """Obtiene la API key desde variables de entorno."""
         return os.getenv(self.api_key_env)
     
+    def get_api_base(self) -> Optional[str]:
+        """Obtiene la URL base de la API, priorizando la variable de entorno si existe."""
+        if self.api_base_env:
+            env_base = os.getenv(self.api_base_env)
+            if env_base:
+                return env_base
+        return self.api_base
+    
     def is_configured(self) -> bool:
         """Verifica si el proveedor está configurado."""
-        return self.enabled and self.get_api_key() is not None
+        if not self.enabled:
+            return False
+            
+        # Para Ollama local o cloud con base personalizada, puede no requerir API Key
+        if self.model_prefix == "ollama":
+            # Si tiene base personalizada (local, proxy o IP privada), se considera configurado
+            api_base = self.get_api_base()
+            if api_base:
+                # Si es un endpoint local o explícitamente configurado por el usuario, 
+                # permitimos que no tenga API Key.
+                if any(x in api_base for x in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+                    return True
+                # Si el usuario configuró OLLAMA_API_BASE manualmente, asumimos que sabe lo que hace
+                if os.getenv("OLLAMA_API_BASE"):
+                    return True
+
+            # Para Ollama Cloud u otros, requerimos API Key
+            key = self.get_api_key() or os.getenv("OLLAMA_API_KEY")
+            return key is not None
+            
+        return self.get_api_key() is not None
 
 
 # Configuraciones predefinidas de proveedores
@@ -162,6 +191,33 @@ DEFAULT_PROVIDERS = [
         api_key_env="OPENAI_API_KEY",
         priority=50,
         fallback_on_error_codes=["429", "503", "500"]
+    ),
+    ProviderConfig(
+        name="ollama",
+        model_prefix="ollama",
+        api_key_env="OLLAMA_API_KEY",
+        api_base="http://localhost:11434/v1",
+        api_base_env="OLLAMA_API_BASE",
+        priority=60,
+        fallback_on_error_codes=["429", "503"]
+    ),
+    ProviderConfig(
+        name="ollama_cloud",
+        model_prefix="ollama",
+        api_key_env="OLLAMA_CLOUD_API_KEY",
+        api_base="https://ollama.com",
+        api_base_env="OLLAMA_CLOUD_API_BASE",
+        priority=65,
+        fallback_on_error_codes=["429", "503"]
+    ),
+    ProviderConfig(
+        name="zhipuai",
+        model_prefix="zhipuai",
+        api_key_env="ZHIPUAI_API_KEY",
+        api_base="https://open.bigmodel.cn/api/paas/v4/",
+        api_base_env="ZHIPUAI_API_BASE",
+        priority=70,
+        fallback_on_error_codes=["429", "503"]
     ),
 ]
 
@@ -220,13 +276,16 @@ class MultiProviderManager:
         """Retorna lista de proveedores configurados y disponibles."""
         available = []
         for provider in sorted(self.providers, key=lambda p: p.priority):
-            if provider.is_configured():
+            is_conf = provider.is_configured()
+            if is_conf:
                 metrics = self.metrics.get(provider.name)
                 # No incluir proveedores en estado UNHEALTHY
                 if metrics and metrics.status == ProviderStatus.UNHEALTHY:
                     logger.debug(f"Proveedor {provider.name} omitido por estado UNHEALTHY")
                     continue
                 available.append(provider)
+            else:
+                logger.debug(f"💡 Proveedor {provider.name} no disponible (no configurado). Env var: {provider.api_key_env}")
         return available
     
     def get_primary_provider(self) -> Optional[ProviderConfig]:
@@ -286,8 +345,9 @@ class MultiProviderManager:
             if tools:
                 completion_kwargs["tools"] = tools
             
-            if provider.api_base:
-                completion_kwargs["api_base"] = provider.api_base
+            api_base = provider.get_api_base()
+            if api_base:
+                completion_kwargs["api_base"] = api_base
             
             if provider.name == "openrouter":
                 completion_kwargs["headers"] = {
@@ -424,8 +484,9 @@ class MultiProviderManager:
                     "api_key": provider.get_api_key(),
                 }
                 
-                if provider.api_base:
-                    test_kwargs["api_base"] = provider.api_base
+                api_base = provider.get_api_base()
+                if api_base:
+                    test_kwargs["api_base"] = api_base
                 
                 response = completion(**test_kwargs)
                 # Consumir respuesta

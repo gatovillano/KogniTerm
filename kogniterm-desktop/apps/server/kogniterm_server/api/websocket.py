@@ -33,10 +33,11 @@ async def websocket_chat(websocket: WebSocket):
                 if cmd == "reset":
                     adapter.agent_state.reset()
                     # Re-initialize history
-                    from kogniterm.core.agents.bash_agent import SYSTEM_MESSAGE
-                    adapter.llm_service.conversation_history = [SYSTEM_MESSAGE]
-                    adapter.llm_service._save_history([SYSTEM_MESSAGE])
-                    adapter.agent_state.messages = [SYSTEM_MESSAGE]
+                    from kogniterm.core.agents.bash_agent import get_system_message
+                    system_msg = get_system_message(adapter.llm_service)
+                    adapter.llm_service.conversation_history = [system_msg]
+                    adapter.llm_service._save_history([system_msg])
+                    adapter.agent_state.messages = [system_msg]
                     
                     await websocket.send_json({"type": "info", "content": "🔄 Sesión reiniciada correctamente."})
                     continue
@@ -87,11 +88,12 @@ async def websocket_chat(websocket: WebSocket):
                     await websocket.send_json({"type": "info", "content": "🗜️ Comprimiendo historial..."})
                     summary = adapter.llm_service.summarize_conversation_history(force_truncate=force)
                     # Update state with summary logic (similar to MetaCommandProcessor)
-                    from kogniterm.core.agents.bash_agent import SYSTEM_MESSAGE
+                    from kogniterm.core.agents.bash_agent import get_system_message
                     from langchain_core.messages import AIMessage
                     
                     if not summary.startswith("Error"):
-                        adapter.llm_service.conversation_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
+                        system_msg = get_system_message(adapter.llm_service)
+                        adapter.llm_service.conversation_history = [system_msg, AIMessage(content=summary)]
                         adapter.agent_state.messages = adapter.llm_service.conversation_history
                         adapter.llm_service._save_history(adapter.llm_service.conversation_history)
                         await websocket.send_json({"type": "chunk", "content": f"**Historial Comprimido:**\n{summary}"})

@@ -4193,3 +4193,23 @@ Se ha implementado `file_editor.py` que provee la herramienta `sophisticated_edi
 ✅ **Lectura Natural**: El stream de texto de respuestas fluye orgánicamente de arriba hacia abajo como se espera de una terminal normal.
 ✅ **Mejor Distinción**: El borde lateral de los mensajes de usuario añade orden estructural y separa eficientemente las consultas humanas de las contestaciones iterativas del agente de IA.
 ✅ **Limpieza Visual**: Código adaptativo para las áreas de la pantalla reduciendo los huecos vacíos excesivos.
+
+## 30 de Marzo, 2026 - Refactorización de Streaming de Mensajes Estilo Moderno
+
+- **Refactorización de ChatLogWidget**: Se migró de `RichLog` a `VerticalScroll` para permitir la actualización de mensajes en tiempo real.
+- **Streaming en el flujo del chat**: Las respuestas del modelo y las salidas de terminal ahora se muestran directamente en el historial del chat mientras se generan, eliminando el panel separado inferior.
+- **Eliminación de saltos visuales**: Se eliminó la necesidad de 'consolidar' mensajes al finalizar, proporcionando una experiencia fluida de arriba hacia abajo.
+- **UI Minimalista**: Se ocultó el componente `live_display` para simplificar la interfaz y centrar la atención en el hilo de la conversación.
+- **Compatibilidad de Cursor**: El cursor parpadeante en las salidas de terminal se mantuvo funcional, operando ahora dentro de los widgets del chat log.
+
+## 30 de Marzo, 2026 - Corrección de Error de Configuración de Proveedores (MultiProviderManager)
+
+- **Solución de TypeError en ProviderConfig**: Se añadió el campo faltante `api_base_env` a la definición de la dataclass `ProviderConfig` para permitir la configuración dinámica de URLs base desde variables de entorno.
+- **Implementación de get_api_base**: Se añadió un método para obtener de forma segura la URL base de la API, priorizando las variables de entorno.
+- **Corrección lógica en ollama**: Se arregló una posible excepción de tipo (TypeError) al verificar la configuración de Ollama cuando la URL base es nula.
+- **Consistencia en Providers**: Se aseguró que todos los puntos de entrada (ejecución y health checks) utilicen el nuevo método `get_api_base()`.
+## 30 de Marzo, 2026 - Centrado de UI Inferior (Input, Spinner, Footer)
+
+- **Centrado de Barra Inferior**: Se rediseñó el contenedor inferior para centrar horizontalmente la barra de entrada, el indicador de carga y el pie de página.
+- **Alineación de Spinner**: El texto de 'Procesando...' ahora se muestra centrado sobre la barra de entrada para una estética más equilibrada.
+- **Consistencia Visual**: Se estandarizaron los anchos al 85% para todos los controles inferiores, alineándolos perfectamente con el historial de chat.
