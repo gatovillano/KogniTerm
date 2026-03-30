@@ -41,10 +41,18 @@ class StatusFooter(Static):
         display_model = self.model_name.split("/")[-1]
         right_text = f"{display_model} 🤖"
         
-        return [
-            Static(left_text, id="footer_left", markup=True),
-            Static(right_text, id="footer_right", markup=True)
-        ]
+        yield Static(left_text, id="footer_left", markup=True)
+        yield Static(right_text, id="footer_right", markup=True)
+
+    def update_model(self, new_model: str):
+        """Actualiza el nombre del modelo mostrado en el footer."""
+        self.model_name = new_model
+        display_model = new_model.split("/")[-1]
+        right_text = f"{display_model} 🤖"
+        try:
+            self.query_one("#footer_right", Static).update(right_text)
+        except Exception:
+            pass
 
 class KogniTermSuggester(Suggester):
     """

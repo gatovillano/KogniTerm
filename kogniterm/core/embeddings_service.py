@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 import google.genai as genai
 from kogniterm.terminal.config_manager import ConfigManager
 import os
@@ -129,7 +129,10 @@ class FastEmbedAdapter(EmbeddingAdapter):
             raise e
 
 class EmbeddingsService:
+    _instance: Optional["EmbeddingsService"] = None
+
     def __init__(self):
+        EmbeddingsService._instance = self  # Guardar como singleton
         self.config_manager = ConfigManager()
         self.config = self.config_manager.get_config()
         self.provider = self.config.get("embeddings_provider", "fastembed")
@@ -144,6 +147,13 @@ class EmbeddingsService:
         else:
             self.adapter = None
             logger.warning(f"No API key found for provider {self.provider}. EmbeddingsService will not function.")
+
+    @classmethod
+    def get_instance(cls) -> "EmbeddingsService":
+        """Obtiene la instancia singleton, creándola si no existe."""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
     def _get_api_key(self):
         key = self.config.get(f"{self.provider}_api_key")

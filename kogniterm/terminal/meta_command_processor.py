@@ -3,7 +3,7 @@ import asyncio
 import os
 import threading
 from kogniterm.core.llm_service import LLMService
-from kogniterm.core.agents.bash_agent import AgentState, SYSTEM_MESSAGE
+from kogniterm.core.agents.bash_agent import AgentState, get_system_message
 from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage
 from rich.panel import Panel
@@ -65,9 +65,9 @@ class MetaCommandProcessor:
             self.agent_state.reset() # Reiniciar el estado
             # También reiniciamos el historial de llm_service al resetear la conversación
             self.llm_service.conversation_history = []
-            # ¡IMPORTANTE! Re-añadir el SYSTEM_MESSAGE después de resetear
-            self.llm_service.conversation_history.append(SYSTEM_MESSAGE)
-            # Guardar historial CON el SYSTEM_MESSAGE
+            # ¡IMPORTANTE! Re-añadir el get_system_message(self.llm_service) después de resetear
+            self.llm_service.conversation_history.append(get_system_message(self.llm_service))
+            # Guardar historial CON el get_system_message(self.llm_service)
             self.llm_service._save_history(self.llm_service.conversation_history)
             # Sincronizar agent_state.messages con el historial
             self.agent_state.messages = self.llm_service.conversation_history.copy()
@@ -76,8 +76,8 @@ class MetaCommandProcessor:
             if hasattr(self.terminal_ui, "clear_chat"):
                 self.terminal_ui.clear_chat()
             else:
-                os.system('cls' if os.name == 'nt' else 'clear')
-                self.terminal_ui.print_welcome_banner() # Volver a imprimir el banner de bienvenida
+                self.terminal_ui.console.clear()
+                self.terminal_ui.print_welcome_banner()
             self.terminal_ui.print_message(f"Conversación reiniciada.", style="green")
             return True
 
@@ -210,7 +210,7 @@ class MetaCommandProcessor:
                 # Resetear estado
                 self.agent_state.reset()
                 self.llm_service.conversation_history = []
-                self.llm_service.conversation_history.append(SYSTEM_MESSAGE)
+                self.llm_service.conversation_history.append(get_system_message(self.llm_service))
                 self.agent_state.messages = self.llm_service.conversation_history.copy()
                 self.llm_service._save_history(self.llm_service.conversation_history)
                 
@@ -241,7 +241,7 @@ class MetaCommandProcessor:
             
             help_options = [
                 ("%models", "🤖 Cambiar Modelo de IA (Seleccionar modelo del proveedor actual)"),
-                ("%provider", "🌐 Cambiar Proveedor de LLM (OpenRouter, Google, OpenAI, etc.)"),
+                ("%provider", "🌐 Cambiar Proveedor de LLM (OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud)"),
                 ("%keys", "🔑 Gestionar API Keys (Configurar llaves de proveedores)"),
                 ("%embeddings", "🧠 Configurar Embeddings (Local/FastEmbed, Gemini, OpenAI, etc.)"),
                 ("%reset", "🔄 Reiniciar Conversación (Borrar memoria actual)"),
@@ -311,7 +311,7 @@ class MetaCommandProcessor:
                     self.terminal_ui.print_message("\n💡 Tip: El modelo ha alcanzado su límite de cuota. Prueba usando [bold]%compress force[/bold] para resumir solo la parte más reciente que quepa en el límite.", style="cyan")
             else:
                 # Reemplazar el historial: SOLO system message + resumen
-                new_history = [SYSTEM_MESSAGE, AIMessage(content=summary)]
+                new_history = [get_system_message(self.llm_service), AIMessage(content=summary)]
                 self.llm_service.conversation_history = new_history
                 # Usar .copy() para que agent_state tenga su propia lista independiente
                 self.agent_state.messages = new_history.copy()
@@ -411,6 +411,40 @@ class MetaCommandProcessor:
                     self.terminal_ui.print_message(f"⚠️ Excepción al conectar con OpenRouter: {e}", style="red")
                     return []
 
+            # Función auxiliar para obtener modelos de Ollama Cloud
+            async def _fetch_ollama_cloud_models():
+                try:
+                    self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de Ollama Cloud...", style="dim")
+                    # Obtener API key de Ollama Cloud si existe
+                    api_key = os.getenv("OLLAMA_CLOUD_API_KEY")
+                    headers = {}
+                    if api_key:
+                        headers["Authorization"] = f"Bearer {api_key}"
+                    
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get("https://ollama.com/api/tags", headers=headers)
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = []
+                            for m in data.get('models', []):
+                                model_id = f"ollama/{m['name']}"
+                                name = m.get('name', m['name'])
+                                size = m.get('size', 0)
+                                size_str = f" ({size / (1024**3):.1f} GB)" if size else ""
+                                
+                                label = f"{name}{size_str}"
+                                models.append((model_id, label))
+                            
+                            # Ordenar alfabéticamente
+                            models.sort(key=lambda x: x[1])
+                            return models
+                        else:
+                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de Ollama Cloud: {response.status_code}", style="yellow")
+                            return []
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ Excepción al conectar con Ollama Cloud: {e}", style="red")
+                    return []
+
             current_model = self.llm_service.model_name
             
             # Detectar proveedor actual
@@ -419,6 +453,8 @@ class MetaCommandProcessor:
                 current_provider = "openrouter"
             elif current_model.startswith("gemini/"):
                 current_provider = "google"
+            elif current_model.startswith("ollama/"):
+                current_provider = "ollama_cloud"
             elif "gpt" in current_model:
                 current_provider = "openai"
             elif "claude" in current_model:
@@ -447,6 +483,16 @@ class MetaCommandProcessor:
                         ("gemini/gemini-1.5-flash", "Gemini 1.5 Flash"),
                         ("gemini/gemini-1.5-flash-8b", "Gemini 1.5 Flash 8B"),
                         ("gemini/gemini-1.0-pro", "Gemini 1.0 Pro"),
+                    ]
+            elif current_provider == "ollama_cloud":
+                target_list = await _fetch_ollama_cloud_models()
+                # Fallback si falla la API
+                if not target_list:
+                    target_list = [
+                        ("ollama/llama3", "Llama 3"),
+                        ("ollama/mistral", "Mistral"),
+                        ("ollama/phi3", "Phi-3"),
+                        ("ollama/codellama", "CodeLlama"),
                     ]
             elif current_provider == "openai":
                 target_list = [
@@ -510,6 +556,9 @@ class MetaCommandProcessor:
                         config_manager.set_global_config("default_model", selected_model)
                         
                         self.terminal_ui.print_message(f"✅ Modelo cambiado exitosamente a: {selected_model}", style="green")
+                        # Actualizar footer si estamos en TUI
+                        if hasattr(self.kogniterm_app, "update_status_footer"):
+                            self.kogniterm_app.update_status_footer(selected_model)
                         self.terminal_ui.print_message(f"ℹ️  Configuración persistida en .env ({'GEMINI_MODEL' if selected_model.startswith('gemini/') else 'LITELLM_MODEL'}).", style="dim")
                         self.terminal_ui.print_message(f"ℹ️  Configuración guardada como predeterminada.", style="dim")
                     except Exception as e:
@@ -527,6 +576,7 @@ class MetaCommandProcessor:
                 ("google", "🤖 Google AI (Gemini nativo)"),
                 ("openai", "🧠 OpenAI (GPT-4, GPT-3.5)"),
                 ("anthropic", "🎭 Anthropic (Claude)"),
+                ("ollama_cloud", "☁️  Ollama Cloud (Modelos de Ollama)"),
             ]
 
             selected_provider = await self._show_radiolist(
@@ -543,7 +593,8 @@ class MetaCommandProcessor:
                     "openrouter": "openrouter/google/gemini-2.0-flash-exp:free",
                     "google": "gemini/gemini-1.5-flash",
                     "openai": "gpt-4o-mini",
-                    "anthropic": "claude-3-5-sonnet-20240620"
+                    "anthropic": "claude-3-5-sonnet-20240620",
+                    "ollama_cloud": "ollama/llama3"
                 }
                 
                 new_model = default_models.get(selected_provider)
@@ -563,6 +614,9 @@ class MetaCommandProcessor:
                     config_manager.set_global_config("default_model", new_model)
                     
                     self.terminal_ui.print_message(f"✅ Proveedor cambiado a {selected_provider.capitalize()}.", style="green")
+                    # Actualizar footer si estamos en TUI
+                    if hasattr(self.kogniterm_app, "update_status_footer"):
+                        self.kogniterm_app.update_status_footer(new_model)
                     self.terminal_ui.print_message(f"🤖 Modelo predeterminado establecido: {new_model}", style="dim")
                     self.terminal_ui.print_message("ℹ️  Puedes cambiar el modelo específico con %models", style="italic dim")
                 except Exception as e:
@@ -601,6 +655,7 @@ class MetaCommandProcessor:
             "GOOGLE_API_KEY",
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
+            "OLLAMA_CLOUD_API_KEY",
             "BRAVE_API_KEY",
             "GITHUB_TOKEN"
         ]

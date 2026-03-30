@@ -134,6 +134,9 @@ async def _main_async():
         "google": "GOOGLE_API_KEY",
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
+        "cohere": "COHERE_API_KEY",
+        "zhipuai": "ZHIPUAI_API_KEY",
+        "ollama_cloud": "OLLAMA_CLOUD_API_KEY",
         "litellm": "LITELLM_API_KEY"
     }
     

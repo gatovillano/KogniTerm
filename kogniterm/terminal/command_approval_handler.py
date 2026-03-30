@@ -185,146 +185,92 @@ class CommandApprovalHandler:
                 ),
                 soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
             )
-        elif is_file_update_confirmation:
-            logger.debug("DEBUG: is_file_update_confirmation es True. Preparando panel de diff.")
-            panel_title = f'[bold]Confirmación de Actualización:[/bold] [cyan]{file_path}[/cyan]'
-            
-            # Solo imprimir el panel rich si NO estamos en TUI mode, ya que la TUI tiene su propio widget interactivo
-            if not getattr(self.terminal_ui, "is_tui", False):
-                if tool_name in ["file_operations", "file_operations_tool"] and original_tool_args and original_tool_args.get("operation") == "delete_file":
-                    # Si es una operación de eliminación, mostrar solo la ruta del archivo
-                    panel_content_markdown = Markdown(
-                        f"""**Eliminación de Archivo Requerida:**\n{message}\n\n**Archivo a eliminar:**\n```\n{file_path}\n```\n"""
-                    )
-                    self.terminal_ui.console.print(
-                        Panel(
-                            panel_content_markdown,
-                            border_style='yellow',
-                            title=panel_title,
-                            padding=(0, 2, 0, 2)
-                        ),
-                        soft_wrap=True, overflow="fold", highlight=False, markup=True, end="\n"
-                    )
-                else:
-                    # Usar DiffRenderer para visualización mejorada
-                    diff_table = self.diff_renderer.render_diff_from_string(diff_content, file_path)
-                    
-                    # Construir el contenido del panel con el mensaje y el diff renderizado
-                    # Usar Markdown para el mensaje para que se renderice correctamente (**texto**)
-                    panel_content = Group(
-                        Markdown(f"**Actualización de Archivo Requerida:**\n{message}\n"),
-                        diff_table
-                    )
-                    
-                    self.terminal_ui.console.print(
-                        Panel(
-                            panel_content,
-                            border_style='yellow',
-                            title=panel_title,
-                            padding=(0, 2, 0, 2)
-                        ),
-                        soft_wrap=False,
-                        overflow="fold",
-                        highlight=False, markup=True, end="\n"
-                    )
-        elif is_user_confirmation and confirmation_prompt:
-            explanation_text = confirmation_prompt
-            panel_title = 'Confirmación de Usuario Requerida'
-            panel_content_markdown = Markdown(f"""**Acción requerida:**\n{explanation_text}""")
-        else:
-            # Siempre intentar generar una explicación para el comando bash
-            explanation_prompt = HumanMessage(
-                content=f"Genera una explicación concisa del siguiente comando bash: `{command_to_execute}`. No incluyas el comando en la explicación, solo el texto explicativo. La explicación debe ser de máximo 2 frases."
-            )
-            temp_history_for_explanation = [
-                msg for msg in self.agent_state.messages if msg.type != "tool"
-            ]
-            temp_history_for_explanation.append(explanation_prompt)
-            
-            try:
-                explanation_response_generator = self.llm_service.invoke(temp_history_for_explanation, save_history=False) # No guardar historial para explicaciones
-                full_response_content = ""
-                
-                # Asegurarse de que explanation_response_generator es un async generator
-                for chunk in explanation_response_generator: # Siempre iterar sobre el generador
-                    if isinstance(chunk, AIMessage):
-                        # Si recibimos un AIMessage, solo usamos su contenido si no hemos acumulado nada vía streaming
-                        # Esto evita duplicar el texto, ya que llm_service emite chunks de texto Y un AIMessage final con todo el contenido.
-                        if not full_response_content and chunk.content:
-                             full_response_content = chunk.content
-                    elif isinstance(chunk, str):
-                        # FILTRO CRÍTICO: No añadir contenido de razonamiento a la explicación visual
-                        if chunk.startswith("__THINKING__:") or chunk.startswith("THINKING:"):
-                            continue
-                        full_response_content += chunk
-                    else:
-                        content_part = str(chunk)
-                        # Evitar duplicación si el objeto convertido a string es igual a lo que ya tenemos (heurística simple)
-                        if content_part not in full_response_content and not content_part.startswith("__THINKING__:") and not content_part.startswith("THINKING:"):
-                            full_response_content += content_part
+        # --- OPTIMIZACIÓN DE LATENCIA ---
+        # 3. Verificar si el comando es seguro para auto-aprobación ANTES de generar explicaciones
+        run_action = False
+        
+        # Atajo: si el comando ya viene auto-aprobado por el agente o el usuario eligió "Aceptar siempre"
+        if auto_approve:
+            run_action = True
+        
+        # Verificar seguridad del comando si no está aprobado aún
+        if not run_action and command_to_execute and not is_plan_confirmation and not is_file_update_confirmation and not is_user_confirmation:
+            if self._is_command_safe(command_to_execute):
+                run_action = True
+                auto_approve = True # Marcar para feedback visual posterior
+                # self.terminal_ui.print_message(f"Comando '{command_to_execute}' considerado seguro. Auto-aprobando.", style="green")
 
-                # Limpieza final de posibles bloques <think> remanentes (algunos modelos no los separan por chunks)
-                import re
-                explanation_text = full_response_content.strip()
-                # Usar una expresión regular más robusta para limpiar los artefactos de "thinking"
-                explanation_text = re.sub(r'(__THINKING__:?|THINKING:?|\bTHINKING\b:?)', '', explanation_text, flags=re.IGNORECASE)
-                # Eliminar posibles residuos como guiones bajos al inicio de palabras
-                explanation_text = re.sub(r'\s*__\s*', ' ', explanation_text).strip()
-                explanation_text = re.sub(r'<think>.*?</think>', '', explanation_text, flags=re.DOTALL).strip()
+        # 4. Generar explicación SOLO si no está auto-aprobado y necesitamos mostrar el panel
+        if not run_action:
+            if is_user_confirmation and confirmation_prompt:
+                explanation_text = confirmation_prompt
+                panel_title = 'Confirmación de Usuario Requerida'
+                panel_content_markdown = Markdown(f"""**Acción requerida:**\n{explanation_text}""")
+            else:
+                # Siempre intentar generar una explicación para el comando bash
+                explanation_prompt = HumanMessage(
+                    content=f"Genera una explicación concisa del siguiente comando bash: `{command_to_execute}`. No incluyas el comando en la explicación, solo el texto explicativo. La explicación debe ser de máximo 2 frases."
+                )
+                temp_history_for_explanation = [
+                    msg for msg in self.agent_state.messages if msg.type != "tool"
+                ]
+                temp_history_for_explanation.append(explanation_prompt)
                 
+                try:
+                    explanation_response_generator = self.llm_service.invoke(temp_history_for_explanation, save_history=False) # No guardar historial para explicaciones
+                    full_response_content = ""
+                    
+                    # Asegurarse de que explanation_response_generator es un async generator
+                    for chunk in explanation_response_generator: # Siempre iterar sobre el generador
+                        if isinstance(chunk, AIMessage):
+                            if not full_response_content and chunk.content:
+                                 full_response_content = chunk.content
+                        elif isinstance(chunk, str):
+                            if chunk.startswith("__THINKING__:") or chunk.startswith("THINKING:"):
+                                continue
+                            full_response_content += chunk
+                        else:
+                            content_part = str(chunk)
+                            if content_part not in full_response_content and not content_part.startswith("__THINKING__:") and not content_part.startswith("THINKING:"):
+                                full_response_content += content_part
+
+                    import re
+                    explanation_text = full_response_content.strip()
+                    explanation_text = re.sub(r'(__THINKING__:?|THINKING:?|\bTHINKING\b:?)', '', explanation_text, flags=re.IGNORECASE)
+                    explanation_text = re.sub(r'\s*__\s*', ' ', explanation_text).strip()
+                    explanation_text = re.sub(r'<think>.*?</think>', '', explanation_text, flags=re.DOTALL).strip()
+                    
+                    if not explanation_text:
+                        explanation_text = "No se pudo generar una explicación concisa."
+
+                except Exception as e:
+                    logger.error(f"Error al generar explicación para el comando: {e}")
+                    explanation_text = f"No se pudo generar una explicación para el comando. Error: {e}"
+
                 if not explanation_text:
-                    explanation_text = "No se pudo generar una explicación concisa."
-                logger.debug(f"DEBUG: Longitud de explanation_text: {len(explanation_text)}") # Nuevo log
-
-            except Exception as e:
-                logger.error(f"Error al generar explicación para el comando: {e}")
-                explanation_text = f"No se pudo generar una explicación para el comando. Error: {e}"
-
-            if not explanation_text:
-                explanation_text = "No se pudo generar una explicación para el comando."
-            
-            panel_content_markdown = Markdown(f"""**Comando a ejecutar:**
+                    explanation_text = "No se pudo generar una explicación para el comando."
+                
+                panel_content_markdown = Markdown(f"""**Comando a ejecutar:**
 ```bash
 {command_to_execute}
 ```
 **Explicación:**
 {explanation_text}""")
 
-        # 3. Mostrar la explicación y pedir confirmación
-        # logger.debug(f"DEBUG: is_file_update_confirmation: {is_file_update_confirmation}")
-        # logger.debug(f"DEBUG: diff_content (primeras 100 chars): {diff_content[:100]}")
-        # logger.debug(f"DEBUG: file_path: {file_path}")
-        # logger.debug(f"DEBUG: message: {message}")
-        # logger.debug(f"DEBUG: panel_title: {panel_title}")
-        # logger.debug(f"DEBUG: panel_content_markdown (primeras 100 chars): {str(panel_content_markdown)[:100]}")
+        # 5. Mostrar la explicación y pedir confirmación si no está auto-aprobado
+        if not run_action:
+            if not is_plan_confirmation and not is_file_update_confirmation:
+                self.terminal_ui.print_confirmation_panel(
+                    panel_content_markdown,
+                    panel_title,
+                    'yellow'
+                )
 
-        if not is_plan_confirmation and not is_file_update_confirmation: # Solo imprimir si no se imprimió ya
-            self.terminal_ui.print_confirmation_panel(
-                panel_content_markdown,
-                panel_title,
-                'yellow'
-            )
-        # Forzar un re-renderizado del prompt para asegurar que el panel se muestre antes de la entrada
-
-        # 4. Solicitar aprobación al usuario
-        run_action = False
-        
-        # Verificar si el comando es seguro para auto-aprobación
-        if not auto_approve and command_to_execute and not is_plan_confirmation and not is_file_update_confirmation and not is_user_confirmation:
-            if self._is_command_safe(command_to_execute):
-                auto_approve = True
-                self.terminal_ui.print_message(f"Comando '{command_to_execute}' considerado seguro. Auto-aprobando.", style="green")
-
-        if auto_approve:
-            run_action = True
-            self.terminal_ui.print_message("Acción auto-aprobada.", style="yellow")
-        else:
-            # Solicitar aprobación de forma síncrona según el adaptador (TUI o CLI)
+            # Solicitar aprobación de forma síncrona
             approval_message = message if message else explanation_text
             if not approval_message:
                 approval_message = "Confirmación requerida para proceder."
             
-            # Pasar parámetros detallados según el tipo
             diff_to_pass = diff_content
             file_path_to_pass = file_path
             
@@ -338,8 +284,12 @@ class CommandApprovalHandler:
                 diff_content=diff_to_pass,
                 file_path=file_path_to_pass,
             )
+        elif auto_approve and command_to_execute:
+            # Opción: mostrar un pequeño feedback de que se aprobó automáticamente
+            # self.terminal_ui.print_message(f"Ejecutando comando seguro: [bold cyan]{command_to_execute}[/bold cyan]", style="dim cyan")
+            pass
 
-        # 5. Ejecutar el comando y manejar la salida (o procesar la confirmación del usuario)
+        # 6. Ejecutar el comando y manejar la salida
         tool_message_content = ""
         if run_action:
             if is_plan_confirmation:

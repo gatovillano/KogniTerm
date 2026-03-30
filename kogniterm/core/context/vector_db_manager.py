@@ -8,11 +8,12 @@ import uuid
 logger = logging.getLogger(__name__)
 
 class VectorDBManager:
+    _instance: Optional["VectorDBManager"] = None
+
     def __init__(self, project_path: str):
-        # print(f"DEBUG: VectorDBManager path: {project_path}")
+        VectorDBManager._instance = self  # Guardar como singleton
         self.project_path = project_path
         self.db_path = os.path.join(project_path, ".kogniterm", "vector_db")
-        # print(f"DEBUG: Asegurando directorio DB en {self.db_path}...")
         self._ensure_db_dir()
         
         try:
@@ -29,6 +30,14 @@ class VectorDBManager:
             except Exception as retry_e:
                 logger.error(f"Failed to recover ChromaDB at {self.db_path}: {retry_e}")
                 raise retry_e
+
+    @classmethod
+    def get_instance(cls) -> "VectorDBManager":
+        """Obtiene la instancia singleton, creándola si no existe."""
+        if cls._instance is None:
+            import os
+            cls._instance = cls(os.getcwd())
+        return cls._instance
 
     def _init_client(self):
         # print("DEBUG: Creando PersistentClient de ChromaDB (sin telemetría)...")
@@ -155,14 +164,6 @@ class VectorDBManager:
         except Exception as e:
             logger.error(f"Error searching vector DB: {e}")
             return []
-
-    def delete_by_file_path(self, file_path: str):
-        """Deletes all chunks associated with a specific file path."""
-        try:
-            self.collection.delete(where={"file_path": file_path})
-            logger.info(f"Deleted chunks for file: {file_path}")
-        except Exception as e:
-            logger.error(f"Error deleting chunks for {file_path}: {e}")
 
     def clear_collection(self):
         """Deletes all items in the collection."""
