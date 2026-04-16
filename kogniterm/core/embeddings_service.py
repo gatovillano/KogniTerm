@@ -111,24 +111,27 @@ class OllamaAdapter(EmbeddingAdapter):
             raise e
 
 class SentenceTransformersAdapter(EmbeddingAdapter):
-    def __init__(self, model: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model: str | None = None):
         try:
             from sentence_transformers import SentenceTransformer
             import torch
-            self.model_name = model
-            # Allow forcing CPU via env var KOGNITERM_FORCE_CPU=1
-            force_cpu = os.getenv("KOGNITERM_FORCE_CPU", "0") in ("1", "true", "True")
+            # Allow overriding default model via env var KOGNITERM_EMBEDDINGS_MODEL
+            default_model = os.getenv("KOGNITERM_EMBEDDINGS_MODEL", "paraphrase-MiniLM-L3-v2")
+            self.model_name = model or default_model
+            # Use CPU by default unless explicitly disabled via KOGNITERM_FORCE_CPU=0
+            force_cpu = os.getenv("KOGNITERM_FORCE_CPU", "1") in ("1", "true", "True")
             if force_cpu:
-                self.model = SentenceTransformer(model, device='cpu')
+                logger.info(f"Loading SentenceTransformer '{self.model_name}' on CPU")
+                self.model = SentenceTransformer(self.model_name, device='cpu')
             else:
                 try:
-                    # Default constructor prefers CUDA when available
-                    self.model = SentenceTransformer(model)
+                    logger.info(f"Loading SentenceTransformer '{self.model_name}' with default device")
+                    self.model = SentenceTransformer(self.model_name)
                 except RuntimeError as e:
                     # Fallback to CPU on CUDA OOM or related GPU errors
                     if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
                         logger.warning("CUDA OOM or CUDA error loading SentenceTransformer; falling back to CPU")
-                        self.model = SentenceTransformer(model, device='cpu')
+                        self.model = SentenceTransformer(self.model_name, device='cpu')
                     else:
                         raise
         except ImportError:
