@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
-import google.genai as genai
+# google.genai is lazily imported inside GeminiAdapter to avoid import-time dependency errors
 from kogniterm.terminal.config_manager import ConfigManager
 import os
 import logging
@@ -14,7 +14,12 @@ class EmbeddingAdapter(ABC):
 
 class GeminiAdapter(EmbeddingAdapter):
     def __init__(self, api_key: str, model: str = "models/text-embedding-004"):
-        genai.configure(api_key=api_key)
+        try:
+            import google.genai as genai
+            genai.configure(api_key=api_key)
+            self.genai = genai
+        except ImportError:
+            raise ImportError("google-genai package is not installed. Please install it with `pip install google-genai`.")
         self.model = model
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
@@ -23,7 +28,7 @@ class GeminiAdapter(EmbeddingAdapter):
         try:
             # Procesamiento por lotes nativo de Gemini
             # La API de Gemini acepta una lista de strings y devuelve una lista de embeddings
-            result = genai.embed_content(
+            result = self.genai.embed_content(
                 model=self.model,
                 content=texts,
                 task_type="retrieval_document"
@@ -35,7 +40,7 @@ class GeminiAdapter(EmbeddingAdapter):
             embeddings = []
             for text in texts:
                 try:
-                    result = genai.embed_content(
+                    result = self.genai.embed_content(
                         model=self.model,
                         content=text,
                         task_type="retrieval_document"
@@ -105,6 +110,39 @@ class OllamaAdapter(EmbeddingAdapter):
             logger.error(f"Error generando embeddings con Ollama: {e}")
             raise e
 
+class SentenceTransformersAdapter(EmbeddingAdapter):
+    def __init__(self, model: str = "all-MiniLM-L6-v2"):
+        try:
+            from sentence_transformers import SentenceTransformer
+            import torch
+            self.model_name = model
+            # Allow forcing CPU via env var KOGNITERM_FORCE_CPU=1
+            force_cpu = os.getenv("KOGNITERM_FORCE_CPU", "0") in ("1", "true", "True")
+            if force_cpu:
+                self.model = SentenceTransformer(model, device='cpu')
+            else:
+                try:
+                    # Default constructor prefers CUDA when available
+                    self.model = SentenceTransformer(model)
+                except RuntimeError as e:
+                    # Fallback to CPU on CUDA OOM or related GPU errors
+                    if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                        logger.warning("CUDA OOM or CUDA error loading SentenceTransformer; falling back to CPU")
+                        self.model = SentenceTransformer(model, device='cpu')
+                    else:
+                        raise
+        except ImportError:
+            raise ImportError("sentence-transformers package is not installed. Please install it with `pip install sentence-transformers`.")
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        try:
+            embeddings = self.model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+            return [e.tolist() for e in embeddings]
+        except Exception as e:
+            logger.error(f"Error generating sentence-transformers embeddings: {e}")
+            raise e
+
 class FastEmbedAdapter(EmbeddingAdapter):
     def __init__(self, model: str = "BAAI/bge-small-en-v1.5"):
         try:
@@ -135,15 +173,15 @@ class EmbeddingsService:
         EmbeddingsService._instance = self  # Guardar como singleton
         self.config_manager = ConfigManager()
         self.config = self.config_manager.get_config()
-        self.provider = self.config.get("embeddings_provider", "fastembed")
+        self.provider = self.config.get("embeddings_provider", "sentence_transformers")
         self.model = self.config.get("embeddings_model")
         self.api_key = self._get_api_key()
         
-        # Ollama and FastEmbed don't strictly need an API key
-        if self.provider in ["ollama", "fastembed"]:
-             self.adapter = self._get_adapter()
+        # Ollama, FastEmbed and local sentence-transformers don't strictly need an API key
+        if self.provider in ["ollama", "fastembed", "sentence_transformers", "sentence-transformers"]:
+            self.adapter = self._get_adapter()
         elif self.api_key:
-             self.adapter = self._get_adapter()
+            self.adapter = self._get_adapter()
         else:
             self.adapter = None
             logger.warning(f"No API key found for provider {self.provider}. EmbeddingsService will not function.")
@@ -175,6 +213,9 @@ class EmbeddingsService:
             model = self.model if self.model else "nomic-embed-text"
             base_url = self.config.get("ollama_base_url", "http://localhost:11434")
             return OllamaAdapter(base_url, model)
+        elif self.provider in ["sentence_transformers", "sentence-transformers"]:
+            model = self.model if self.model else "all-MiniLM-L6-v2"
+            return SentenceTransformersAdapter(model)
         elif self.provider == "fastembed":
             model = self.model if self.model else "BAAI/bge-small-en-v1.5"
             return FastEmbedAdapter(model)
