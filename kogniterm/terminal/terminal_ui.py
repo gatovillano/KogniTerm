@@ -27,10 +27,11 @@ from .visual_components import (
 
 class TerminalUI:
     def __init__(self, console: Console | None = None):
-        self.is_tty = not sys.stdout.isatty() # Detect if it's a dumb terminal
+        # True when output is a terminal (supports colors/interactive features)
+        self.is_tty = sys.stdout.isatty()
         
-        if self.is_tty:
-            # For dumb terminals, force no color and no terminal features for rich
+        if not self.is_tty:
+            # For non-tty (dumb) terminals, disable color and terminal features
             self.console = console if console else Console(theme=get_kogniterm_theme(), force_terminal=False, no_color=True)
         else:
             self.console = console if console else Console(theme=get_kogniterm_theme())
