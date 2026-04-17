@@ -118,22 +118,48 @@ class SentenceTransformersAdapter(EmbeddingAdapter):
             # Allow overriding default model via env var KOGNITERM_EMBEDDINGS_MODEL
             default_model = os.getenv("KOGNITERM_EMBEDDINGS_MODEL", "paraphrase-MiniLM-L3-v2")
             self.model_name = model or default_model
+
+            # Prepare a project-local cache folder for models to avoid re-downloading
+            project_models_dir = os.path.join(os.getcwd(), ".kogniterm", "models")
+            os.makedirs(project_models_dir, exist_ok=True)
+            # Sanitize model name into a filesystem-friendly directory name
+            sanitized = self.model_name.replace("/", "__").replace(":", "__")
+            local_model_path = os.path.join(project_models_dir, sanitized)
+
             # Use CPU by default unless explicitly disabled via KOGNITERM_FORCE_CPU=0
             force_cpu = os.getenv("KOGNITERM_FORCE_CPU", "1") in ("1", "true", "True")
-            if force_cpu:
-                logger.info(f"Loading SentenceTransformer '{self.model_name}' on CPU")
-                self.model = SentenceTransformer(self.model_name, device='cpu')
+
+            # If a cached local copy exists, load from there to avoid network download
+            if os.path.isdir(local_model_path):
+                logger.info(f"Loading SentenceTransformer '{self.model_name}' from local cache {local_model_path}")
+                if force_cpu:
+                    self.model = SentenceTransformer(local_model_path, device='cpu')
+                else:
+                    self.model = SentenceTransformer(local_model_path)
             else:
+                # Otherwise load normally (may download) and attempt to cache the model for future runs
+                logger.info(f"Loading SentenceTransformer '{self.model_name}' (may download) and caching to {local_model_path}")
+                if force_cpu:
+                    model_obj = SentenceTransformer(self.model_name, device='cpu')
+                else:
+                    try:
+                        model_obj = SentenceTransformer(self.model_name)
+                    except RuntimeError as e:
+                        # Fallback to CPU on CUDA OOM or related GPU errors
+                        if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                            logger.warning("CUDA OOM or CUDA error loading SentenceTransformer; falling back to CPU")
+                            model_obj = SentenceTransformer(self.model_name, device='cpu')
+                        else:
+                            raise
+
+                # Try to save a local copy for quicker subsequent startups; non-fatal on failure
                 try:
-                    logger.info(f"Loading SentenceTransformer '{self.model_name}' with default device")
-                    self.model = SentenceTransformer(self.model_name)
-                except RuntimeError as e:
-                    # Fallback to CPU on CUDA OOM or related GPU errors
-                    if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
-                        logger.warning("CUDA OOM or CUDA error loading SentenceTransformer; falling back to CPU")
-                        self.model = SentenceTransformer(self.model_name, device='cpu')
-                    else:
-                        raise
+                    model_obj.save(local_model_path)
+                    logger.info(f"Saved SentenceTransformer model to local cache {local_model_path}")
+                except Exception as e:
+                    logger.warning(f"Could not cache SentenceTransformer model to {local_model_path}: {e}")
+
+                self.model = model_obj
         except ImportError:
             raise ImportError("sentence-transformers package is not installed. Please install it with `pip install sentence-transformers`.")
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
@@ -151,7 +177,20 @@ class FastEmbedAdapter(EmbeddingAdapter):
         try:
             from fastembed import TextEmbedding
             self.model_name = model
-            self.client = TextEmbedding(model_name=self.model_name)
+
+            # Use project-local cache folder if available (may be a path saved from previous runs)
+            project_models_dir = os.path.join(os.getcwd(), ".kogniterm", "models")
+            os.makedirs(project_models_dir, exist_ok=True)
+            sanitized = self.model_name.replace("/", "__").replace(":", "__")
+            local_model_path = os.path.join(project_models_dir, sanitized)
+
+            model_arg = local_model_path if os.path.isdir(local_model_path) else self.model_name
+
+            # TextEmbedding often accepts a model name or local path; prefer local cache when present
+            self.client = TextEmbedding(model_name=model_arg)
+
+            if model_arg != self.model_name:
+                logger.info(f"FastEmbed: using local cached model at {model_arg}")
         except ImportError:
             raise ImportError("FastEmbed package is not installed. Please install it with `pip install fastembed`.")
         except Exception as e:
