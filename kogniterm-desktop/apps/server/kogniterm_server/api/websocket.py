@@ -309,7 +309,7 @@ async def websocket_chat(websocket: WebSocket):
                             tool_id = tc.get('id')
                             
                             # Buscar la herramienta
-                            tool = adapter.llm_service.tool_manager.get_tool(tool_name)
+                            tool = adapter.llm_service.get_tool(tool_name)
                             result_content = ""
                             
                             if tool:

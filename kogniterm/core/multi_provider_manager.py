@@ -134,17 +134,22 @@ class ProviderConfig:
         if not self.enabled:
             return False
             
+        # Soporte para forzar local o cloud mediante OLLAMA_PROVIDER_TARGET
+        target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
+        if self.name == "ollama_cloud" and target in ["local", "ollama"]:
+            return False
+        if self.name == "ollama" and target in ["cloud", "ollama_cloud"]:
+            return False
+
         # Para Ollama local o cloud con base personalizada, puede no requerir API Key
         if self.model_prefix == "ollama":
             # Si tiene base personalizada (local, proxy o IP privada), se considera configurado
             api_base = self.get_api_base()
             if api_base:
-                # Si es un endpoint local o explícitamente configurado por el usuario, 
-                # permitimos que no tenga API Key.
                 if any(x in api_base for x in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
                     return True
                 # Si el usuario configuró OLLAMA_API_BASE manualmente, asumimos que sabe lo que hace
-                if os.getenv("OLLAMA_API_BASE"):
+                if os.getenv("OLLAMA_API_BASE") and self.name == "ollama":
                     return True
 
             # Para Ollama Cloud u otros, requerimos API Key
@@ -218,6 +223,14 @@ DEFAULT_PROVIDERS = [
         api_base_env="ZHIPUAI_API_BASE",
         priority=70,
         fallback_on_error_codes=["429", "503"]
+    ),
+    ProviderConfig(
+        name="kilocode",
+        model_prefix="kilocode",
+        api_key_env="KILOCODE_API_KEY",
+        api_base="https://api.kilo.ai/api/gateway/",
+        priority=15,
+        fallback_on_error_codes=["429", "503", "timeout"]
     ),
 ]
 
@@ -311,13 +324,36 @@ class MultiProviderManager:
         Ejecuta una solicitud con el proveedor adecuado.
         Prioriza el proveedor si el prefijo del modelo coincide.
         """
-        # Intentar detectar proveedor por prefijo (ej: 'gemini/...' -> google)
+        # Intentar detectar proveedor por prefijo o nombre (ej: 'ollama-cloud/...' -> ollama_cloud)
         provider = None
         if "/" in model_name:
-            prefix = model_name.split("/")[0]
-            provider = next((p for p in self.get_available_providers() if p.model_prefix == prefix), None)
+            parts = model_name.split("/", 1)
+            prefix = parts[0]
+            available = self.get_available_providers()
+            
+            # 1. Coincidencia exacta con el nombre del proveedor (ej: 'ollama_cloud')
+            provider = next((p for p in available if p.name == prefix), None)
+            
+            # 2. Coincidencia con nombre normalizado (ej: 'ollama-cloud' -> 'ollama_cloud')
+            if not provider:
+                normalized_prefix = prefix.replace("-", "_")
+                provider = next((p for p in available if p.name == normalized_prefix), None)
+                
+            # 3. Coincidencia con prefijo de modelo (ej: 'ollama')
+            if not provider:
+                provider = next((p for p in available if p.model_prefix == prefix), None)
         
-        # Si no hay coincidencia por prefijo, usar el primario por prioridad
+        # 4. Detección heurística por nombre de modelo
+        if not provider:
+            lower_model = model_name.lower()
+            if lower_model.startswith("gemini"):
+                provider = next((p for p in available if p.name == "google"), None)
+            elif "gpt" in lower_model:
+                provider = next((p for p in available if p.name == "openai"), None)
+            elif "claude" in lower_model:
+                provider = next((p for p in available if p.name == "anthropic"), None)
+
+        # Si no hay coincidencia por prefijo o heurística, usar el primario por prioridad
         if not provider:
             provider = self.get_primary_provider()
         
@@ -328,32 +364,59 @@ class MultiProviderManager:
             logger.info(f"Usando proveedor: {provider.name}")
             
             # Construir nombre completo del modelo
-            full_model_name = self._build_model_name(provider, model_name)
+            if "/" in model_name:
+                # Extraer solo el modelo real si ya traía prefijo
+                actual_model = model_name.split("/", 1)[1]
+            else:
+                actual_model = model_name
+
+            # Ajuste para Ollama Cloud: Usar prefijo estándar 'ollama/' para asegurar que LiteLLM lo reconozca y lo limpie
+            if provider.name == "ollama_cloud":
+                full_model_name = f"ollama/{actual_model}"
+            else:
+                full_model_name = f"{provider.model_prefix}/{actual_model}"
             
             # Preparar kwargs para LiteLLM
             completion_kwargs = {
                 "model": full_model_name,
                 "messages": messages,
                 "stream": stream,
-                "api_key": provider.get_api_key(),
+                "api_key": kwargs.get("api_key") or provider.get_api_key(),
                 "temperature": temperature,
                 "max_tokens": max_tokens,
                 "timeout": provider.timeout_seconds,
                 "num_retries": provider.max_retries,
             }
+
+            # Forzar el proveedor para Ollama para evitar ambigüedades con la api_base
+            if provider.model_prefix == "ollama":
+                completion_kwargs["custom_llm_provider"] = "ollama"
             
             if tools:
                 completion_kwargs["tools"] = tools
             
-            api_base = provider.get_api_base()
+            api_base = kwargs.get("api_base") or provider.get_api_base()
             if api_base:
                 completion_kwargs["api_base"] = api_base
+            
+            # Cabeceras especiales por proveedor
+            completion_kwargs["headers"] = {}
             
             if provider.name == "openrouter":
                 completion_kwargs["headers"] = {
                     "HTTP-Referer": "https://github.com/gatovillano/KogniTerm",
                     "X-Title": "KogniTerm"
                 }
+            elif provider.name == "ollama_cloud":
+                key = provider.get_api_key()
+                if key:
+                    completion_kwargs["headers"] = {
+                        "Authorization": f"Bearer {key}"
+                    }
+            
+            # Eliminar headers si están vacíos
+            if not completion_kwargs["headers"]:
+                del completion_kwargs["headers"]
             
             start_time = time.time()
             response = completion(**completion_kwargs)
@@ -364,8 +427,11 @@ class MultiProviderManager:
             
             logger.info(f"✅ Solicitud exitosa con {provider.name} ({latency_ms:.2f}ms)")
             
-            for chunk in response:
-                yield chunk
+            if stream:
+                for chunk in response:
+                    yield chunk
+            else:
+                yield response
                 
         except Exception as e:
             error_msg = self._clean_error_message(e)
@@ -379,10 +445,6 @@ class MultiProviderManager:
     def execute_with_fallback(self, *args, **kwargs):
         """Alias para mantener compatibilidad con el resto del código."""
         return self.execute(*args, **kwargs)
-        
-        # Si llegamos aquí, todos los proveedores fallaron
-        logger.error(f"Todos los proveedores fallaron. Último error: {last_error}")
-        raise last_error or Exception("No se pudo completar la solicitud con ningún proveedor")
     
     def _build_model_name(self, provider: ProviderConfig, model_name: str) -> str:
         """Construye el nombre completo del modelo para un proveedor."""

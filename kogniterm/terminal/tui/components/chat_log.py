@@ -1,5 +1,5 @@
 from textual.widgets import Static
-from textual.containers import VerticalScroll
+from textual.containers import VerticalScroll, Horizontal
 from kogniterm.terminal.themes import ColorPalette
 
 from rich.panel import Panel
@@ -9,6 +9,8 @@ from rich.align import Align
 from rich.markdown import Markdown
 from rich.console import Group
 from rich import box
+
+from .tool_output import ToolOutputWidget
 
 class MessageWidget(Static):
     """Widget para representar un mensaje individual en el chat."""
@@ -54,11 +56,24 @@ class ChatLogWidget(VerticalScroll):
         # Si es un simple string, lo envolvemos para padding
         if isinstance(renderable, str):
              renderable = Text(renderable)
-             
-        widget = MessageWidget(Padding(renderable, (1, 0)))
-        self.mount(widget)
-        self.scroll_end(animate=False)
-        return widget
+        def _mount_msg(r):
+            try:
+                widget = MessageWidget(Padding(r, (1, 0)))
+                self.mount(widget)
+                self.scroll_end(animate=False)
+                return widget
+            except Exception:
+                return None
+
+        try:
+            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+                # call_from_thread will schedule the mount on the main thread
+                self.app.call_from_thread(_mount_msg, renderable)
+                return None
+        except Exception:
+            pass
+
+        return _mount_msg(renderable)
 
     def write_user_message(self, text: str):
         """Escribe un mensaje de usuario con línea vertical izquierda."""
@@ -85,16 +100,24 @@ class ChatLogWidget(VerticalScroll):
         # El diseño original era muy específico, vamos a recrearlo con un renderable custom.
         
         # Recreación del diseño con pipes:
-        available_width = self._get_available_width() - 4
+        # El ChatLogWidget ya tiene scrollbar-gutter: stable, pero queremos que el texto
+        # empiece en la misma columna que el input (col 4).
+        # El pipe '┃ ' ocupa 2 chars. Añadimos 2 espacios iniciales para llegar a 4.
+        # Ajustamos el ancho para que coincida exactamente con los mensajes del Agente.
+        # El Agente usa Padding(..., (1, 0, 1, 4)), por lo que su texto tiene width - 4.
+        # Aquí el pipe "  ┃ " ya ocupa 4 caracteres, por lo que el texto restante debe ser width - 4.
+        # Preparar las líneas (objetos Rich) en este hilo; crear y montar
+        # widgets debe ejecutarse en el hilo principal de la aplicación Textual.
+        available_width = self._get_available_width()
         console = Console(width=available_width)
-        
+
         input_lines = text.split('\n')
         rendered_lines = []
         for input_line in input_lines:
             if not input_line.strip() and not input_line:
-                rendered_lines.append(Text.assemble(("┃", pipe_color)))
+                rendered_lines.append(Text.assemble(("  ┃", pipe_color)))
                 continue
-            
+
             try:
                 if "[" in input_line and "]" in input_line:
                     t = Text.from_markup(input_line, style=text_color)
@@ -105,18 +128,56 @@ class ChatLogWidget(VerticalScroll):
 
             wrapped_sublines = list(t.wrap(console, available_width))
             if not wrapped_sublines:
-                rendered_lines.append(Text.assemble(("┃", pipe_color)))
+                rendered_lines.append(Text.assemble(("  ┃", pipe_color)))
             else:
                 for subline in wrapped_sublines:
-                    rendered_lines.append(Text.assemble(("┃ ", pipe_color), subline))
+                    rendered_lines.append(Text.assemble(("  ┃ ", pipe_color), subline))
 
-        widget = MessageWidget(Padding(Group("", *rendered_lines, ""), (1, 0)))
-        self.mount(widget)
-        
-        # Cerrar cualquier streaming activo al enviar mensaje nuevo
-        self._active_message_widget = None
-        
-        self.scroll_end(animate=False)
+        def _mount_user_message(lines):
+            # Crear los widgets y montarlos en el hilo principal
+            try:
+                row = Horizontal()
+                left = Static(Text.assemble(("  ┃ ", pipe_color)))
+                try:
+                    left.styles.width = 4
+                    left.styles.min_width = 4
+                except Exception:
+                    pass
+
+                right = Static(Padding(Group(*lines), (0, 1)))
+                try:
+                    right.styles.flex = 1
+                except Exception:
+                    pass
+                right.styles.background = ColorPalette.GRAY_800
+
+                row.mount(left)
+                row.mount(right)
+                self.mount(row)
+                self._active_message_widget = None
+                self.scroll_end(animate=False)
+            except Exception:
+                # En caso de fallo, intentar montar de forma simple
+                try:
+                    widget = MessageWidget(Padding(Group(*lines), (0, 0)), classes="user-message")
+                    widget.styles.background = ColorPalette.GRAY_800
+                    self.mount(widget)
+                    self._active_message_widget = None
+                    self.scroll_end(animate=False)
+                except Exception:
+                    pass
+
+        # Preferir ejecutar el montaje en el hilo principal de la app
+        try:
+            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+                # call_from_thread acepta la función y argumentos
+                self.app.call_from_thread(_mount_user_message, rendered_lines)
+                return
+        except Exception:
+            pass
+
+        # Fallback: intentar montar directamente (si ya estamos en el hilo principal)
+        _mount_user_message(rendered_lines)
 
     def write_agent_message(self, text: str):
         """Escribe un mensaje de agente."""
@@ -128,10 +189,29 @@ class ChatLogWidget(VerticalScroll):
             except: text = str(text)
         
         markdown_content = Markdown(text)
-        widget = MessageWidget(Padding(markdown_content, (1, 0, 1, 4)))
-        self.mount(widget)
-        self.scroll_end(animate=False)
 
+        def _mount_agent(md):
+            try:
+                widget = MessageWidget(Padding(md, (1, 0, 1, 4)))
+                self.mount(widget)
+                self.scroll_end(animate=False)
+            except Exception:
+                try:
+                    # Fallback simple
+                    widget = MessageWidget(Padding(md, (1, 0)))
+                    self.mount(widget)
+                    self.scroll_end(animate=False)
+                except Exception:
+                    pass
+
+        try:
+            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+                self.app.call_from_thread(_mount_agent, markdown_content)
+                return
+        except Exception:
+            pass
+
+        _mount_agent(markdown_content)
     def write_stream(self, content):
         """
         Escribe contenido de streaming al log. 
@@ -143,17 +223,26 @@ class ChatLogWidget(VerticalScroll):
         renderable = content
         if isinstance(content, str):
             renderable = Padding(content, (1, 0, 1, 4))
-            
-        if self._active_message_widget is None:
-            # Crear nuevo widget para el stream. El renderable de bash_agent 
-            # ya incluye su propio padding (0, 4).
-            self._active_message_widget = MessageWidget(renderable)
-            self.mount(self._active_message_widget)
-        else:
-            self._active_message_widget.update(renderable)
-        
-        # Asegurar visibilidad
-        self.scroll_end(animate=False)
+
+        def _mount_or_update(r):
+            try:
+                if self._active_message_widget is None:
+                    self._active_message_widget = MessageWidget(r)
+                    self.mount(self._active_message_widget)
+                else:
+                    self._active_message_widget.update(r)
+                self.scroll_end(animate=False)
+            except Exception:
+                pass
+
+        try:
+            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+                self.app.call_from_thread(_mount_or_update, renderable)
+                return
+        except Exception:
+            pass
+
+        _mount_or_update(renderable)
 
     def stop_stream(self):
         """Finaliza el streaming actual."""
@@ -175,9 +264,42 @@ class ChatLogWidget(VerticalScroll):
             line2.append(action_desc, style=f"italic {ColorPalette.TEXT_SECONDARY}")
             lines.append(line2)
         
-        widget = MessageWidget(Padding(Group(*lines), (1, 0)))
-        self.mount(widget)
-        self.scroll_end(animate=False)
+        def _mount_tool_notify(lines_group):
+            try:
+                widget = MessageWidget(Padding(lines_group, (1, 0)))
+                self.mount(widget)
+                self.scroll_end(animate=False)
+            except Exception:
+                pass
+
+        try:
+            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+                self.app.call_from_thread(_mount_tool_notify, Group(*lines))
+                return
+        except Exception:
+            pass
+
+        _mount_tool_notify(Group(*lines))
+
+    def write_tool_output(self, content: str, tool_name: str, language: str = None):
+        """Escribe la salida de una herramienta usando el ToolOutputWidget."""
+        def _mount_tool_output(c, tname, lang):
+            try:
+                widget = ToolOutputWidget(c, tname, language=lang)
+                self.mount(widget)
+                self.scroll_end(animate=False)
+                return widget
+            except Exception:
+                return None
+
+        try:
+            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+                self.app.call_from_thread(_mount_tool_output, content, tool_name, language)
+                return None
+        except Exception:
+            pass
+
+        return _mount_tool_output(content, tool_name, language)
 
     def clear(self):
         """Limpia el chat log."""

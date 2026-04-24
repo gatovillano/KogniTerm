@@ -3,6 +3,7 @@ import asyncio
 import os
 import threading
 from kogniterm.core.llm_service import LLMService
+from kogniterm.core.insights import KogniInsightsEngine
 from kogniterm.core.agents.bash_agent import AgentState, get_system_message
 from kogniterm.terminal.terminal_ui import TerminalUI
 from langchain_core.messages import AIMessage
@@ -76,9 +77,22 @@ class MetaCommandProcessor:
             if hasattr(self.terminal_ui, "clear_chat"):
                 self.terminal_ui.clear_chat()
             else:
-                self.terminal_ui.console.clear()
+                # Intentar limpiar la consola y refrescar el tema/console para evitar
+                # glitches de renderizado (ej. el banner dividido en franjas tras %reset).
+                try:
+                    self.terminal_ui.console.clear()
+                except Exception:
+                    pass
+                # Recrear la consola (si aplica) para reaplicar opciones de Rich
+                try:
+                    self.terminal_ui.refresh_theme()
+                except Exception:
+                    pass
+                # Finalmente volver a imprimir el banner
                 self.terminal_ui.print_welcome_banner()
             self.terminal_ui.print_message(f"Conversación reiniciada.", style="green")
+            if hasattr(self.kogniterm_app, "session_manager") and self.kogniterm_app.session_manager:
+                self.kogniterm_app.session_manager.current_session_name = None
             return True
 
         if user_input.lower().strip() == '%undo':
@@ -236,11 +250,64 @@ class MetaCommandProcessor:
 
             return True
 
+        if user_input.lower().strip().startswith('%resume'):
+            # %resume [nombre] -> Si no hay nombre, mostrar selector de sesiones recientes
+            parts = user_input.strip().split()
+            name = parts[1] if len(parts) > 1 else None
+            session_manager = getattr(self.kogniterm_app, 'session_manager', None)
+            if not session_manager:
+                self.terminal_ui.print_message("Gestor de sesiones no disponible.", style="red")
+                return True
+
+            sessions = session_manager.list_sessions()
+            if not sessions:
+                self.terminal_ui.print_message("No hay sesiones guardadas para reanudar.", style="yellow")
+                return True
+
+            if not name:
+                options = [(s['name'], f"{s['name']} — {s['modified']} ({s['messages']} msgs)") for s in sessions]
+                selected = await self._show_radiolist(title="Reanudar Sesión", text="Selecciona una sesión para reanudar:", values=options)
+                if not selected:
+                    self.terminal_ui.print_message("Selección cancelada.", style="dim")
+                    return True
+                name = selected
+
+            history = session_manager.load_session(name)
+            if history:
+                # Reemplazar el historial activo con la sesión seleccionada
+                self.llm_service.conversation_history = history
+                # Sincronizar agent_state
+                self.agent_state.messages = history.copy()
+                # Persistir como historial activo (intentar, sin fallar si no funciona)
+                try:
+                    self.llm_service._save_history(self.llm_service.conversation_history)
+                except Exception:
+                    pass
+                # Marcar sesión como actual en el SessionManager
+                try:
+                    session_manager.current_session_name = name
+                except Exception:
+                    pass
+
+                # Limpiar UI y notificar
+                if hasattr(self.terminal_ui, "clear_chat"):
+                    self.terminal_ui.clear_chat()
+                else:
+                    try:
+                        self.terminal_ui.console.clear()
+                    except Exception:
+                        pass
+                self.terminal_ui.print_message(f"Sesión '{name}' reanudada. Historial cargado.", style="green")
+            else:
+                self.terminal_ui.print_message(f"No se pudo cargar la sesión '{name}'.", style="red")
+            return True
+
         if user_input.lower().strip() == '%help':
             from prompt_toolkit.shortcuts import radiolist_dialog
             
             help_options = [
                 ("%models", "🤖 Cambiar Modelo de IA (Seleccionar modelo del proveedor actual)"),
+                ("%summarymodel", "📝 Cambiar Modelo de Resumen (Para comprimir historial)"),
                 ("%provider", "🌐 Cambiar Proveedor de LLM (OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud)"),
                 ("%keys", "🔑 Gestionar API Keys (Configurar llaves de proveedores)"),
                 ("%embeddings", "🧠 Configurar Embeddings (Local/FastEmbed, Gemini, OpenAI, etc.)"),
@@ -249,7 +316,9 @@ class MetaCommandProcessor:
                 ("%compress [force]", "🗜️ Comprimir Historial (Usa 'force' si excede límites)"),
                 ("%theme", "🎨 Cambiar Tema (Ver lista de temas disponibles)"),
                 ("%session", "🗂️ Gestión de Sesiones (list, save, load, new, delete)"),
+                ("%resume", "🔁 Reanudar Sesión (Reanuda una sesión guardada)"),
                 ("%mouse", "🖱️ Alternar Ratón (Activa/Desactiva selección nativa)"),
+                ("%insights", "📊 Analitica de Uso (Costos, Tokens, Patrones)"),
                 ("%init", "📁 Inicializar Contexto (Indexar archivos clave)"),
                 ("%salir", "🚪 Salir de KogniTerm"),
             ]
@@ -262,7 +331,7 @@ class MetaCommandProcessor:
 
             if selected_command:
                 # Ejecutar comandos directos
-                if selected_command in ["%models", "%provider", "%keys", "%reset", "%compress", "%undo", "%mouse", "%salir"]:
+                if selected_command in ["%models", "%summarymodel", "%provider", "%keys", "%reset", "%compress", "%undo", "%mouse", "%salir", "%resume"]:
                     # Llamada recursiva para procesar el comando seleccionado
                     return await self.process_meta_command(selected_command)
                 
@@ -415,27 +484,26 @@ class MetaCommandProcessor:
             async def _fetch_ollama_cloud_models():
                 try:
                     self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de Ollama Cloud...", style="dim")
-                    # Obtener API key de Ollama Cloud si existe
                     api_key = os.getenv("OLLAMA_CLOUD_API_KEY")
                     headers = {}
                     if api_key:
                         headers["Authorization"] = f"Bearer {api_key}"
-                    
+                    import httpx
                     async with httpx.AsyncClient() as client:
                         response = await client.get("https://ollama.com/api/tags", headers=headers)
                         if response.status_code == 200:
                             data = response.json()
+                            if not isinstance(data, dict) or 'models' not in data:
+                                self.terminal_ui.print_message("⚠️ Respuesta inesperada de Ollama Cloud: no se encontró la clave 'models'", style="yellow")
+                                return []
                             models = []
                             for m in data.get('models', []):
                                 model_id = f"ollama/{m['name']}"
                                 name = m.get('name', m['name'])
                                 size = m.get('size', 0)
                                 size_str = f" ({size / (1024**3):.1f} GB)" if size else ""
-                                
                                 label = f"{name}{size_str}"
                                 models.append((model_id, label))
-                            
-                            # Ordenar alfabéticamente
                             models.sort(key=lambda x: x[1])
                             return models
                         else:
@@ -443,6 +511,121 @@ class MetaCommandProcessor:
                             return []
                 except Exception as e:
                     self.terminal_ui.print_message(f"⚠️ Excepción al conectar con Ollama Cloud: {e}", style="red")
+                    return []
+
+            # Función auxiliar para obtener modelos de KiloCode Gateway
+            async def _fetch_kilocode_models():
+                try:
+                    api_key = os.getenv("KILOCODE_API_KEY")
+                    if not api_key:
+                        self.terminal_ui.print_message("⚠️ No se encontró KILOCODE_API_KEY en el entorno.", style="yellow")
+                        return []
+
+                    self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de KiloCode Gateway...", style="dim")
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            "https://api.kilo.ai/api/gateway/models",
+                            headers={"Authorization": f"Bearer {api_key}"},
+                            timeout=30.0
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = []
+                            # KiloCode devuelve una lista directamente o con clave 'models' según la docs
+                            model_list = data if isinstance(data, list) else data.get('models', data.get('data', []))
+                            for m in model_list:
+                                # El ID puede venir como 'kilocode/xxx' o solo 'xxx'
+                                model_id = m.get('id', m.get('model', ''))
+                                if not model_id.startswith('kilocode/'):
+                                    model_id = f"kilocode/{model_id}"
+                                name = m.get('name', m.get('id', model_id))
+                                # Precio si está disponible
+                                pricing = m.get('pricing', {})
+                                price_str = ""
+                                if pricing:
+                                    prompt = float(pricing.get('prompt', 0)) * 1000000
+                                    completion = float(pricing.get('completion', 0)) * 1000000
+                                    price_str = f" [${prompt:.2f}/M in, ${completion:.2f}/M out]"
+                                # Context length
+                                context = m.get('context_length', m.get('context', 0))
+                                context_str = f" ({int(context/1024)}k ctx)" if context else ""
+                                label = f"{name}{context_str}{price_str}"
+                                models.append((model_id, label))
+
+                            models.sort(key=lambda x: x[1])
+                            return models
+                        else:
+                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de KiloCode: {response.status_code}", style="yellow")
+                            return []
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ Excepción al conectar con KiloCode Gateway: {e}", style="red")
+                    return []
+
+            # Función auxiliar para obtener modelos de Ollama Local
+            async def _fetch_ollama_local_models():
+                try:
+                    ollama_url = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434/v1")
+                    # Construir varias rutas candidatas para compatibilidad (/api/tags, /tags, /v1/tags)
+                    base = ollama_url.rstrip('/')
+                    # Normalizar si el usuario proporcionó /v1 o /api
+                    if base.endswith('/v1'):
+                        base = base[:-3].rstrip('/')
+                    if base.endswith('/api'):
+                        base = base[:-4].rstrip('/')
+                    candidates = [
+                        base + "/api/tags",
+                        base + "/tags",
+                        ollama_url.rstrip('/') + "/tags",
+                    ]
+                    # Mostrar las rutas que vamos a intentar
+                    self.terminal_ui.print_message(f"⏳ Obteniendo modelos de Ollama Local en {candidates[0]} (probando alternativas)...", style="dim")
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        response = None
+                        for url in candidates:
+                            try:
+                                response = await client.get(url)
+                                if response.status_code == 200:
+                                    break
+                            except Exception:
+                                response = None
+                                continue
+                        if not response:
+                            self.terminal_ui.print_message("⚠️ No se pudo conectar a Ollama Local en las rutas esperadas.", style="yellow")
+                            return []
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = []
+                            # Aceptar varias formas de respuesta: {'models': [...]}, {'data': [...]}, o una lista
+                            if isinstance(data, dict) and 'models' in data:
+                                items = data.get('models', [])
+                            elif isinstance(data, dict) and 'data' in data:
+                                items = data.get('data', [])
+                            elif isinstance(data, list):
+                                items = data
+                            else:
+                                items = []
+                            for m in items:
+                                # m puede ser un dict con 'name' o una cadena
+                                if isinstance(m, dict):
+                                    name = m.get('name') or m.get('id')
+                                elif isinstance(m, str):
+                                    name = m
+                                else:
+                                    name = None
+                                if not name:
+                                    continue
+                                model_id = f"ollama/{name}"
+                                label = name
+                                models.append((model_id, label))
+                            models.sort(key=lambda x: x[1])
+                            return models
+                        else:
+                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de Ollama Local: {response.status_code}", style="yellow")
+                            return []
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ Excepción al conectar con Ollama Local: {e}", style="red")
                     return []
 
             current_model = self.llm_service.model_name
@@ -454,18 +637,44 @@ class MetaCommandProcessor:
             elif current_model.startswith("gemini/"):
                 current_provider = "google"
             elif current_model.startswith("ollama/"):
-                current_provider = "ollama_cloud"
+                # Distinguir entre local y cloud según variables de entorno y configuración explícita.
+                api_base = os.environ.get("OLLAMA_API_BASE")
+                cloud_base = os.environ.get("OLLAMA_CLOUD_API_BASE", "https://ollama.com")
+                cloud_key = os.environ.get("OLLAMA_CLOUD_API_KEY")
+                explicit = (os.environ.get("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
+
+                if explicit in ["cloud", "ollama_cloud"]:
+                    current_provider = "ollama_cloud" if (cloud_key or cloud_base) else "ollama"
+                elif explicit in ["local", "ollama"]:
+                    current_provider = "ollama"
+                else:
+                    if api_base:
+                        # Si la base apunta a localhost, es local
+                        if any(h in api_base for h in ("localhost", "127.0.0.1", "0.0.0.0", "::1")):
+                            current_provider = "ollama"
+                        # Si la base menciona ollama.com o es HTTPS y hay clave cloud, asumir cloud
+                        elif "ollama.com" in api_base or (api_base.startswith("https://") and cloud_key):
+                            current_provider = "ollama_cloud"
+                        else:
+                            # Base personalizada no identificada: preferir local
+                            current_provider = "ollama"
+                    else:
+                        # Sin API_BASE: si hay clave cloud, preferir cloud para evitar usar local por defecto si no está configurado
+                        # Pero si no hay clave cloud, el único que queda es local.
+                        # MEJORA: Si estamos aquí y el modelo no tiene prefijo cloud, preferir local.
+                        current_provider = "ollama" if not cloud_key else "ollama_cloud"
             elif "gpt" in current_model:
                 current_provider = "openai"
             elif "claude" in current_model:
                 current_provider = "anthropic"
+            elif "kilocode" in current_model:
+                current_provider = "kilocode"
             
             target_list = []
 
             # Obtener lista según proveedor
             if current_provider == "openrouter":
                 target_list = await _fetch_openrouter_models()
-                # Fallback si falla la API
                 if not target_list:
                     target_list = [
                         ("openrouter/google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash Exp (Free)"),
@@ -475,7 +684,6 @@ class MetaCommandProcessor:
                     ]
             elif current_provider == "google":
                 target_list = await _fetch_google_models()
-                # Fallback si falla la API
                 if not target_list:
                     target_list = [
                         ("gemini/gemini-2.0-flash-exp", "Gemini 2.0 Flash Exp"),
@@ -484,16 +692,21 @@ class MetaCommandProcessor:
                         ("gemini/gemini-1.5-flash-8b", "Gemini 1.5 Flash 8B"),
                         ("gemini/gemini-1.0-pro", "Gemini 1.0 Pro"),
                     ]
-            elif current_provider == "ollama_cloud":
-                target_list = await _fetch_ollama_cloud_models()
-                # Fallback si falla la API
+            elif current_provider == "ollama":
+                target_list = await _fetch_ollama_local_models()
                 if not target_list:
                     target_list = [
-                        ("ollama/llama3", "Llama 3"),
-                        ("ollama/mistral", "Mistral"),
-                        ("ollama/phi3", "Phi-3"),
-                        ("ollama/codellama", "CodeLlama"),
+                        ("ollama/llama3", "Llama 3 (local)"),
+                        ("ollama/mistral", "Mistral (local)"),
+                        ("ollama/phi3", "Phi-3 (local)"),
+                        ("ollama/codellama", "CodeLlama (local)"),
                     ]
+            elif current_provider == "ollama_cloud":
+                target_list = await _fetch_ollama_cloud_models()
+                # Si no hay modelos, mostrar solo un mensaje, no hacer fallback a OpenRouter
+                if not target_list:
+                    self.terminal_ui.print_message("⚠️ No se encontraron modelos en Ollama Cloud. Verifica tu API Key o acceso.", style="yellow")
+                    target_list = []
             elif current_provider == "openai":
                 target_list = [
                     ("gpt-4o", "GPT-4o"),
@@ -509,8 +722,17 @@ class MetaCommandProcessor:
                     ("claude-3-haiku-20240307", "Claude 3 Haiku"),
                     ("claude-2.1", "Claude 2.1"),
                 ]
+            elif current_provider == "kilocode":
+                target_list = await _fetch_kilocode_models()
+                if not target_list:
+                    # Fallback a lista básica si la API falla
+                    target_list = [
+                        ("kilocode/kilo/auto", "Kilo Auto (Smart Routing)"),
+                        ("kilocode/anthropic/claude-sonnet-4", "Claude Sonnet 4 via Kilo"),
+                        ("kilocode/openai/gpt-4o", "GPT-4o via Kilo"),
+                        ("kilocode/google/gemini-3-pro-preview", "Gemini 3 Pro via Kilo"),
+                    ]
             else:
-                # Si no se reconoce, mostrar una mezcla o OpenRouter por defecto
                 target_list = await _fetch_openrouter_models()
 
             # Crear lista de opciones para el diálogo
@@ -568,6 +790,161 @@ class MetaCommandProcessor:
             
             return True
 
+        if user_input.lower().strip() == '%summarymodel':
+            """Permite cambiar el modelo usado para resumir/comprimir el historial."""
+            current_summary_model = self.llm_service.summary_model
+            current_model = self.llm_service.model_name
+            current_provider = self.llm_service.model_name.split('/')[0] if '/' in self.llm_service.model_name else 'google'
+            
+            # Función auxiliar para obtener modelos (reutilizada de %models)
+            async def _fetch_google_models():
+                try:
+                    google_key = os.environ.get("GOOGLE_API_KEY")
+                    if not google_key:
+                        self.terminal_ui.print_message("⚠️ No se encontró GOOGLE_API_KEY en el entorno.", style="yellow")
+                        return []
+                    
+                    self.terminal_ui.print_message("⏳ Obteniendo modelos actualizados de Google AI...", style="dim")
+                    async with httpx.AsyncClient() as client:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}"
+                        response = await client.get(url)
+                        
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = []
+                            for m in data.get('models', []):
+                                if 'generateContent' in m.get('supportedGenerationMethods', []):
+                                    model_id = m['name'].replace('models/', 'gemini/')
+                                    display_name = m.get('displayName', m['name'].split('/')[-1])
+                                    version = ""
+                                    if "1.5" in model_id: version = " (1.5)"
+                                    elif "2.0" in model_id: version = " (2.0)"
+                                    label = f"{display_name}{version}"
+                                    models.append((model_id, label))
+                            
+                            models.sort(key=lambda x: x[0], reverse=True)
+                            return models
+                        else:
+                            self.terminal_ui.print_message(f"⚠️ Error API Google: {response.status_code}", style="yellow")
+                            return []
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ Error al conectar con Google: {e}", style="red")
+                    return []
+
+            async def _fetch_openrouter_models():
+                try:
+                    self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de OpenRouter...", style="dim")
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get("https://openrouter.ai/api/v1/models")
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = []
+                            for m in data.get('data', []):
+                                model_id = f"openrouter/{m['id']}"
+                                name = m.get('name', m['id'])
+                                pricing = m.get('pricing', {})
+                                price_str = ""
+                                if pricing:
+                                    prompt = float(pricing.get('prompt', 0)) * 1000000
+                                    completion = float(pricing.get('completion', 0)) * 1000000
+                                    price_str = f" [${prompt:.2f}/M in, ${completion:.2f}/M out]"
+                                
+                                context_length = m.get('context_length', 0)
+                                context_str = f" ({int(context_length/1024)}k ctx)" if context_length else ""
+                                
+                                label = f"{name}{context_str}{price_str}"
+                                models.append((model_id, label))
+                            
+                            models.sort(key=lambda x: x[1])
+                            return models
+                        else:
+                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de OpenRouter: {response.status_code}", style="yellow")
+                            return []
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ Error al conectar con OpenRouter: {e}", style="red")
+                    return []
+
+            async def _fetch_ollama_cloud_models():
+                try:
+                    self.terminal_ui.print_message("⏳ Obteniendo modelos de Ollama Cloud...", style="dim")
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(
+                            "https://ollama.com/api/models",
+                            headers={"Authorization": f"Bearer {os.environ.get('OLLAMA_CLOUD_API_KEY', '')}"}
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = []
+                            for m in data.get('models', []):
+                                model_id = f"ollama/{m.get('name', m.get('id'))}"
+                                label = m.get('name', m.get('id'))
+                                models.append((model_id, label))
+                            models.sort(key=lambda x: x[1])
+                            return models
+                        else:
+                            return []
+                except Exception:
+                    return []
+
+            # Obtener lista de modelos según el proveedor actual
+            if current_provider in ["google", "gemini"]:
+                target_list = await _fetch_google_models()
+            elif current_provider == "ollama_cloud":
+                target_list = await _fetch_ollama_cloud_models()
+            elif current_provider == "openai":
+                target_list = [
+                    ("gpt-4o", "GPT-4o"),
+                    ("gpt-4o-mini", "GPT-4o Mini"),
+                    ("gpt-4-turbo", "GPT-4 Turbo"),
+                ]
+            elif current_provider == "anthropic":
+                target_list = [
+                    ("claude-3-5-sonnet-20240620", "Claude 3.5 Sonnet"),
+                    ("claude-3-opus-20240229", "Claude 3 Opus"),
+                ]
+            else:
+                target_list = await _fetch_openrouter_models()
+
+            # Agregar opción para usar el mismo que el modelo principal
+            values = [(current_model, f"Usar modelo principal ({current_model}) [Recomendado]")]
+            for model_id, model_label in target_list:
+                if model_id != current_model:
+                    values.append((model_id, model_label))
+            
+            # También agregar opción de Gemini 1.5 Flash como fallback gratuito
+            if current_model != "gemini/gemini-1.5-flash":
+                values.append(("gemini/gemini-1.5-flash", "Gemini 1.5 Flash (Gratis, rápido)"))
+            
+            selected_model = await self._show_radiolist(
+                title="Seleccionar Modelo de Resumen",
+                text=f"Modelo actual de resumen: {current_summary_model}\nModelo principal: {current_model}\n\nEste modelo se usa para comprimir el historial con %compress:",
+                values=values,
+                default=current_summary_model
+            )
+
+            if selected_model:
+                if selected_model != current_summary_model:
+                    try:
+                        self.llm_service.set_summary_model(selected_model)
+                        
+                        # Persistir en .env y ConfigManager
+                        if DOTENV_AVAILABLE:
+                            dotenv_path = find_dotenv()
+                            if dotenv_path:
+                                set_key(dotenv_path, "SUMMARY_MODEL", selected_model)
+                        
+                        config_manager = ConfigManager()
+                        config_manager.set_global_config("summary_model", selected_model)
+                        
+                        self.terminal_ui.print_message(f"✅ Modelo de resumen cambiado a: {selected_model}", style="green")
+                        self.terminal_ui.print_message(f"ℹ️  Este modelo se usará para comprimir el historial con %compress", style="dim")
+                    except Exception as e:
+                        self.terminal_ui.print_message(f"❌ Error al cambiar el modelo de resumen: {e}", style="red")
+                else:
+                    self.terminal_ui.print_message("Modelo de resumen no cambiado (selección idéntica).", style="dim")
+            
+            return True
+
         if user_input.lower().strip() == '%provider':
             from prompt_toolkit.shortcuts import radiolist_dialog
 
@@ -576,7 +953,9 @@ class MetaCommandProcessor:
                 ("google", "🤖 Google AI (Gemini nativo)"),
                 ("openai", "🧠 OpenAI (GPT-4, GPT-3.5)"),
                 ("anthropic", "🎭 Anthropic (Claude)"),
+                ("ollama", "🦙 Ollama Local (servidor local)",),
                 ("ollama_cloud", "☁️  Ollama Cloud (Modelos de Ollama)"),
+                ("kilocode", "⚡ KiloCode Gateway (Routing inteligente)"),
             ]
 
             selected_provider = await self._show_radiolist(
@@ -587,32 +966,64 @@ class MetaCommandProcessor:
 
             if selected_provider:
                 self.terminal_ui.print_message(f"Cambiando proveedor a: {selected_provider.capitalize()}...", style="yellow")
-                
                 # Definir modelo por defecto para cada proveedor
                 default_models = {
                     "openrouter": "openrouter/google/gemini-2.0-flash-exp:free",
                     "google": "gemini/gemini-1.5-flash",
                     "openai": "gpt-4o-mini",
                     "anthropic": "claude-3-5-sonnet-20240620",
-                    "ollama_cloud": "ollama/llama3"
+                    "ollama": "ollama/llama3",
+                    "ollama_cloud": "ollama/llama3",
+                    "kilocode": "kilocode/kilo/auto",
                 }
-                
                 new_model = default_models.get(selected_provider)
-                
+
+                ollama_url = None
+                if selected_provider == "ollama":
+                    ollama_url = await self._show_input(
+                        title="Configurar URL de Ollama Local",
+                        text="Introduce la URL de tu servidor Ollama local (ejemplo: http://localhost:11434/v1):"
+                    )
+                    if ollama_url:
+                        # Guardar en variable de entorno y persistir en .env si es posible
+                        os.environ["OLLAMA_API_BASE"] = ollama_url
+                        os.environ["OLLAMA_PROVIDER_TARGET"] = "local"
+                        if DOTENV_AVAILABLE:
+                            dotenv_path = find_dotenv()
+                            if dotenv_path:
+                                set_key(dotenv_path, "OLLAMA_API_BASE", ollama_url)
+                                set_key(dotenv_path, "OLLAMA_PROVIDER_TARGET", "local")
+                        # También persistir en ConfigManager si aplica
+                        config_manager = ConfigManager()
+                        config_manager.set_global_config("ollama_api_base", ollama_url)
+                        config_manager.set_global_config("ollama_provider_target", "local")
+                        self.terminal_ui.print_message(f"🔗 URL de Ollama Local configurada: {ollama_url}", style="dim")
+                        self.terminal_ui.print_message(f"🎯 Target de Ollama establecido a: LOCAL", style="dim")
+                    else:
+                        os.environ["OLLAMA_PROVIDER_TARGET"] = "local"
+                        if DOTENV_AVAILABLE:
+                            dotenv_path = find_dotenv()
+                            if dotenv_path: set_key(dotenv_path, "OLLAMA_PROVIDER_TARGET", "local")
+                        self.terminal_ui.print_message("⚠️  No se configuró URL de Ollama Local. Usando valor por defecto y estableciendo target a LOCAL.", style="yellow")
+
                 try:
+                    # Gestionar OLLAMA_PROVIDER_TARGET si es necesario
+                    if selected_provider == "ollama_cloud":
+                        os.environ["OLLAMA_PROVIDER_TARGET"] = "cloud"
+                        if DOTENV_AVAILABLE:
+                            dotenv_path = find_dotenv()
+                            if dotenv_path: set_key(dotenv_path, "OLLAMA_PROVIDER_TARGET", "cloud")
+                    
                     # Actualizar LLMService
                     self.llm_service.set_model(new_model)
-                    
                     # Persistir en .env si es posible
                     if DOTENV_AVAILABLE:
                         dotenv_path = find_dotenv()
                         if dotenv_path:
                             set_key(dotenv_path, "LITELLM_MODEL", new_model)
-                    
                     # Persistir en ConfigManager
                     config_manager = ConfigManager()
                     config_manager.set_global_config("default_model", new_model)
-                    
                     self.terminal_ui.print_message(f"✅ Proveedor cambiado a {selected_provider.capitalize()}.", style="green")
                     # Actualizar footer si estamos en TUI
                     if hasattr(self.kogniterm_app, "update_status_footer"):
@@ -630,6 +1041,9 @@ class MetaCommandProcessor:
 
         if user_input.lower().strip().startswith('%embeddings'):
             await self._manage_embeddings_interactive()
+            return True
+        if user_input.lower().strip().startswith('%insights'):
+            await self._process_insights_command(user_input)
             return True
 
         return False
@@ -825,6 +1239,70 @@ class MetaCommandProcessor:
             
         self.terminal_ui.console.print(Padding(table, (1, 2)))
         self.terminal_ui.print_message(f"Usa [bold cyan]%theme <nombre>[/bold cyan] para cambiar.", style="dim")
+
+    
+    async def _process_insights_command(self, user_input: str):
+        """Procesa el comando %insights para mostrar analitica de uso."""
+        parts = user_input.strip().split()
+        days = 30  # Default
+        
+        if len(parts) > 1:
+            try:
+                days = int(parts[1])
+            except ValueError:
+                self.terminal_ui.print_message("Uso incorrecto. Uso: %insights [dias]", style="yellow")
+                return
+        
+        self.terminal_ui.print_message(f"Generando reporte de analitica (ultimos {days} dias)...", style="dim")
+        
+        try:
+            insights = KogniInsightsEngine()
+            report = insights.generate_report(days=days)
+            
+            from rich.panel import Panel
+            from rich.table import Table
+            
+            # Panel de resumen
+            summary_data = []
+            summary_data.append(f"Total de Sesiones: {report['summary']['total_sessions']}")
+            summary_data.append(f"Costo Total: ${report['summary']['total_cost']:.4f}")
+            summary_data.append(f"Tokens Totales: {report['summary']['total_tokens']:,}")
+            summary_data.append(f"Modelo Mas Usado: {report['summary']['top_model']}")
+            summary_data.append(f"Herramienta Mas Activa: {report['summary']['top_tool']}")
+            
+            summary_text = "\n".join(summary_data)
+            self.terminal_ui.console.print(Panel(summary_text, title="📊 Resumen de Uso", border_style="cyan"))
+            
+            # Tabla de modelos
+            if report['model_ranking']:
+                models_table = Table(title="🏆 Ranking de Modelos")
+                models_table.add_column("Pos.", justify="center", style="cyan")
+                models_table.add_column("Modelo", style="green")
+                models_table.add_column("Sesiones", justify="right")
+                models_table.add_column("Tokens", justify="right")
+                models_table.add_column("Costo", justify="right")
+                
+                for i, model in enumerate(report['model_ranking'][:5], 1):
+                    models_table.add_row(
+                        str(i), model['model'], str(model['sessions']),
+                        f"{model['tokens']:,}", f"${model['cost']:.4f}"
+                    )
+                self.terminal_ui.console.print(models_table)
+            
+            # Tabla de herramientas
+            if report['tool_ranking']:
+                tools_table = Table(title="🛠️ Ranking de Herramientas")
+                tools_table.add_column("Pos.", justify="center", style="cyan")
+                tools_table.add_column("Herramienta", style="magenta")
+                tools_table.add_column("Usos", justify="right")
+                
+                for i, tool in enumerate(report['tool_ranking'][:5], 1):
+                    tools_table.add_row(str(i), tool['tool'], str(tool['count']))
+                self.terminal_ui.console.print(tools_table)
+                
+        except Exception as e:
+            self.terminal_ui.print_message(f"Error al generar reporte: {e}", style="red")
+
 
     async def _manage_embeddings_interactive(self):
         """Muestra una interfaz interactiva para gestionar la configuración de embeddings."""

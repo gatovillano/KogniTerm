@@ -3,7 +3,7 @@ import json
 import logging
 from typing import List, Optional, Dict
 from datetime import datetime
-from langchain_core.messages import BaseMessage, messages_from_dict, messages_to_dict
+from langchain_core.messages import BaseMessage, HumanMessage, messages_from_dict, messages_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -107,3 +107,22 @@ class SessionManager:
 
     def get_current_session_name(self) -> Optional[str]:
         return self.current_session_name
+
+    def generate_autosave_name(self, history: List[BaseMessage]) -> str:
+        """Genera un nombre descriptivo para una sesión guardada automáticamente."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Intentar obtener el contenido del primer mensaje humano
+        first_human_msg = ""
+        for msg in history:
+            if isinstance(msg, HumanMessage):
+                content = str(msg.content).strip()
+                # Limpiar texto (quitar etiquetas @archivo, etc)
+                content = content.split('\n')[0] # Solo primera línea
+                content = "".join(c for c in content if c.isalnum() or c.isspace())[:30].strip()
+                first_human_msg = content.replace(" ", "_")
+                break
+        
+        if first_human_msg:
+            return f"autosave_{timestamp}_{first_human_msg}"
+        return f"autosave_{timestamp}"

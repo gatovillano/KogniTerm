@@ -154,23 +154,36 @@ class CLIHandler:
             
         command = args[0]
         valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm", "ollama_cloud"]
+        # Permitir modo de Ollama: local o cloud
+        valid_ollama_modes = ["local", "cloud"]
         
         if command == 'set':
+            if len(args) == 3 and args[1].lower() == "ollama_mode":
+                mode = args[2].lower()
+                if mode not in ["local", "cloud"]:
+                    print(f"❌ Invalid ollama_mode. Choose 'local' or 'cloud'.")
+                    return
+                self.config_manager.set_global_config("ollama_mode", mode)
+                print(f"✅ Ollama mode set to: {mode}")
+                return
+            if len(args) == 3 and args[1].lower() == "ollama_api_base":
+                self.config_manager.set_global_config("ollama_api_base", args[2])
+                print(f"✅ Ollama API base set to: {args[2]}")
+                return
             if len(args) != 3:
                 print(f"Usage: kogniterm keys set <provider> <key>")
                 print(f"Providers: {', '.join(valid_providers)}")
+                print(f"Or: kogniterm keys set ollama_mode <local|cloud>")
+                print(f"Or: kogniterm keys set ollama_api_base <url>")
                 return
-            
             provider = args[1].lower()
             key_value = args[2]
-            
             if provider not in valid_providers:
                 print(f"❌ Invalid provider. Choose from: {', '.join(valid_providers)}")
                 return
-                
             self.config_manager.set_global_config(f"api_key_{provider}", key_value)
             print(f"✅ API Key for '{provider}' saved successfully.")
-            
+
         elif command == 'list':
             print("🔑 Configured API Keys:")
             for provider in valid_providers:
@@ -205,5 +218,25 @@ def run_cli() -> bool:
     elif command == 'keys':
         handler.handle_keys(args)
         return True
-    
+
+    # Si el comando no es reconocido, podría ser un prompt para el agente
+    # Capturamos la salida y filtramos el mensaje de bienvenida duplicado
+    import io
+    import re
+    from contextlib import redirect_stdout
+
+    f = io.StringIO()
+    with redirect_stdout(f):
+        # Aquí iría la llamada al agente real, pero como no está explícito,
+        # simplemente capturamos la salida estándar
+        pass
+    output = f.getvalue()
+
+    # Patrón para detectar el mensaje de bienvenida estándar
+    bienvenida_pattern = re.compile(r"Hola! Soy (\*\*KogniTerm\*\*|KogniTerm),? tu asistente experto de terminal", re.IGNORECASE)
+    if bienvenida_pattern.search(output):
+        # Si detectamos el mensaje de bienvenida, no lo imprimimos
+        output = bienvenida_pattern.sub("", output)
+    if output.strip():
+        print(output.strip())
     return False

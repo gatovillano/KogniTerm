@@ -277,15 +277,15 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 # 2. Añadir respuesta si existe
                 if full_response_content:
                     if full_thinking_content:
-                        renderables.append(Text(""))  # Separación entre pensamiento y respuesta
+                        renderables.append(Text("\n"))  # Separación entre pensamiento y respuesta
                     renderables.append(Markdown(full_response_content))
                 
                 if is_tui:
                     group = Group(*renderables)
-                    final_renderable = Padding(group, (0, 4))
+                    final_renderable = Padding(group, (2, 4, 1, 4))
                     terminal_ui.update_live(final_renderable)
                 else:
-                    final_renderable = Padding(Group(*renderables), (0, 4)) if renderables else spinner
+                    final_renderable = Padding(Group(*renderables), (2, 4, 1, 4)) if renderables else spinner
                     if not renderables:
                         live.update(spinner)
                     else:

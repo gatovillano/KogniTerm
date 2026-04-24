@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from textual.app import App, ComposeResult
 from textual import work
-from textual.widgets import Input, ListView, ListItem, Label, Button, Static
+from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea
 from textual.containers import Vertical, Horizontal
 from textual import events
 from langchain_core.messages import HumanMessage
@@ -15,14 +15,42 @@ import threading
 logger = logging.getLogger(__name__)
 
 
-from kogniterm.core.llm_service import LLMService
-from kogniterm.core.command_executor import CommandExecutor
-from kogniterm.core.agents.bash_agent import AgentState
-from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
-from kogniterm.terminal.tui.components.status_footer import StatusFooter, ChatInput
-from kogniterm.terminal.tui.components.command_approval_modal import CommandApprovalModal
-from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
-from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+try:
+    from kogniterm.core.llm_service import LLMService
+except Exception:
+    # Permitir importar el módulo de TUI incluso si LLMService o sus dependencias
+    # no están disponibles en el entorno de pruebas.
+    LLMService = None
+# Importar componentes opcionalmente para permitir pruebas ligeras del módulo TUI
+try:
+    from kogniterm.core.command_executor import CommandExecutor
+except Exception:
+    CommandExecutor = None
+try:
+    from kogniterm.core.agents.bash_agent import AgentState
+except Exception:
+    AgentState = None
+try:
+    from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+except Exception:
+    ChatLogWidget = None
+try:
+    from kogniterm.terminal.tui.components.status_footer import StatusFooter, ChatInput
+except Exception:
+    StatusFooter = None
+    ChatInput = None
+try:
+    from kogniterm.terminal.tui.components.command_approval_modal import CommandApprovalModal
+except Exception:
+    CommandApprovalModal = None
+try:
+    from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
+except Exception:
+    AgentInteractionManager = None
+try:
+    from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+except Exception:
+    CommandApprovalHandler = None
 from textual.screen import ModalScreen
 from textual.reactive import reactive
 from rich.text import Text
@@ -200,16 +228,28 @@ class TextualTerminalUI:
                     pass  # Fallback a write_agent_message si el markup falla
             self._safe_call(self.app.chat_log.write_agent_message, message)
 
-    def print_stream(self, text: str):
+    def print_stream(self, text: str, **kwargs):
         """
         Imprime un fragmento de texto en la consola sin añadir nueva línea,
         y limpia el buffer inmediatamente (streaming real).
         """
-        self.write_stream_to_chat(text)
+        self.write_stream_to_chat(text, **kwargs)
 
-    def write_stream_to_chat(self, content: str):
+    def write_stream_to_chat(self, content: str, **kwargs):
         """Imprime contenido en streaming directamente al chat log con manejo de cursor."""
         if not content:
+            return
+            
+        panel_id = kwargs.get("panel_id")
+        if panel_id:
+            def _update_panel():
+                try:
+                    panel = self.app.query_one(f"#{panel_id}")
+                    # Usually streaming text to a panel is for replacing its content or rendering it (Rich renderable)
+                    panel.update(content)
+                except Exception:
+                    pass
+            self._safe_call(_update_panel)
             return
             
         # Limpiar el cursor previo si existe antes de escribir nuevo texto
@@ -222,20 +262,33 @@ class TextualTerminalUI:
         
         # El cursor se redibujará en el siguiente tick del timer si está activo
 
-    def update_live(self, renderable):
+    def update_live(self, renderable, **kwargs):
         """Actualiza el contenido en streaming."""
-        self._safe_call(self.app.update_live_display, renderable)
+        panel_id = kwargs.get("panel_id")
+        self._safe_call(self.app.update_live_display, renderable, panel_id)
 
-    def update_terminal_output(self, tool_name: str, output: str):
+    def update_terminal_output(self, tool_name: str, output: str, **kwargs):
         """Actualiza específicamente la terminal con soporte de cursor."""
+        # Optional panel routing if supported
         self._safe_call(self.app.update_terminal_output, tool_name, output)
 
-    def stop_live(self):
+    def update_tool_display(self, tool_name: str, output: str, command: str = "", max_lines=None, **kwargs):
+        pass # Add missing stub if it's called
+
+    def stop_live(self, **kwargs):
         """Finaliza el streaming y consolida el mensaje."""
+        if kwargs.get("panel_id"): return
         self._safe_call(self.app.hide_live_display)
 
-    def print_tool_notification(self, tool_name: str, action_desc: str = ""):
+    def resume_spinner(self):
+        """Reactiva el spinner de procesamiento si el agente está procesando.
+        Se usa cuando las herramientas terminan y el LLM aún no ha respondido.
+        """
+        self._safe_call(self.app._resume_spinner)
+
+    def print_tool_notification(self, tool_name: str, action_desc: str = "", **kwargs):
         """Muestra notificación de herramienta ejecutándose, alineada a la izquierda."""
+        if kwargs.get("panel_id"): return
         self._safe_call(self.app.chat_log.write_tool_notification, tool_name, action_desc)
 
     def print_success_box(self, message: str, title: str = "Éxito"):
@@ -325,12 +378,9 @@ class TextualTerminalUI:
     def _do_print_banner(self):
         """Escribe el banner centrado usando padding manual con ancho real del widget."""
         banner_text = (
-            "██╗  ██╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗███████╗██████╗ ███╗   ███╗\n"
-            "██║ ██╔╝██╔═══██╗██╔════╝ ████╗  ██║██║╚══██╔══╝██╔════╝██╔══██╗████╗ ████║\n"
-            "█████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║\n"
-            "██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║\n"
-            "██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║\n"
-            "╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝"
+            "░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█\n"
+            "░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█\n"
+            "░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀"
         )
 
         from rich.text import Text
@@ -357,16 +407,51 @@ class TextualTerminalUI:
 
         color = ColorPalette.PRIMARY
 
-        # Escribir línea en blanco superior
+        # Construir el bloque completo como un único objeto Text para evitar
+        # que Rich/Textual renderice múltiples fragmentos por separado (esto
+        # puede producir 'franjas' visuales en algunos terminales tras limpiar).
+        padded_lines = [" " * left_pad + line for line in banner_lines]
+        combined = "\n".join(padded_lines)
+
+        # Escribir el banner como un único Text
+        from rich.text import Text as _Text
+        banner_text_obj = _Text(combined, style=color)
+
+        # Escribir línea en blanco superior, luego el banner y otra línea vacía
         log.write("")
-
-        # Escribir cada línea del banner con padding exacto
-        for line in banner_lines:
-            t = Text(" " * left_pad + line, style=color)
-            log.write(t)
-
+        log.write(banner_text_obj)
         log.write("")
         log.scroll_end(animate=False)
+
+class QueueDisplay(Static):
+    """
+    Muestra la cola de mensajes que están esperando a ser procesados.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.display = False
+        self.can_focus = False
+
+    def update_queue(self, messages: list):
+        if not messages:
+            self.update("")
+            self.display = False
+        else:
+            self.display = True
+            from kogniterm.terminal.themes import ColorPalette
+            
+            # Formatear la lista de mensajes
+            header = f"[{ColorPalette.PRIMARY}]⏳ Mensajes en espera ({len(messages)}):[/{ColorPalette.PRIMARY}]"
+            
+            # Limitar número de mensajes mostrados si hay demasiados
+            max_show = 3
+            display_msgs = messages[:max_show]
+            content = "\n".join(f" [dim]• {m}[/dim]" for m in display_msgs)
+            
+            if len(messages) > max_show:
+                content += f"\n [dim]... y {len(messages) - max_show} más[/dim]"
+                
+            self.update(f"{header}\n{content}")
 
 class KogniTermTUI(App):
     """Aplicación principal de Textual para KogniTerm."""
@@ -400,11 +485,12 @@ class KogniTermTUI(App):
         align-horizontal: center;
         background: #1e1e1e;
         border-top: none; /* Linea divisora erradicada */
-        margin-bottom: 7; /* Justo encima del bottom_container */
+        margin-bottom: 9; /* Ajustado de 7 a 9 por el incremento del input_container */
     }
 
-    
+
     #chat_log {
+
         width: 85%;
         max-width: 180;
         min-width: 60;
@@ -429,23 +515,65 @@ class KogniTermTUI(App):
         display: none;
     }
 
+    /* Contenedor para paneles paralelos (call_agents_parallel) */
+    #parallel_agents_container {
+        width: 85%;
+        max-width: 180;
+        min-width: 60;
+        height: auto;
+        layout: horizontal;
+        align: center bottom;
+        padding: 0;
+        margin: 0;
+        display: none; /* activarse dinámicamente desde el skill */
+    }
+
+    /* Paneles internos del contenedor paralelo */
+    #parallel_agents_container TerminalPanel {
+        width: 1fr;
+        min-width: 40;
+        max-width: 100%;
+        height: auto;
+        min-height: 0;
+        max-height: 40;
+        margin: 0;
+        padding: 0 1;
+        content-align: left top;
+        text-align: left;
+        display: none; /* el skill los activará */
+    }
+
+    #queue_display {
+        width: 85%;
+        max-width: 180;
+        min-width: 60;
+        height: auto;
+        background: #2a2a2a;
+        color: #d1d5db;
+        border-left: solid $primary;
+        border-top: solid #374151;
+        padding: 1 2;
+        margin-bottom: 0;
+        display: none;
+    }
+
     #input_container {
         width: 85%;
         max-width: 180;
         min-width: 60;
-        height: 3;
+        height: 5;
         background: #2a2a2a;
-        margin: 1 0;
-        padding: 1 4 0 4;
+        margin: 0 0 1 0;
+        padding: 2 4 1 4;
         layout: horizontal;
     }
 
     ChatInput {
         width: 1fr;
-        height: 1;
+        height: 3;
         min-height: 1;
         border: none !important;
-        background: transparent !important;
+        background: #2a2a2a !important;
         padding: 0;
         margin: 0;
         color: $text;
@@ -499,6 +627,15 @@ class KogniTermTUI(App):
         border-left: tall #10b981;
         padding-left: 2;
     }
+
+    #tool_display {
+        /* Panel de salida de terminal: sin bordes, fondo levemente más claro */
+        border: none;
+        text-align: left;
+        content-align: left top;
+        padding: 0 1;
+    }
+
     #command_popup {
         layer: popup;
         width: 40;
@@ -548,7 +685,11 @@ class KogniTermTUI(App):
     }
 
     #live_display {
-        /* heredado de TerminalPanel */
+        /* Alinear texto a la izquierda, igual que el input_container */
+        text-align: left;
+        content-align: left middle;
+        padding-left: 2;
+        margin-bottom: 1;
     }
 
 
@@ -579,17 +720,21 @@ class KogniTermTUI(App):
         background: #2a2a2a;
         margin-bottom: 0;
         padding: 1 4 0 4;
+        align-horizontal: left;
     }
     ChatInput#splash_chat_input {
         width: 1fr;
         height: 1;
+        min-height: 1;
+        max-height: 1;
         border: none;
         padding: 0;
-        background: transparent;
+        background: #2a2a2a !important;
+        display: block;
     }
     ChatInput#splash_chat_input:focus {
         border: none;
-        background: transparent;
+        background: #2a2a2a !important;
     }
     #splash_model_info {
         width: 100%;
@@ -626,31 +771,52 @@ class KogniTermTUI(App):
         self._spinner_frame = 0
         self._spinner_timer = None
         self._last_live_renderable = None
+        self._spinner_paused = False  # Flag para saber si el spinner fue pausado por streaming
         
-        from kogniterm.core.session_manager import SessionManager
-        self.session_manager = SessionManager(self.workspace_directory or os.getcwd())
+        try:
+            from kogniterm.core.session_manager import SessionManager
+            self.session_manager = SessionManager(self.workspace_directory or os.getcwd())
+        except Exception:
+            self.session_manager = None
         
-        from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
-        self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.tui_ui, self)
+        try:
+            from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
+            self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.tui_ui, self)
+        except Exception:
+            self.meta_command_processor = None
         
-        self.command_approval_handler = CommandApprovalHandler(
-            self.llm_service,
-            self.command_executor,
-            None,
-            self.tui_ui,
-            self.agent_state,
-            self.llm_service.get_tool("file_update"),
-            self.llm_service.get_tool("advanced_file_editor"),
-            self.llm_service.get_tool("file_operations")
-        )
+        # Inicializar CommandApprovalHandler solo si el componente está disponible
+        try:
+            if CommandApprovalHandler is not None:
+                self.command_approval_handler = CommandApprovalHandler(
+                    self.llm_service,
+                    self.command_executor,
+                    None,
+                    self.tui_ui,
+                    self.agent_state,
+                    self.llm_service.get_tool("file_update") if self.llm_service else None,
+                    self.llm_service.get_tool("advanced_file_editor") if self.llm_service else None,
+                    self.llm_service.get_tool("file_operations") if self.llm_service else None
+                )
+            else:
+                self.command_approval_handler = None
+        except Exception:
+            self.command_approval_handler = None
         
-        self.agent_interaction_manager = AgentInteractionManager(
-            self.llm_service,
-            self.agent_state,
-            self.tui_ui,
-            self.tui_ui.get_interrupt_queue(),
-            self.command_approval_handler
-        )
+        # Inicializar AgentInteractionManager si está disponible
+        try:
+            if AgentInteractionManager is not None:
+                self.agent_interaction_manager = AgentInteractionManager(
+                    self.llm_service,
+                    self.agent_state,
+                    self.tui_ui,
+                    self.tui_ui.get_interrupt_queue() if self.tui_ui else None,
+                    self.command_approval_handler
+                )
+            else:
+                self.agent_interaction_manager = None
+        except Exception:
+            self.agent_interaction_manager = None
         
         # Atributos para interactividad de terminal y cursor
         self.interactive_executor = None
@@ -670,14 +836,10 @@ class KogniTermTUI(App):
         from kogniterm.terminal.themes import ColorPalette
         c = ColorPalette.PRIMARY
         lines = [
-            "██╗  ██╗ ██████╗  ██████╗ ███╗   ██╗██╗████████╗███████╗██████╗ ███╗   ███╗",
-            "██║ ██╔╝██╔═══██╗██╔════╝ ████╗  ██║██║╚══██╔══╝██╔════╝██╔══██╗████╗ ████║",
-            "█████╔╝ ██║   ██║██║  ███╗██╔██╗ ██║██║   ██║   █████╗  ██████╔╝██╔████╔██║",
-            "██╔═██╗ ██║   ██║██║   ██║██║╚██╗██║██║   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║",
-            "██║  ██╗╚██████╔╝╚██████╔╝██║ ╚████║██║   ██║   ███████╗██║  ██║██║ ╚═╝ ██║",
-            "╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝",
+            "░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█",
+            "░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█",
+            "░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀",
         ]
-        # Usar color hex directamente — Textual/Rich acepta [#rrggbb]texto[/#rrggbb]
         return "\n".join(f"[{c}]{line}[/{c}]" for line in lines)
 
 
@@ -702,9 +864,26 @@ class KogniTermTUI(App):
             yield Static("", id="indexing_label", markup=True)
         
         with Vertical(id="bottom_container"):
+            # Panel de queue (mensajes en espera)
+            self.queue_display = QueueDisplay(id="queue_display")
+            yield self.queue_display
+
+            # Panel de tools (terminal dedicada a herramientas) y panel principal de live
+            self.tool_display = TerminalPanel(id="tool_display")
+            yield self.tool_display
+
             # live_display ahora es un TerminalPanel enfocalbe
             self.live_display = TerminalPanel(id="live_display")
             yield self.live_display
+
+            # Contenedor para paneles paralelos (inactivo por defecto)
+            with Horizontal(id="parallel_agents_container"):
+                # Panel para el coder
+                self.live_display_coder = TerminalPanel(id="live_display_coder")
+                yield self.live_display_coder
+                # Panel para el researcher
+                self.live_display_researcher = TerminalPanel(id="live_display_researcher")
+                yield self.live_display_researcher
 
             with Horizontal(id="input_container"):
                 self.chat_input = ChatInput(id="chat_input")
@@ -945,7 +1124,9 @@ class KogniTermTUI(App):
 
         # Enfocar el input del splash
         try:
-            splash_input = self.query_one("#splash_chat_input", Input)
+            # Buscar el widget por id en lugar de por tipo Input, ya que el
+            # `ChatInput` es un `TextArea` y puede no coincidir con `Input`.
+            splash_input = self.query_one("#splash_chat_input")
             splash_input.focus()
         except Exception:
             pass
@@ -991,7 +1172,82 @@ class KogniTermTUI(App):
             
             matches = []
             if trigger == "%":
-                commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%salir", "%mouse", "%embeddings", "%tema"]
+                commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema"]
+                matches = [cmd for cmd in commands if cmd.startswith(search_term)]
+            elif trigger == "@" and suggester:
+                from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
+                if isinstance(suggester, KogniTermSuggester):
+                    files = suggester.cached_files_list
+                    matches = [f for f in files if search_term.lower() in f.lower()][:15] # Limitar a 15
+            elif trigger == ":" and suggester:
+                from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
+                if isinstance(suggester, KogniTermSuggester):
+                    containers = getattr(suggester, "_cached_containers", []) or []
+                    # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
+                    matches = [c for c in containers if search_term.lower() in c['name'].lower()][:12]  # Limitar a 12
+
+            for match in matches:
+                # match puede ser string (comandos %) o dict (contenedores)
+                if isinstance(match, dict):
+                    display = f"{match['name']} ({match['status']})"
+                    command_text = match['name']
+                else:
+                    display = match
+                    command_text = match
+                item = ListItem(Label(display))
+                item.command_text = command_text
+                self.command_popup.append(item)
+                
+            if not matches:
+                self.command_popup.display = False
+                self._completion_input = None
+        else:
+            self.command_popup.display = False
+            self._completion_input = None
+
+    async def on_text_area_changed(self, event: TextArea.Changed):
+        """Handler para TextArea (ChatInput) - diferente API que Input.Changed."""
+        value = event.text_area.text
+        if not value:
+            self.command_popup.display = False
+            self._completion_input = None
+            return
+
+        # Obtener el suggester para acceder a las listas cacheadas
+        suggester = getattr(event.text_area, "suggester", None)
+        
+        # Determinar qué estamos buscando basándonos en el último carácter o palabra
+        words = value.split()
+        if not words:
+            self.command_popup.display = False
+            self._completion_input = None
+            return
+            
+        current_word = words[-1]
+        trigger = None
+        search_term = ""
+        
+        if value.lstrip().startswith("%"):
+            trigger = "%"
+            search_term = value.lstrip()
+        elif "@" in current_word:
+            trigger = "@"
+            search_term = current_word.split("@")[-1]
+        elif ":" in current_word:
+            trigger = ":"
+            search_term = current_word.split(":")[-1]
+            
+        if trigger:
+            self.command_popup.display = True
+            self._completion_input = event.text_area  # Guardar referencia al input
+            await self.command_popup.clear()
+            
+            # Posicionar el popup horizontalmente donde está el cursor del input
+            self._reposition_popup(event.text_area, value)
+            
+            matches = []
+            if trigger == "%":
+                commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema"]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
@@ -1093,7 +1349,7 @@ class KogniTermTUI(App):
             input_widget = self._completion_input
             if not input_widget or not hasattr(input_widget, "value"):
                 try:
-                    input_widget = self.query_one(Input)
+                    input_widget = self.query_one("#chat_input")
                 except:
                     input_widget = None
             if input_widget and hasattr(input_widget, "value"):
@@ -1169,7 +1425,7 @@ class KogniTermTUI(App):
                         input_widget = self._completion_input
                         if not input_widget or not hasattr(input_widget, "value"):
                             try:
-                                input_widget = self.query_one(Input)
+                                input_widget = self.query_one("#chat_input")
                             except:
                                 input_widget = None
                         if input_widget and hasattr(input_widget, "value"):
@@ -1255,9 +1511,18 @@ class KogniTermTUI(App):
             from kogniterm.terminal.themes import ColorPalette
             self.chat_log.write_user_message(f"{user_input} [italic {ColorPalette.TEXT_SECONDARY}](En cola...)[/]")
             self._input_queue.append(user_input)
+            if hasattr(self, "queue_display"):
+                self.queue_display.update_queue(self._input_queue)
             return
         
         self.run_worker(self._handle_input_async(user_input))
+
+    # Algunos widgets (p.ej. `ChatInput`) emiten su propio `Submitted` message
+    # (clase interna `Submitted`). Textual despacha esos mensajes como
+    # `on_<widget_snake>_submitted`, por lo que implementamos el handler que
+    # reencamina al mismo procesamiento usado para `Input.Submitted`.
+    def on_chat_input_submitted(self, event):
+        return self.on_input_submitted(event)
 
     def _transition_to_chat(self, first_message: str):
         """Oculta el splash y activa el modo chat con el primer mensaje."""
@@ -1322,7 +1587,12 @@ class KogniTermTUI(App):
         self.approval_container.styles.background = bg_color
         self.live_display.styles.background = bg_color
         self.live_display.styles.color = p.TEXT_PRIMARY
-        
+
+        # Panel de terminal: fondo levemente más claro que el fondo principal
+        tool_panel_bg = p.GRAY_800 if self.dark else p.GRAY_200
+        self.tool_display.styles.background = tool_panel_bg
+        self.tool_display.styles.color = p.TEXT_PRIMARY
+
         bottom_container = self.query_one("#bottom_container")
         bottom_container.styles.background = bg_color
         
@@ -1341,7 +1611,7 @@ class KogniTermTUI(App):
         # 7. Estilizar todos los inputs
         for inp in self.query(ChatInput):
             inp.styles.color = p.TEXT_PRIMARY
-            inp.styles.background = "transparent"
+            inp.styles.background = "transparent" # Dejar transparente para que se vea el contenedor
             
         # 8. Estilizar STATUS FOOTER
         for sf in self.query(StatusFooter):
@@ -1372,9 +1642,11 @@ class KogniTermTUI(App):
 
     def write_stream_to_chat(self, content: str):
         """Método para escribir streaming desde hilos externos."""
-        # Si recibimos contenido, ocultamos el spinner de procesamiento inferior
+        # Si recibimos contenido, pausamos el spinner de procesamiento inferior
+        # (no lo detenemos definitivamente - puede reactivarse tras herramientas)
         if self.live_display.display:
             try:
+                self._spinner_paused = True  # Marcar como pausado, no definitivo
                 self.call_from_thread(self._stop_spinner)
             except Exception:
                 pass
@@ -1429,6 +1701,19 @@ class KogniTermTUI(App):
             self._spinner_timer = None
         # Cuando se detiene el spinner, finalizamos cualquier stream en el log
         self.chat_log.stop_stream()
+
+    def _resume_spinner(self):
+        """Reactiva el spinner de procesamiento si was paused for streaming.
+        Se llama desde tool_executor cuando las herramientas terminan y el LLM aún no responde.
+        """
+        if not self._spinner_paused:
+            return
+        if self._spinner_timer is not None:
+            # Ya está activo
+            return
+        self._spinner_paused = False
+        # Reiniciar el spinner como si fuera la primera vez
+        self._start_spinner()
 
     def set_terminal_cursor(self, active: bool, executor=None):
         """Activa o desactiva el simulador de cursor en el chat log."""
@@ -1588,6 +1873,8 @@ class KogniTermTUI(App):
         """Procesa el siguiente mensaje en la cola si el agente está libre."""
         if self._input_queue and not self.is_processing:
             next_message = self._input_queue.pop(0)
+            if hasattr(self, "queue_display"):
+                self.queue_display.update_queue(self._input_queue)
             # Volver a llamar a handle_input_async para el siguiente mensaje
             self.run_worker(self._handle_input_async(next_message))
 
@@ -1712,8 +1999,16 @@ class KogniTermTUI(App):
             self.call_from_thread(push_screen_callback)
         return future.result()
 
-    def update_live_display(self, renderable):
+    def update_live_display(self, renderable, panel_id=None):
         """Actualiza el widget de streaming en tiempo real directamente en el chat log."""
+        if panel_id:
+            try:
+                panel = self.query_one(f"#{panel_id}")
+                panel.update(renderable)
+                return
+            except Exception:
+                pass
+
         # Detener spinner INMEDIATAMENTE cuando llega contenido real.
         if self._spinner_timer:
             self._stop_spinner()

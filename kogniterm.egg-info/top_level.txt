@@ -1,9 +1,12 @@
 assets
 data-gym-cache
+dist
 docs
 kogniterm
+kogniterm-android
 kogniterm-desktop
 plans
+scripts
 test_environment
 tests
 venv
