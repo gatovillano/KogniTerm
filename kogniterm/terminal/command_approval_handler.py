@@ -348,14 +348,14 @@ class CommandApprovalHandler:
                     else:
                         # Para la skill file_operations
                         if op_type == "delete_file":
-                            from kogniterm.skills.bundled.file_operations.scripts.tool import _delete_file
-                            file_ops_result = _delete_file(
+                            from kogniterm.skills.bundled.file_operations.scripts.file_management import delete_file_tool
+                            file_ops_result = delete_file_tool(
                                 original_tool_args.get("path", file_path),
                                 confirm=True
                             )
                         else:
-                            from kogniterm.skills.bundled.file_operations.scripts.tool import _write_file
-                            file_ops_result = _write_file(
+                            from kogniterm.skills.bundled.file_operations.scripts.file_write import write_file_tool
+                            file_ops_result = write_file_tool(
                                 original_tool_args.get("path", file_path),
                                 original_tool_args.get("content", ""),
                                 confirm=True
@@ -377,7 +377,7 @@ class CommandApprovalHandler:
                     self.terminal_ui.set_terminal_cursor(True, self.command_executor)
 
                     # Mostrar panel inmediatamente para feedback visual
-                    initial_panel = create_terminal_output_panel("Ejecución de Comando", "", max_lines=15)
+                    initial_panel = create_terminal_output_panel(command_to_execute, "", max_lines=15)
                     self.terminal_ui.update_live(initial_panel)
                     
                     full_command_output = ""
@@ -387,7 +387,7 @@ class CommandApprovalHandler:
                             logger.info(f"Chunk recibido ({len(output_chunk)} bytes)")
                             full_command_output += output_chunk
                             # Actualizar la terminal a través del nuevo método que soporta cursor
-                            self.terminal_ui.update_terminal_output("Ejecución de Comando", full_command_output)
+                            self.terminal_ui.update_terminal_output(command_to_execute, full_command_output)
                     
                     # Desactivar modo terminal al finalizar
                     self.terminal_ui.set_terminal_cursor(False)

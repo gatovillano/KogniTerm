@@ -316,7 +316,7 @@ def create_tool_output_panel(tool_name: str, output: str, is_markdown: Optional[
     return Padding(panel, (1, 0))
 
 
-def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 15, show_cursor: bool = False) -> Padding:
+def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 25, show_cursor: bool = False) -> Padding:
     """
     Crea un panel estilizado para mostrar la salida de una terminal.
     Mantiene una altura fija y hace que el texto emerja desde abajo hacia arriba.
@@ -330,11 +330,16 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 1
     Returns:
         Padding: Panel con la salida formateada como pseudo-terminal.
     """
+    # 1. Manejar secuencias ANSI de control de pantalla (ej. borrar pantalla)
+    if '\x1b[2J' in output:
+        # Si hay una secuencia de "borrar pantalla", solo nos quedamos con lo último
+        output = output.split('\x1b[2J')[-1]
+    
     # Limpiar y separar líneas emulando un terminal básico (para \r y ANSI clear-line)
     clean_lines = []
     
     # Expresión regular para limpiar secuencias ANSI que Text.from_ansi no maneja
-    # (como borrar línea, mover cursor, etc.) pero preservando colores (m)
+    # (como mover cursor, etc.) pero preservando colores (m)
     ansi_cleanup = re.compile(r'\x1b\[(?![0-9;]*m)[0-9;]*[a-zA-Z]')
     
     for raw_line in output.split('\n'):
@@ -345,72 +350,64 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 1
             # Dividir por carriage return
             parts = raw_line.split('\r')
             # En un terminal, cada parte sobrescribe la anterior.
-            # Tomamos la última parte que contenga texto, o la última absoluta si todas son vacías.
-            # Esto evita que 'algo\r' resulte en '' (lo cual ocultaría la línea).
             actual_line = ""
             for p in parts:
                 if p: 
+                    # Simulación simple de sobrescritura: si la nueva parte es más corta,
+                    # en un terminal real mantendría el final de la anterior si no hay espacios,
+                    # pero aquí simplemente tomamos la última que tenga contenido.
                     actual_line = p
             clean_lines.append(actual_line)
         else:
             clean_lines.append(raw_line)
             
     # Eliminar lineas vacías al final que puedan hacer parpadear la altura
-    while clean_lines and not clean_lines[-1].strip() and len(clean_lines) > 1:
+    while clean_lines and not clean_lines[-1].strip() and len(clean_lines) > 2:
         clean_lines.pop()
         
     lines = clean_lines
     
     # Añadir cursor si se solicita
     if show_cursor and lines:
-        lines[-1] += "▒"
+        # Solo añadir si la última línea no es demasiado larga
+        if len(lines[-1]) < 200: 
+            lines[-1] += "█" # Cursor sólido para sensación más nativa
+        else:
+            lines.append("█")
         
     # Si la salida está vacía, mostrar un indicador
     if not lines or (len(lines) == 1 and not lines[0].strip()):
-        display_lines = [" (esperando salida...)"]
-        if show_cursor: display_lines = ["▒"]
+        display_lines = [""]
+        if show_cursor: display_lines = ["█"]
     else:
         # Obtener sólo las últimas max_lines
         if len(lines) > max_lines:
             display_lines = lines[-max_lines:]
         else:
-            # Rellenar con líneas vacías al final si queremos alto fijo (opcional)
             display_lines = lines
         
     formatted_content = "\n".join(display_lines)
-        
-    from rich.text import Text
-    # Usar Text.from_ansi para preservar los colores del comando (ej. CMake, GCC, Pip)
-    # y prohibir text_wrap para garantizar que el panel nunca crezca verticalmente por líneas largas
-    content = Text.from_ansi(formatted_content, style="normal", no_wrap=True, overflow="crop")
-
-    from rich.table import Table
+    
+    from rich.console import Group
     from rich import box
     
-    # Usar una Tabla en lugar de un Panel para máxima robustez en los bordes
-    table = Table(
-        box=box.ROUNDED, 
-        show_header=False, 
-        expand=True, 
-        border_style=ColorPalette.GRAY_700,
-        padding=(0, 0),
-        title=None,
-        caption=None
-    )
-    table.add_column()
+    # Usar Text.from_ansi para preservar los colores del comando
+    # No habilitamos wrapping para mantener la estética de terminal
+    content = Text.from_ansi(formatted_content, style="normal", no_wrap=True, overflow="crop")
+
+    elements = []
+    if tool_name:
+        # Título más profesional
+        title_text = Text.from_markup(f" {Icons.TOOL} [bold {ColorPalette.SECONDARY}]TERMINAL[/bold {ColorPalette.SECONDARY}] [dim]│[/dim] {tool_name} ", style="normal")
+        elements.append(title_text)
+        elements.append(Rule(style=f"dim {ColorPalette.GRAY_700}"))
+        elements.append(Text("")) # Espacio divisor
     
-    # Fila 1: Título (sin emoji para evitar errores de ancho)
-    table.add_row(Text(f" Terminal: {tool_name} ", style=f"bold {ColorPalette.SECONDARY}"))
+    # Añadir el contenido con fondo oscuro para resaltar que es una terminal
+    terminal_style = f"on #0c0c0c" if "#0c0c0c" else "on black"
+    elements.append(Padding(content, (0, 1), style=terminal_style))
     
-    # Fila 2: Separador
-    from rich.rule import Rule
-    table.add_row(Rule(style=ColorPalette.GRAY_700))
-    
-    # Fila 3: Contenido con padding lateral
-    table.add_row(Padding(content, (0, 1)))
-    
-    # Envolver en un panel de altura fija para mantener la estética de terminal
-    return Padding(table, (1, 0))
+    return Padding(Group(*elements), (1, 0))
 
  
 

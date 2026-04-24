@@ -182,6 +182,7 @@ class FileCompleter(Completer):
         ("%init", "Inicializar contexto"),
         ("%keys", "Gestionar API Keys"),
         ("%session", "Gestión de sesiones"),
+        ("%resume", "Reanudar sesión guardada"),
         ("%salir", "Salir de KogniTerm")
     ]
 
@@ -216,6 +217,33 @@ class FileCompleter(Completer):
                      for subcmd, desc in self.SESSION_SUBCOMMANDS:
                         yield Completion(subcmd, start_position=0, display_meta=desc)
                      return
+
+            # Autocompletado de nombres de sesiones para %resume
+            if stripped_text.startswith('%resume '):
+                parts = stripped_text.split()
+                sessions_dir = os.path.join(self.workspace_directory or os.getcwd(), '.kogniterm', 'sessions')
+                try:
+                    names = []
+                    if os.path.exists(sessions_dir):
+                        for filename in os.listdir(sessions_dir):
+                            if filename.endswith('.json'):
+                                names.append(filename[:-5])
+                except Exception:
+                    names = []
+
+                # Si estamos escribiendo el nombre (ej: "%resume proyecto")
+                if len(parts) == 2 and not stripped_text.endswith(' '):
+                    current_name = parts[1]
+                    for name in names:
+                        if name.startswith(current_name):
+                            yield Completion(name, start_position=-len(current_name), display_meta='Sesión guardada')
+                    return
+
+                # Si acabamos de escribir "%resume " y queremos ver opciones
+                if len(parts) == 1 and stripped_text.endswith(' '):
+                    for name in names:
+                        yield Completion(name, start_position=0, display_meta='Sesión guardada')
+                    return
 
             # Determinar qué parte está escribiendo el usuario (comando principal)
             if ' ' not in stripped_text: # Solo si es la primera palabra
@@ -403,6 +431,28 @@ class KogniTermApp:
             self.terminal_ui.get_interrupt_queue(),
             self.command_approval_handler
         )
+        
+    def _auto_save_session(self):
+        """Guarda automáticamente la sesión actual si hay mensajes."""
+        if not self.session_manager:
+            return
+            
+        history = self.llm_service.conversation_history
+        if not history:
+            return
+            
+        # Si no hay sesión activa, generar una
+        if not self.session_manager.current_session_name:
+            # Solo generar si hay al menos un mensaje humano (inicio real de charla)
+            has_human = any(isinstance(m, HumanMessage) for m in history)
+            if has_human:
+                new_name = self.session_manager.generate_autosave_name(history)
+                self.session_manager.current_session_name = new_name
+                logger.info(f"Sesión iniciada automáticamente: {new_name}")
+        
+        # Guardar si hay un nombre activo
+        if self.session_manager.current_session_name:
+            self.session_manager.save_session(self.session_manager.current_session_name, history)
 
 
     def _setup_signal_handlers(self):
@@ -704,6 +754,7 @@ class KogniTermApp:
                     break
                 
                 # --- FIN DEL BUCLE DE TRABAJO ---
+                self._auto_save_session()
 
                 # Manejo de la salida de PythonTool
                 final_response_message = self.agent_state.messages[-1]
@@ -751,7 +802,8 @@ class KogniTermApp:
         finally:
             # Asegurarse de que el historial se guarde siempre al salir de la aplicación
             self.llm_service._save_history(self.llm_service.conversation_history)
-            self.terminal_ui.print_message("Historial guardado al salir.", style="dim")
+            self._auto_save_session()
+            self.terminal_ui.print_message("Sesión y historial guardados al salir.", style="dim")
             # Asegurarse de que el FileCompleter se limpie al salir
             if self.completer:
                 self.completer.dispose()

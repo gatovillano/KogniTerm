@@ -7,6 +7,7 @@ from dotenv import load_dotenv # Importar load_dotenv
 from prompt_toolkit.completion import Completer, Completion
 from rich.text import Text
 from rich.syntax import Syntax
+from rich.panel import Panel
 import re
 
 load_dotenv() # Cargar variables de entorno al inicio
@@ -147,7 +148,14 @@ async def _main_async():
             if saved_key:
                 os.environ[env_var] = saved_key
 
+    from kogniterm.core.agents.bash_agent import get_system_message
+
     llm_service_instance = LLMService() # Usar el project_context inicializado
+    # Resetear historial para nueva sesión limpia (no continuar la anterior)
+    llm_service_instance.conversation_history = []
+    llm_service_instance.conversation_history.append(get_system_message(llm_service_instance))
+    llm_service_instance._save_history(llm_service_instance.conversation_history)
+    
     command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
     agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
     llm_service_instance.skill_manager.set_agent_state(agent_state_instance) # Vincular estado del agente a las herramientas
@@ -186,6 +194,8 @@ async def _main_async():
         if hasattr(app, 'prompt_session') and app.prompt_session and app.prompt_session.completer and hasattr(app.prompt_session.completer, 'dispose'):
             app.prompt_session.completer.dispose()
 
+        _print_exit_banner()
+
 def main():
     """Main entry point for KogniTerm."""
     # Desactivar telemetría de CrewAI
@@ -215,3 +225,18 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def _print_exit_banner() -> None:
+    """Muestra un banner ASCII personalizado al cerrar la TUI."""
+    banner = """
+░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀█
+░█▀▄░█░█░█░█░█░█░░█░░░█░░█░█
+░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀
+░█▀█░▀█▀░░░░░█░░░█▀█░█▀▄░█▀▀
+░█▀█░░█░░░░░░█░░░█▀█░█▀▄░▀▀█
+░▀░▀░▀▀▀░░░░░▀▀▀░▀░▀░▀▀░░▀▀▀
+""".strip("\n")
+
+    console.print()
+    console.print(f"[bold cyan]{banner}[/bold cyan]")
+    console.print()

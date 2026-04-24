@@ -25,7 +25,7 @@ class KogniTermAdapter:
         self.agent_state = AgentState(messages=self.llm_service.conversation_history)
         
         # Link agent state to tools
-        self.llm_service.tool_manager.set_agent_state(self.agent_state)
+        self.llm_service.skill_manager.set_agent_state(self.agent_state)
 
     def get_chat_history(self) -> List[BaseMessage]:
         return self.llm_service.conversation_history

@@ -136,6 +136,8 @@ gemini_model = os.getenv("GEMINI_MODEL")
 
 ollama_api_base = os.getenv("OLLAMA_API_BASE")
 ollama_api_key = os.getenv("OLLAMA_API_KEY")
+ollama_cloud_key = os.getenv("OLLAMA_CLOUD_API_KEY")
+ollama_target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
 
 # Configuración global de LiteLLM para máxima compatibilidad
 litellm.drop_params = True 
@@ -150,46 +152,40 @@ litellm.add_fastapi_middleware = False # Evitar ruidos innecesarios
 # Configuración inicial de modelo y proveedor
 model_to_use = litellm_model or (f"gemini/{gemini_model}" if gemini_model else "google/gemini-1.5-flash")
 
-# Detectar si es Gemini nativo o OpenRouter
-if model_to_use.startswith("gemini/") or "gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower():
-    # Preferir Google nativo si hay key
+# Variables para configuración de Ollama
+ollama_api_base = os.getenv("OLLAMA_API_BASE")
+ollama_api_key = os.getenv("OLLAMA_API_KEY")
+ollama_cloud_key = os.getenv("OLLAMA_CLOUD_API_KEY")
+ollama_target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
+
+# Detección robusta de proveedor prioritario (solo para logging inicial)
+if model_to_use.startswith("ollama/"):
+    use_cloud_init = False
+    if ollama_target in ["cloud", "ollama_cloud"]:
+        use_cloud_init = True
+    elif ollama_target in ["local", "ollama"]:
+        use_cloud_init = False
+    elif ollama_api_base and any(h in ollama_api_base for h in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+        use_cloud_init = False
+    elif ollama_cloud_key:
+        use_cloud_init = True
+    
+    if use_cloud_init:
+        base = os.getenv("OLLAMA_CLOUD_API_BASE") or "https://ollama.com"
+        print(f"☁️ Configuración inicial detectada: Ollama Cloud ({model_to_use}) en {base}")
+    else:
+        base = ollama_api_base or "http://localhost:11434/v1"
+        print(f"🦙 Configuración inicial detectada: Ollama Local ({model_to_use}) en {base}")
+elif model_to_use.startswith("gemini/") or ("gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower()):
     if google_api_key:
-        if not model_to_use.startswith("gemini/"):
-            model_to_use = f"gemini/{model_to_use.split('/')[-1]}"
-        os.environ["LITELLM_MODEL"] = model_to_use
-        os.environ["LITELLM_API_KEY"] = google_api_key
-        litellm.api_base = None
-        litellm.headers = {}
-        print(f"🤖 Configuración activa: Google AI Studio ({model_to_use})")
+        print(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
     elif openrouter_api_key:
-        # Fallback a OpenRouter si no hay key de Google pero sí de OR
-        if not model_to_use.startswith("openrouter/"):
-            model_to_use = f"openrouter/{model_to_use}"
-        os.environ["LITELLM_MODEL"] = model_to_use
-        os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
-        os.environ["LITELLM_API_KEY"] = openrouter_api_key
-        litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
-        litellm.headers = {"HTTP-Referer": "https://github.com/gatovillano/KogniTerm", "X-Title": "KogniTerm"}
-        print(f"🤖 Configuración activa: OpenRouter ({model_to_use})")
+        print(f"🤖 Configuración inicial detectada: OpenRouter/Gemini ({model_to_use})")
 else:
-    # Otros modelos o OpenRouter explícito
     if openrouter_api_key:
-        if not ("/" in model_to_use) and not model_to_use.startswith("openrouter/"):
-            model_to_use = f"openrouter/{model_to_use}"
-        os.environ["LITELLM_MODEL"] = model_to_use
-        os.environ["OPENROUTER_API_KEY"] = openrouter_api_key
-        os.environ["LITELLM_API_KEY"] = openrouter_api_key
-        litellm.api_base = litellm_api_base if litellm_api_base else "https://openrouter.ai/api/v1"
-        litellm.headers = {"HTTP-Referer": "https://github.com/gatovillano/KogniTerm", "X-Title": "KogniTerm"}
-        print(f"🤖 Configuración activa: OpenRouter ({model_to_use})")
+        print(f"🤖 Configuración inicial detectada: OpenRouter ({model_to_use})")
     elif google_api_key:
-        # Último fallback a Google
-        if not model_to_use.startswith("gemini/"):
-            model_to_use = f"gemini/{model_to_use}"
-        os.environ["LITELLM_MODEL"] = model_to_use
-        os.environ["LITELLM_API_KEY"] = google_api_key
-        litellm.api_base = None
-        print(f"🤖 Configuración activa: Google AI Studio ({model_to_use})")
+        print(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
     else:
         print("⚠️ ADVERTENCIA: No se encontraron credenciales válidas. Configura OPENROUTER_API_KEY o GOOGLE_API_KEY.", file=sys.stderr)
 
@@ -220,6 +216,9 @@ class LLMService:
         if self.model_name.startswith("AIza"):
             logger.warning(f"Se detectó una API Key en LITELLM_MODEL ('{self.model_name[:8]}...'). Corrigiendo a 'google/gemini-1.5-flash'.")
             self.model_name = "google/gemini-1.5-flash"
+        
+        # Modelo para resumen de historial (fallback/summary) - usa el mismo por defecto
+        self.summary_model = os.environ.get("SUMMARY_MODEL", self.model_name)
             
         # Determinar API Key de forma inteligente según el modelo inicial
         if self.model_name.startswith("gemini/"):
@@ -300,6 +299,16 @@ class LLMService:
             max_history_chars=self.max_history_chars
         )
         self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
+        
+    @property
+    def conversation_history(self) -> List[BaseMessage]:
+        """Proxy para acceder al historial gestionado por HistoryManager."""
+        return self.history_manager.conversation_history
+
+    @conversation_history.setter
+    def conversation_history(self, valueList: List[BaseMessage]):
+        """Permite actualizar el historial de HistoryManager."""
+        self.history_manager.conversation_history = valueList
 
     def is_thinking_model(self) -> bool:
         """ Detecta si el modelo actual tiene capacidades de razonamiento nativo. """
@@ -698,26 +707,41 @@ class LLMService:
             logger.info(f"🤖 Cambiado a Google Nativo: {model_name}")
             
         elif model_name.startswith("ollama/"):
-            # Priorizar OLLAMA_API_BASE para local/custom
-            api_base = os.environ.get("OLLAMA_API_BASE")
-            cloud_key = os.environ.get("OLLAMA_CLOUD_API_KEY")
-            
-            if api_base:
-                litellm.api_base = api_base
-                self.api_key = os.environ.get("OLLAMA_API_KEY") or "ollama"
-                logger.info(f"🦙 Cambiado a Ollama Local/Custom: {model_name} en {api_base}")
-            elif cloud_key:
-                self.api_key = cloud_key
-                litellm.api_base = os.environ.get("OLLAMA_CLOUD_API_BASE") or "https://ollama.com"
-                logger.info(f"☁️ Cambiado a Ollama Cloud: {model_name}")
+            # Configuración robusta para Ollama Local y Cloud
+            api_base_local = os.environ.get("OLLAMA_API_BASE")
+            api_key_cloud = os.environ.get("OLLAMA_CLOUD_API_KEY")
+            api_key_local = os.environ.get("OLLAMA_API_KEY")
+            target = (os.environ.get("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
+
+            # Decidir si usar modo Cloud
+            use_cloud = False
+            if target in ["cloud", "ollama_cloud"]:
+                use_cloud = True
+            elif target in ["local", "ollama"]:
+                use_cloud = False
+            elif api_base_local and any(h in api_base_local for h in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+                use_cloud = False
+            elif api_key_cloud:
+                use_cloud = True
+
+            if use_cloud:
+                self.api_base = os.environ.get("OLLAMA_CLOUD_API_BASE") or "https://ollama.com"
+                self.api_key = api_key_cloud or api_key_local
+                if self.api_key:
+                    self.headers = {"Authorization": f"Bearer {self.api_key}"}
+                    logger.info(f"☁️ Cambiado a Ollama Cloud: {model_name} en {self.api_base}")
+                else:
+                    self.headers = {}
+                    logger.warning(f"⚠️ Cambiado a Ollama Cloud: {model_name} pero SIN API KEY.")
             else:
-                # Fallback a local por defecto si no hay nada configurado pero se pide ollama/
-                litellm.api_base = "http://localhost:11434/v1"
+                self.api_base = api_base_local or "http://localhost:11434/v1"
                 self.api_key = "ollama"
-                logger.info(f"🦙 Cambiado a Ollama Local (default): {model_name}")
+                self.headers = {}
+                logger.info(f"🦙 Cambiado a Ollama Local: {model_name} en {self.api_base}")
             
-            os.environ["LITELLM_API_KEY"] = self.api_key
-            litellm.headers = {}
+            # Limpiar estado global de litellm para evitar interferencias
+            litellm.api_base = None
+            litellm.headers = None
             
         else:
             # Otros proveedores genéricos
@@ -726,6 +750,12 @@ class LLMService:
             logger.info(f"🔄 Cambiado a modelo: {model_name}")
 
         logger.info(f"✅ Estado de LiteLLM actualizado satisfactoriamente.")
+
+    def set_summary_model(self, summary_model: str):
+        """Cambia el modelo usado para resumir historial en tiempo de ejecución."""
+        self.summary_model = summary_model
+        os.environ["SUMMARY_MODEL"] = summary_model
+        logger.info(f"📝 Modelo de resumen establecido: {summary_model}")
 
     def _initialize_memory(self):
         """Inicializa la memoria si no existe."""
@@ -881,6 +911,12 @@ class LLMService:
             "num_retries": 3, # Aumentado para manejar errores temporales
             "timeout": 120,    # Según el ejemplo del usuario
         }
+
+        # Pasar api_base y headers explícitamente si están definidos
+        if hasattr(self, 'api_base') and self.api_base:
+            completion_kwargs["api_base"] = self.api_base
+        if hasattr(self, 'headers') and self.headers:
+            completion_kwargs["headers"] = self.headers
         
         # Configuración específica para OpenRouter/SiliconFlow con campos adicionales
         if "openrouter" in self.model_name.lower():
@@ -1548,7 +1584,7 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
         litellm_generation_params = self.generation_params
 
         summary_completion_kwargs = {
-            "model": self.model_name,
+            "model": self.summary_model,
             "messages": litellm_messages_for_summary,
             "api_key": self.api_key, # Pasar la API Key directamente
             "temperature": litellm_generation_params.get("temperature", 0.7),
@@ -1562,9 +1598,31 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             summary_completion_kwargs["top_k"] = litellm_generation_params["top_k"]
 
         try:
-            response = completion(
-                **summary_completion_kwargs
-            )
+            # Usar MultiProviderManager si está disponible para aprovechar fallbacks y prefijos correctos
+            if self.provider_manager:
+                # Extraer parámetros para pasarlos por separado a execute
+                model = summary_completion_kwargs.pop("model")
+                messages = summary_completion_kwargs.pop("messages")
+                temp = summary_completion_kwargs.pop("temperature", 0.7)
+                # Pop top_p, top_k y stream de kwargs para evitar "multiple values"
+                top_p = summary_completion_kwargs.pop("top_p", None)
+                top_k = summary_completion_kwargs.pop("top_k", None)
+                summary_completion_kwargs.pop("stream", None)  # ya se pasa explícitamente
+
+                response_gen = self.provider_manager.execute(
+                    model_name=model,
+                    messages=messages,
+                    stream=False,
+                    temperature=temp,
+                    top_p=top_p,
+                    top_k=top_k,
+                    **summary_completion_kwargs
+                )
+                response = next(response_gen)
+            else:
+                response = completion(
+                    **summary_completion_kwargs
+                )
             self.call_timestamps.append(time.time()) # Registrar llamada de resumen
             
             # Asegurarse de que la respuesta no sea un generador inesperado y tenga el atributo 'choices'

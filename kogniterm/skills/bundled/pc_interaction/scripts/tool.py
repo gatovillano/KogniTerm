@@ -1,64 +1,72 @@
 """
 Skill: pc_interaction
-Herramienta genérica para interactuar con el PC
+Herramienta avanzada para interactuar con el PC: control total de GUI, ventanas y visión básica.
 """
 
 import os
 import time
 import logging
-from typing import List, Dict, Any, Optional, Type
+from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
-import json
+
+# Intentar importar dependencias
+try:
+    import pyautogui
+    import pywinctl
+    import cv2
+    import numpy as np
+    from PIL import Image
+    GUI_AVAILABLE = True
+except (ImportError, Exception, SystemExit):
+    GUI_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
+# Configuración de PyAutoGUI
+if GUI_AVAILABLE:
+    try:
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.1
+    except (Exception, SystemExit):
+        GUI_AVAILABLE = False
+
 class PCInteractionInput(BaseModel):
     """Schema de entrada para la herramienta pc_interaction"""
-    action: str = Field(description="La acción a realizar: 'get_windows', 'activate_window', 'click', 'double_click', 'right_click', 'move_mouse', 'drag_mouse', 'type_text', 'press_key', 'key_combo', 'scroll', 'screenshot'.")
-    params: Dict[str, Any] = Field(default_factory=dict, description="Parámetros para la acción (x, y, text, key, combo, window_title, amount, etc.).")
+    action: str = Field(description="La acción a realizar: 'get_windows', 'activate_window', 'click', 'double_click', 'right_click', 'move_mouse', 'drag_mouse', 'type_text', 'press_key', 'key_combo', 'scroll', 'screenshot', 'get_mouse_pos', 'get_screen_size', 'find_image', 'click_image'.")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Parámetros para la acción.")
 
-def _check_gui() -> bool:
-    """Verificar si hay un entorno gráfico disponible"""
+def _check_gui() -> Tuple[bool, str]:
+    """Verificar si hay un entorno gráfico disponible y dependencias"""
+    if not GUI_AVAILABLE:
+        return False, "Error: Faltan dependencias (pyautogui, pywinctl, opencv-python, pillow). Instálelas en su entorno."
+    
     if not os.environ.get("DISPLAY") and os.name != 'nt':
-        logger.debug("No se detectó entorno gráfico (DISPLAY no definido).")
-        return False
+        return False, "Error: No se detectó entorno gráfico (DISPLAY no definido). Esta herramienta requiere una sesión X11/GUI activa."
         
     try:
-        import pyautogui
-        import pywinctl
-        # Test simple
         pyautogui.size()
-        return True
+        return True, ""
     except Exception as e:
-        logger.debug(f"Error al inicializar librerías GUI: {e}")
-        return False
+        return False, f"Error al acceder al servidor gráfico: {e}"
 
 def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
     """
     Función principal que implementa la funcionalidad de pc_interaction
-    
-    Args:
-        action: La acción a realizar
-        params: Parámetros para la acción
-    
-    Returns:
-        str: Resultado de la operación
     """
-    if not _check_gui():
-        return "Error: No hay un entorno gráfico disponible o faltan dependencias (pyautogui, pywinctl)."
+    ok, err = _check_gui()
+    if not ok:
+        return err
 
     if params is None:
         params = {}
 
     try:
-        import pyautogui
-        import pywinctl
-
         if action == "get_windows":
             windows = pywinctl.getAllWindows()
             result = "Ventanas abiertas:\n"
             for w in windows:
-                result += f"- [{w.title}] (PID: {w.getAppName()})\n"
+                if w.title:
+                    result += f"- [{w.title}] (PID: {w.getAppName()})\n"
             return result
 
         elif action == "activate_window":
@@ -71,20 +79,30 @@ def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
                 return f"Ventana '{title}' activada."
             return f"No se encontró ninguna ventana con el título '{title}'."
 
+        elif action == "get_mouse_pos":
+            pos = pyautogui.position()
+            return f"Posición actual del ratón: x={pos.x}, y={pos.y}"
+
+        elif action == "get_screen_size":
+            size = pyautogui.size()
+            return f"Resolución de pantalla: {size.width}x{size.height}"
+
         elif action == "move_mouse":
             x, y = params.get("x"), params.get("y")
             if x is None or y is None: 
                 return "Error: Se requieren 'x' e 'y'."
-            pyautogui.moveTo(x, y, duration=0.25)
+            pyautogui.moveTo(x, y, duration=params.get("duration", 0.25))
             return f"Ratón movido a ({x}, {y})."
 
         elif action == "click":
             x, y = params.get("x"), params.get("y")
+            button = params.get("button", "left")
             if x is not None and y is not None:
-                pyautogui.click(x, y)
+                pyautogui.click(x, y, button=button)
+                return f"Click {button} en ({x}, {y})."
             else:
-                pyautogui.click()
-            return "Click realizado."
+                pyautogui.click(button=button)
+                return f"Click {button} en posición actual."
 
         elif action == "double_click":
             pyautogui.doubleClick()
@@ -98,14 +116,14 @@ def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
             x, y = params.get("x"), params.get("y")
             if x is None or y is None: 
                 return "Error: Se requieren 'x' e 'y'."
-            pyautogui.dragTo(x, y, duration=0.5)
+            pyautogui.dragTo(x, y, duration=params.get("duration", 0.5))
             return f"Elemento arrastrado a ({x}, {y})."
 
         elif action == "type_text":
             text = params.get("text")
             if not text: 
                 return "Error: Se requiere 'text'."
-            pyautogui.write(text, interval=0.01)
+            pyautogui.write(text, interval=params.get("interval", 0.01))
             return f"Texto escrito: '{text}'."
 
         elif action == "press_key":
@@ -128,41 +146,86 @@ def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
             return f"Scroll realizado de {amount} unidades."
 
         elif action == "screenshot":
-            filename = params.get("filename", f"screenshot_{int(time.time())}.png")
-            path = os.path.join(os.getcwd(), filename)
+            filename = params.get("filename")
+            if not filename:
+                filename = f"screenshot_{int(time.time())}.png"
+            
+            # Asegurar que esté en un lugar accesible, preferiblemente workspace
+            path = os.path.abspath(filename)
             pyautogui.screenshot(path)
             return f"Captura de pantalla guardada en: {path}"
+
+        elif action == "find_image":
+            image_path = params.get("image_path")
+            confidence = params.get("confidence", 0.8)
+            if not image_path:
+                return "Error: Se requiere 'image_path' para buscar."
+            
+            try:
+                location = pyautogui.locateOnScreen(image_path, confidence=confidence)
+                if location:
+                    center = pyautogui.center(location)
+                    return f"Imagen encontrada en: {location} (Centro: {center.x}, {center.y})"
+                return "Imagen no encontrada en pantalla."
+            except Exception as e:
+                return f"Error al buscar imagen: {e}"
+
+        elif action == "click_image":
+            image_path = params.get("image_path")
+            confidence = params.get("confidence", 0.8)
+            if not image_path:
+                return "Error: Se requiere 'image_path'."
+            
+            try:
+                location = pyautogui.locateOnScreen(image_path, confidence=confidence)
+                if location:
+                    center = pyautogui.center(location)
+                    pyautogui.click(center.x, center.y)
+                    return f"Click realizado en el centro de la imagen ({center.x}, {center.y})."
+                return "Imagen no encontrada, no se pudo hacer click."
+            except Exception as e:
+                return f"Error al procesar click en imagen: {e}"
 
         else:
             return f"Acción '{action}' no reconocida."
 
     except Exception as e:
+        logger.error(f"Error en pc_interaction: {e}", exc_info=True)
         return f"Error al ejecutar la acción de PC: {str(e)}"
 
 # Schema para el LLM
 tool_schema = {
     "name": "pc_interaction",
-    "description": "Herramienta genérica para interactuar con el PC: controlar ratón, teclado, ventanas y capturas de pantalla.",
+    "description": "Herramienta avanzada para interactuar con el PC: controlar ratón, teclado, ventanas y capturas de pantalla.",
     "parameters": {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "description": "La acción a realizar: 'get_windows', 'activate_window', 'click', 'double_click', 'right_click', 'move_mouse', 'drag_mouse', 'type_text', 'press_key', 'key_combo', 'scroll', 'screenshot'.",
-                "enum": ["get_windows", "activate_window", "click", "double_click", "right_click", "move_mouse", "drag_mouse", "type_text", "press_key", "key_combo", "scroll", "screenshot"]
+                "description": "La acción a realizar.",
+                "enum": [
+                    "get_windows", "activate_window", "click", "double_click", 
+                    "right_click", "move_mouse", "drag_mouse", "type_text", 
+                    "press_key", "key_combo", "scroll", "screenshot",
+                    "get_mouse_pos", "get_screen_size", "find_image", "click_image"
+                ]
             },
             "params": {
                 "type": "object",
-                "description": "Parámetros para la acción (x, y, text, key, combo, window_title, amount, etc.).",
+                "description": "Parámetros específicos para cada acción.",
                 "properties": {
                     "x": {"type": "number", "description": "Coordenada X"},
                     "y": {"type": "number", "description": "Coordenada Y"},
                     "text": {"type": "string", "description": "Texto a escribir"},
-                    "key": {"type": "string", "description": "Tecla a presionar"},
-                    "combo": {"type": "array", "description": "Lista de teclas para la combinación", "items": {"type": "string"}},
-                    "window_title": {"type": "string", "description": "Título de la ventana a activar"},
-                    "amount": {"type": "number", "description": "Cantidad de scroll (positivo hacia arriba, negativo hacia abajo)"},
-                    "filename": {"type": "string", "description": "Nombre del archivo de captura"}
+                    "key": {"type": "string", "description": "Tecla a presionar (ej: 'enter', 'esc', 'f1')"},
+                    "combo": {"type": "array", "description": "Lista de teclas (ej: ['ctrl', 'c'])", "items": {"type": "string"}},
+                    "window_title": {"type": "string", "description": "Título de la ventana"},
+                    "amount": {"type": "number", "description": "Cantidad de scroll"},
+                    "filename": {"type": "string", "description": "Nombre de archivo para captura"},
+                    "image_path": {"type": "string", "description": "Ruta a una imagen para buscar en pantalla"},
+                    "confidence": {"type": "number", "description": "Nivel de confianza para búsqueda de imagen (0.1 a 1.0)"},
+                    "duration": {"type": "number", "description": "Duración del movimiento en segundos"},
+                    "button": {"type": "string", "description": "Botón del ratón ('left', 'right', 'middle')", "default": "left"}
                 }
             }
         },

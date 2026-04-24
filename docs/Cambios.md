@@ -4213,3 +4213,763 @@ Se ha implementado `file_editor.py` que provee la herramienta `sophisticated_edi
 - **Centrado de Barra Inferior**: Se rediseñó el contenedor inferior para centrar horizontalmente la barra de entrada, el indicador de carga y el pie de página.
 - **Alineación de Spinner**: El texto de 'Procesando...' ahora se muestra centrado sobre la barra de entrada para una estética más equilibrada.
 - **Consistencia Visual**: Se estandarizaron los anchos al 85% para todos los controles inferiores, alineándolos perfectamente con el historial de chat.
+
+---
+
+## 17-04-2026 Actualización de Banners "KOGNITERM"
+
+**Descripción**: Se ha actualizado el banner ASCII de bienvenida y el splash screen para que muestren el nombre correcto del proyecto, "KOGNITERM", manteniendo la tipografía blocky original.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/terminal_ui.py**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/terminal_ui.py)
+   - Actualización del `banner_text` para incluir las letras completas de "KOGNITERM".
+   - Ajuste de alineación y espaciado.
+
+2. [**kogniterm/terminal/tui/tui_app.py**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Actualización de `_do_print_banner` con el nuevo arte ASCII.
+   - Actualización de `_build_splash_title` para el splash screen inicial.
+
+#### **🎯 Beneficios**
+
+✅ **Consistencia de Marca**: Ahora el sistema muestra "KOGNITERM" en lugar de nombres incompletos o incorrectos.
+✅ **Identidad Visual**: Se mantiene el estilo visual robusto y "blocky" que prefiere el usuario.
+✅ **Mejora Estética**: Banner mejor centrado y completo.
+
+
+---
+
+## 17-04-2026 Corrección de Error de Sintaxis (IndentationError)
+
+**Descripción**: Se corrigió un error de sangría en `meta_command_processor.py` que impedía el inicio de la aplicación.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/meta_command_processor.py**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/meta_command_processor.py)
+   - Se movió la función auxiliar `_fetch_ollama_local_models` al bloque correcto dentro de `process_meta_command` (%models).
+   - Se corrigió la sangría excesiva que causaba el conflicto con la definición del método `__init__`.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad**: Se restaura la capacidad de inicio de la aplicación.
+✅ **Limpieza de Código**: Mejora la organización interna del procesador de meta-comandos.
+
+
+---
+
+## 17-04-2026 Corrección de Errores TCSS (Textual CSS)
+
+**Descripción**: Se corrigieron errores de parseo de CSS en la TUI que impedían el arranque correcto debido a propiedades no soportadas por Textual.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/tui_app.py**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Eliminada propiedad `font-size` (no soportada en TCSS).
+   - Eliminadas propiedades `margin-left: auto` y `margin-right: auto` (no soportadas).
+   - Añadido `align-horizontal: center` al contenedor padre (`#splash_input_row`) para mantener el centrado del input de forma compatible.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad**: La TUI ahora se inicia correctamente sin errores de parseo de estilos.
+✅ **Compatibilidad**: Ajuste a los estándares de Textual CSS.
+
+
+## 19-04-2026 Corrección de Prefijo en Ollama Cloud para LiteLLM
+
+**Descripción**: Se ha corregido un error en la configuración de proveedores donde se utilizaba el prefijo `ollama_chat/` para llamar a Ollama Cloud. Este prefijo no era correctamente procesado por LiteLLM, lo que causaba que se enviara íntegro al servidor de Ollama, resultando en un error de "modelo no encontrado".
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/multi_provider_manager.py`](kogniterm/core/multi_provider_manager.py)
+   - Se cambió el prefijo forzado de `ollama_chat/` a `ollama/` para el proveedor `ollama_cloud`.
+   - Se eliminó código inalcanzable y se corrigieron variables no definidas (`last_error`) en el método `execute_with_fallback`.
+
+2. [`kogniterm/core/llm/provider_config.py`](kogniterm/core/llm/provider_config.py)
+   - Se eliminó la sustitución automática de `ollama/` por `ollama_chat/` para configuraciones locales, asegurando el uso del prefijo estándar reconocido por LiteLLM.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad**: Resuelve el error `litellm.APIConnectionError: OllamaException - {"error": "model 'ollama_chat/cogito-2.1:671b' not found"}`.
+✅ **Compatibilidad**: Alinea la configuración con los estándares de LiteLLM para proveedores de Ollama.
+✅ **Limpieza de Código**: Se eliminaron advertencias de linter y código muerto.
+
+## 19-04-2026 Corrección de Ruteo en Resumen de Historial y Heurísticas de Proveedor
+
+**Descripción**: Se resolvió un error donde los modelos de Google (Gemini) eran enviados incorrectamente a Ollama durante el proceso de resumen del historial de conversación.
+
+### Cambios Implementados
+1. **Detección Heurística**: En `MultiProviderManager`, se añadieron heurísticas para identificar automáticamente el proveedor basado en el nombre del modelo (`gemini`, `gpt`, `claude`) cuando no se proporciona un prefijo explícito.
+2. **Integración con Gestor**: Se actualizó `LLMService.summarize_conversation_history` para que utilice el gestor de proveedores en lugar de llamar a LiteLLM directamente, asegurando que se apliquen los prefijos, llaves y endpoints correctos.
+3. **Soporte No-Streaming**: Se habilitó el soporte para llamadas no-streaming (`stream=False`) en el método `execute` del gestor de proveedores.
+
+#### **🎯 Beneficios**
+✅ **Corrección de Errores**: Se elimina el error `litellm.APIConnectionError: OllamaException - {"error":"model 'gemini-3-flash-preview' not found"}`.
+✅ **Robustez**: Mayor precisión en la selección de proveedores para modelos conocidos.
+
+## 19-04-2026 Ajuste Visual del Input de Splash
+
+**Descripción**: Se ha modificado el diseño del input bar en la pantalla de inicio (splash) para que sea más estilizado (angosto verticalmente) y utilice el ancho completo disponible para el texto del usuario.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/tui_app.py**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Se redujo la altura de #splash_input_row de 3 a 1 línea.
+   - Se incrementó el ancho de ChatInput#splash_chat_input del 30% al 100%.
+   - Se ajustó el padding horizontal a 4 columnas y se eliminó el padding superior para lograr un efecto más estilizado.
+   - Se redujo la altura de #splash_model_info de 2 a 1 línea para compactar la sección.
+
+#### **🎯 Beneficios**
+
+✅ **Mejor UX**: El campo de texto ahora permite escribir frases más largas sin truncarse visualmente.
+✅ **Estética mejorada**: El diseño del splash es más limpio y proporcional.
+
+## 19-04-2026 Corrección del Diseño del Input de Splash (Ancho vs Alto)
+
+**Descripción**: Se corrigió el diseño del input bar en el splash tras feedback del usuario. Se restauraron las alturas originales (el "alto" estaba bien) y se procedió a hacer el contenedor más "angosto" horizontalmente, asegurando que el texto utilice el 100% de ese nuevo ancho reducido.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/tui_app.py**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Se restauró la altura de #splash_input_row a 3 líneas y #splash_model_info a 2 líneas.
+   - Se limitó el ancho de ambos contenedores (#splash_input_row y #splash_model_info) a 60 columnas (más angosto horizontalmente).
+   - Se mantuvo ChatInput#splash_chat_input al 100% del ancho del contenedor para que el texto ocupe todo el espacio disponible en la barra.
+   - Se ajustó el padding interno a 1 horizontal para maximizar el espacio de texto.
+
+#### **🎯 Beneficios**
+
+✅ **Precisión Visual**: El input ahora tiene el tamaño horizontal deseado por el usuario sin sacrificar la proporcionalidad vertical.
+✅ **Uso de Espacio**: El texto ahora llena la barra gris de extremo a extremo (menos paddings mínimos).
+
+## 19-04-2026 Centrado Horizontal del Input Bar en Splash
+
+**Descripción**: Se corrigió el centrado horizontal del input bar en la pantalla de splash, que aparecía alineado a la izquierda en lugar de centrado.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/tui_app.py**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Se separó `align: center middle` en `align-horizontal: center` y `align-vertical: middle` explícitos en `#splash_inner`, para mayor confiabilidad en Textual 8.x.
+   - Se cambió `#splash_input_row` y `#splash_model_info` de ancho fijo (`width: 60`) a ancho porcentual (`width: 60%`), lo que permite que `align-horizontal: center` del contenedor padre los centre correctamente.
+   - Se mantiene `ChatInput#splash_chat_input` al 100% del ancho del contenedor para que el texto ocupe toda la barra.
+
+#### **🎯 Beneficios**
+
+✅ **Centrado correcto**: El input bar ahora aparece centrado debajo del título KOGNITERM.
+✅ **Responsivo**: El ancho basado en porcentaje se adapta a diferentes tamaños de terminal.
+
+---
+
+## 19-04-2026 Simplificación de Interfaz de Mensajes en Espera (TUI)
+
+**Descripción**: Se ha simplificado la visualización de los mensajes en cola en la interfaz de terminal (TUI) para evitar duplicidad visual y mejorar la limpieza del diseño.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Eliminación de Duplicados en Chat**:
+   - Se removió el mensaje automático `(En cola...)` que se escribía en el chat log al recibir un input mientras el agente estaba procesando.
+   - Ahora el input solo aparece en el chat una vez que comienza su procesamiento real, evitando entradas dobles.
+
+2. **Simplificación de `QueueDisplay`**:
+   - El widget de cola se ha rediseñado para mostrarse como una única línea de texto simple sobre la barra de entrada.
+   - Formato: `⏳ En cola (N): [último mensaje]`.
+   - Soporte para truncamiento inteligente de mensajes largos en el indicador.
+
+3. **Mejoras Estéticas (CSS)**:
+   - Se eliminaron los fondos oscuros, bordes y paddings excesivos del panel de cola.
+   - Ahora el indicador de espera es transparente y se integra visualmente como un texto de estado justo encima del input bar.
+   - Altura fija de 1 línea para mantener la consistencia del layout.
+
+4. **Corrección de Lógica de Visualización**:
+   - Se implementó el uso de `self.styles.display` en lugar de un atributo personalizado para asegurar que el widget se oculte/muestre correctamente en Textual.
+
+#### **🎯 Beneficios**
+
+✅ **Interfaz más Limpia**: Menos ruido visual sobre la barra de entrada.
+✅ **UX Mejorada**: El usuario sigue sabiendo que su mensaje fue recibido pero no ve duplicados en el historial de chat.
+✅ **Consistencia Visual**: El indicador de cola ahora parece un mensaje de estado nativo del sistema.
+
+## 19-04-2026 Habilitación de Scroll en el Chat Log (TUI)
+
+**Descripción**: Se habilitó y configuró la barra de desplazamiento (scroll) en el componente principal de chat de la TUI, permitiendo navegar por el historial de mensajes usando el ratón o el teclado.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/tui_app.py`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Se cambió el alto del widget `#chat_log` de `auto` a `1fr`, permitiendo que el contenedor `VerticalScroll` maneje correctamente el desbordamiento de contenido.
+   - Se eliminó la regla `scrollbar-size: 0 0;` que ocultaba visualmente la barra de scroll.
+   - Se añadió `scrollbar-gutter: stable;` para evitar que el contenido "salte" horizontalmente cuando la barra aparece o desaparece.
+   - Se forzó el comportamiento de scroll vertical explícito con `overflow-y: scroll;`.
+
+#### **🎯 Beneficios**
+
+✅ **Navegabilidad mejorada**: Ahora es posible revisar mensajes anteriores del chat sin que estos desaparezcan de la vista al acumularse.
+✅ **Experiencia "Nativa"**: El scroll interno de Textual permite el uso de la rueda del ratón y proporciona una barra visual de posición, similar al comportamiento de una terminal estándar.
+✅ **Estabilidad de Layout**: El uso de `scrollbar-gutter` mantiene la alineación del texto constante independientemente del largo del historial.
+
+---
+
+## 19-04-2026 Refactorización de Input de Chat a Multi-línea (TextArea)
+
+**Descripción**: Se migró el componente de entrada de mensajes de un `Input` simple a un `TextArea` para permitir la escritura y edición de mensajes multi-línea, pegado de bloques de código y navegación interna.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/status_footer.py`](kogniterm/terminal/tui/components/status_footer.py)
+   - Refactorización de la clase `ChatInput` para heredar de `TextArea`.
+   - Implementación de comportamiento híbrido: `Enter` para salto de línea y `Ctrl+Enter` para envío.
+   - Ajuste de navegación de historial (`Up`/`Down`) para que los atajos solo se disparen cuando el cursor está en el límite superior o inferior del texto.
+   - Habilitación de `soft_wrap: True` para mejor visualización de mensajes largos.
+
+2. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - Actualización de estilos CSS para permitir que el contenedor del input crezca dinámicamente o desplace contenido.
+   - Adaptación de la lógica de envío para procesar el texto multi-línea.
+
+#### **🎯 Beneficios**
+
+✅ **Flexibilidad**: El usuario puede redactar prompts complejos y estructurados directamente en la terminal.
+✅ **Mejor Pegado**: Soporte nativo para pegar múltiples líneas sin enviar el mensaje prematuramente.
+✅ **Continuidad**: Se mantiene el acceso al historial persistente integrado en el nuevo editor.
+
+---
+
+## 19-04-2026 Corrección de Crash en Entrada de Chat (AttributeError: 'Key' object has no attribute 'ctrl')
+
+**Descripción**: Se resolvió un error crítico que provocaba el cierre de aplicación al intentar enviar mensajes, causado por el acceso a una propiedad inexistente en el evento de teclado de Textual.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/status_footer.py`](kogniterm/terminal/tui/components/status_footer.py)
+   - Se reemplazó la validación manual de `event.ctrl` por una comparación segura usando los identificadores de teclas de Textual (`"ctrl+j"`, `"ctrl+enter"`, `"alt+enter"`).
+   - Se habilitó el soporte para `Alt+Enter` como atajo adicional de envío.
+   - Se garantizó que `Enter` simple se mantenga como salto de línea (comportamiento por defecto de `TextArea`).
+   - Se añadió la llamada a `super().on_key(event)` para asegurar que el comportamiento base de `TextArea` (como la inserción de caracteres y retrocesos) se mantenga intacto.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad**: La aplicación ya no crashea al interactuar con el teclado en el input de chat.
+✅ **Consistencia**: Soporte mejorado para diferentes combinaciones de teclas de envío según la terminal usada (ej: `Ctrl+Enter` mapeado a `ctrl+j`).
+
+---
+
+## 19-04-2026 Soporte Multi-línea y Scroll en Barra de Inicio y Chat
+
+**Descripción**: Se ha transformado la barra de entrada de texto de un widget de línea única (`Input`) a uno multi-línea (`TextArea`) tanto en la pantalla de inicio como en el chat normal. Esto permite escribir bloques de texto, pegar múltiples líneas y desplazarse por el contenido cuando este supera el tamaño visible.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/status_footer.py`](kogniterm/terminal/tui/components/status_footer.py)
+   - `ChatInput` ahora hereda de `TextArea`.
+   - Implementada navegación de historial (`Up`/`Down`) que solo se activa cuando el cursor está en la primera o última línea respectivamente.
+   - Definido evento `ChatInput.Submitted` para notificar el envío de contenido.
+   - Configurado `Ctrl+Enter` (y `ctrl+j`) para enviar el mensaje, permitiendo que `Enter` simple añada saltos de línea.
+   - Añadido soporte para scroll del chat log con el ratón cuando el cursor está en los límites del input.
+
+2. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - Actualizados estilos CSS para permitir que el contenedor del input crezca dinámicamente hasta un máximo (`max-height`).
+   - Habilitado scroll vertical estable en el input.
+   - Actualizado el handler de envío para procesar el nuevo evento `ChatInput.Submitted`.
+   - Modificado el atajo visual en la pantalla de inicio para indicar `ctrl+entrar` como método de envío.
+
+#### **🎯 Beneficios**
+
+✅ **Flexibilidad**: Posibilidad de escribir y revisar mensajes largos o fragmentos de código antes de enviar.
+✅ **Usabilidad**: El input ya no limita la visibilidad a una sola línea.
+✅ **Continuidad**: Se mantiene el historial de comandos persistente con una navegación intuitiva.
+
+---
+
+## 19-04-2026 Corrección de Crash en ChatInput y Ajustes de Estilo
+
+**Descripción**: Se corrigió un error de ejecución (`AttributeError`) causado por el intento de asignar valores a propiedades de solo lectura en el widget `TextArea`. Además, se optimizó el esquema de entrada para cumplir con las preferencias de envío rápido del usuario.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/status_footer.py`](kogniterm/terminal/tui/components/status_footer.py)
+   - Eliminadas las asignaciones directas a `cursor_line_style` y `selection_style` que causaban el crash.
+   - Ajustada la lógica de teclado: `Enter` ahora envía el mensaje y `Alt+Enter`/`Ctrl+Enter`/`Shift+Enter` insertan un salto de línea.
+   - Restaurado el manejo base de teclado y pegado para asegurar que se pueda escribir y procesar texto correctamente.
+
+2. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - Añadidas reglas CSS para ocultar visualmente el resaltado de la línea del cursor y la selección en el `ChatInput`.
+   - Actualización de los "hints" de teclado para reflejar los nuevos atajos.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad Total**: Eliminado el error de inicialización que impedía abrir la aplicación.
+✅ **Flujo de Chat Estándar**: Envío rápido con `Enter` manteniendo la capacidad multi-línea mediante atajos.
+✅ **Estética Minimizada**: Look uniforme y limpio sin elementos de resaltado innecesarios en la barra de entrada.
+
+## 19-04-2026 Implementación de Auto-Guardado de Sesiones
+
+**Descripción**: Se ha implementado el guardado automático de cada sesión de conversación para permitir su persistencia sin intervención manual del usuario, integrándolo con el comando %resume.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [/kogniterm/core/session_manager.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/session_manager.py)
+   - Se añadió el método `generate_autosave_name` para crear nombres descriptivos basados en el primer mensaje (ej: `autosave_20260419_1900_hola_mundo`).
+   - Importación de `HumanMessage` para análisis de historial.
+
+2. [/kogniterm/terminal/kogniterm_app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/kogniterm_app.py)
+   - Se añadió el método `_auto_save_session` para gestionar la persistencia automática.
+   - El sistema ahora genera un nombre de sesión en el primer mensaje si no hay una sesión activa.
+   - Se añadieron llamadas a `_auto_save_session` después de cada interacción y en el bloque `finally` para asegurar el guardado al salir.
+
+3. [/kogniterm/terminal/tui/tui_app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Implementación equivalente de `_auto_save_session` para la interfaz TUI.
+   - Guardado automático sincronizado tras la ejecución de tareas de los agentes.
+
+4. [/kogniterm/terminal/meta_command_processor.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/meta_command_processor.py)
+   - Actualización del comando `%reset` para borrar el nombre de la sesión actual, permitiendo que la siguiente interacción inicie un nuevo archivo de auto-guardado limpio.
+
+5. [/kogniterm/core/llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py)
+   - Adición de la propiedad `conversation_history` (getter/setter) para actuar como proxy hacia `HistoryManager`, simplificando el acceso al historial desde otros componentes.
+
+#### **🎯 Beneficios**
+
+✅ **Persistencia Total**: Nunca se pierde una sesión aunque el usuario olvide guardarla manualmente.
+✅ **Reanudación Sencilla**: Las sesiones auto-guardadas aparecen en la lista de %resume.
+✅ **Nombres Descriptivos**: Los auto-guardados no son genéricos, incluyen una referencia al inicio de la charla.
+✅ **Experiencia Fluida**: Funciona de forma transparente tanto en la terminal clásica como en la TUI.
+
+
+---
+
+## 19-04-2026 Restauración de Autocompletado y Comandos en la TUI
+
+**Descripción**: Se restauró la funcionalidad de autocompletado en la terminal (menú emergente con %, @ y :) y se arregló la ejecución de meta-comandos tras la migración a TextArea.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. `kogniterm/terminal/tui/components/status_footer.py` (file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/components/status_footer.py)
+   - Re-implementada la clase `KogniTermSuggester` para el escaneo en segundo plano de archivos y contenedores Docker.
+   - Integrado el suggester en `ChatInput` con gestión de ciclo de vida (`on_mount`/`on_unmount`).
+   - Añadida propiedad `.value` a `ChatInput` para retrocompatibilidad con el motor de comandos.
+
+2. `kogniterm/terminal/tui/tui_app.py` (file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Unificada la lógica de detección de cambios de entrada para soportar `Input` y `TextArea`.
+   - Corregida la lógica de posicionamiento del cursor al aplicar sugerencias (soporte para tuplas `(fila, col)` en `TextArea`).
+   - Mejorado el sistema de reposicionamiento dinámico del menú emergente de autocompletado.
+   - Limpieza y unificación de los handlers de teclado (`on_key`) para evitar duplicidad y mejorar la respuesta visual.
+
+#### **🎯 Beneficios**
+
+✅ **Autocompletado Operativo**: Se recuperó la capacidad de referenciar archivos con `@`, contenedores con `:` y comandos mágicos con `%`.
+✅ **Compatibilidad Multi-Widget**: El sistema ahora es robusto ante cambios en los widgets de entrada, manejando correctamente las diferencias entre `Input` y `TextArea`.
+✅ **Estabilidad de Comandos**: Los comandos como `%reset`, `%theme`, etc., vuelven a funcionar correctamente desde la barra de entrada multi-línea.
+
+---
+
+## 19-04-2026 Mejora en la Selección de Autocompletado (Enter)
+
+**Descripción**: Se corrigió un problema donde la tecla Enter no aplicaba la sugerencia seleccionada en el menú de autocompletado y, en su lugar, insertaba un salto de línea en el editor.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. `kogniterm/terminal/tui/components/status_footer.py` (file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/components/status_footer.py)
+   - Modificado `ChatInput.on_key` para llamar a `event.prevent_default()` en las teclas `Up`, `Down`, `Enter` y `Escape` cuando el popup de autocompletado está activo. Esto evita que el widget `TextArea` realice sus acciones por defecto (como insertar saltos de línea) mientras se navega por el menú.
+
+2. `kogniterm/terminal/tui/tui_app.py` (file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Actualizada la lógica de generación de sugerencias para establecer `index = 0` en el `ListView` del popup automáticamente. Esto asegura que siempre haya una opción resaltada para ser seleccionada con Enter sin necesidad de usar las flechas primero.
+
+#### **🎯 Beneficios**
+
+✅ **UX Fluida**: La selección de archivos, contenedores y comandos con Enter es ahora inmediata y predecible.
+✅ **Sin Efectos Secundarios**: Se eliminó la inserción accidental de saltos de línea al intentar autocompletar.
+
+---
+
+## 19-04-2026 Corrección de AttributeError en KogniTermTUI (_cursor_timer)
+
+**Descripción**: Se corrigió un error fatal que ocurría cuando se intentaba acceder a atributos de interactividad de terminal (como `_cursor_timer`) antes de que ocurriera el primer guardado automático de la sesión.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. `kogniterm/terminal/tui/tui_app.py` ([tui_app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py))
+   - Se movió la inicialización de los atributos `interactive_executor`, `_cursor_active`, `_cursor_frame`, `_cursor_timer`, `_last_terminal_tool_name`, `_last_terminal_output` y `_completion_input` desde el método `_auto_save_session` al método `__init__`.
+   - Esto asegura que estos atributos estén siempre disponibles desde el arranque de la aplicación, evitando excepciones `AttributeError` en hilos secundarios o durante interacciones tempranas.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad**: Eliminación de un fallo crítico que cerraba la aplicación inesperadamente.
+✅ **Robustez**: Inicialización adecuada y centralizada del estado de la aplicación.
+
+## 19-04-2026 Personalización de Scrollbars en la TUI
+
+**Descripción**: Se han ajustado los estilos CSS de las barras de desplazamiento (scrollbars) para mejorar la estética de la interfaz, haciendo que el fondo de la barra sea invisible al coincidir con el color de fondo de los contenedores.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - Se añadieron propiedades `scrollbar-background` y `scrollbar-color` al `#chat_log` para que el track sea del mismo color que el fondo (`#1e1e1e`).
+   - Se aplicó la misma lógica al `ChatInput` y al `#command_popup` con su respectivo color de fondo (`#2a2a2a`).
+   - Se definieron colores contrastantes para el "thumb" (la parte móvil) para mantener la usabilidad.
+
+#### **🎯 Beneficios**
+
+✅ **Estética Premium**: Interfaz más limpia sin barras negras distrayentes.
+✅ **Consistencia Visual**: Los scrollbars se integran perfectamente con el diseño oscuro.
+✅ **Usabilidad**: La barra móvil sigue siendo visible con colores sutiles que varían al pasar el mouse.
+
+## [2026-04-20] - Unificación de Alineación del TUI
+- Estandarización de ancho (85%, max 180 chars) para todos los componentes principales: Chat Log, Input Bar, Paneles de Terminal, Footer y Barra de Progreso.
+- Implementación de 'scrollbar-gutter: stable' en toda la interfaz para evitar saltos de alineación por scrollbars.
+- Alineación del inicio de texto en columna 4 para todos los elementos (Mensajes de Usuario con pipe, Mensajes de LLM, Panel de Pensando y Notificaciones).
+- Unificación del padding horizontal en el panel de herramientas y footer para coincidir con el bloque de entrada.
+
+---
+
+## 20-04-2026 Interactividad Nativa y Enfoque Directo en Paneles de Terminal
+
+**Descripción**: Se ha transformado la experiencia de interacción con los paneles de terminal en la TUI, permitiendo que sean enfocables directamente y soporten entrada de teclado (incluyendo teclas de flecha y secuencias de control) como una terminal nativa.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [/kogniterm/terminal/tui/tui_app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Se añadió el método `on_click` a `TerminalPanel` para permitir el enfoque directo mediante un clic del ratón.
+   - Se mejoró drásticamente el mapeo de teclas en `on_key` cuando el terminal tiene el foco:
+     - Soporte para flechas (`up`, `down`, `left`, `right`).
+     - Soporte para teclas de navegación (`home`, `end`, `pageup`, `pagedown`, `delete`).
+     - Soporte para combinaciones de control (`ctrl+a` a `ctrl+z`).
+     - Envío correcto de `enter` como `\r` y `shift+tab` como `\x1b[Z`.
+     - Soporte para `escape` para desenfocar el terminal y volver al chat (manteniento `ctrl+[` como alternativa para enviar escape al PTY).
+   - Se añadieron estilos CSS dinámicos:
+     - `TerminalPanel:focus`: Borde izquierdo destacado en cyan y fondo ligeramente más claro para indicar enfoque.
+     - `TerminalPanel.interactive`: Borde verde esmeralda para indicar que hay un PTY activo escuchando entrada.
+   - Se aumentó la altura máxima de los paneles de terminal a 40 líneas.
+
+2. [/kogniterm/terminal/visual_components.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/visual_components.py)
+   - Mejora de `create_terminal_output_panel`:
+     - Soporte para la secuencia ANSI `\x1b[2J` (limpiar pantalla).
+     - Procesamiento de `\r` optimizado para simulaciones de barras de progreso y menús.
+     - Aumento de las líneas visibles por defecto de 15 a 25.
+     - Implementación de un cursor sólido `█` para una sensación más "pro".
+     - Encabezado de terminal rediseñado con Rule y separadores visuales.
+     - Fondo de terminal oscurecido (`#0c0c0c`) para mayor contraste y estética de consola real.
+
+#### **🎯 Beneficios**
+
+✅ **Interacción Total**: Ya no es necesario usar la barra de chat para comandos interactivos (ej: `top`, menús de selección, `ssh`, etc.).
+✅ **Sensación Nativa**: El renderizado emula mejor el comportamiento de una consola real, incluyendo el cursor y la limpieza de pantalla.
+✅ **Identificación de Estado**: El usuario sabe exactamente qué terminal tiene el foco y si está en modo interactivo mediante feedback visual (colores de bordes).
+✅ **Flujo de Trabajo Eficiente**: Transición rápida entre chatear con el agente e interactuar directamente con la salida del comando.
+
+## 20-04-2026 Refinamiento Estético de Paneles de Terminal
+
+**Descripción**: Se han realizado ajustes visuales para mejorar la distinción entre el contexto del comando y su salida de terminal.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [/kogniterm/terminal/visual_components.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/visual_components.py) y [/kogniterm/terminal/tui/components/tool_output.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/components/tool_output.py)
+   - Se añadió una línea de espacio en blanco entre la regla divisora del título y el bloque de contenido de la terminal/herramienta para mayor claridad visual.
+
+2. [/kogniterm/terminal/command_approval_handler.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/command_approval_handler.py)
+   - Se modificó la orquestación para que el título del panel de terminal muestre dinámicamente el **comando exacto** que se está ejecutando en lugar del texto estático "Ejecución de Comando".
+
+#### **🎯 Beneficios**
+
+✅ **Mejor Legibilidad**: El espacio extra reduce la fatiga visual y separa claramente el encabezado del flujo de datos.
+✅ **Contexto Inmediato**: El usuario ahora puede ver qué comando generó la salida simplemente mirando el encabezado del panel, sin tener que hacer scroll hacia arriba.
+
+---
+
+## 20-04-2026 Panel de Salida de Herramientas con Scroll y Formateo Inteligente
+
+**Descripción**: Se ha implementado un nuevo sistema para mostrar la salida de las herramientas en la TUI, solucionando problemas de longitud excesiva y mejorando la legibilidad mediante renderizado inteligente de Markdown y Código.
+
+### Cambios Implementados
+
+#### **📁 Nuevos Archivos**
+
+1. [`kogniterm/terminal/tui/components/tool_output.py`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/components/tool_output.py)
+   - Creación del widget `ToolOutputWidget`.
+   - Soporte para **alto máximo de 30 líneas** con scroll interno automático.
+   - **Detección inteligente de contenido**: Renderiza automáticamente el texto como Markdown, Código resaltado ( Syntax) o Texto con colores ANSI.
+   - Interactividad: Permite foco para desplazamiento con teclado.
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/chat_log.py`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/components/chat_log.py)
+   - Integración de `ToolOutputWidget`.
+   - Nuevo método `write_tool_output` para instanciar y montar el panel de herramientas de forma estandarizada.
+
+2. [`kogniterm/terminal/tui/tui_app.py`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Actualización de `update_terminal_output` para utilizar el nuevo widget en lugar de renderizables estáticos.
+   - Gestión de estado del widget activo para permitir actualizaciones en tiempo real (streaming) sin crear múltiples paneles.
+   - Limpieza automática de referencias al finalizar el streaming.
+
+#### **🎯 Beneficios**
+
+✅ **Interfaz Limpia**: Evita que salidas muy largas de herramientas (como logs o listados de archivos) inunden el chat log.
+✅ **Legibilidad Superior**: El código y el markdown se ven perfectamente formateados y resaltados.
+✅ **Interactividad**: Los usuarios pueden navegar por la salida completa de una herramienta sin perder el contexto de la conversación.
+
+---
+
+## 20-04-2026 Corrección en Bucle de Eco del Ejecutor de Comandos
+
+**Descripción**: Se corrigió un error lógico crítico que causaba que comandos sin salida (`systemctl daemon-reload`, etc.) dejaran el hilo de la terminal atrapado y esperando, "colgando" visualmente la interfaz de la terminal TUI.
+
+### Cambios Implementados
+
+#### **🔧 CommandExecutor (core/command_executor.py)**
+- **Operador Ternario Mal Formado**: Se corrigió la condición de coincidencia de eco de comando. Antes estaba `elif expected if expected else '' == search_buffer:`, lo que en Python resolvía siempre a `True` si `expected` tenía algún valor, causando que el primer paquete del PTY (que solía ser el `##KOGNITERM_DONE_MARKER##` tras el eco) fuera ingerido y limpiado sin ser procesado. 
+- **Lógica Asegurada**: Cambiado a `elif (expected or '') == search_buffer:`, lo que previene que los comandos rápidos sin salida ("stille commands") borren su propio marcador de finalización y atrapen el thread.
+
+## 20-04-2026 Mejora de la Robustez en la Ejecución de Comandos y Modo Interactivo
+
+**Descripción**: Se han implementado mejoras críticas para evitar bloqueos visuales y funcionales durante la ejecución de comandos en la terminal, especialmente en escenarios interactivos o con filtrado de eco problemático.
+
+### Cambios Implementados
+
+#### **🔧 CommandExecutor (core/command_executor.py)**
+- **Filtrado de Eco Robusto**: Se añadió un mecanismo de "give-up" (desistimiento) que desactiva el filtrado de eco si el buffer excede un tamaño razonable o hay divergencia, evitando que la salida se oculte indefinidamente si el eco no coincide exactamente.
+- **Priorización de Entrada**: Se corrigió un bloqueo donde la entrada del usuario podía retrasarse si el PTY estaba inundado de datos, asegurando que el pipe de entrada se procese en cada iteración del bucle.
+- **Manejo de Excepciones**: Añadida protección try-except en la inyección de entrada al PTY.
+
+#### **🔧 TUI App (terminal/tui/tui_app.py)**
+- **Escape de Modo Interactivo**: Rediseñada la lógica de la tecla `Esc` para que permita salir del "Modo Directo" (redirección de teclado a la terminal) y volver al modo chat normal sin necesidad de matar el proceso en curso.
+- **Redirección de Entrada Condicional**: La entrada del chat input ahora solo se redirige a la terminal si el modo interactivo está visualmente activo (`_cursor_active`), permitiendo al usuario enviar mensajes al agente mientras un comando corre en segundo plano.
+- **Foco Inteligente**: El panel de terminal ahora recibe el foco automáticamente al entrar en modo interactivo, incluso cuando se activa desde hilos secundarios (worker threads).
+
+#### **🎯 Beneficios**
+✅ **Eliminación de "Ghost Hangs"**: Los comandos que antes parecían colgados por el filtro de eco ahora muestran su salida correctamente.
+✅ **Multitarea**: Posibilidad de chatear con el agente mientras un proceso largo o interactivo se ejecuta en la terminal.
+✅ **Mejor UX**: Flujo más intuitivo para entrar y salir del modo de interacción directa con la terminal.
+
+---
+
+## 20-04-2026 Implementación Real y Avanzada de la Skill pc_interaction
+
+**Descripción**: Se ha transformado la skill `pc_interaction` de un estado "placeholder/latente" a una implementación robusta y funcional para el control total del PC, incluyendo capacidades de visión artificial.
+
+### Cambios Implementados
+
+#### **🔧 Skill: pc_interaction**
+
+1. [`kogniterm/skills/bundled/pc_interaction/scripts/tool.py`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/pc_interaction/scripts/tool.py)
+   - Reemplazada la lógica básica por una implementación avanzada con `pyautogui`, `pywinctl` y `opencv-python`.
+   - **Nuevas acciones añadidas**:
+     - `get_mouse_pos`: Coordenadas actuales del ratón.
+     - `get_screen_size`: Resolución del monitor.
+     - `find_image`: Localización de patrones visuales en pantalla (botones, iconos).
+     - `click_image`: Interacción directa con elementos detectados visualmente.
+   - **Mejora de robustez**:
+     - Validación exhaustiva de entorno gráfico (`DISPLAY`).
+     - Manejo de dependencias faltantes con mensajes de error claros.
+     - Configuración de `FAILSAFE` activo para seguridad del usuario.
+     - Parámetros dinámicos para velocidad y botones del ratón.
+
+2. [`kogniterm/skills/bundled/pc_interaction/SKILL.md`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/pc_interaction/SKILL.md)
+   - Actualizada la versión a `1.1.0`.
+   - Documentación expandida con ejemplos de uso de visión artificial.
+   - Refinados los requisitos y consideraciones de seguridad (**High Security Level**).
+
+#### **📦 Entorno y Dependencias**
+- Instalación de librerías críticas en el entorno virtual (`venv`):
+  - `pyautogui` y `pywinctl` (Control de GUI y ventanas).
+  - `opencv-python` y `pillow` (Procesamiento de imágenes y visión).
+  - `python-xlib` (Soporte bajo nivel para Linux).
+
+#### **🎯 Beneficios**
+
+✅ **Control Total**: KogniTerm ahora puede manejar aplicaciones gráficas, navegar por menús y automatizar tareas de escritorio.
+✅ **IA con "Ojos"**: Gracias a la integración de OpenCV, el agente puede buscar elementos visuales específicos sin depender de coordenadas fijas.
+✅ **Seguridad Garantizada**: Todas las acciones requieren aprobación manual y el modo failsafe permite al usuario tomar control inmediato.
+✅ **Producción Ready**: Ya no es un placeholder; es una herramienta totalmente operativa.
+
+---
+
+## 20-04-2026 Corrección de Fallos Críticos en Inicio de la TUI (KogniTerm)
+
+**Descripción**: Se han diagnosticado y solucionado bloqueos críticos que impedían el inicio de la Interfaz de Terminal de KogniTerm (KogniTerm TUI), relacionados con dependencias ausentes (`tkinter`) de la skill embebida `pc_interaction` y con selectores CSS mal formados en la vista TUI.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/skills/bundled/pc_interaction/scripts/tool.py`](kogniterm/skills/bundled/pc_interaction/scripts/tool.py)
+   - Modificados los imports de `pyautogui`. Ahora se encuentran dentro de un bloque `try-except` tolerante a fallos para capturar expresamente `SystemExit` e `ImportError`.
+   - Se asegura que, incluso si no existe un entorno gráfico o dependencias como `python3-tk` instaladas en el SO, la herramienta `pc_interaction` se degrade elegantemente desactivándose en lugar de provocar la detención en seco de la TUI completa al iniciar.
+
+2. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - Se han eliminado bloques redundantes y mal indentados de `TerminalPanel` en las definciones en línea del atributo `CSS` de `KogniTermTUI`.
+   - Se ha purgado el valor inválido `margin: 0 auto;` dentro del CSS de Textual, ya que `auto` no es un modificador válido en los márgenes de Textual (que sólo acepta escalares numéricos como `margin: 0;`).
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad en Recuperación**: La TUI arranca limpia y correctamente independientemente de si hay un backend gráfico disponible o no (evitando la terminación de `sys.exit()` incrustada dentro de PyAutoGUI).
+✅ **Corrección de Renderizado Textual**: Textual ahora parsea eficientemente el CSS de la aplicación al inicializar sin desatar colisiones por selectores o propiedades inválidas, evitando colapsos imprevistos de rendering.
+
+---
+
+## 20-04-2026 Corrección en Bucle de Eco del Ejecutor de Comandos
+
+**Descripción**: Se corrigió un error lógico crítico que causaba que comandos sin salida (, etc.) dejaran el hilo de la terminal atrapado y esperando, "colgando" visualmente la interfaz de la terminal TUI.
+
+### Cambios Implementados
+
+#### **🔧 CommandExecutor (core/command_executor.py)**
+- **Operador Ternario Mal Formado**: Se corrigió la condición de coincidencia de eco de comando. Antes estaba , lo que en Python resolvía siempre a  si  tenía algún valor, causando que el primer paquete del PTY (que solía ser el  tras el eco) fuera ingerido y limpiado sin ser procesado. 
+- **Lógica Asegurada**: Cambiado a , lo que previene que los comandos rápidos sin salida ("stille commands") borren su propio marcador de finalización y atrapen el thread.
+
+
+## 19-04-2026 Destacado de Mensajes de Usuario en TUI
+
+**Descripción**: Se ajustó el estilo visual de los mensajes del usuario en el chat para que tengan un fondo levemente más claro que se adapta dinámicamente al tema seleccionado.
+
+### Cambios Implementados
+
+#### **💅 CSS Dinámico para TUI (terminal/tui/components/chat_log.py)**
+- Se asignó dinámicamente la propiedad de fondo `widget.styles.background = ColorPalette.GRAY_800` a los `MessageWidget` de los mensajes de usuario.
+- Esta adaptación asegura que, independientemente del tema de color escogido (por ejemplo, ocean, dracula, matrix), el fondo del mensaje de usuario mantenga un contraste visual adecuado (levemente más claro que el fondo oscuro predominante de la aplicación).
+
+## 2026-04-19
+- Eliminada la franja superior visual en el contenedor de entrada del chat modificando su padding y min-height.
+
+## 2026-04-19 Paneles de Agentes Paralelos de Tamaño Fijo
+
+**Descripción**: Se han modificado los paneles de agentes paralelos para que tengan un tamaño fijo de 25 líneas, evitando que su altura cambie dinámicamente con el contenido de texto.
+
+### Cambios Implementados
+
+#### **💅 TUI App (terminal/tui/tui_app.py)**
+- Actualizado el CSS para `#parallel_agents_container` estableciendo `height: 25`.
+- Ajustado el CSS para los `TerminalPanel` internos con `height: 100%`, `overflow-y: scroll` y un borde superior distintivo (`border-top: tall $primary`).
+
+#### **⚙️ Skill call_agents_parallel (skills/bundled/call_agents_parallel/scripts/tool.py)**
+- Eliminada la sobrescritura dinámica de `height` y `width` en la función `_activate_panels`, permitiendo que las reglas de CSS controlen el tamaño fijo de los contenedores.
+
+---
+
+## 2026-04-19 Autoscroll en Paneles Paralelos
+
+**Descripción**: Se ha implementado el desplazamiento automático (autoscroll) en los paneles de agentes paralelos para que el texto sea siempre visible conforme se genera en tiempo real.
+
+### Cambios Implementados
+
+#### **⚙️ TUI App (terminal/tui/tui_app.py)**
+- Actualizado el método `update_live_display` para incluir `panel.scroll_end(animate=False)` tras actualizar el contenido de los paneles paralelos. Esto asegura que la vista se mantenga al final del texto durante el streaming.
+
+---
+
+## 20-04-2026 Restauración y Refinamiento de Salidas de Herramientas en TUI
+
+**Descripción**: Se han corregido las regresiones que impedían la visualización de las salidas de herramientas y se ha mejorado la robustez del sistema de streaming y scroll del nuevo `ToolOutputWidget`.
+
+### Cambios Implementados
+
+#### **🔧 TUI App (terminal/tui/tui_app.py)**
+- **Método faltante**: Se añadió `update_tool_display` a la clase `TextualTerminalUI`. Este método era esperado por `ToolExecutor` y su ausencia impedía que las herramientas estándar (fuera de bash) mostraran su salida en la TUI.
+- **Restauración de Widget**: Se re-integró el uso de `ToolOutputWidget` dentro de `update_terminal_output` para garantizar que las salidas se rendericen con formato (Markdown/Código) y scroll interno.
+- **Gestión de Ciclo de Vida**: Se aseguró que `_active_tool_widget` se limpie correctamente en `hide_live_display`, evitando que el contenido de un comando anterior persista en el siguiente.
+
+#### **💅 Tool Output Component (terminal/tui/components/tool_output.py)**
+- **Auto-scroll**: Se implementó `self.scroll_end(animate=False)` en el método `update_content`. Esto asegura que cuando una herramienta genera mucha salida, el widget se desplace automáticamente al final para mostrar la información más reciente sin intervención del usuario.
+
+#### **🎯 Beneficios**
+✅ **Visibilidad Total**: Todas las herramientas (lectura de archivos, búsquedas, etc.) vuelven a ser visibles en la interfaz.
+✅ **Experiencia Fluida**: El scroll automático dentro del panel de 30 líneas permite seguir el progreso de ejecuciones largas sin perder el ritmo.
+✅ **Robustez**: Se eliminaron duplicados visuales y fugas de estado entre comandos consecutivos.
+
+---
+
+## 20-04-2026 Segregación de Paneles de Salida: Terminal vs Herramientas
+
+**Descripción**: Se ha refinado la lógica de visualización para diferenciar entre la terminal bash (que mantiene su panel original) y las herramientas de análisis (lectura/listado de archivos, búsquedas) que utilizan el nuevo componente con scroll y formateo.
+
+### Cambios Implementados
+
+#### **🔧 TUI App (terminal/tui/tui_app.py)**
+- **Lógica de Enrutamiento**: Se modificó `update_terminal_output` para aceptar un parámetro `use_tool_widget`.
+- **Preservación de Terminal**: Las llamadas directas a la terminal (vía `CommandApprovalHandler`) mantienen su salida exclusivamente en el panel original (`live_display`), evitando duplicidad o cambio de estilo innecesario para comandos de shell.
+- **Herramientas Especializadas**: Se actualizó `update_tool_display` para forzar el uso del `ToolOutputWidget` en el chat log. Esto asegura que herramientas como `read_file` o `ls` (cuando se ejecutan como herramientas independientes) se beneficien del scroll de 30 líneas y el resaltado sintáctico.
+- **Sincronización**: Se mantiene la actualización del panel original (`live_display`) para todas las salidas, sirviendo como monitor de actividad en tiempo real, mientras que solo las herramientas dejan el widget persistente en el chat log.
+
+#### **🎯 Beneficios**
+✅ **Consistencia Histórica**: La terminal bash se comporta exactamente como el usuario espera, sin cambios en su flujo visual original.
+✅ **Potencia de Análisis**: Las herramientas de lectura de código y datos ahora son mucho más fáciles de usar gracias al nuevo componente scrollable y al formateo inteligente.
+✅ **Interfaz Predictible**: Diferenciación clara entre "actividad de sistema" (terminal) y "resultados de herramientas" (análisis).
+
+---
+
+## [2026-04-19] - Ajuste de Estética en Mensajes de Usuario (TUI)
+- **Compactación**: Se eliminaron márgenes verticales excesivos en los mensajes de usuario, reduciendo el padding a 0 y quitando líneas vacías internas.
+- **Alineación**: Se sincronizó el ancho de envoltura (wrapping) de los mensajes de usuario con el de los mensajes del agente para una estética uniforme.
+- **Consistencia**: El texto del usuario ahora ocupa exactamente el mismo espacio horizontal que el texto de la IA, respetando el margen izquierdo de 4 columnas.
+
+## Corrección en enrutamiento de herramientas
+- Se añadió de nuevo el soporte universal del `ToolOutputWidget` para que **todas** las herramientas lo utilicen al generar su salida (como read_file, etc).
+- Se garantizó mediante bandera `use_tool_widget` que **únicamente** `execute_command` siga haciendo uso exclusivo del panel de terminal original (`live_display`), preservando su comportamiento.
+
+## 20-04-2026 Ajuste del margen en panel de mensaje de usuario
+- Reducido el margen y relleno a prácticamente cero respecto al texto usando las propiedades de ancho y padding de las clases en CSS de `KogniTermTUI`.
+
+## 2026-04-20
+- Se añadió un margen interior superior al contenedor de input en la TUI (tui_app.py) para separar el texto del borde superior.
+
+## 2026-04-20 Limpieza de la Interfáz - Scroll Horizontal y Scrollbars Transparentes
+- Se modificó la hoja de estilos nativa (CSS) en `tui_app.py` para forzar la transparencia del fondo (`scrollbar-background`) con `transparent` en el scroll principal (`#chat_log`) y el input del usuario (`ChatInput`).
+- Se deshabilitó el scroll horizontal (`overflow-x: hidden`) explícitamente en los paneles clave (`#chat_log`, `#input_container`, `ChatInput`) para erradicar las franjas visuales inesperadas.
+
+## 2026-04-23 Mejora Estética de la Barra de Input y Splash
+- **Transparencia de Fondo**: Se eliminó el fondo de color sólido (`#1f2937`) de la zona de entrada (`ChatInput`) tanto en la interfaz principal como en el splash, haciendo que se integre perfectamente con el color del contenedor (`#2a2a2a`).
+- **Extensión de Zona de Entrada**: Se modificó el input del splash para que ocupe todo el ancho disponible (`1fr`) en lugar de estar limitado al 30%, extendiéndose hasta el margen derecho de la barra.
+- **Consistencia Visual**: Se eliminaron bordes y outlines redundantes en el estado de foco para una experiencia de usuario más limpia y moderna.
+
+## 2026-04-23 Refuerzo de Transparencia en ChatInput
+- **Desactivación de Tema Nativo**: Se estableció `theme = "none"` en la clase `ChatInput` para evitar que el tema predeterminado de Textual imponga un fondo grisáceo.
+- **Eliminación de Resaltado de Línea**: Se desactivó `cursor_line_style` para erradicar la franja horizontal que resalta la línea activa del cursor.
+- **Prioridad CSS Estricta**: Se aplicó `!important` a todas las reglas de fondo en el CSS de la TUI para garantizar la transparencia total independientemente del estado del widget.
+
+## 2026-04-23 Corrección de Sobrescritura de Temas en ChatInput
+- **Neutralización de apply_theme**: Se modificó el método `apply_theme` en `tui_app.py` para que no asigne un color de fondo sólido a los objetos `ChatInput`.
+- **Prevalencia de Transparencia**: Al establecer el fondo como `transparent` en la lógica de temas de la aplicación, se permite que el widget herede el color del contenedor padre definido en el sistema de diseño (CSS), eliminando la franja horizontal discordante.
+
+## 2026-04-23
+- Corrección de visibilidad de paneles de agentes paralelos:
+  - Se eliminó la asignación `container.styles.display = "flex"` en `call_agents_parallel`, dado que Textual no soporta el atributo "flex" y ocasionaba un error de validación, ocultando los paneles.
+  - Se agregó fallback local para ocultar los paneles al término de la tarea en caso de que `consolidate_parallel_panels` no esté soportado por el objeto de Textual.
+  - Se corrigió el backend de UI para TextualTerminalUI y KogniTermTUI actualizando las firmas de métodos como update_live y write_stream_to_chat para tolerar argumentos kargs (**kwargs) e inyectar el contenido dinámicamente a los componentes TerminalPanel paralelos si se provee el argument panel_id por parte de la herramienta.

@@ -115,11 +115,22 @@ class CommandExecutor:
                         
                         search_buffer += data
 
+
                         # Filtrar el eco del comando completo provocado por bash readline
                         if not getattr(self, '_echo_filtered', True):
                             expected = getattr(self, '_expected_echo', '')
-                            if expected.startswith(search_buffer) and search_buffer:
+                            # Mecanismo de seguridad: si el buffer crece demasiado o hemos recibido muchos chunks, 
+                            # probablemente no es un eco exacto o ya pasó. No queremos bloquear la salida.
+                            if len(search_buffer) > len(expected) + 512:
+                                self._echo_filtered = True
+                                logger.warning("Filtro de eco: Buffer excedido, desactivando filtro.")
+                            elif (expected or '') == search_buffer:
+                                # Coincidencia exacta
+                                search_buffer = ""
+                                self._echo_filtered = True
+                            elif expected.startswith(search_buffer) and search_buffer:
                                 # Aún estamos buffereando el eco puro del comando
+                                # Pero solo esperamos un tiempo razonable
                                 continue
                             elif search_buffer.startswith(expected):
                                 # Cortamos exitosamente la cabecera exacta del comando
@@ -128,6 +139,19 @@ class CommandExecutor:
                             else:
                                 # Hay divergencia en el eco rápido, dejar pasar para no truncar datos genuinos
                                 self._echo_filtered = True
+
+                        # Post-procesado: eliminar cualquier línea que contenga el eco del comando ejecutado
+                        # Esto cubre casos donde el filtro de eco no lo eliminó completamente
+                        def remove_command_echo(text, cmd_echo):
+                            lines = text.splitlines(keepends=True)
+                            filtered = [l for l in lines if cmd_echo.strip() not in l.strip()]
+                            return ''.join(filtered)
+
+                        # El eco esperado puede tener saltos de línea, pero normalmente es la primera línea
+                        # Usamos solo la parte del comando (sin stty ni marker) para mayor robustez
+                        command_only = command.strip()
+                        if command_only:
+                            search_buffer = remove_command_echo(search_buffer, command_only)
 
                         # Si el marcador de fin aparece completo, hemos terminado
                         if marker_to_hide in search_buffer:
@@ -166,9 +190,12 @@ class CommandExecutor:
                         search_buffer = ""
 
                 if self._input_pipe_read in readable_fds:
-                    injected_input = os.read(self._input_pipe_read, 1024)
-                    if injected_input:
-                        os.write(master_fd, injected_input)
+                    try:
+                        injected_input = os.read(self._input_pipe_read, 1024)
+                        if injected_input:
+                            os.write(master_fd, injected_input)
+                    except Exception as e:
+                        logger.error(f"Error inyectando entrada al PTY: {e}")
 
         finally:
             self.process = None
