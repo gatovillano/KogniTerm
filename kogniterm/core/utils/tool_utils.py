@@ -102,3 +102,37 @@ def convert_langchain_tool_to_litellm(tool: BaseTool) -> Dict[str, Any]:
             "parameters": args_schema
         }
     }
+
+def get_tool_action_description(tool: Any, tool_args: Dict[str, Any]) -> str:
+    """Obtiene una descripción legible de la acción que realiza la herramienta."""
+    # 1. Intentar usar el método propio de la herramienta si existe
+    if hasattr(tool, 'get_action_description'):
+        try:
+            return tool.get_action_description(**tool_args)
+        except Exception:
+            pass
+            
+    # 2. Fallback: Inferencia basada en el nombre de la herramienta
+    tool_name = getattr(tool, 'name', '').lower()
+    
+    if 'read_file' in tool_name or 'file_read' in tool_name:
+        path = tool_args.get('path') or tool_args.get('file_path') or ''
+        return f"Leyendo archivo: {path}"
+    elif 'write_file' in tool_name or 'file_write' in tool_name:
+        path = tool_args.get('path') or tool_args.get('file_path') or ''
+        return f"Escribiendo en archivo: {path}"
+    elif 'list_dir' in tool_name or 'file_list' in tool_name:
+        path = tool_args.get('path') or tool_args.get('directory') or '.'
+        return f"Listando directorio: {path}"
+    elif 'search' in tool_name:
+        query = tool_args.get('query') or tool_args.get('search_query') or ''
+        return f"Buscando: {query}"
+    elif 'execute_command' in tool_name:
+        cmd = tool_args.get('command') or ''
+        if len(cmd) > 40: cmd = cmd[:37] + "..."
+        return f"Ejecutando comando: {cmd}"
+    elif 'python_executor' in tool_name:
+        return "Ejecutando código Python"
+        
+    return ""
+

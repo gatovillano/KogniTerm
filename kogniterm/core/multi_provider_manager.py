@@ -226,9 +226,11 @@ DEFAULT_PROVIDERS = [
     ),
     ProviderConfig(
         name="kilocode",
-        model_prefix="kilocode",
+        # Kilo Gateway es OpenAI-compatible → LiteLLM requiere prefijo 'openai'
+        model_prefix="openai",
         api_key_env="KILOCODE_API_KEY",
-        api_base="https://api.kilo.ai/api/gateway/",
+        # La URL debe terminar en /v1 para que LiteLLM añada /chat/completions correctamente
+        api_base="https://api.kilo.ai/api/gateway/v1",
         priority=15,
         fallback_on_error_codes=["429", "503", "timeout"]
     ),
@@ -391,6 +393,9 @@ class MultiProviderManager:
             # Forzar el proveedor para Ollama para evitar ambigüedades con la api_base
             if provider.model_prefix == "ollama":
                 completion_kwargs["custom_llm_provider"] = "ollama"
+            # Forzar openai para Kilo Gateway (endpoint OpenAI-compatible)
+            elif provider.name == "kilocode":
+                completion_kwargs["custom_llm_provider"] = "openai"
             
             if tools:
                 completion_kwargs["tools"] = tools

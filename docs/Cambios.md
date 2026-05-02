@@ -4973,3 +4973,147 @@ Se ha implementado `file_editor.py` que provee la herramienta `sophisticated_edi
   - Se eliminó la asignación `container.styles.display = "flex"` en `call_agents_parallel`, dado que Textual no soporta el atributo "flex" y ocasionaba un error de validación, ocultando los paneles.
   - Se agregó fallback local para ocultar los paneles al término de la tarea en caso de que `consolidate_parallel_panels` no esté soportado por el objeto de Textual.
   - Se corrigió el backend de UI para TextualTerminalUI y KogniTermTUI actualizando las firmas de métodos como update_live y write_stream_to_chat para tolerar argumentos kargs (**kwargs) e inyectar el contenido dinámicamente a los componentes TerminalPanel paralelos si se provee el argument panel_id por parte de la herramienta.
+
+---
+
+## 2026-04-26 Corrección del proveedor Kilo Gateway en MultiProviderManager
+
+**Problema**: El error `BadRequestError: LLM Provider NOT provided` ocurría al usar modelos `kilocode/kilo-auto/free` porque LiteLLM no reconocía el prefijo `kilocode` como proveedor válido.
+
+**Causa raíz**: Kilo Gateway es un endpoint **OpenAI-compatible** (no un proveedor nativo de LiteLLM). Para que LiteLLM enrute correctamente a endpoints OpenAI-compatible, se requiere:
+1. Usar el prefijo `openai/` en el modelo
+2. Que la URL base (`api_base`) termine en `/v1`
+3. Indicar `custom_llm_provider="openai"` en la llamada
+
+### Cambios en `kogniterm/core/multi_provider_manager.py`
+
+- **`model_prefix`**: Cambiado de `"kilocode"` → `"openai"` (para que LiteLLM reconozca el endpoint)
+- **`api_base`**: Corregido de `"https://api.kilo.ai/api/gateway/"` → `"https://api.kilo.ai/api/gateway/v1"` (LiteLLM añade `/chat/completions` sobre esta URL)
+- **Lógica de `execute()`**: Añadido `custom_llm_provider = "openai"` cuando el proveedor es `kilocode`, igual que se hace con `ollama`
+
+El flujo resultante para el modelo `kilocode/kilo-auto/free`:
+1. El sistema detecta el proveedor `kilocode` por el prefijo del nombre del modelo
+2. Construye el modelo como `openai/kilo-auto/free`
+3. Envía la petición a `https://api.kilo.ai/api/gateway/v1/chat/completions` con la API key de `KILOCODE_API_KEY`
+
+## 2026-04-28 Corrección en la aplicación de cambios de File Operations
+- Se ha solucionado un problema crítico en `CommandApprovalHandler` (`kogniterm/terminal/command_approval_handler.py`) donde los cambios realizados a través de herramientas del bundle `file_operations` (como `sophisticated_editor_tool`, `write_file_tool`, `delete_file_tool`, etc.) no se aplicaban al sistema de archivos a pesar de ser confirmados por el usuario.
+- Ahora el manejador de aprobación reconoce correctamente los nombres de las diferentes operaciones que retornan status `requires_confirmation`, las mapea a sus respectivas funciones nativas de Python importándolas del bundle y las ejecuta correctamente enviando los argumentos empaquetados y confirmando automáticamente su aplicación (`confirm=True`).
+
+## 2026-04-28 Corrección de estilo visual en mensajes de usuario (TUI)
+- Se ha solucionado un problema visual en `ChatLogWidget` (`kogniterm/terminal/tui/components/chat_log.py`) donde el fondo oscuro (`GRAY_800`) de los mensajes del usuario se desbordaba hacia la izquierda, cubriendo el margen de la línea de identificación vertical azul turquesa.
+- Se ha refactorizado `write_user_message` para separar físicamente la línea (en un contenedor sin fondo) del texto del mensaje (en un contenedor con el fondo oscuro). Usando un layout `Horizontal` y ajustando manualmente el wrap del texto garantizamos que el fondo inicie milimétricamente después de la línea.
+- Adicionalmente se ha agregado un margen interno (padding `1, 2`) al panel del mensaje para que el texto "respire" y no se vea pegado al borde.
+- Se ha corregido un problema donde los mensajes encolados aparecían duplicados (una vez en el chat y otra en el panel de cola). Ahora solo aparecen en el panel inferior sobre el input, formateados de manera simple con cursiva y un reloj de arena (⏳), hasta que son procesados.
+
+## 01-05-2026 Solución a la Inferencia de Parámetros en Skills de Función
+
+**Descripción**: Se ha corregido un error crítico donde las herramientas cargadas desde funciones Python (convención `_tool` o `_skill`) no exponían sus parámetros al LLM, resultando en llamadas vacías o errores de "parámetro no aceptado".
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/skills/skill_manager.py`](kogniterm/core/skills/skill_manager.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Inyección Automática de `parameters_schema`** ([`kogniterm/core/skills/skill_manager.py`](kogniterm/core/skills/skill_manager.py:484)):
+   - Se modificó `load_skill` para que, al registrar una herramienta, si esta no tiene un esquema definido (`parameters_schema`), se infiera automáticamente usando `_infer_schema_from_hints`.
+   - Esto asegura que `LLMService` (a través de `_convert_langchain_tool_to_litellm`) reciba la definición correcta de argumentos, incluso para funciones Python puras.
+
+2. **Mejora en la Inferencia de Tipos JSON Schema** ([`kogniterm/core/skills/skill_manager.py`](kogniterm/core/skills/skill_manager.py:778)):
+   - Se actualizó `_type_to_json_schema` para soportar tipos complejos de `typing`.
+   - Ahora maneja correctamente `Optional[T]`, `Union[T, None]`, `List[T]` y `Dict[K, V]`, mapeándolos a sus equivalentes JSON Schema (`integer`, `string`, `array`, `object`, etc.) en lugar de fallar a `string` por defecto.
+
+#### **🎯 Beneficios de la Solución**
+
+✅ **Herramientas Funcionales**: Herramientas como `read_file_tool` ahora exponen correctamente sus parámetros (`path`, `start_line`, `end_line`).
+✅ **Tipado Preciso**: Los parámetros opcionales e integers ya no se reportan erróneamente como strings al LLM.
+✅ **Compatibilidad Universal**: Mejora la robustez del sistema de skills para desarrolladores que prefieren usar funciones simples en lugar de clases complejas.
+✅ **Sin Cambios en Skills Existentes**: La mejora es a nivel de core, por lo que todas las skills existentes se benefician automáticamente sin ser modificadas.
+
+#### **🔍 Problema Resuelto**
+
+**Problema Original**: El agente informaba que `read_file_tool` no aceptaba parámetros o que su definición estaba vacía, a pesar de estar correctamente definida en el código Python.
+
+**Causa**: `LLMService` utilizaba una función de conversión que solo buscaba `parameters_schema` o `args_schema` en el objeto herramienta. Las herramientas cargadas dinámicamente como funciones no tenían estos atributos inyectados, y el conversor no sabía inferirlos por sí mismo.
+
+**Solución**: Se centralizó la inferencia de schemas en el `SkillManager` durante la carga de la skill, inyectando el atributo `parameters_schema` directamente en el objeto de la función.
+
+---
+
+## 01-05-2026 Ajuste Visual de Mensajes de Usuario en TUI
+
+**Descripción**: Se ha refinado el diseño de los mensajes de usuario en la interfaz de terminal (TUI) para mejorar la alineación y la estética, asegurando que la línea vertical indicativa esté exactamente en el borde del panel del mensaje.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/chat_log.py`](kogniterm/terminal/tui/components/chat_log.py)
+   - **Ajuste de margen**: Se eliminó el margen izquierdo de la fila del mensaje de usuario (`row.styles.margin = (0, 0, 1, 0)`) para permitir que el contenido toque el borde del contenedor del chat.
+   - **Ajuste de ancho de línea**: Se redujo el ancho del widget de la línea vertical (`left.styles.width`) de 2 a 1 para una apariencia más nítida y alineada al borde.
+   - **Consistencia de fondo**: Se aplicó el color de fondo `ColorPalette.GRAY_800` al widget de la línea vertical, integrándola visualmente con el panel del mensaje.
+   - **Recálculo de wrapping**: Se actualizó el cálculo de ancho para el envoltorio de texto (`available_width - 5`) para aprovechar el nuevo espacio disponible y mantener el alineamiento interno perfecto.
+
+#### **🎯 Beneficios**
+
+✅ **Mejor Alineación**: La línea azul ahora reside exactamente en el borde izquierdo del panel de mensajes.
+✅ **Estética Premium**: El diseño se siente más integrado al compartir el mismo fondo entre la línea y el cuerpo del mensaje.
+✅ **Uso de Espacio**: Se optimizó el espacio horizontal al eliminar márgenes innecesarios.
+✅ **Altura de Línea**: Se ajustó el número de indicadores verticales ("pipes") para que cubran toda la altura del mensaje, incluyendo el padding superior e inferior.
+✅ **Acciones Visibles**: Se implementó un sistema de inferencia de acciones en `tool_utils.py` para asegurar que todas las herramientas (incluyendo skills migradas) muestren su descriptor de operación ("Leyendo archivo...", "Ejecutando comando...", etc.) en la TUI.
+
+
+
+---
+
+## 01-05-2026 Mejora de Notificaciones de Skills en la TUI
+
+**Descripción**: Se han actualizado las notificaciones de ejecución de herramientas en la interfaz de usuario de texto (TUI) para mostrar el nombre de la Skill madre y una descripción detallada de la acción realizada, mejorando la claridad y la experiencia de usuario.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/chat_log.py`](kogniterm/terminal/tui/components/chat_log.py)
+   - Refactorizado `write_tool_notification` para aceptar el nombre de la skill.
+   - Nuevo formato visual: `Ejecutando Skill: Nombre de la Skill (id_skill)`.
+   - Añadido prefijo "Acción: " a la descripción de la tarea para mayor claridad.
+
+2. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - Actualizado `print_tool_notification` para soportar el parámetro `skill_name`.
+
+3. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+   - Integrada la lógica para obtener el nombre de la skill desde el `SkillManager`.
+   - Se pasa el `skill_name` a las notificaciones de la TUI.
+
+4. [`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py)
+   - Integrada la lógica de obtención de skill en `execute_single_tool` y `execute_tool_node`.
+   - Corregida la importación de `Group` desde `rich.console`.
+
+5. [`kogniterm/core/agents/tool_executor.py`](kogniterm/core/agents/tool_executor.py)
+   - Actualizado el ejecutor centralizado de herramientas para incluir el contexto de la skill en las notificaciones.
+
+#### **🎯 Beneficios**
+
+✅ **Mayor Contexto**: El usuario ahora sabe qué Skill está orquestando las acciones.
+✅ **Claridad Visual**: Separación clara entre la Skill que se ejecuta y la acción específica que realiza.
+✅ **Consistencia**: Todas las notificaciones de herramientas siguen ahora el mismo formato enriquecido.
+
+
+### 2026-05-01 - Optimización del Autocompletado
+
+#### **Cambios Realizados**
+
+1.  **kogniterm/terminal/kogniterm_app.py**
+    - Se modificó `FileCompleter.get_completions` para ocultar las sugerencias cuando existe un único match exacto. Esto aplica a comandos mágicos (%), archivos (@) y contenedores Docker (:).
+
+2.  **kogniterm/terminal/tui/tui_app.py**
+    - Se actualizaron los manejadores `on_input_changed` y `on_text_area_changed` para cerrar el popup de autocompletado cuando el término de búsqueda coincide exactamente con una única sugerencia disponible.
+
+#### **🎯 Beneficios**
+
+✅ **Interfaz más limpia**: El menú de autocompletado desaparece automáticamente al terminar de escribir un comando o ruta válida.
+✅ **Mejor UX**: Evita que el menú bloquee la visibilidad una vez que el usuario ha ingresado la información completa.

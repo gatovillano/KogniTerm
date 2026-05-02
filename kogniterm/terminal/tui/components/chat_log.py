@@ -83,39 +83,15 @@ class ChatLogWidget(VerticalScroll):
         text_color = ColorPalette.TEXT_PRIMARY
         pipe_color = ColorPalette.PRIMARY
 
-        # No hacemos wrapping manual aquí si usamos Static, ya que Static maneja el wrapping.
-        # Pero queremos el pipe izquierdo en cada línea. 
-        # RichLog lo hacía manual. Aquí podemos usar un Panel con borde izquierdo solamente.
-        
-        content = Text(text, style=text_color)
-        
-        # Usamos un Panel con estilo de borde personalizado para simular el pipe
-        panel = Panel(
-            content,
-            border_style=pipe_color,
-            box=box.ASCII,
-            padding=(0, 1)
-        )
-        # Nota: Rich no tiene un box.LEFT_ONLY. Usamos el Group con pipes o Panel simple.
-        # El diseño original era muy específico, vamos a recrearlo con un renderable custom.
-        
-        # Recreación del diseño con pipes:
-        # El ChatLogWidget ya tiene scrollbar-gutter: stable, pero queremos que el texto
-        # empiece en la misma columna que el input (col 4).
-        # El pipe '┃ ' ocupa 2 chars. Añadimos 2 espacios iniciales para llegar a 4.
-        # Ajustamos el ancho para que coincida exactamente con los mensajes del Agente.
-        # El Agente usa Padding(..., (1, 0, 1, 4)), por lo que su texto tiene width - 4.
-        # Aquí el pipe "  ┃ " ya ocupa 4 caracteres, por lo que el texto restante debe ser width - 4.
-        # Preparar las líneas (objetos Rich) en este hilo; crear y montar
-        # widgets debe ejecutarse en el hilo principal de la aplicación Textual.
         available_width = self._get_available_width()
         console = Console(width=available_width)
 
         input_lines = text.split('\n')
-        rendered_lines = []
+        wrapped_text_lines = []
+        
         for input_line in input_lines:
             if not input_line.strip() and not input_line:
-                rendered_lines.append(Text.assemble(("  ┃", pipe_color)))
+                wrapped_text_lines.append(Text(""))
                 continue
 
             try:
@@ -126,58 +102,49 @@ class ChatLogWidget(VerticalScroll):
             except Exception:
                 t = Text(input_line, style=text_color)
 
-            wrapped_sublines = list(t.wrap(console, available_width))
+            wrapped_sublines = list(t.wrap(console, available_width - 5)) # 5 = 0 margin + 1 pipe + 2 padding left + 2 padding right
             if not wrapped_sublines:
-                rendered_lines.append(Text.assemble(("  ┃", pipe_color)))
+                wrapped_text_lines.append(Text(""))
             else:
                 for subline in wrapped_sublines:
-                    rendered_lines.append(Text.assemble(("  ┃ ", pipe_color), subline))
+                    wrapped_text_lines.append(subline)
 
-        def _mount_user_message(lines):
-            # Crear los widgets y montarlos en el hilo principal
+        def _mount_user_message():
             try:
-                row = Horizontal()
-                left = Static(Text.assemble(("  ┃ ", pipe_color)))
-                try:
-                    left.styles.width = 4
-                    left.styles.min_width = 4
-                except Exception:
-                    pass
+                # Creamos el texto de los pipes para que coincida con el número de líneas + padding (1 arriba, 1 abajo)
+                pipes_text = Text("\n".join(["┃"] * (len(wrapped_text_lines) + 2)), style=pipe_color)
+                left = Static(pipes_text)
+                left.styles.width = 1
+                left.styles.height = "auto"
+                left.styles.background = ColorPalette.GRAY_800 # El pipe ahora tiene el mismo fondo que el mensaje
 
-                right = Static(Padding(Group(*lines), (0, 1)))
-                try:
-                    right.styles.flex = 1
-                except Exception:
-                    pass
+                # El panel derecho con el texto y su fondo
+                right = Static(Group(*wrapped_text_lines))
+                right.styles.flex = 1
+                right.styles.height = "auto"
                 right.styles.background = ColorPalette.GRAY_800
+                right.styles.padding = (1, 2) # Margen interno (padding) añadido
 
-                row.mount(left)
-                row.mount(right)
+                row = Horizontal(left, right, classes="user-message-row")
+                row.styles.height = "auto"
+                row.styles.margin = (0, 0, 1, 0) # Eliminado el margen izquierdo para que esté al borde
+                
                 self.mount(row)
                 self._active_message_widget = None
                 self.scroll_end(animate=False)
-            except Exception:
-                # En caso de fallo, intentar montar de forma simple
-                try:
-                    widget = MessageWidget(Padding(Group(*lines), (0, 0)), classes="user-message")
-                    widget.styles.background = ColorPalette.GRAY_800
-                    self.mount(widget)
-                    self._active_message_widget = None
-                    self.scroll_end(animate=False)
-                except Exception:
-                    pass
+            except Exception as e:
+                import logging
+                logging.error(f"Error mounting user message: {e}")
+                pass
 
-        # Preferir ejecutar el montaje en el hilo principal de la app
         try:
             if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
-                # call_from_thread acepta la función y argumentos
-                self.app.call_from_thread(_mount_user_message, rendered_lines)
+                self.app.call_from_thread(_mount_user_message)
                 return
         except Exception:
             pass
 
-        # Fallback: intentar montar directamente (si ya estamos en el hilo principal)
-        _mount_user_message(rendered_lines)
+        _mount_user_message()
 
     def write_agent_message(self, text: str):
         """Escribe un mensaje de agente."""
@@ -248,19 +215,27 @@ class ChatLogWidget(VerticalScroll):
         """Finaliza el streaming actual."""
         self._active_message_widget = None
 
-    def write_tool_notification(self, tool_name: str, action_desc: str = ""):
+    def write_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = ""):
         """Escribe notificación de herramienta."""
         from rich.text import Text
         from kogniterm.terminal.themes import ColorPalette, Icons
         
         line1 = Text()
-        line1.append(f"{Icons.TOOL} Ejecutando herramienta: ", style=f"bold {ColorPalette.SECONDARY}")
-        line1.append(tool_name, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
+        if skill_name:
+            # Formatear el nombre de la skill (ej. file_operations -> File Operations)
+            skill_title = skill_name.replace('_', ' ').title()
+            line1.append(f"{Icons.TOOL} Ejecutando Skill: ", style=f"bold {ColorPalette.SECONDARY}")
+            line1.append(skill_title, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
+            line1.append(f" ({skill_name})", style=f"dim {ColorPalette.SECONDARY_LIGHT}")
+        else:
+            line1.append(f"{Icons.TOOL} Ejecutando herramienta: ", style=f"bold {ColorPalette.SECONDARY}")
+            line1.append(tool_name, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
         
         lines = [line1]
         if action_desc:
             line2 = Text()
             line2.append("   ↳ ", style=f"dim {ColorPalette.GRAY_600}")
+            line2.append("Acción: ", style=f"bold italic {ColorPalette.TEXT_SECONDARY}")
             line2.append(action_desc, style=f"italic {ColorPalette.TEXT_SECONDARY}")
             lines.append(line2)
         

@@ -52,3 +52,18 @@ Se han implementado mejoras incrementales al sistema multi-proveedor y a los age
 - **Punto 3**: Implementación de `HybridStateManager`: Gestor de estado que protege operaciones de estado compartido con locks mientras permite I/O asíncrona.
 - **Punto 4**: Actualización de agentes (`bash_agent.py`, `code_agent.py`, `researcher_agent.py`): Importación del sistema async y preparación para ejecución de herramientas en modo asíncrono.
 - **Punto 5**: Patrón híbrido establecido: async para operaciones I/O (LLM calls, web requests, file operations), sync protegido para estado compartido (historial de mensajes, estado del agente).
+
+---
+
+## 01-05-2026 Refinamiento Estético de la Interfaz TUI
+
+Se ha mejorado la coherencia visual del área de entrada de texto en la interfaz Textual (TUI) para evitar contrastes innecesarios y mejorar la legibilidad.
+
+- **Punto 1**: Actualización de los estilos CSS en `kogniterm/terminal/tui/tui_app.py` para asegurar la transparencia total de `ChatInput`.
+- **Punto 2**: Eliminación de colores de fondo redundantes en el input del splash screen para mantener la consistencia estética en toda la aplicación.
+- **Punto 3**: Desactivación definitiva del resaltado de la línea del cursor (`show_cursor_line = False`), eliminando la franja horizontal que causaba el contraste visual en el área de escritura.
+- **Punto 4**: Eliminación de temas personalizados en el `TextArea` para permitir que el fondo transparente funcione correctamente y coincida siempre con el contenedor.
+
+
+
+

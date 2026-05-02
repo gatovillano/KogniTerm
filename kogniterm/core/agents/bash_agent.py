@@ -20,6 +20,7 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
 from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 from ..async_io_manager import get_io_manager, AsyncTaskResult
+from ..utils.tool_utils import get_tool_action_description
 
 import logging
 
@@ -520,14 +521,18 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 executor.shutdown(wait=False)
                 return state
 
-            # Obtener la instancia de la herramienta para buscar la descripción de la acción
+            # Obtener la instancia de la herramienta para buscar la descripción de la acción y skill
             tool = llm_service.get_tool(tool_call['name'])
             bajada = ""
-            if tool and hasattr(tool, 'get_action_description'):
-                try:
-                    bajada = tool.get_action_description(**tool_call['args'])
-                except Exception as e:
-                    logger.warning(f"Error al obtener descripción de acción para {tool_call['name']}: {e}")
+            skill_name = ""
+            if tool:
+                # Obtener skill_name del skill_manager
+                if hasattr(llm_service, 'skill_manager'):
+                    skill = llm_service.skill_manager.get_skill_for_tool(tool_call['name'])
+                    if skill:
+                        skill_name = skill.name
+
+                bajada = get_tool_action_description(tool, tool_call['args'])
 
             # CASO ESPECIAL: execute_command
             # No ejecutamos los comandos de terminal a través de executor.submit/execute_single_tool
@@ -543,7 +548,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     from rich.text import Text
                     if is_tui:
                         # En TUI: notificación izquierda con acción en segunda línea
-                        terminal_ui.print_tool_notification(tool_call['name'], bajada)
+                        terminal_ui.print_tool_notification(tool_call['name'], bajada, skill_name=skill_name)
                     else:
                         cmd_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Preparando comando de terminal:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
                         if bajada:
@@ -570,7 +575,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 from rich.text import Text
                 if is_tui:
                     # En TUI: notificación izquierda con acción en segunda línea
-                    terminal_ui.print_tool_notification(tool_call['name'], bajada)
+                    terminal_ui.print_tool_notification(tool_call['name'], bajada, skill_name=skill_name)
                 else:
                     tool_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
                     if bajada:

@@ -333,38 +333,42 @@ class CommandApprovalHandler:
                         )
                         tool_message_content = advanced_result.get("message", "")
 
-                elif tool_name in ["file_operations", "file_operations_tool"]:
-                    op_type = original_tool_args.get("operation")
-                    if hasattr(self.file_operations_tool, '_perform_write_file') and op_type != "delete_file":
-                        file_ops_result = self.file_operations_tool._perform_write_file(
-                            original_tool_args.get("path", file_path),
-                            original_tool_args.get("content", "")
-                        )
-                        # Asegurar que el contenido sea un string para el ToolMessage
-                        if isinstance(file_ops_result, dict):
-                            tool_message_content = json.dumps(file_ops_result)
-                        else:
-                            tool_message_content = str(file_ops_result)
+                elif tool_name in ["file_operations", "file_operations_tool", "sophisticated_editor_tool", "write_file_tool", "append_file_tool", "delete_file_tool", "move_file_tool", "copy_file_tool"]:
+                    args_to_pass = {k: v for k, v in original_tool_args.items() if k != "operation"}
+                    args_to_pass["confirm"] = True
+                    
+                    if tool_name == "sophisticated_editor_tool":
+                        from kogniterm.skills.bundled.file_operations.scripts.file_editor import sophisticated_editor_tool
+                        file_ops_result = sophisticated_editor_tool(**args_to_pass)
+                    elif tool_name == "write_file_tool":
+                        from kogniterm.skills.bundled.file_operations.scripts.file_write import write_file_tool
+                        file_ops_result = write_file_tool(**args_to_pass)
+                    elif tool_name == "append_file_tool":
+                        from kogniterm.skills.bundled.file_operations.scripts.file_write import append_file_tool
+                        file_ops_result = append_file_tool(**args_to_pass)
+                    elif tool_name == "delete_file_tool" or (tool_name in ["file_operations", "file_operations_tool"] and original_tool_args.get("operation") == "delete_file"):
+                        from kogniterm.skills.bundled.file_operations.scripts.file_management import delete_file_tool
+                        file_ops_result = delete_file_tool(**args_to_pass)
+                    elif tool_name == "move_file_tool":
+                        from kogniterm.skills.bundled.file_operations.scripts.file_management import move_file_tool
+                        file_ops_result = move_file_tool(**args_to_pass)
+                    elif tool_name == "copy_file_tool":
+                        from kogniterm.skills.bundled.file_operations.scripts.file_management import copy_file_tool
+                        file_ops_result = copy_file_tool(**args_to_pass)
                     else:
-                        # Para la skill file_operations
-                        if op_type == "delete_file":
-                            from kogniterm.skills.bundled.file_operations.scripts.file_management import delete_file_tool
-                            file_ops_result = delete_file_tool(
-                                original_tool_args.get("path", file_path),
-                                confirm=True
-                            )
-                        else:
-                            from kogniterm.skills.bundled.file_operations.scripts.file_write import write_file_tool
-                            file_ops_result = write_file_tool(
-                                original_tool_args.get("path", file_path),
-                                original_tool_args.get("content", ""),
-                                confirm=True
-                            )
-                        # Asegurar que el contenido sea un string para el ToolMessage
-                        if isinstance(file_ops_result, dict):
-                            tool_message_content = json.dumps(file_ops_result)
-                        else:
-                            tool_message_content = str(file_ops_result)
+                        # Fallback for old file_operations tool
+                        from kogniterm.skills.bundled.file_operations.scripts.file_write import write_file_tool
+                        file_ops_result = write_file_tool(
+                            args_to_pass.get("path", file_path),
+                            args_to_pass.get("content", ""),
+                            confirm=True
+                        )
+
+                    # Asegurar que el contenido sea un string para el ToolMessage
+                    if isinstance(file_ops_result, dict):
+                        tool_message_content = json.dumps(file_ops_result)
+                    else:
+                        tool_message_content = str(file_ops_result)
                 
                 # NO imprimir mensaje de confirmación aquí - el ToolMessage en el historial es suficiente
             elif is_user_confirmation:

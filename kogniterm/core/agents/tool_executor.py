@@ -49,10 +49,17 @@ class ToolExecutor:
 
         action_desc = get_tool_action_description(tool, tool_args)
         
+        # Obtener skill_name
+        skill_name = ""
+        if hasattr(llm_service, 'skill_manager'):
+            skill = llm_service.skill_manager.get_skill_for_tool(tool_name)
+            if skill:
+                skill_name = skill.name
+
         # Notificación inicial
         if terminal_ui:
             if is_tui:
-                terminal_ui.print_tool_notification(tool_name, action_desc)
+                terminal_ui.print_tool_notification(tool_name, action_desc, skill_name=skill_name)
             else:
                 args_json = json.dumps(tool_args, indent=2, ensure_ascii=False)
                 console.print(Panel(
@@ -133,7 +140,12 @@ class ToolExecutor:
                     state.command_to_confirm = tc['args'].get('command')
                     state.tool_call_id_to_confirm = tc['id']
                     if terminal_ui:
-                        terminal_ui.print_tool_notification("execute_command", f"Preparando: {state.command_to_confirm}")
+                        skill_name = ""
+                        if hasattr(llm_service, 'skill_manager'):
+                            skill = llm_service.skill_manager.get_skill_for_tool(tc['name'])
+                            if skill:
+                                skill_name = skill.name
+                        terminal_ui.print_tool_notification("execute_command", f"Preparando: {state.command_to_confirm}", skill_name=skill_name)
                     return {"messages": state.messages, "command_to_confirm": state.command_to_confirm}
 
                 futures.append(executor.submit(ToolExecutor.execute_single_tool, tc, llm_service, terminal_ui))

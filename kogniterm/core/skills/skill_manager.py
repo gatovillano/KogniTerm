@@ -481,6 +481,19 @@ class SkillManager:
                     except Exception:
                         pass
 
+                # Inyectar parameters_schema inferido si no existe
+                if not hasattr(tool, 'parameters_schema'):
+                    if hasattr(tool, 'run') and hasattr(tool.run, '__annotations__'):
+                        try:
+                            setattr(tool, 'parameters_schema', self._infer_schema_from_hints(tool.run))
+                        except Exception:
+                            pass
+                    elif callable(tool) and hasattr(tool, '__annotations__'):
+                        try:
+                            setattr(tool, 'parameters_schema', self._infer_schema_from_hints(tool))
+                        except Exception:
+                            pass
+
                 self.tool_registry[unique_name] = {
                     'tool': tool,
                     'skill': skill.name,
@@ -764,13 +777,28 @@ class SkillManager:
 
     def _type_to_json_schema(self, typ) -> str:
         """Convierte tipo Python a JSON Schema type."""
+        from typing import Union, get_args, get_origin
+        
+        origin = get_origin(typ)
+        if origin is Union:
+            args = get_args(typ)
+            # Buscar el primer tipo que no sea None
+            for arg in args:
+                if arg is not type(None):
+                    typ = arg
+                    origin = get_origin(typ)
+                    break
+        
+        if origin is list or typ is list:
+            return 'array'
+        if origin is dict or typ is dict:
+            return 'object'
+
         type_map = {
             str: 'string',
             int: 'integer',
             float: 'number',
-            bool: 'boolean',
-            list: 'array',
-            dict: 'object'
+            bool: 'boolean'
         }
         return type_map.get(typ, 'string')
 
