@@ -286,10 +286,10 @@ class TextualTerminalUI:
         """
         self._safe_call(self.app._resume_spinner)
 
-    def print_tool_notification(self, tool_name: str, action_desc: str = "", **kwargs):
+    def print_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = "", **kwargs):
         """Muestra notificación de herramienta ejecutándose, alineada a la izquierda."""
         if kwargs.get("panel_id"): return
-        self._safe_call(self.app.chat_log.write_tool_notification, tool_name, action_desc)
+        self._safe_call(self.app.chat_log.write_tool_notification, tool_name, action_desc, skill_name)
 
     def print_success_box(self, message: str, title: str = "Éxito"):
         self._safe_call(self.app.chat_log.write_message, f"✅ [box] **{title}**: {message}", style="green")
@@ -438,20 +438,18 @@ class QueueDisplay(Static):
             self.display = False
         else:
             self.display = True
-            from kogniterm.terminal.themes import ColorPalette
-            
-            # Formatear la lista de mensajes
-            header = f"[{ColorPalette.PRIMARY}]⏳ Mensajes en espera ({len(messages)}):[/{ColorPalette.PRIMARY}]"
             
             # Limitar número de mensajes mostrados si hay demasiados
             max_show = 3
             display_msgs = messages[:max_show]
-            content = "\n".join(f" [dim]• {m}[/dim]" for m in display_msgs)
+            
+            # El mensaje en cursiva con un emoji de reloj de arena al inicio
+            content = "\n".join(f"⏳ [italic]{m}[/italic]" for m in display_msgs)
             
             if len(messages) > max_show:
                 content += f"\n [dim]... y {len(messages) - max_show} más[/dim]"
                 
-            self.update(f"{header}\n{content}")
+            self.update(content)
 
 class KogniTermTUI(App):
     """Aplicación principal de Textual para KogniTerm."""
@@ -573,10 +571,15 @@ class KogniTermTUI(App):
         height: 3;
         min-height: 1;
         border: none !important;
-        background: #2a2a2a !important;
+        background: transparent !important;
         padding: 0;
         margin: 0;
         color: $text;
+    }
+    ChatInput .text-area--cursor-line,
+    ChatInput .text-area--background,
+    ChatInput .text-area--selection {
+        background: transparent !important;
     }
     ChatInput:focus {
         background: transparent !important;
@@ -729,12 +732,12 @@ class KogniTermTUI(App):
         max-height: 1;
         border: none;
         padding: 0;
-        background: #2a2a2a !important;
+        background: transparent !important;
         display: block;
     }
     ChatInput#splash_chat_input:focus {
         border: none;
-        background: #2a2a2a !important;
+        background: transparent !important;
     }
     #splash_model_info {
         width: 100%;
@@ -1186,6 +1189,13 @@ class KogniTermTUI(App):
                     # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
                     matches = [c for c in containers if search_term.lower() in c['name'].lower()][:12]  # Limitar a 12
 
+            # Si hay un único match y es exacto, no mostrar autocompletado
+            if len(matches) == 1:
+                match = matches[0]
+                match_text = match['name'] if isinstance(match, dict) else match
+                if match_text.lower() == search_term.lower():
+                    matches = []
+
             for match in matches:
                 # match puede ser string (comandos %) o dict (contenedores)
                 if isinstance(match, dict):
@@ -1260,6 +1270,13 @@ class KogniTermTUI(App):
                     containers = getattr(suggester, "_cached_containers", []) or []
                     # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
                     matches = [c for c in containers if search_term.lower() in c['name'].lower()][:12]  # Limitar a 12
+
+            # Si hay un único match y es exacto, no mostrar autocompletado
+            if len(matches) == 1:
+                match = matches[0]
+                match_text = match['name'] if isinstance(match, dict) else match
+                if match_text.lower() == search_term.lower():
+                    matches = []
 
             for match in matches:
                 # match puede ser string (comandos %) o dict (contenedores)
@@ -1508,8 +1525,6 @@ class KogniTermTUI(App):
         # Bloquear nuevo input si ya hay una petición en curso
         # PERO permitir encolar mensajes para mejor UX
         if self.is_processing:
-            from kogniterm.terminal.themes import ColorPalette
-            self.chat_log.write_user_message(f"{user_input} [italic {ColorPalette.TEXT_SECONDARY}](En cola...)[/]")
             self._input_queue.append(user_input)
             if hasattr(self, "queue_display"):
                 self.queue_display.update_queue(self._input_queue)
@@ -1612,6 +1627,8 @@ class KogniTermTUI(App):
         for inp in self.query(ChatInput):
             inp.styles.color = p.TEXT_PRIMARY
             inp.styles.background = "transparent" # Dejar transparente para que se vea el contenedor
+            inp.show_cursor_line = False
+            inp.cursor_line_style = ""
             
         # 8. Estilizar STATUS FOOTER
         for sf in self.query(StatusFooter):

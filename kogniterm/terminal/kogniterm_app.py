@@ -248,6 +248,11 @@ class FileCompleter(Completer):
             # Determinar qué parte está escribiendo el usuario (comando principal)
             if ' ' not in stripped_text: # Solo si es la primera palabra
                 current_input = stripped_text
+                matches = [cmd for cmd, desc in self.MAGIC_COMMANDS if cmd.startswith(current_input)]
+                # Si hay un único match y es exacto, no mostrar autocompletado
+                if len(matches) == 1 and matches[0] == current_input:
+                    return
+                
                 for cmd, desc in self.MAGIC_COMMANDS:
                     if cmd.startswith(current_input):
                         yield Completion(cmd, start_position=-len(current_input), display_meta=desc)
@@ -286,6 +291,10 @@ class FileCompleter(Completer):
             
             suggestions.sort()
 
+            # Si hay un único match y es exacto, no mostrar autocompletado
+            if len(suggestions) == 1 and (suggestions[0] == current_input_part or suggestions[0].rstrip('/') == current_input_part.rstrip('/')):
+                return
+
             for suggestion in suggestions:
                 start_position = -len(current_input_part)
                 yield Completion(suggestion, start_position=start_position)
@@ -307,9 +316,13 @@ class FileCompleter(Completer):
                         self._start_background_load_containers()
                     return
 
-                for container in cached_containers:
-                    if current_input_part.lower() in container.lower():
-                        yield Completion(container, start_position=-len(current_input_part), display_meta="Docker Container")
+                matches = [c for c in cached_containers if current_input_part.lower() in c.lower()]
+                # Si hay un único match y es exacto, no mostrar autocompletado
+                if len(matches) == 1 and matches[0].lower() == current_input_part.lower():
+                    return
+
+                for container in matches:
+                    yield Completion(container, start_position=-len(current_input_part), display_meta="Docker Container")
 
     def dispose(self):
         """Detiene el FileSystemWatcher y el ThreadPoolExecutor cuando la aplicación se cierra."""

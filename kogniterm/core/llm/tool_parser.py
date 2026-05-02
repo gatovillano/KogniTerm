@@ -5,7 +5,7 @@ import string
 from typing import List, Dict, Any, Optional
 
 def generate_short_id(length: int = 9) -> str:
-    """Genera un ID alfanumérico corto compatible con proveedores estrictos como Mistral."""
+    """Genera un ID alfanum\u00e9rico corto compatible con proveedores estrictos como Mistral."""
     chars = string.ascii_letters + string.digits
     return ''.join(random.choice(chars) for _ in range(length))
 
@@ -43,7 +43,6 @@ def extract_args(args_str: str) -> Dict[str, Any]:
     try:
         return json.loads(args_str)
     except:
-        # Fallback a extracción por regex para casos muy sucios
         result = {}
         pair_pattern = r'(\w+)\s*[:=]\s*(?:"([^"]*)"|\'([^\']*)\'|(\d+)|([^\s,{}]+))'
         for m in re.finditer(pair_pattern, args_str):
@@ -57,7 +56,7 @@ def extract_args(args_str: str) -> Dict[str, Any]:
 
 def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=None) -> List[Dict[str, Any]]:
     """
-    Analiza el texto para encontrar llamadas a herramientas usando múltiples estrategias.
+    Analiza el texto para encontrar llamadas a herramientas usando m\u00faltiples estrategias.
     """
     if not text:
         return []
@@ -72,7 +71,7 @@ def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=No
     # 1. Limpieza inicial: Quitar caracteres de control invisibles
     clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
     
-    # ESTRATEGIA A: Patrones explícitos
+    # ESTRATEGIA A: Patrones expl\u00edcitos
     explicit_patterns = [
         r'LLAMADA_A_HERRAMIENTA:\s*(\w+)',
         r'Herramienta:\s*(\w+)',
@@ -92,7 +91,30 @@ def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=No
                         args = extract_args(args_str)
                         tool_calls.append({"id": id_generator(), "name": real_name, "args": args})
 
-    # ESTRATEGIA B: Bloques JSON estructurados
+    # ESTRATEGIA B: Lenguaje natural con JSON inline - patrones amplios
+    # Captura: "usa search con {...}", "usa 'search' con {...}", "usa \"search\" con {...}"
+    nl_patterns = [
+        r'(?:usa|usar|utiliza|usamos|usando|use)\s+(?:la\s+)?["\']?(\w+)["\']?\s*(?:,?\s*(?:luego\s+)?(?:con\s+(?:los\s+)?argumentos?|con\s+args?)\s*)?\s*(\{[^}]+\})',
+        r'(?:llama?r?|llamamos)\s+(?:a\s+)?["\']?(\w+)["\']?\s*(?:con\s+(?:argumentos?|args?)\s*)?\s*(\{[^}]+\})',
+        r'(?:vamos\s+a\s+)?(?:usar|llamar)\s+["\']?(\w+)["\']?\s*(?:con\s+(?:argumentos?|args?)\s*)?\s*(\{[^}]+\})',
+        r'(?:usa|usar|utiliza)\s+(\w+)\s*(?:con\s+(?:argumentos?|args?)\s*)?\s*(\{[^}]+\})',
+        r'(\w+)\s*con\s+(?:argumentos?|args?)\s*(\{[^}]+\})',
+        r'(?:usa|usamos)\s+(\w+)\s*\(\s*(\{[^}]+\})\s*\)',
+    ]
+    for pat in nl_patterns:
+        for match in re.finditer(pat, clean_text, re.IGNORECASE):
+            tool_name = match.group(1).strip()
+            args_str = match.group(2).strip()
+            real_name = next((k for k in tool_names if k.lower() == tool_name.lower()), None)
+            if real_name:
+                args_str_balanced = extract_balanced_content(clean_text, match.start(2))
+                if args_str_balanced:
+                    args = extract_args(args_str_balanced)
+                else:
+                    args = extract_args(args_str)
+                tool_calls.append({"id": id_generator(), "name": real_name, "args": args})
+
+    # ESTRATEGIA C: Bloques JSON estructurados
     for i in range(len(clean_text)):
         if clean_text[i] == '{':
             json_str = extract_balanced_content(clean_text, i)
@@ -100,7 +122,6 @@ def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=No
                 try:
                     data = json.loads(json_str)
                     if isinstance(data, dict) and data:
-                        # Formato directo: {"name": "...", "args": {...}}
                         name = data.get("name") or data.get("tool") or data.get("function")
                         args = data.get("args") or data.get("arguments") or data.get("parameters") or {}
                         
@@ -109,14 +130,12 @@ def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=No
                             if real_name:
                                 tool_calls.append({"id": id_generator(), "name": real_name, "args": args})
                         
-                        # Formato: {"tool_name": {...args...}}
                         elif len(data) == 1:
                             potential_name = list(data.keys())[0]
                             if str(potential_name).lower() in [k.lower() for k in tool_names]:
                                 real_name = next(k for k in tool_names if k.lower() == str(potential_name).lower())
                                 tool_calls.append({"id": id_generator(), "name": real_name, "args": data[potential_name]})
                         
-                        # Correlación Contextual
                         elif not any(k in data for k in ["name", "tool", "function"]):
                             lookback = clean_text[max(0, i-300):i].lower()
                             for tname in tool_names:
@@ -126,7 +145,7 @@ def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=No
                 except:
                     continue
 
-    # ESTRATEGIA C: Formatos Legacy tipo Código "name({args})"
+    # ESTRATEGIA D: Formatos Legacy tipo Codigo "name({args})"
     legacy_pattern = r'(\w+)\s*\(([\{].*?[\}])\)'
     for match in re.finditer(legacy_pattern, clean_text, re.DOTALL):
         name, args_str = match.groups()

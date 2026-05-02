@@ -83,6 +83,17 @@ class KogniTermKernel:
         if not self.kc:
             return {"error": "El kernel no está iniciado."}
 
+        # Limpiar salidas previas y resetear eventos
+        self.current_execution_outputs = []
+        self.execution_complete_event.clear()
+
+        # Enviar el código al kernel para ejecutarlo
+        try:
+            msg_id = self.kc.execute(code)
+            logger.info(f"Código enviado al kernel con msg_id: {msg_id}")
+        except Exception as e:
+            return {"error": f"Error al enviar código al kernel: {e}"}
+
         start_wait = time.time()
         max_wait = 300 # 5 minutos de timeout por defecto para el kernel
         

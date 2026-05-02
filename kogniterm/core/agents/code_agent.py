@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.live import Live
@@ -22,6 +22,7 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.exceptions import UserConfirmationRequired
 from ..async_io_manager import get_io_manager
+from ..utils.tool_utils import get_tool_action_description
 
 console = Console()
 
@@ -281,13 +282,18 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
     # Notificación de inicio
     tool = llm_service.get_tool(tool_name)
     bajada = ""
-    if tool and hasattr(tool, 'get_action_description'):
-        try:
-            bajada = tool.get_action_description(**tool_args)
-        except: pass
+    skill_name = ""
+    if tool:
+        # Obtener skill_name del skill_manager
+        if hasattr(llm_service, 'skill_manager'):
+            skill = llm_service.skill_manager.get_skill_for_tool(tool_name)
+            if skill:
+                skill_name = skill.name
+
+        bajada = get_tool_action_description(tool, tool_args)
         
     if is_tui:
-        terminal_ui.print_tool_notification(tool_name, bajada)
+        terminal_ui.print_tool_notification(tool_name, bajada, skill_name=skill_name)
     else:
         args_json = json.dumps(tool_args, indent=2, ensure_ascii=False)
         console.print(Panel(
@@ -409,8 +415,16 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: O
             if is_destructive_command(command):
                 # Feedback visual de preparación de comando destructivo
                 bajada = f"Comando detectado como POTENCIALMENTE DESTRUCTIVO: {command}"
+                
+                # Obtener skill_name
+                skill_name = ""
+                if hasattr(llm_service, 'skill_manager'):
+                    skill = llm_service.skill_manager.get_skill_for_tool(tool_name)
+                    if skill:
+                        skill_name = skill.name
+
                 if is_tui:
-                    terminal_ui.print_tool_notification(tool_name, bajada)
+                    terminal_ui.print_tool_notification(tool_name, bajada, skill_name=skill_name)
                 else:
                     console.print(f"\n[bold red]⚠️  Comando destructivo detectado:[/bold red] [yellow]{command}[/yellow]")
                 

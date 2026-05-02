@@ -6,7 +6,7 @@ from kogniterm.core.llm_service import LLMService
 from kogniterm.core.insights import KogniInsightsEngine
 from kogniterm.core.agents.bash_agent import AgentState, get_system_message
 from kogniterm.terminal.terminal_ui import TerminalUI
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table # Importar Table
@@ -379,22 +379,42 @@ class MetaCommandProcessor:
                 if "RateLimitError" in error_msg or "quota" in error_msg.lower():
                     self.terminal_ui.print_message("\n💡 Tip: El modelo ha alcanzado su límite de cuota. Prueba usando [bold]%compress force[/bold] para resumir solo la parte más reciente que quepa en el límite.", style="cyan")
             else:
-                # Reemplazar el historial: SOLO system message + resumen
-                new_history = [get_system_message(self.llm_service), AIMessage(content=summary)]
+                # Usar la lógica del HistoryManager para una compresión correcta
+                # La clave: el resumen se inserta como SystemMessage, NO como AIMessage
+                
+                # Obtener el resumen generado por summarize_conversation_history
+                # Este método ya recupera el resumen del historial actual
+                summary = self.llm_service.summarize_conversation_history(
+                    self.llm_service.conversation_history,
+                    force_truncate='force' in user_input.lower()
+                )
+                
+                # Crear una SystemMessage nueva con el resumen
+                summary_sys_msg = SystemMessage(content=f"📊 Resumen de conversación previa (historial comprimido):\n\n{summary}")
+                
+                # Construir nuevo historial: SystemMessage original + el resumen + mensajes recientes si se desea conservar
+                # Pero %compress debe limpiar el historial a un estado limpio
+                # Entonces: solo SystemMessage + resumen
+                base_system_message = get_system_message(self.llm_service)
+                combined_system = SystemMessage(content=f"{base_system_message.content}\n\n{summary_sys_msg.content}")
+                
+                new_history = [combined_system]
                 self.llm_service.conversation_history = new_history
                 # Usar .copy() para que agent_state tenga su propia lista independiente
                 self.agent_state.messages = new_history.copy()
                 # Persistir el historial comprimido en disco
                 self.llm_service._save_history(self.llm_service.conversation_history)
-
-                # Si estamos en la TUI, limpiar el chat log visualmente y mostrar solo el resumen
+                
+                # NOTA: El resumen no se muestra en el chat log porque se guardó en el SystemMessage
+                # Solo mostrar un mensaje de éxito simple para que el usuario sepa que terminó
                 if hasattr(self.terminal_ui, "clear_chat"):
                     self.terminal_ui.clear_chat()
-                    self.terminal_ui.print_message("🗜️ **Historial comprimido.** Solo queda el resumen en el contexto:", style="green")
-                    self.terminal_ui.print_message(summary)
+                    self.terminal_ui.print_message("🗜️ **Historial comprimido exitosamente.** Contexto previo condensado.", style="green")
                 else:
-                    # Terminal clásica: panel Rich como antes
-                    self.terminal_ui.console.print(Panel(Markdown(f"Historial comprimido exitosamente:\n{summary}"), border_style="green", title="[bold green]Historial Comprimido[/bold green]"))
+                    # Terminal clásica: panel Rich simple
+                    from rich.panel import Panel
+                    from rich.markdown import Markdown
+                    self.terminal_ui.console.print(Panel(Markdown("✅ **Historial comprimido exitosamente.**"), border_style="green", title="[bold green]📊 Compresión Completada[/bold green]"))
             return True
 
         if user_input.lower().strip() == '%models':

@@ -75,9 +75,10 @@ class ChatInput(TextArea):
         
         # Configuración básica de TextArea para que parezca un input
         self.show_line_numbers = False
-        self.cursor_line_style = "" # Intentar con cadena vacía para desactivar resaltado
+        self.show_cursor_line = False
+        self.cursor_line_style = "" 
 
-        self.styles.background = None
+        self.styles.background = "transparent"
         self.soft_wrap = True
         self.tab_behavior = "focus"  # Tab cambia el foco
         

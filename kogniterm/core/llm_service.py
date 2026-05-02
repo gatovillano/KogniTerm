@@ -289,6 +289,14 @@ class LLMService:
         self.rate_limit_period = 60 # Por ejemplo, 60 segundos
         self.rate_limit_calls = 5 # Ajustado a 5 llamadas por minuto para evitar RateLimit
         self.generation_params = {"temperature": 0.7, "top_p": 0.95, "top_k": 40} # Parámetros de generación por defecto
+        # Configurable timeouts (env vars)
+        # KOGNITERM_AGENT_POLL_MS: poll interval (ms) used when waiting on tool futures (default 2000 ms)
+        self.tool_poll_timeout = float(os.getenv("KOGNITERM_AGENT_POLL_MS", "2000")) / 1000.0
+        # KOGNITERM_API_TIMEOUT_S: timeout for LLM/API calls in seconds (default 120 s)
+        self.api_timeout_seconds = float(os.getenv("KOGNITERM_API_TIMEOUT_S", "120"))
+        # Optional fallback timeout for alternative calls
+        self.api_timeout_fallback_seconds = float(os.getenv("KOGNITERM_API_FALLBACK_TIMEOUT_S", "90"))
+
         self.tool_execution_lock = threading.Lock() # Inicializar el lock
         self.active_tool_future = None # Referencia a la última tarea iniciada
         self.tool_executor = ThreadPoolExecutor(max_workers=10) # Aumentado para permitir paralelismo y llamadas anidadas
@@ -338,7 +346,7 @@ class LLMService:
     def _parse_tool_calls_from_text(self, text: str) -> List[Dict[str, Any]]:
         """
         Analiza el texto para encontrar llamadas a herramientas usando múltiples estrategias.
-        Optimizado para soportar formatos directos, JSONs embebidos y correlación contextual.
+        Versión permisiva: extrae tool calls sin validar contra self.tool_map.
         """
         if not text:
             return []
@@ -347,6 +355,7 @@ class LLMService:
         seen_combinations = set()
         valid_tool_calls = []
         import re
+        import json
         
         # 1. Limpieza inicial: Quitar caracteres de control invisibles
         clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
@@ -361,21 +370,23 @@ class LLMService:
         for pat in explicit_patterns:
             for match in re.finditer(pat, clean_text, re.IGNORECASE):
                 tool_name = match.group(1).strip()
-                real_name = next((k for k in self.tool_map.keys() if k.lower() == tool_name.lower()), None)
-                if real_name:
-                    search_start = match.end()
-                    json_start = clean_text.find('{', search_start)
-                    if json_start != -1 and (json_start - search_start) < 200:
-                        args_str = self._extract_balanced_content(clean_text, json_start)
-                        if args_str:
-                            args = self.extract_args(args_str)
-                            tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": args})
+                # NO validar contra self.tool_map - usar el nombre literal
+                search_start = match.end()
+                json_start = clean_text.find('{', search_start)
+                if json_start != -1 and (json_start - search_start) < 200:
+                    args_str = self._extract_balanced_content(clean_text, json_start)
+                    if args_str:
+                        args = self.extract_args(args_str)
+                        tool_calls.append({"id": self._generate_short_id(), "name": tool_name, "args": args})
 
-        # ESTRATEGIA B: Bloques JSON estructurados (lo más fiable)
-        for i in range(len(clean_text)):
+        # ESTRATEGIA B: Bloques JSON estructurados (solo a nivel raíz, no dentro de args)
+        # Buscamos JSONs balanceados en el texto principal, evitando procesar JSONs anidados
+        i = 0
+        while i < len(clean_text):
             if clean_text[i] == '{':
                 json_str = self._extract_balanced_content(clean_text, i)
                 if json_str:
+                    tool_call_added = False
                     try:
                         data = json.loads(json_str)
                         if isinstance(data, dict) and data:
@@ -384,34 +395,65 @@ class LLMService:
                             args = data.get("args") or data.get("arguments") or data.get("parameters") or {}
                             
                             if name:
-                                real_name = next((k for k in self.tool_map.keys() if k.lower() == str(name).lower()), None)
-                                if real_name:
-                                    tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": args})
+                                # NO validar contra self.tool_map - usar el nombre literal
+                                tool_calls.append({"id": self._generate_short_id(), "name": str(name), "args": args})
+                                tool_call_added = True
                             
                             # Formato: {"tool_name": {...args...}}
+                            # Solo si NO hay claves name/tool/function (ya manejadas arriba)
                             elif len(data) == 1:
                                 potential_name = list(data.keys())[0]
-                                if potential_name.lower() in [k.lower() for k in self.tool_map.keys()]:
-                                    real_name = next(k for k in self.tool_map.keys() if k.lower() == potential_name.lower())
-                                    tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": data[potential_name]})
+                                potential_args = data[potential_name]
+                                # Asegurarse de que potential_args es un dict (no una cadena simple)
+                                # Esto evita reportar claves simples dentro de args como tool calls
+                                if isinstance(potential_args, dict):
+                                    # NO validar contra self.tool_map - usar el nombre literal
+                                    tool_calls.append({"id": self._generate_short_id(), "name": potential_name, "args": potential_args})
+                                    tool_call_added = True
                             
-                            # Correlación Contextual (si es un JSON de argumentos sin nombre)
-                            elif not any(k in data for k in ["name", "tool", "function"]):
-                                lookback = clean_text[max(0, i-300):i].lower()
-                                for tname in self.tool_map.keys():
-                                    if tname.lower() in lookback:
-                                        tool_calls.append({"id": self._generate_short_id(), "name": tname, "args": data})
+                            # ESTRATEGIA D: Lookback detection para JSON sin nombre de herramienta
+                            # Si no se ha añadido una llamada a herramienta, buscar nombres de herramientas en el texto anterior
+                            if not tool_call_added:
+                                # Definir ventana de lookback (por ejemplo, 300 caracteres)
+                                lookback_start = max(0, i - 300)
+                                lookback_text = clean_text[lookback_start:i]
+                                # Buscar nombres de herramientas disponibles (self.tool_map)
+                                for tool_name in self.tool_map.keys():
+                                    # Buscar el nombre de la herramienta como palabra completa (case-insensitive)
+                                    if re.search(r'\b' + re.escape(tool_name) + r'\b', lookback_text, re.IGNORECASE):
+                                        # Se encontró una herramienta mencionada antes del JSON
+                                        # Usar el JSON completo como argumentos
+                                        tool_calls.append({"id": self._generate_short_id(), "name": tool_name, "args": data})
+                                        tool_call_added = True
                                         break
-                    except: continue
+                    except:
+                        pass
+                    # Avanzar i al final de este JSON para evitar procesar JSONs anidados dentro de args
+                    i += len(json_str)
+                    continue
+            i += 1
 
-        # ESTRATEGIA C: Formatos Legacy tipo Código "name({args})"
-        legacy_pattern = r'(\w+)\s*\(([\{].*?[\}])\)'
+
+        # ESTRATEGIA C: Formatos Legacy tipo Código "name({args})" o "name[{args}]"
+        # Soporta múltiples delimitadores: paréntesis () o corchetes [] externos
+        # y llaves {} o corchetes [] internos para los argumentos
+        legacy_pattern = r'(\w+)\s*[\(\[]\s*([\{\[]' + r'.*?[\}\]]\s*[\)\]])'
         for match in re.finditer(legacy_pattern, clean_text, re.DOTALL):
-            name, args_str = match.groups()
-            real_name = next((k for k in self.tool_map.keys() if k.lower() == name.lower()), None)
-            if real_name:
-                args = self.extract_args(args_str)
-                tool_calls.append({"id": self._generate_short_id(), "name": real_name, "args": args})
+            full_match = match.group(0)
+            name = match.group(1)
+            # Extraer el contenido interno (argumentos) quitando delimitadores externos
+            inner = match.group(2)
+            # Quitar posibles espacios y delimitadores externos sobrantes
+            inner_stripped = inner.strip()
+            # Si inner_stripped empieza con { o [ y termina con } o ], quitarlos
+            if (inner_stripped.startswith("{") and inner_stripped.endswith("}")) or \
+               (inner_stripped.startswith("[") and inner_stripped.endswith("]")):
+                args_str = inner_stripped[1:-1]
+            else:
+                args_str = inner_stripped
+            # NO validar contra self.tool_map - usar el nombre literal
+            args = self.extract_args(args_str)
+            tool_calls.append({"id": self._generate_short_id(), "name": name, "args": args})
 
         # Filtrar duplicados y consolidar
         for tc in tool_calls:
@@ -425,7 +467,6 @@ class LLMService:
                 if tc not in valid_tool_calls: valid_tool_calls.append(tc)
 
         return valid_tool_calls
-
     def extract_args(self, args_str: str) -> Dict[str, Any]:
         """Extrae argumentos de una cadena de texto de forma permisiva."""
         if not args_str: return {}
@@ -909,7 +950,7 @@ class LLMService:
             "temperature": self.generation_params.get("temperature", 0.7),
             "max_tokens": 8192,
             "num_retries": 3, # Aumentado para manejar errores temporales
-            "timeout": 120,    # Según el ejemplo del usuario
+            "timeout": self.api_timeout_seconds,    # Configurable via KOGNITERM_API_TIMEOUT_S (seconds)
         }
 
         # Pasar api_base y headers explícitamente si están definidos
@@ -1255,7 +1296,7 @@ class LLMService:
                         "max_tokens": completion_kwargs.get("max_tokens", 4096),
                         "user": f"user_{self._generate_short_id(12)}",
                         "num_retries": 1, 
-                        "timeout": 90
+                        "timeout": self.api_timeout_fallback_seconds
                     }
                     
                     # IMPORTANTE: Si es error de soporte, quitamos 'tools' de la llamada para que el servidor no la rechace
@@ -1761,7 +1802,7 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             while True:
                 try:
                     # Intentar obtener el resultado. Si es un generador, iterar sobre él.
-                    result = future.result(timeout=0.01)
+                    result = future.result(timeout=self.tool_poll_timeout)  # Configurable poll interval (seconds)
                     if isinstance(result, Generator):
                         yield from result # Ceder directamente del generador de la herramienta
                         return # El generador de la herramienta ha terminado
@@ -1795,21 +1836,3 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
                 if self.active_tool_future is future:
                     self.active_tool_future = None
 
-    def _extract_balanced_content(self, text: str, start_pos: int, open_char: str = '{', close_char: str = '}') -> Optional[str]:
-        """
-        Extrae un bloque de texto balanceado (paréntesis, llaves, etc) desde una posición dada.
-        Maneja anidamiento correctamente.
-        """
-        if start_pos >= len(text) or text[start_pos] != open_char:
-            return None
-            
-        depth = 0
-        for i in range(start_pos, len(text)):
-            if text[i] == open_char:
-                depth += 1
-            elif text[i] == close_char:
-                depth -= 1
-                if depth == 0:
-                    return text[start_pos : i + 1]
-        
-        return None
