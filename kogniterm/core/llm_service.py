@@ -296,6 +296,8 @@ class LLMService:
         self.api_timeout_seconds = float(os.getenv("KOGNITERM_API_TIMEOUT_S", "120"))
         # Optional fallback timeout for alternative calls
         self.api_timeout_fallback_seconds = float(os.getenv("KOGNITERM_API_FALLBACK_TIMEOUT_S", "90"))
+        # Máximo de reintentos automáticos de continuación cuando la respuesta se corta (por finish_reason 'length')
+        self.max_continuations = int(os.getenv("KOGNITERM_MAX_CONTINUATIONS", "3"))
 
         self.tool_execution_lock = threading.Lock() # Inicializar el lock
         self.active_tool_future = None # Referencia a la última tarea iniciada
@@ -1102,6 +1104,10 @@ class LLMService:
             chunk_timeout = 60 # 60 segundos entre chunks
             overall_timeout = 300 # 5 minutos total
             
+            # Variables para detección de truncamiento y reintentos de continuación
+            last_finish_reason = None
+            continuation_attempts = 0
+            
             for chunk in response_generator:
                 current_time = time.time()
                 
@@ -1133,6 +1139,10 @@ class LLMService:
                     continue
                 
                 choice = choices[0]
+                # Registrar finish_reason si está presente (p.ej. 'length' cuando se corta por max_tokens)
+                fr = getattr(choice, 'finish_reason', None)
+                if fr:
+                    last_finish_reason = fr
                 delta = getattr(choice, 'delta', None)
                 if not delta:
                     logger.debug("DEBUG: Delta vacío, continuando...")
@@ -1183,7 +1193,90 @@ class LLMService:
             else:
                 # LÓGICA UNIFICADA: Combinar tool_calls nativos y manuales detectados en el texto
                 final_tool_calls = []
-                
+
+                # Reintentos automáticos: si el modelo truncó la respuesta por límite de tokens, intentar continuar
+                if last_finish_reason and any(k in str(last_finish_reason).lower() for k in ("length","max","token")) and getattr(self, 'max_continuations', 3) > 0:
+                    attempts = 0
+                    while attempts < getattr(self, 'max_continuations', 3):
+                        attempts += 1
+                        logger.info(f"Intentando continuación automática (intento {attempts}/{self.max_continuations})...")
+                        try:
+                            cont_msgs = [m.copy() for m in completion_kwargs.get("messages", [])]
+                            # Añadir la respuesta parcial como mensaje del asistente para que el modelo pueda continuar
+                            cont_msgs.append({"role": "assistant", "content": full_response_content})
+                            cont_msgs.append({"role": "user", "content": "Por favor, continúa la respuesta anterior, sin repetir lo ya dicho. Continúa desde donde te quedaste."})
+
+                            if self.use_multi_provider and self.provider_manager:
+                                cont_gen = self.provider_manager.execute_with_fallback(
+                                    model_name=self.model_name,
+                                    messages=cont_msgs,
+                                    stream=True,
+                                    temperature=completion_kwargs.get("temperature", 0.7),
+                                    max_tokens=min(4096, completion_kwargs.get("max_tokens", 8192)),
+                                    tools=completion_kwargs.get("tools"),
+                                )
+                            else:
+                                cont_kwargs = dict(completion_kwargs)
+                                cont_kwargs["messages"] = cont_msgs
+                                cont_kwargs["max_tokens"] = min(4096, completion_kwargs.get("max_tokens", 8192))
+                                cont_kwargs["num_retries"] = 1
+                                cont_kwargs["timeout"] = self.api_timeout_seconds
+                                cont_gen = completion(**cont_kwargs)
+
+                            cont_last_chunk_time = time.time()
+                            for cont_chunk in cont_gen:
+                                current_time = time.time()
+                                if current_time - cont_last_chunk_time > chunk_timeout:
+                                    logger.warning(f"Estancamiento detectado durante continuación: {current_time - cont_last_chunk_time:.1f}s sin chunks.")
+                                cont_last_chunk_time = current_time
+
+                                cont_choices = getattr(cont_chunk, 'choices', None)
+                                if not cont_choices or not isinstance(cont_choices, list) or not cont_choices[0]:
+                                    continue
+
+                                cont_choice = cont_choices[0]
+                                fr = getattr(cont_choice, 'finish_reason', None)
+                                if fr:
+                                    last_finish_reason = fr
+
+                                cont_delta = getattr(cont_choice, 'delta', None)
+                                if not cont_delta:
+                                    logger.debug("DEBUG: Continuation delta vacío, continuando...")
+                                    continue
+
+                                reasoning_delta = getattr(cont_delta, 'reasoning_content', None)
+                                if reasoning_delta is not None:
+                                    full_reasoning_content += str(reasoning_delta)
+                                    yield f"__THINKING__:{reasoning_delta}"
+
+                                if getattr(cont_delta, 'content', None) is not None:
+                                    full_response_content += str(cont_delta.content)
+                                    yield str(cont_delta.content)
+
+                                cont_tool_calls = getattr(cont_delta, 'tool_calls', None)
+                                if cont_tool_calls is not None:
+                                    for tc in cont_tool_calls:
+                                        idx = getattr(tc, 'index', 0)
+                                        while idx >= len(tool_calls):
+                                            tool_calls.append({"id": "", "function": {"name": "", "arguments": ""}})
+                                        if getattr(tc, 'id', None) is not None:
+                                            tool_calls[idx]["id"] = tc.id
+                                        elif not tool_calls[idx]["id"]:
+                                            tool_calls[idx]["id"] = self._generate_short_id()
+                                        if getattr(tc, 'function', None) is not None:
+                                            if getattr(tc.function, 'name', None) is not None and tc.function.name:
+                                                tool_calls[idx]["function"]["name"] = tc.function.name
+                                            if getattr(tc.function, 'arguments', None) is not None:
+                                                tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
+
+                            # Si la continuación ya no termina por límite de tokens, salir del bucle de reintentos
+                            if not (last_finish_reason and any(k in str(last_finish_reason).lower() for k in ("length","max","token"))):
+                                break
+
+                        except Exception as cont_err:
+                            logger.warning(f"Falló la continuación automática en intento {attempts}: {cont_err}")
+                            break
+
                 # 1. Procesar tool_calls nativos acumulados durante el streaming
                 if tool_calls:
                     for tc in tool_calls:
