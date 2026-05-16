@@ -285,6 +285,8 @@ class TextualInputModal(BaseModal):
             event.prevent_default()
 
     def on_input_submitted(self, event: Input.Submitted):
+        event.stop()
+        event.prevent_default()
         self.dismiss(self.input_field.value)
 
 

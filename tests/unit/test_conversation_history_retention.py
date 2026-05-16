@@ -1,11 +1,14 @@
+import json
+
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.agents.base_agent import BaseAgentNode
 from kogniterm.core.history_manager import HistoryManager
 from kogniterm.core.llm_service import LLMService
 from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+from kogniterm.skills.bundled.file_operations.scripts.file_editor import advanced_file_editor
 
 
 @pytest.fixture
@@ -128,10 +131,107 @@ def test_explicit_command_denial_does_not_execute_safe_command():
     result = handler.handle_command_approval(
         command_to_execute="ls",
         auto_approve=False,
-        explicit_user_approval=False,
     )
 
     assert result["approved"] is False
     assert executed_commands == []
     assert isinstance(handler.agent_state.messages[-1], AIMessage)
     assert "no ejecutado" in handler.agent_state.messages[-1].content.lower()
+
+
+def test_advanced_editor_confirmation_reuses_original_args_and_replaces_pending_tool_message(tmp_path):
+    file_path = tmp_path / "demo.py"
+    file_path.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+
+    original_args = {
+        "path": str(file_path),
+        "action": "replace_block",
+        "target_content": "beta",
+        "replacement_content": "BETA",
+    }
+    pending_payload = {
+        "status": "requires_confirmation",
+        "operation": "advanced_file_editor",
+        "path": str(file_path),
+        "args": original_args,
+        "diff": "--- fake diff ---",
+    }
+
+    class DummyTerminalUI:
+        def __init__(self):
+            self.messages = []
+            self.live_updates = []
+
+        def get_interrupt_queue(self):
+            return None
+
+        def print_confirmation_panel(self, *args, **kwargs):
+            raise AssertionError("No debería pedir una segunda confirmación")
+
+        def ask_approval_sync(self, *args, **kwargs):
+            raise AssertionError("No debería volver a preguntar")
+
+        def print_message(self, message, style=None):
+            self.messages.append((message, style))
+
+        def update_live(self, renderable, **kwargs):
+            self.live_updates.append(renderable)
+
+        def stop_live(self, **kwargs):
+            pass
+
+        def update_terminal_output(self, *args, **kwargs):
+            pass
+
+        def set_terminal_cursor(self, *args, **kwargs):
+            pass
+
+    class DummyLLMService:
+        def __init__(self):
+            self.saved_history = None
+
+        def _save_history(self, messages):
+            self.saved_history = list(messages)
+
+        def _invoke_tool_with_interrupt(self, tool, tool_args):
+            yield tool(**tool_args)
+
+    agent_state = AgentState(
+        messages=[
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "advanced_file_editor", "args": original_args, "id": "tool-1"}],
+            ),
+            ToolMessage(
+                content=json.dumps(pending_payload),
+                tool_call_id="tool-1",
+            ),
+        ]
+    )
+
+    handler = CommandApprovalHandler(
+        llm_service=DummyLLMService(),
+        command_executor=None,
+        prompt_session=None,
+        terminal_ui=DummyTerminalUI(),
+        agent_state=agent_state,
+        advanced_file_editor_tool=advanced_file_editor,
+    )
+
+    result = handler.handle_command_approval(
+        command_to_execute="",
+        auto_approve=True,
+        tool_name="advanced_file_editor",
+        raw_tool_output=pending_payload,
+        original_tool_args=original_args,
+    )
+
+    tool_messages = [
+        message for message in handler.agent_state.messages
+        if getattr(message, "tool_call_id", None) == "tool-1"
+    ]
+    assert len(tool_messages) == 1
+    assert "requires_confirmation" not in tool_messages[0].content
+    assert json.loads(tool_messages[0].content)["status"] == "success"
+    assert result["approved"] is True
+    assert "BETA" in file_path.read_text(encoding="utf-8")

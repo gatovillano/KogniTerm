@@ -30,7 +30,7 @@ def verify_init():
     print(f"litellm.api_base: {litellm.api_base}")
     print(f"litellm.headers: {litellm.headers}")
     
-    assert litellm.api_base == "https://ollama.com"
+    assert litellm.api_base == "https://ollama.com/v1"
     assert "Authorization" in litellm.headers
     assert litellm.headers["Authorization"] == "Bearer fake-cloud-key"
     print("✅ Initial setup correctly identified Ollama Cloud!")
@@ -46,7 +46,7 @@ def verify_set_model():
     print(f"After set_model - litellm.api_base: {litellm.api_base}")
     print(f"After set_model - litellm.headers: {litellm.headers}")
     
-    assert litellm.api_base == "https://ollama.com"
+    assert litellm.api_base == "https://ollama.com/v1"
     assert litellm.headers["Authorization"] == "Bearer fake-cloud-key"
     print("✅ set_model correctly switched to Ollama Cloud!")
 

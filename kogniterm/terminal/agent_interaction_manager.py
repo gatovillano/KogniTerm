@@ -90,7 +90,7 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
         
         try:
             # Ejecutar invoke sin timeout
-            final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 200})
+            final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 1000})
         finally:
             pass
 

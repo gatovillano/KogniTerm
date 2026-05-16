@@ -8,6 +8,9 @@ import functools
 import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage
 from rich.console import Console, Group
@@ -22,7 +25,7 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.exceptions import UserConfirmationRequired
 from ..async_io_manager import get_io_manager
-from ..utils.tool_utils import get_tool_action_description
+from ..utils.tool_utils import get_tool_action_description, tool_requires_content_for_confirmation
 
 console = Console()
 
@@ -35,6 +38,7 @@ Tu rol es ser un Desarrollador Senior y Arquitecto de Software experto en Python
 2.  **"Trust but Verify" (Confía pero Verifica)**: NUNCA asumas el contenido de un archivo. Antes de editar, SIEMPRE lee el archivo actual.
 3.  **Consistencia**: El código nuevo debe seguir el estilo del existente (PEP8, ESLint).
 4.  **Seguridad**: Evita vulnerabilidades. Valida entradas. Maneja excepciones.
+5.  **ACTUACIÓN AUTÓNOMA**: Una vez que tengas el contenido del archivo y hayas planeado el cambio, **APLÍCALO INMEDIATAMENTE** en el siguiente turno. No esperes a que el Bash Agent te pida confirmación si ya tienes toda la información.
 
 **Tu Flujo de Trabajo:**
 1.  **Análisis**: Localiza y LEE los archivos relevantes. Entiende el contexto.
@@ -43,7 +47,7 @@ Tu rol es ser un Desarrollador Senior y Arquitecto de Software experto en Python
 4.  **Validación**: Verifica sintaxis y usa `python_executor` si es necesario para probar lógica.
 
 **Herramientas:**
-* `advanced_file_editor`: TU HERRAMIENTA PRINCIPAL. Úsala con precisión. Siempre debes confirmar los cambios.
+* `advanced_file_editor`: TU HERRAMIENTA PRINCIPAL. Úsala con precisión. Tus cambios se aplican de forma autónoma.
 * `codebase_search_tool`: Para encontrar referencias.
 * `python_executor`: Para scripts de prueba o mantenimiento.
 * `execute_command`: Para correr tests o builds.
@@ -95,9 +99,9 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     
             tool = llm_service.get_tool(tool_name)
             if tool:
-                if tool_name == "file_update_tool" or tool_name == "advanced_file_editor":
+                if tool_name in {"file_update_tool", "advanced_file_editor", "advanced_file_editor_tool", "sophisticated_editor_tool"}:
                     tool_args["confirm"] = True
-                    if tool_args.get("content") is None:
+                    if tool_requires_content_for_confirmation(tool_name, tool_args) and tool_args.get("content") is None:
                         error_output = "Error: El contenido a actualizar no puede ser None."
                         state.messages.append(ToolMessage(content=error_output, tool_call_id=tool_id))
                         console.print(f"[bold red]❌ {error_output}[/bold red]")
@@ -197,8 +201,8 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                         thought_panel = Panel(
                             thinking_content,
                             title=f"{Icons.THINKING} CodeAgent Pensando...",
-                            border_style=ColorPalette.GRAY_700,
-                            style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                            border_style=ColorPalette.PRIMARY,
+                            style=f"on {TUI_BG}",
                             padding=(0, 2),
                         )
 
@@ -206,10 +210,9 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                     else:
                         renderables.append(Panel(
                             Markdown(full_thinking_content),
-                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} CodeAgent Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} CodeAgent Pensando...[/]",
                             border_style=ColorPalette.PRIMARY_LIGHT,
-                            padding=(0, 1),
-                            dim=True
+                            padding=(0, 1)
                         ))
                 
                 if full_response_content:
@@ -338,10 +341,38 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
                 padding=(0, 2)
             ))
         else:
-            # En TUI, el resultado se mostrará vía ToolMessage en el log central
-            # No necesitamos imprimirlo aquí manualmente para evitar duplicados feos
+            # En TUI, si estamos en paneles paralelos (proxied), debemos mostrar el resultado
+            # para que el flujo sea visible en la columna correspondiente.
+            # Si no es proxied, el ChatLogWidget ya maneja los ToolMessage de forma nativa.
+            if hasattr(terminal_ui, "panel_id") and terminal_ui.panel_id:
+                from kogniterm.terminal.visual_components import create_tool_output_panel
+                panel = create_tool_output_panel(tool_name, display_output, is_markdown=is_markdown)
+                terminal_ui.update_live(panel)
+                if hasattr(terminal_ui, "stop_live"):
+                    terminal_ui.stop_live()
             pass
         
+        # --- Refresco automático de herramientas ---
+        # Si la herramienta es 'refresh_tools', forzar al SkillManager a recargar
+        if tool_name == 'refresh_tools' and hasattr(llm_service, 'skill_manager'):
+            logger.info("Detectada llamada a refresh_tools en CodeAgent. Disparando SkillManager.refresh_skills(force=True).")
+            llm_service.skill_manager.refresh_skills(force=True)
+            if hasattr(llm_service, 'sync_tools'):
+                llm_service.sync_tools()
+
+        # Si la herramienta es 'skill_factory' y terminó con éxito, refrescar el arsenal
+        if tool_name == 'skill_factory' and hasattr(llm_service, 'skill_manager'):
+            logger.info("Detectada creación de skill via skill_factory en CodeAgent. Disparando refresh automático.")
+            try:
+                llm_service.skill_manager.refresh_skills(force=True)
+                if hasattr(llm_service, 'sync_tools'):
+                    llm_service.sync_tools()
+                new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
+                logger.info(f"Arsenal de CodeAgent actualizado. Herramientas: {new_tool_names}")
+                output_str += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
+            except Exception as e:
+                logger.warning(f"Error al refrescar skills en CodeAgent tras skill_factory: {e}")
+
         return tool_id, output_str, None
     except UserConfirmationRequired as e:
         try:
@@ -375,6 +406,35 @@ def is_destructive_command(command: str) -> bool:
     
     return any(pattern in cmd_lower for pattern in destructive_patterns)
 
+
+def _consume_tool_generator(result) -> str:
+    """Convierte el resultado de una herramienta a texto persistible."""
+    if isinstance(result, dict):
+        return json.dumps(result, ensure_ascii=False)
+    if result is None:
+        return ""
+    return str(result)
+
+
+def _invoke_tool_autonomously(llm_service: LLMService, tool_name: str, tool_args: dict) -> str:
+    """Reintenta una herramienta con confirmación implícita para agentes autónomos."""
+    tool = llm_service.get_tool(tool_name)
+    if tool is None:
+        raise RuntimeError(f"Herramienta no encontrada para aprobación autónoma: {tool_name}")
+
+    approved_args = dict(tool_args or {})
+    approved_args["confirm"] = True
+
+    parts = []
+    for part in llm_service._invoke_tool_with_interrupt(tool, approved_args):
+        parts.append(part)
+
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return _consume_tool_generator(parts[0])
+    return "".join(str(part) for part in parts)
+
 def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
     """Nodo de ejecución de herramientas con soporte para TUI."""
 
@@ -383,8 +443,9 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: O
         return state
 
     tool_messages = []
-    executor = ThreadPoolExecutor(max_workers=5)
+    executor = ThreadPoolExecutor(max_workers=15)
     futures = []
+    autonomous_mode = bool(getattr(state, "autonomous_approvals", False))
     
     # Mostrar encabezado solo en CLI
     is_tui = getattr(terminal_ui, "is_tui", False)
@@ -395,6 +456,19 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: O
         # Registrar la llamada a la herramienta en el historial para detección de bucles
         tool_name = tool_call['name']
         tool_args = tool_call['args']
+        
+        # EXCEPCIÓN: CodeAgent/DeepCoder auto-confirma ediciones para mayor autonomía
+        editing_tools = {
+            "advanced_file_editor", 
+            "file_update_tool", 
+            "write_to_file", 
+            "replace_file_content", 
+            "multi_replace_file_content",
+            "file_create_tool"
+        }
+        if tool_name in editing_tools:
+            logger.info(f"DEBUG: Ejecutando herramienta de edición {tool_name} con args: {tool_args}")
+            tool_args["confirm"] = True
         
         # Generar un hash consistente de los argumentos
         try:
@@ -410,7 +484,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: O
             return state
             
         # CASO ESPECIAL: execute_command con comandos destructivos
-        if tool_name == "execute_command":
+        if tool_name == "execute_command" and not autonomous_mode:
             command = tool_args.get('command', '')
             if is_destructive_command(command):
                 # Feedback visual de preparación de comando destructivo
@@ -446,6 +520,24 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: O
         tool_id, content, exception = future.result()
         
         if isinstance(exception, UserConfirmationRequired):
+            if autonomous_mode:
+                try:
+                    auto_content = _invoke_tool_autonomously(
+                        llm_service,
+                        exception.tool_name or next(
+                            tc["name"] for tc in last_message.tool_calls if tc["id"] == tool_id
+                        ),
+                        exception.tool_args,
+                    )
+                    tool_messages.append(ToolMessage(content=auto_content, tool_call_id=tool_id))
+                    continue
+                except Exception as auto_exc:  # noqa: BLE001
+                    tool_messages.append(ToolMessage(
+                        content=f"Error en aprobación autónoma de {exception.tool_name}: {auto_exc}",
+                        tool_call_id=tool_id,
+                    ))
+                    continue
+
             # Manejo de confirmación para ediciones críticas
             state.tool_pending_confirmation = exception.tool_name
             state.tool_args_pending_confirmation = exception.tool_args

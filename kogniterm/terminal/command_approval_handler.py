@@ -65,6 +65,128 @@ class CommandApprovalHandler:
             theme_colors = None
         
         self.diff_renderer = DiffRenderer(theme_colors=theme_colors)
+        self.auto_approve = False # Estado de auto-aprobación
+
+    def _print_applied_diff_in_history(self, diff_content: str, file_path: str, tool_name: Optional[str] = None) -> None:
+        """
+        Imprime el diff aprobado en la vista persistente del historial (incluida TUI streaming).
+        """
+        if not diff_content:
+            return
+
+        safe_file_path = file_path or "archivo_desconocido"
+        operation_label = tool_name or "file_update"
+
+        try:
+            diff_table = self.diff_renderer.render_diff_from_string(diff_content, safe_file_path)
+            title_text = f"✅ Diff aplicado: {safe_file_path}"
+            subtitle = Text(
+                f"Operación: {operation_label}",
+                style=(f"dim {ColorPalette.TEXT_SECONDARY}" if THEMES_AVAILABLE else "dim")
+            )
+
+            panel = Panel(
+                Group(subtitle, Text(""), diff_table),
+                title=title_text,
+                border_style=(ColorPalette.SUCCESS if THEMES_AVAILABLE else "green"),
+                expand=True,
+            )
+
+            # update_live + stop_live asegura que el bloque quede en el historial de streaming
+            self.terminal_ui.update_live(panel)
+            self.terminal_ui.stop_live()
+        except Exception as e:
+            logger.warning(f"No se pudo renderizar diff enriquecido en historial, usando fallback markdown: {e}")
+            fallback_md = (
+                f"### ✅ Cambios aplicados en `{safe_file_path}`\n"
+                f"**Operación:** `{operation_label}`\n\n"
+                "```diff\n"
+                f"{diff_content}\n"
+                "```"
+            )
+            self.terminal_ui.print_message(fallback_md)
+
+    def _invoke_tool_for_confirmation(self, tool: Any, tool_args: Dict[str, Any]) -> Any:
+        """Ejecuta la herramienta aprobada y retorna su resultado final."""
+        parts = []
+        for part in self.llm_service._invoke_tool_with_interrupt(tool, tool_args):
+            parts.append(part)
+
+        if not parts:
+            return None
+        if len(parts) == 1:
+            return parts[0]
+        return "".join(str(part) for part in parts)
+
+    def _normalize_tool_result(self, result: Any) -> Dict[str, Any]:
+        """Normaliza la salida de herramienta a un dict uniforme."""
+        if isinstance(result, dict):
+            return result
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+            return {"message": result}
+        if result is None:
+            return {"message": ""}
+        return {"message": str(result)}
+
+    def _stringify_tool_result(self, result: Any) -> str:
+        """Serializa el resultado para persistirlo como ToolMessage."""
+        if isinstance(result, dict):
+            return json.dumps(result, ensure_ascii=False)
+        if result is None:
+            return ""
+        return str(result)
+
+    def _tool_result_succeeded(self, result: Any) -> bool:
+        """Determina si el resultado indica una aplicacion exitosa del cambio."""
+        normalized = self._normalize_tool_result(result)
+        status = str(normalized.get("status", "")).lower()
+        if status in {"error", "failed", "failure", "denied"}:
+            return False
+        if normalized.get("error"):
+            return False
+        message = str(normalized.get("message", "")).strip().lower()
+        if message.startswith("error"):
+            return False
+        return True
+
+    def _replace_or_append_tool_message(self, tool_call_id: str, content: str) -> None:
+        """
+        Reemplaza el ToolMessage provisional asociado a una confirmación.
+        Evita dejar mensajes duplicados para el mismo tool_call_id.
+        """
+        replacement = ToolMessage(content=content, tool_call_id=tool_call_id)
+        for index in range(len(self.agent_state.messages) - 1, -1, -1):
+            message = self.agent_state.messages[index]
+            if isinstance(message, ToolMessage) and message.tool_call_id == tool_call_id:
+                self.agent_state.messages[index] = replacement
+                return
+        self.agent_state.messages.append(replacement)
+
+    def _resolve_tool_call_id(self, tool_name: Optional[str] = None) -> str:
+        """Obtiene el tool_call_id activo o lo reconstruye desde el historial reciente."""
+        if self.agent_state.tool_call_id_to_confirm:
+            return self.agent_state.tool_call_id_to_confirm
+
+        for message in reversed(self.agent_state.messages):
+            if not isinstance(message, AIMessage) or not getattr(message, "tool_calls", None):
+                continue
+
+            if tool_name:
+                for tool_call in reversed(message.tool_calls):
+                    if tool_call.get("name") == tool_name and tool_call.get("id"):
+                        return tool_call["id"]
+
+            last_tool_call = message.tool_calls[-1]
+            if last_tool_call.get("id"):
+                return last_tool_call["id"]
+
+        return str(uuid.uuid4())
 
     def _is_command_safe(self, command: str) -> bool:
         """
@@ -123,21 +245,21 @@ class CommandApprovalHandler:
                 
         return True
 
-    def handle_command_approval(self, command_to_execute: str, auto_approve: bool = False,
+    def handle_command_approval(self, command_to_execute: str, auto_approve: Optional[bool] = None,
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
                                  tool_name: Optional[str] = None, raw_tool_output: Optional[str] = None,
                                  original_tool_args: Optional[Dict[str, Any]] = None) -> dict:
-        logger.debug(f"DEBUG: handle_command_approval - raw_tool_output recibido: {raw_tool_output}") # <-- Añadir este log
+        # Usar el estado interno si no se pasa uno explícito
+        if auto_approve is None:
+            auto_approve = self.auto_approve
+            
+        logger.debug(f"DEBUG: handle_command_approval - auto_approve: {auto_approve}, raw_tool_output recibido: {raw_tool_output}")
         """
         Handles the approval process for a command generated by the agent or a user confirmation request.
         Can also handle file update confirmations by displaying a diff.
         Returns a dictionary with the updated agent state and tool message content.
         """
-        # 1. Recuperar el tool_call_id del AIMessage más reciente
-        # Asegurarse de que tool_call_id siempre sea una cadena válida
-        tool_call_id = self.agent_state.tool_call_id_to_confirm if self.agent_state.tool_call_id_to_confirm else str(uuid.uuid4())
-
-        # 2. Generar la explicación del comando o usar el prompt de confirmación
+        # 1. Generar la explicación del comando o usar el prompt de confirmación
         explanation_text = ""
         panel_title = 'Confirmación de Comando'
         panel_content_markdown = ""
@@ -145,6 +267,7 @@ class CommandApprovalHandler:
         
         is_file_update_confirmation = False
         is_plan_confirmation = False # Nueva bandera para la confirmación del plan
+        is_python_execution = False  # Bandera para ejecución de Python
         diff_content = ""
         file_path = ""
         message = ""
@@ -159,6 +282,18 @@ class CommandApprovalHandler:
                 plan_steps = raw_tool_output.get("plan_steps", [])
                 message = raw_tool_output.get("message", "Se ha generado un plan. Por favor, revísalo y confírmalo para proceder.")
                 tool_name = "plan_creation_tool" # Asegurar que el tool_name sea correcto
+            elif raw_tool_output.get("operation") == "python_executor":
+                logger.debug("DEBUG: raw_tool_output es un diccionario con operation: python_executor.")
+                is_python_execution = True
+                code_preview = raw_tool_output.get("code_preview", "")
+                message = raw_tool_output.get("action_description", "¿Ejecutar código Python?")
+                tool_name = "python_executor"
+                original_tool_args = raw_tool_output.get("args", original_tool_args) or {"code": code_preview}
+                # Usar el código completo como diff_content para que el modal lo muestre en el área de código
+                diff_content = code_preview
+                file_path = "python_script.py"
+                logger.debug(f"DEBUG: CommandApprovalHandler - python_executor - original_tool_args: {original_tool_args}")
+                is_file_update_confirmation = True
             else:
                 logger.debug("DEBUG: raw_tool_output es un diccionario con status: requires_confirmation.")
                 diff_content = raw_tool_output.get("diff", "")
@@ -168,6 +303,10 @@ class CommandApprovalHandler:
                 original_tool_args = raw_tool_output.get("args", original_tool_args)
                 logger.debug(f"DEBUG: CommandApprovalHandler - original_tool_args después de asignación: {original_tool_args}") # <-- Añadir este log
                 is_file_update_confirmation = True
+
+        # Evita errores cuando una tool no entrega args en la solicitud de confirmación.
+        original_tool_args = original_tool_args or {}
+        tool_call_id = self._resolve_tool_call_id(tool_name)
 
         if is_plan_confirmation:
             logger.debug("DEBUG: is_plan_confirmation es True. Preparando panel de plan.")
@@ -291,6 +430,7 @@ class CommandApprovalHandler:
 
         # 6. Ejecutar el comando y manejar la salida
         tool_message_content = ""
+        should_render_applied_diff = False
         if run_action:
             if is_plan_confirmation:
                 tool_message_content = json.dumps({
@@ -303,35 +443,30 @@ class CommandApprovalHandler:
             elif is_file_update_confirmation:
                 # Ejecutar directamente la operación de archivo
                 if tool_name in ["file_update_tool", "file_update"]:
-                    # Intentar usar el método de aplicación si es el objeto legacy, 
-                    # o llamar a la skill si es la nueva implementación.
                     if hasattr(self.file_update_tool, '_apply_update'):
                         result = self.file_update_tool._apply_update(file_path, original_tool_args.get("content", ""))
-                        tool_message_content = json.loads(result).get("message", "")
                     else:
-                        # Para la skill, como no tiene 'confirm' en el schema todavía, 
-                        # buscamos la función _apply_file_update en su módulo si podemos,
-                        # o simplemente usamos una función helper si está disponible.
                         from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
                         result = _apply_file_update(file_path, original_tool_args.get("content", ""))
-                        tool_message_content = json.loads(result).get("message", "")
+                    normalized_result = self._normalize_tool_result(result)
+                    tool_message_content = self._stringify_tool_result(normalized_result)
+                    should_render_applied_diff = self._tool_result_succeeded(normalized_result)
 
                 elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
-                    if hasattr(self.advanced_file_editor_tool, '_apply_advanced_update'):
-                        advanced_result = self.advanced_file_editor_tool._apply_advanced_update(
-                            file_path, 
-                            original_tool_args.get("new_content", original_tool_args.get("content", ""))
-                        )
-                        tool_message_content = advanced_result.get("message", "")
-                    else:
-                        # Para la skill advanced_file_editor, podemos llamarla con confirm=True
-                        # o usar su función interna.
-                        from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import _apply_advanced_update_with_validation
-                        advanced_result = _apply_advanced_update_with_validation(
-                            file_path, 
-                            original_tool_args.get("new_content", original_tool_args.get("content", ""))
-                        )
-                        tool_message_content = advanced_result.get("message", "")
+                    args_to_pass = dict(original_tool_args)
+                    args_to_pass["confirm"] = True
+                    if not args_to_pass.get("path"):
+                        args_to_pass["path"] = file_path
+
+                    advanced_tool = self.advanced_file_editor_tool
+                    if advanced_tool is None:
+                        from kogniterm.skills.bundled.file_operations.scripts.file_editor import advanced_file_editor
+                        advanced_tool = advanced_file_editor
+
+                    advanced_result = self._invoke_tool_for_confirmation(advanced_tool, args_to_pass)
+                    normalized_result = self._normalize_tool_result(advanced_result)
+                    tool_message_content = self._stringify_tool_result(normalized_result)
+                    should_render_applied_diff = self._tool_result_succeeded(normalized_result)
 
                 elif tool_name in ["file_operations", "file_operations_tool", "sophisticated_editor_tool", "write_file_tool", "append_file_tool", "delete_file_tool", "move_file_tool", "copy_file_tool"]:
                     args_to_pass = {k: v for k, v in original_tool_args.items() if k != "operation"}
@@ -364,11 +499,15 @@ class CommandApprovalHandler:
                             confirm=True
                         )
 
-                    # Asegurar que el contenido sea un string para el ToolMessage
-                    if isinstance(file_ops_result, dict):
-                        tool_message_content = json.dumps(file_ops_result)
-                    else:
-                        tool_message_content = str(file_ops_result)
+                    tool_message_content = self._stringify_tool_result(file_ops_result)
+                    should_render_applied_diff = self._tool_result_succeeded(file_ops_result)
+
+                if should_render_applied_diff:
+                    self._print_applied_diff_in_history(
+                        diff_content=diff_content,
+                        file_path=file_path,
+                        tool_name=tool_name,
+                    )
                 
                 # NO imprimir mensaje de confirmación aquí - el ToolMessage en el historial es suficiente
             elif is_user_confirmation:
@@ -386,24 +525,31 @@ class CommandApprovalHandler:
                     
                     full_command_output = ""
 
-                    for output_chunk in self.command_executor.execute(command_to_execute, cwd=os.getcwd(), interrupt_queue=self.interrupt_queue):
+                    execute_kwargs = {
+                        "cwd": os.getcwd(),
+                        "interrupt_queue": self.interrupt_queue,
+                    }
+                    if hasattr(self.terminal_ui, "get_terminal_dimensions"):
+                        try:
+                            cols, rows = self.terminal_ui.get_terminal_dimensions()
+                            execute_kwargs["cols"] = cols
+                            execute_kwargs["rows"] = rows
+                        except Exception:
+                            pass
+
+                    for output_chunk in self.command_executor.execute(command_to_execute, **execute_kwargs):
                         if output_chunk:
                             logger.info(f"Chunk recibido ({len(output_chunk)} bytes)")
                             full_command_output += output_chunk
                             # Actualizar la terminal a través del nuevo método que soporta cursor
                             self.terminal_ui.update_terminal_output(command_to_execute, full_command_output)
                     
-                    # Desactivar modo terminal al finalizar
-                    self.terminal_ui.set_terminal_cursor(False)
-                    self.terminal_ui.stop_live()
-                    
                     # Separador visual después del comando con temas
                     if THEMES_AVAILABLE:
-                        self.terminal_ui.console.print(f"\n[bold {ColorPalette.SUCCESS}]{Icons.SUCCESS} Comando completado[/bold {ColorPalette.SUCCESS}]\n")
+                        self.terminal_ui.console.print(f"\n[bold {ColorPalette.SUCCESS}]{Icons.SUCCESS} Comando completado[/]\n")
                     else:
                         # Fallback al separador original
                         self.terminal_ui.console.print(f"\n[bold green]✓ Comando completado[/bold green]\n")
-                    
                     
                     # Truncamiento desactivado - mostrar salida completa
                     tool_message_content = full_command_output if full_command_output.strip() else "El comando se ejecutó correctamente y no produjo ninguna salida."
@@ -414,6 +560,10 @@ class CommandApprovalHandler:
                     self.terminal_ui.print_message("\n\nComando cancelado por el usuario.", style="red")
                 except Exception as e:
                     raise e # Re-lanzar la excepción
+                finally:
+                    # Siempre desactivar el modo terminal interactiva, incluso si hubo excepción
+                    self.terminal_ui.set_terminal_cursor(False)
+                    self.terminal_ui.stop_live()
         else:
             if is_plan_confirmation:
                 tool_message_content = json.dumps({
@@ -423,7 +573,11 @@ class CommandApprovalHandler:
                 })
                 self.terminal_ui.print_message(f"Plan '{plan_title}' denegado. 😔", style="yellow")
             elif is_file_update_confirmation:
-                tool_message_content = f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
+                tool_message_content = json.dumps({
+                    "status": "denied",
+                    "path": file_path,
+                    "message": f"Confirmación de actualización para '{file_path}': Denegado. Cambios no aplicados."
+                }, ensure_ascii=False)
                 # NO imprimir mensaje aquí - el AIMessage en el historial es suficiente
             elif is_user_confirmation:
                 tool_message_content = f"Confirmación de usuario: Denegado para '{confirmation_prompt}'."
@@ -436,12 +590,11 @@ class CommandApprovalHandler:
         # 6. Añadir el mensaje al historial (AIMessage si es denegado, ToolMessage si es ejecutado)
         # logger.debug(f"DEBUG: CommandApprovalHandler - run_action: {run_action}") # <-- Añadir este log
         # logger.debug(f"DEBUG: CommandApprovalHandler - tool_message_content antes de añadir al historial: {tool_message_content}") # <-- Añadir este log
-        if run_action:
-            # Si es una confirmación de plan, el contenido ya es un JSON que el agente puede parsear
-            self.agent_state.messages.append(ToolMessage(
-                content=tool_message_content,
-                tool_call_id=tool_call_id # Usar el tool_call_id propagado
-            ))
+        if run_action or is_file_update_confirmation or is_plan_confirmation:
+            self._replace_or_append_tool_message(
+                tool_call_id,
+                tool_message_content,
+            )
             # logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {tool_call_id}") # <-- Añadir este log
         else: # Acción denegada
             self.agent_state.messages.append(AIMessage(content=tool_message_content))

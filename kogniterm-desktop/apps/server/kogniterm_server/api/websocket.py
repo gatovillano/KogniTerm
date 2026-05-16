@@ -125,14 +125,51 @@ async def websocket_chat(websocket: WebSocket):
                      except Exception as e:
                          await websocket.send_json({"type": "error", "content": f"Error: {e}"})
                      continue
+                elif cmd == "session":
+                    if not args:
+                        msg = "**Gestión de Sesiones:**\n- `%session list`: Listar sesiones guardadas\n- `%session save <nombre>`: Guardar sesión actual\n- `%session load <nombre>`: Cargar una sesión"
+                        await websocket.send_json({"type": "chunk", "content": msg})
+                    else:
+                        sub = args[0].lower()
+                        from ..services.session_service import SessionService
+                        session_service = SessionService(adapter.llm_service)
+                        
+                        if sub == "list":
+                            sessions = session_service.list_sessions()
+                            msg = "**Sesiones guardadas:**\n" + ("\n".join([f"- {s}" for s in sessions]) if sessions else "No hay sesiones.")
+                            await websocket.send_json({"type": "chunk", "content": msg})
+                        elif sub == "save" and len(args) > 1:
+                            name = args[1]
+                            session_service.save_session(name)
+                            await websocket.send_json({"type": "info", "content": f"💾 Sesión '{name}' guardada."})
+                        elif sub == "load" and len(args) > 1:
+                            name = args[1]
+                            session_service.load_session(name)
+                            adapter.agent_state.messages = adapter.llm_service.conversation_history
+                            await websocket.send_json({"type": "info", "content": f"📂 Sesión '{name}' cargada."})
+                    await websocket.send_json({"type": "done"})
+                    continue
+
+                elif cmd == "keys":
+                    msg = "🔑 Para gestionar tus API Keys, ve al menú de **Configuración** en la barra lateral."
+                    await websocket.send_json({"type": "chunk", "content": msg})
+                    await websocket.send_json({"type": "done"})
+                    continue
+
+                elif cmd == "provider":
+                    if args:
+                        provider = args[0].lower()
+                        # Lógica para cambiar proveedor si existe
+                        await websocket.send_json({"type": "info", "content": f"🔄 Cambiando proveedor a: {provider} (Simulado)"})
+                    else:
+                        msg = f"**Proveedor Actual:** `{adapter.llm_service.provider}`\nUsa `%provider <nombre>` para cambiar."
+                        await websocket.send_json({"type": "chunk", "content": msg})
+                    await websocket.send_json({"type": "done"})
+                    continue
                 
                 # If command not recognized/handled but started with % or /, treat as chat or warn?
-                # For now, let it fall through to chat if it's not one of specific ones, 
-                # OR handle as "unknown command" to avoid LLM hallucinating a response to a system command.
-                
-                # Let's return "Unknown command" for explicit safety if it started with %
                 if user_message.startswith("%"):
-                     await websocket.send_json({"type": "error", "content": f"Comando desconocido: {cmd}"})
+                     await websocket.send_json({"type": "error", "content": f"Comando desconocido: {cmd}. Prueba con %help para ver la lista."})
                      continue
 
             # Fall through to normal chat processing for everything else

@@ -27,6 +27,19 @@ class ChatLogWidget(VerticalScroll):
         super().__init__(**kwargs)
         self._active_message_widget = None
         self.can_focus = True
+        self._animation_timer = None
+
+    def on_mount(self) -> None:
+        """Activa un refresco periódico para animar renderables Rich (ej. spinners)."""
+        self._animation_timer = self.set_interval(0.1, self._refresh_active_widget)
+
+    def _refresh_active_widget(self) -> None:
+        """Refresca el widget activo para que Rich re-renderice animaciones en curso."""
+        if self._active_message_widget is not None:
+            try:
+                self._active_message_widget.refresh()
+            except Exception:
+                pass
 
     def _get_available_width(self):
         """Calcula el ancho disponible real dentro del widget."""
@@ -123,7 +136,7 @@ class ChatLogWidget(VerticalScroll):
                 right.styles.flex = 1
                 right.styles.height = "auto"
                 right.styles.background = ColorPalette.GRAY_800
-                right.styles.padding = (1, 2) # Margen interno (padding) añadido
+                right.styles.padding = (1, 3) # Margen interno (padding) aumentado de 2 a 3 para alinear con el input (1 pipe + 3 pad = 4)
 
                 row = Horizontal(left, right, classes="user-message-row")
                 row.styles.height = "auto"
@@ -188,28 +201,83 @@ class ChatLogWidget(VerticalScroll):
             return
             
         renderable = content
-        if isinstance(content, str):
-            renderable = Padding(content, (1, 0, 1, 4))
+        is_terminal = False
+        tool_name = "Terminal"
+        
+        # Detectar si recibimos la tupla especial ("__TERMINAL__", tool_name, output) o ("__TERMINAL__", tool_name, output, command)
+        if isinstance(content, tuple) and len(content) >= 3 and content[0] == "__TERMINAL__":
+            is_terminal = True
+            tool_name = content[1]
+            renderable = content[2]
+            terminal_command = content[3] if len(content) >= 4 else tool_name
+        else:
+            # Detectar si es un panel de terminal (vía tui_app.update_terminal_output fallback)
+            # El renderable puede venir envuelto en Padding o Group desde visual_components
+            def _check_is_terminal(r):
+                from rich.panel import Panel
+                from rich.padding import Padding
+                from rich.console import Group
+                
+                if isinstance(r, Panel):
+                    title = str(r.title) if r.title else ""
+                    if "TERMINAL" in title or "execute_command" in title:
+                        return True, title.replace("TERMINAL | ", "")
+                
+                if isinstance(r, Padding):
+                    return _check_is_terminal(r.renderable)
+                    
+                if isinstance(r, Group):
+                    for sub_r in r.renderables:
+                        # En visual_components, el primer elemento suele ser el título (Text)
+                        if "TERMINAL" in str(sub_r):
+                            return True, "bash"
+                        # O puede ser un Panel anidado
+                        found, name = _check_is_terminal(sub_r)
+                        if found: return True, name
+                
+                return False, "Terminal"
 
-        def _mount_or_update(r):
+            is_terminal, tool_name = _check_is_terminal(content)
+            
+            if isinstance(content, str):
+                renderable = Padding(content, (1, 0, 1, 4))
+            else:
+                renderable = content
+            terminal_command = tool_name  # para el caso no-terminal, coincide con tool_name
+
+        def _mount_or_update(r, terminal_flag, t_name, t_command=""):
             try:
-                if self._active_message_widget is None:
-                    self._active_message_widget = MessageWidget(r)
-                    self.mount(self._active_message_widget)
+                # Si es terminal, forzar el uso de ToolOutputWidget para interactividad
+                if terminal_flag:
+                    if self._active_message_widget is None or not isinstance(self._active_message_widget, ToolOutputWidget):
+                        # Reemplazar widget si cambió de tipo
+                        if self._active_message_widget:
+                            self._active_message_widget.remove()
+                        
+                        self._active_message_widget = ToolOutputWidget("", t_name, command=t_command)
+                        self.mount(self._active_message_widget)
+                    
+                    # ToolOutputWidget.update_content maneja la lógica de pyte
+                    self._active_message_widget.update_content(r, command=t_command)
                 else:
-                    self._active_message_widget.update(r)
+                    if self._active_message_widget is None:
+                        self._active_message_widget = MessageWidget(r)
+                        self.mount(self._active_message_widget)
+                    else:
+                        self._active_message_widget.update(r)
+                
                 self.scroll_end(animate=False)
             except Exception:
                 pass
 
         try:
             if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
-                self.app.call_from_thread(_mount_or_update, renderable)
+                self.app.call_from_thread(_mount_or_update, renderable, is_terminal, tool_name, terminal_command)
                 return
         except Exception:
             pass
 
-        _mount_or_update(renderable)
+        _mount_or_update(renderable, is_terminal, tool_name, terminal_command)
 
     def stop_stream(self):
         """Finaliza el streaming actual."""
@@ -241,7 +309,7 @@ class ChatLogWidget(VerticalScroll):
         
         def _mount_tool_notify(lines_group):
             try:
-                widget = MessageWidget(Padding(lines_group, (1, 0)))
+                widget = MessageWidget(Padding(lines_group, (1, 0, 1, 4)))
                 self.mount(widget)
                 self.scroll_end(animate=False)
             except Exception:

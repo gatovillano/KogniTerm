@@ -21,6 +21,9 @@ class CodebaseIndexer:
         
         exclude_dirs_str = self.config.get("codebase_index_exclude_dirs", "node_modules,.git,__pycache__,.kogniterm,venv,.venv,dist,build,target")
         self.exclude_dirs = [d.strip() for d in exclude_dirs_str.split(',') if d.strip()]
+
+        source_roots_str = self.config.get("codebase_index_source_roots", "kogniterm,kogniterm-desktop,kogniterm-android")
+        self.source_roots = [r.strip() for r in source_roots_str.split(',') if r.strip()]
         
         include_patterns_str = self.config.get("codebase_index_include_patterns", "*.py,*.js,*.ts,*.html,*.css,*.md")
         self.include_patterns = [p.strip() for p in include_patterns_str.split(',') if p.strip()]
@@ -99,6 +102,15 @@ class CodebaseIndexer:
                 
         return False
 
+    def _is_within_allowed_source_root(self, rel_path: str) -> bool:
+        """Checks whether a path belongs to one of the app source roots."""
+        if not self.source_roots:
+            return True
+
+        normalized_path = rel_path.replace(os.sep, '/')
+        top_level = normalized_path.split('/', 1)[0]
+        return top_level in self.source_roots
+
     def _should_ignore(self, path: str, is_dir: bool) -> bool:
         """Determines if a file or directory should be ignored."""
         path = os.path.abspath(path)
@@ -125,7 +137,11 @@ class CodebaseIndexer:
         if self._matches_ignore_patterns(rel_path, is_dir):
             return True
 
-        # 4. Check include patterns (only for files)
+        # 4. Restrict indexing to the actual app source roots.
+        if rel_path not in ('.', '') and not self._is_within_allowed_source_root(rel_path):
+            return True
+
+        # 5. Check include patterns (only for files)
         # If it's a file, it MUST match one of the include patterns
         if not is_dir:
             if not any(fnmatch.fnmatch(base_name, pattern) for pattern in self.include_patterns):

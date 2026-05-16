@@ -16,23 +16,33 @@ def skill_factory(
     description: str, 
     tool_code: str, 
     instructions: str,
-    version: str = "1.0.0"
+    version: str = "1.0.0",
+    scope: str = "workspace"
 ) -> str:
     """
-    Crea una nueva skill en el directorio de workspace y la registra en el sistema.
+    Crea una nueva skill en el directorio especificado (global o workspace) y la registra en el sistema.
     """
     # 1. Definir rutas absolutas para robustez
-    # Buscamos la carpeta kogniterm/skills/workspace basándonos en este archivo
+    # Buscamos la carpeta kogniterm/skills basándonos en este archivo
     # kogniterm/skills/bundled/skill_factory/scripts/tool.py -> bundled -> skills -> kogniterm
     current_file = Path(__file__).resolve()
     base_skills_path = current_file.parent.parent.parent.parent
-    workspace_path = base_skills_path / "workspace" / skill_name
-    scripts_path = workspace_path / "scripts"
+    
+    if scope == "global":
+        skill_path = Path.home() / ".kogniterm" / "skills" / "managed" / skill_name
+    else:
+        # Default to workspace
+        skill_path = base_skills_path / "workspace" / skill_name
+        
+    scripts_path = skill_path / "scripts"
+    references_path = skill_path / "references"
+    assets_path = skill_path / "assets"
+    resources_path = skill_path / "resources"
     
     try:
         # 2. Crear directorios
         scripts_path.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Directorio de skill creado en: {workspace_path}")
+        logger.info(f"Directorio de skill creado en: {skill_path}")
         
         # 3. Preparar YAML Frontmatter para SKILL.md
         frontmatter = {
@@ -44,17 +54,25 @@ def skill_factory(
             "tags": ["autonomous", "generated"],
             "dependencies": [],
             "required_permissions": ["filesystem"],
+            "allowed-tools": [],
+            "denied-tools": [],
             "security_level": "standard",
             "allowlist": False,
             "auto_approve": True,
-            "sandbox_required": False
+            "sandbox_required": False,
+            "resources": [],
+            "assets": [],
+            "metadata": {"format": "agent-skills-compatible"}
         }
         
         skill_md_content = "---\n" + yaml.dump(frontmatter) + "---\n\n" + instructions
         
         # 4. Escribir archivos
-        (workspace_path / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
+        (skill_path / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
         (scripts_path / "tool.py").write_text(tool_code, encoding="utf-8")
+        references_path.mkdir(exist_ok=True)
+        assets_path.mkdir(exist_ok=True)
+        resources_path.mkdir(exist_ok=True)
         
         # Intentar refresco automático si estamos en el entorno de KogniTerm
         refresh_status = ""
@@ -68,7 +86,7 @@ def skill_factory(
         except Exception:
             refresh_status = "\n\n⚠️ **IMPORTANTE**: Ejecuta `refresh_tools` para activar esta habilidad."
 
-        return f"✅ Skill '{skill_name}' creada con éxito en {workspace_path}.{refresh_status}"
+        return f"✅ Skill '{skill_name}' ({scope}) creada con éxito en {skill_path}.{refresh_status}"
 
     except Exception as e:
         logger.error(f"Error en skill_factory: {e}", exc_info=True)
@@ -101,6 +119,12 @@ tool_schema = {
                 "type": "string",
                 "description": "Versión inicial (por defecto 1.0.0).",
                 "default": "1.0.0"
+            },
+            "scope": {
+                "type": "string",
+                "description": "Alcance de la skill: 'workspace' (solo este proyecto) o 'global' (disponible en todos los proyectos).",
+                "enum": ["workspace", "global"],
+                "default": "workspace"
             }
         },
         "required": ["skill_name", "description", "tool_code", "instructions"]

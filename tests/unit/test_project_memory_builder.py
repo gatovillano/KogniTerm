@@ -50,7 +50,7 @@ demo = "demo:main"
         encoding="utf-8",
     )
     (repo / "README.md").write_text(
-        "Este proyecto es tu asistente de terminal inteligente.",
+        "Este proyecto es tu agente evolutivo de terminal inteligente.",
         encoding="utf-8",
     )
     (repo / "run_tests.py").write_text("print('ok')", encoding="utf-8")

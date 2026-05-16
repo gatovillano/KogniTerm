@@ -74,26 +74,36 @@ class WorkspaceContext:
                 return True
         return False
 
-    def _get_folder_structure(self, path: str, indent: int = 0) -> str:
+    def _get_folder_structure(self, path: str, indent: int = 0, max_depth: int = 3) -> str:
+        if indent > max_depth:
+            return ""
+
         structure = []
         if not os.path.exists(path):
             return ""
 
-        items = sorted(os.listdir(path))
-        for item in items:
-            item_path = os.path.join(path, item)
-            is_dir = os.path.isdir(item_path)
+        try:
+            with os.scandir(path) as it:
+                # Ordenar las entradas alfabéticamente (carpetas y archivos)
+                entries = sorted(list(it), key=lambda e: e.name)
 
-            if self._should_ignore(item, is_dir, item_path):
-                continue
+                for entry in entries:
+                    is_dir = entry.is_dir()
 
-            if is_dir:
-                structure.append(f"{ '    ' * indent }├───{item}/")
-                sub_structure = self._get_folder_structure(item_path, indent + 1)
-                if sub_structure:
-                    structure.append(sub_structure)
-            else:
-                structure.append(f"{ '    ' * indent }├───{item}")
+                    if self._should_ignore(entry.name, is_dir, entry.path):
+                        continue
+
+                    if is_dir:
+                        structure.append(f"{ '    ' * indent }├───{entry.name}/")
+                        if indent < max_depth:
+                            sub_structure = self._get_folder_structure(entry.path, indent + 1, max_depth)
+                            if sub_structure:
+                                structure.append(sub_structure)
+                    else:
+                        structure.append(f"{ '    ' * indent }├───{entry.name}")
+        except PermissionError:
+            pass
+
         return "\n".join(structure)
 
     def _get_file_contents(self, file_paths: List[str]) -> Dict[str, str]:
@@ -128,8 +138,8 @@ class WorkspaceContext:
                     else:
                         with open(abs_path, 'r', encoding='utf-8') as f:
                             file_content = f.read()
-                            # Truncar el contenido si es muy largo
-                            MAX_FILE_CONTENT_LENGTH = 5000 # Definir un límite razonable
+                            # Truncar el contenido si es muy largo (Reducido de 5000 a 2000 para ahorrar tokens)
+                            MAX_FILE_CONTENT_LENGTH = 2000 
                             if len(file_content) > MAX_FILE_CONTENT_LENGTH:
                                 contents[file_path] = file_content[:MAX_FILE_CONTENT_LENGTH] + "\n... [Contenido truncado]"
                             else:
@@ -144,6 +154,7 @@ class WorkspaceContext:
         folder_structure = self._get_folder_structure(self.root_dir)
         
         context_parts = []
+        context_parts.append("## 📁 CONTEXTO DEL PROYECTO\n")
         context_parts.append(f"Directorio de trabajo actual: {self.root_dir}\n")
         context_parts.append("Aquí está la estructura de carpetas del proyecto:\n")
         context_parts.append(folder_structure)

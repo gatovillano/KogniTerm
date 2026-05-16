@@ -145,13 +145,13 @@ export function useChat() {
         const trimmed = content.trim();
 
         // 1. Manejo de Meta-comandos locales
-        if (trimmed === '/clear') {
+        if (trimmed === '/clear' || trimmed === '%clear') {
             setMessages([]);
             return;
         }
 
         // 2. Comandos de servidor
-        if (trimmed === '/reset') {
+        if (trimmed === '/reset' || trimmed === '%reset') {
             setMessages([]); // Limpiar UI
             if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
                 // Enviar comando al backend

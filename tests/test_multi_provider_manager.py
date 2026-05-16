@@ -26,7 +26,7 @@ def test_ollama_cloud_is_not_configured_when_target_is_local(monkeypatch):
         name="ollama_cloud",
         model_prefix="ollama",
         api_key_env="OLLAMA_CLOUD_API_KEY",
-        api_base="https://ollama.com",
+        api_base="https://ollama.com/v1",
     )
 
     assert provider.is_configured() is False

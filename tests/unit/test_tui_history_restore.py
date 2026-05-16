@@ -2,6 +2,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from kogniterm.core.agent_state import AgentState
 from kogniterm.terminal.tui.tui_app import KogniTermTUI
+from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
 
 
 class DummyChatLog:
@@ -74,3 +75,20 @@ def test_restore_history_into_chat_hides_splash_and_rehydrates_messages():
     assert splash.display is False
     assert bottom.display is True
     assert chat_input.focused is True
+
+
+def test_chat_log_exports_plain_transcript():
+    chat_log = ChatLogWidget()
+
+    chat_log.write_user_message("hola")
+    chat_log.write_agent_message("respuesta")
+    chat_log.write_tool_notification("advanced_file_editor", "Reemplazando bloque")
+
+    transcript = chat_log.export_plain_text()
+
+    assert "[Usuario]" in transcript
+    assert "hola" in transcript
+    assert "[Asistente]" in transcript
+    assert "respuesta" in transcript
+    assert "[Tool]" in transcript
+    assert "advanced_file_editor" in transcript

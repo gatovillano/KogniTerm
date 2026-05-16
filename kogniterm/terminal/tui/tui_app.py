@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from textual.app import App, ComposeResult
 from textual import work
-from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea
+from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea, RichLog, ProgressBar
 from textual.containers import Vertical, Horizontal
 from textual import events
 from langchain_core.messages import HumanMessage
@@ -40,6 +40,10 @@ except Exception:
     StatusFooter = None
     ChatInput = None
 try:
+    from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+except Exception:
+    ToolOutputWidget = None
+try:
     from kogniterm.terminal.tui.components.command_approval_modal import CommandApprovalModal
 except Exception:
     CommandApprovalModal = None
@@ -51,6 +55,7 @@ try:
     from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
 except Exception:
     CommandApprovalHandler = None
+from .components.task_tracker_panel import TaskTrackerPanelWidget
 from textual.screen import ModalScreen
 from textual.reactive import reactive
 from rich.text import Text
@@ -270,10 +275,15 @@ class TextualTerminalUI:
     def update_terminal_output(self, tool_name: str, output: str, **kwargs):
         """Actualiza específicamente la terminal con soporte de cursor."""
         # Optional panel routing if supported
-        self._safe_call(self.app.update_terminal_output, tool_name, output)
+        command = kwargs.get("command", tool_name)
+        self._safe_call(self.app.update_terminal_output, tool_name, output, command=command)
 
     def update_tool_display(self, tool_name: str, output: str, command: str = "", max_lines=None, **kwargs):
         pass # Add missing stub if it's called
+
+    def update_task_tracker(self, agent_plans: dict):
+        """Actualiza el panel de seguimiento de tareas."""
+        self._safe_call(self.app.update_task_tracker, agent_plans)
 
     def stop_live(self, **kwargs):
         """Finaliza el streaming y consolida el mensaje."""
@@ -384,7 +394,9 @@ class TextualTerminalUI:
         )
 
         from rich.text import Text
-        from rich.console import Group
+        from rich.style import Style
+        import pyte
+        from pyte.screens import Char
         from rich.padding import Padding
         from kogniterm.terminal.themes import ColorPalette
 
@@ -463,15 +475,27 @@ class KogniTermTUI(App):
         background: #1e1e1e;
         color: white;
         layers: base approval splash popup overlay;
+        align-horizontal: center;
     }
 
     /* ── CHAT MODE (base layer) ─────────────────── */
-    #chat_container {
-        height: 1fr;
+    #tracker_container {
+        height: auto;
         width: 100%;
-        layout: vertical;
-        background: transparent;
+        max-width: 100%;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        display: none; /* Oculto por defecto */
         align-horizontal: center;
+    }
+
+    #task_tracker_panel {
+        width: 100%;
+        height: auto;
+        margin: 0;
+        padding: 0;
+        border: solid $secondary;
     }
 
     #approval_container {
@@ -488,7 +512,6 @@ class KogniTermTUI(App):
 
 
     #chat_log {
-
         width: 85%;
         max-width: 180;
         min-width: 60;
@@ -497,8 +520,9 @@ class KogniTermTUI(App):
         padding: 0;
         background: transparent;
         color: white;
-        scrollbar-size: 0 0; /* Oculta visualmente la barra de scroll */
+        scrollbar-size: 1 1; /* Scrollbar angosto de 1 celda */
         border: none;
+        align-horizontal: center;
     }
 
 
@@ -515,9 +539,9 @@ class KogniTermTUI(App):
 
     /* Contenedor para paneles paralelos (call_agents_parallel) */
     #parallel_agents_container {
-        width: 85%;
-        max-width: 180;
-        min-width: 60;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
         height: auto;
         layout: horizontal;
         align: center bottom;
@@ -527,18 +551,18 @@ class KogniTermTUI(App):
     }
 
     /* Paneles internos del contenedor paralelo */
-    #parallel_agents_container TerminalPanel {
+    #parallel_agents_container ChatLogWidget {
         width: 1fr;
-        min-width: 40;
-        max-width: 100%;
+        min-width: 20;
         height: auto;
-        min-height: 0;
-        max-height: 40;
-        margin: 0;
+        min-height: 10;
+        max-height: 60;
+        margin: 0 1;
         padding: 0 1;
-        content-align: left top;
-        text-align: left;
+        border: round #3b82f6 60%;
         display: none; /* el skill los activará */
+        background: #1a1a1a;
+        overflow-y: scroll;
     }
 
     #queue_display {
@@ -546,11 +570,10 @@ class KogniTermTUI(App):
         max-width: 180;
         min-width: 60;
         height: auto;
-        background: #2a2a2a;
+        background: transparent;
         color: #d1d5db;
-        border-left: solid $primary;
-        border-top: solid #374151;
-        padding: 1 2;
+        border: none;
+        padding: 0 4;
         margin-bottom: 0;
         display: none;
     }
@@ -559,17 +582,18 @@ class KogniTermTUI(App):
         width: 85%;
         max-width: 180;
         min-width: 60;
-        height: 5;
+        height: auto;
+        min-height: 3;
         background: #2a2a2a;
         margin: 0 0 1 0;
-        padding: 2 4 1 4;
+        padding: 1 4 2 4;
         layout: horizontal;
     }
 
     ChatInput {
         width: 1fr;
-        height: 3;
-        min-height: 1;
+        height: auto;
+        min-height: 2;
         border: none !important;
         background: transparent !important;
         padding: 0;
@@ -610,15 +634,17 @@ class KogniTermTUI(App):
         width: 85%;
         max-width: 180;
         min-width: 60;
-        border: none;
-        background: transparent;
+        border: solid #4b5563;
+        background: #000000;
         height: auto;
         min-height: 0;
         max-height: 30;
-        margin: 0;
+        margin: 0 4 1 4;
         padding: 0;
-        content-align: center middle;
-        text-align: center;
+        content-align: left top;
+        text-align: left;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
         display: none;
     }
 
@@ -631,43 +657,46 @@ class KogniTermTUI(App):
         padding-left: 2;
     }
 
-    #tool_display {
-        /* Panel de salida de terminal: sin bordes, fondo levemente más claro */
-        border: none;
-        text-align: left;
-        content-align: left top;
-        padding: 0 1;
+    #tool_display, #live_display {
+        display: none;
+        width: 85%;
+        max-width: 180;
+        margin: 0 4 1 4;
     }
 
     #command_popup {
         layer: popup;
-        width: 40;
+        width: 44;
         height: auto;
-        max-height: 12;
-        background: #2a2a2a;
-        border: none;
-        padding: 0 1;
+        max-height: 14;
+        background: #1e1e2e;
+        border: tall #3b82f6 20%;
+        padding: 0;
         display: none;
     }
 
     #command_popup ListView {
         background: transparent;
+        border: none;
+        padding: 0;
     }
 
     #command_popup ListItem {
         background: transparent;
         padding: 0 1;
+        color: #e2e8f0;
     }
 
     #command_popup ListItem:hover,
     #command_popup ListItem.-highlight {
-        background: #3a3a3a;
+        background: #3b82f6 30%;
+        color: white;
     }
 
     /* ── BARRA DE PROGRESO DE INDEXACIÓN ────────── */
     #indexing_progress_container {
         dock: bottom;
-        height: 2;
+        height: 4;
         width: 100%;
         background: #11111b;
         border-top: solid #374151;
@@ -678,13 +707,23 @@ class KogniTermTUI(App):
         width: 100%;
         height: 1;
         color: #9ca3af;
-        text-align: center;
+        text-align: left;
         background: transparent;
+        padding: 0 1;
+        margin-top: 1;
+    }
+    #indexing_title {
+        width: 100%;
+        height: 1;
+        color: #3b82f6;
+        text-align: left;
+        background: transparent;
+        padding: 0 1;
     }
     #indexing_bar {
         width: 100%;
         height: 1;
-        background: transparent;
+        margin: 0 1;
     }
 
     #live_display {
@@ -693,6 +732,8 @@ class KogniTermTUI(App):
         content-align: left middle;
         padding-left: 2;
         margin-bottom: 1;
+        border: none;
+        background: transparent;
     }
 
 
@@ -724,6 +765,17 @@ class KogniTermTUI(App):
         margin-bottom: 0;
         padding: 1 4 0 4;
         align-horizontal: left;
+    }
+    ToolOutputWidget {
+        width: 85%;
+        max-width: 180;
+        height: auto;
+        min-height: 5;
+        max-height: 30;
+        border: solid #4b5563; /* gray */
+        margin: 0 4 1 4;
+        background: transparent !important;
+        display: block;
     }
     ChatInput#splash_chat_input {
         width: 1fr;
@@ -832,6 +884,7 @@ class KogniTermTUI(App):
 
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
+        ("ctrl+b", "toggle_sidebar", "Toggle Sidebar"),
     ]
 
     def _build_splash_title(self) -> str:
@@ -851,9 +904,8 @@ class KogniTermTUI(App):
         from textual.containers import Vertical
         
         # ── Base layer: chat interface ──────────────────────
-        with Vertical(id="chat_container"):
-            self.chat_log = ChatLogWidget(id="chat_log")
-            yield self.chat_log
+        self.chat_log = ChatLogWidget(id="chat_log")
+        yield self.chat_log
             
         self.approval_container = Vertical(id="approval_container")
         yield self.approval_container
@@ -863,7 +915,9 @@ class KogniTermTUI(App):
         
         # Barra de progreso de indexación (docked bottom, above input)
         with Vertical(id="indexing_progress_container"):
-            yield Static("", id="indexing_bar", markup=True)
+            yield Static("", id="indexing_title", markup=True)
+            self.indexing_progress_bar = ProgressBar(total=100, id="indexing_bar")
+            yield self.indexing_progress_bar
             yield Static("", id="indexing_label", markup=True)
         
         with Vertical(id="bottom_container"):
@@ -872,7 +926,10 @@ class KogniTermTUI(App):
             yield self.queue_display
 
             # Panel de tools (terminal dedicada a herramientas) y panel principal de live
-            self.tool_display = TerminalPanel(id="tool_display")
+            if ToolOutputWidget:
+                self.tool_display = ToolOutputWidget("", "Terminal", id="tool_display")
+            else:
+                self.tool_display = TerminalPanel(id="tool_display")
             yield self.tool_display
 
             # live_display ahora es un TerminalPanel enfocalbe
@@ -882,11 +939,15 @@ class KogniTermTUI(App):
             # Contenedor para paneles paralelos (inactivo por defecto)
             with Horizontal(id="parallel_agents_container"):
                 # Panel para el coder
-                self.live_display_coder = TerminalPanel(id="live_display_coder")
+                self.live_display_coder = ChatLogWidget(id="live_display_coder")
                 yield self.live_display_coder
                 # Panel para el researcher
-                self.live_display_researcher = TerminalPanel(id="live_display_researcher")
+                self.live_display_researcher = ChatLogWidget(id="live_display_researcher")
                 yield self.live_display_researcher
+
+            with Vertical(id="tracker_container"):
+                self.task_tracker_panel = TaskTrackerPanelWidget(id="task_tracker_panel")
+                yield self.task_tracker_panel
 
             with Horizontal(id="input_container"):
                 self.chat_input = ChatInput(id="chat_input")
@@ -911,7 +972,7 @@ class KogniTermTUI(App):
                 yield Static("", id="splash_model_info", markup=True)
                 # Hints de teclado
                 yield Static(
-                    "[dim]%models[/dim] modelo  [dim]%provider[/dim] proveedor  [dim]%theme[/dim] tema  [dim]esc[/dim] interrumpir",
+                    "[dim]/models[/dim] modelo  [dim]/provider[/dim] proveedor  [dim]/theme[/dim] tema  [dim]esc[/dim] interrumpir",
                     id="splash_shortcuts",
                     markup=True,
                 )
@@ -978,8 +1039,9 @@ class KogniTermTUI(App):
         # Mostrar barra de progreso en la parte inferior
         try:
             self.query_one("#indexing_progress_container").display = True
-            self.query_one("#indexing_label").update("[#9ca3af]Indexando...[/#9ca3af]")
-            self.query_one("#indexing_bar").update("")
+            self.query_one("#indexing_title").update("[#3b82f6]📦 Indexando workspace...[/#3b82f6]")
+            self.indexing_progress_bar.progress = 0
+            self.query_one("#indexing_label").update("")
         except Exception:
             pass
         self.run_worker(self._do_indexing)
@@ -1016,24 +1078,27 @@ class KogniTermTUI(App):
     def _show_indexing_progress(self, current: int, total: int, description: str):
         """Update the progress bar at the bottom of the screen."""
         try:
-            pct = int((current / total) * 100)
+            pct = (current / total) * 100
+            # Actualizar barra de progreso (escala 0-100)
+            self.indexing_progress_bar.progress = pct
+            # Actualizar etiqueta con información detallada
             label = self.query_one("#indexing_label")
-            # Barra visual: ■■■■■■░░░░
-            filled = pct // 10
-            empty = 10 - filled
-            bar_text = f"{'[#3b82f6]■[/#3b82f6]' * filled}{'[#374151]░[/#374151]' * empty}"
-            label.update(f"Indexando {bar_text} {pct}%  {description}")
+            label.update(f"[#9ca3af]{int(pct)}% • {description}[/#9ca3af]")
         except Exception:
             pass
 
     def _indexing_complete(self, num_chunks: int):
         """Called on main thread when indexing completes."""
         try:
+            title = self.query_one("#indexing_title")
             label = self.query_one("#indexing_label")
+            self.indexing_progress_bar.progress = 100
             if num_chunks > 0:
-                label.update("[green]■■■■■■■■■■ 100%  Indexación completada.[/green]")
+                title.update("[green]✅ Indexación completada[/green]")
+                label.update(f"[#10b981]{num_chunks} chunks indexados exitosamente[/#10b981]")
             else:
-                label.update("[yellow]Indexación completada: no se encontraron archivos relevantes.[/yellow]")
+                title.update("[yellow]⚠️  Indexación completada[/yellow]")
+                label.update("[#f59e0b]No se encontraron archivos relevantes para indexar[/#f59e0b]")
             # Ocultar después de 3 segundos
             import threading
             def hide():
@@ -1050,8 +1115,10 @@ class KogniTermTUI(App):
     def _indexing_failed(self, error_msg: str):
         """Called on main thread when indexing fails."""
         try:
+            title = self.query_one("#indexing_title")
             label = self.query_one("#indexing_label")
-            label.update(f"[red]Error en la indexación: {error_msg}[/red]")
+            title.update("[red]❌ Error en la indexación[/red]")
+            label.update(f"[#ef4444]{error_msg}[/#ef4444]")
             import threading
             def hide():
                 import time
@@ -1155,9 +1222,13 @@ class KogniTermTUI(App):
         trigger = None
         search_term = ""
         
-        if value.lstrip().startswith("%"):
+        stripped = value.lstrip()
+        if stripped.startswith("%"):
             trigger = "%"
-            search_term = value.lstrip()
+            search_term = stripped
+        elif stripped.startswith("/"):
+            trigger = "/"
+            search_term = stripped
         elif "@" in current_word:
             trigger = "@"
             search_term = current_word.split("@")[-1]
@@ -1174,8 +1245,11 @@ class KogniTermTUI(App):
             self._reposition_popup(event.input, value)
             
             matches = []
-            if trigger == "%":
-                commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema"]
+            if trigger in ("%", "/"):
+                if trigger == "%":
+                    commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
+                else:
+                    commands = ["/help", "/models", "/provider", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
@@ -1237,9 +1311,13 @@ class KogniTermTUI(App):
         trigger = None
         search_term = ""
         
-        if value.lstrip().startswith("%"):
+        stripped = value.lstrip()
+        if stripped.startswith("%"):
             trigger = "%"
-            search_term = value.lstrip()
+            search_term = stripped
+        elif stripped.startswith("/"):
+            trigger = "/"
+            search_term = stripped
         elif "@" in current_word:
             trigger = "@"
             search_term = current_word.split("@")[-1]
@@ -1256,8 +1334,11 @@ class KogniTermTUI(App):
             self._reposition_popup(event.text_area, value)
             
             matches = []
-            if trigger == "%":
-                commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema"]
+            if trigger in ("%", "/"):
+                if trigger == "%":
+                    commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
+                else:
+                    commands = ["/help", "/models", "/provider", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
@@ -1297,43 +1378,28 @@ class KogniTermTUI(App):
             self.command_popup.display = False
             self._completion_input = None
 
-    def _reposition_popup(self, input_widget: "Input", current_value: str) -> None:
-        """Posiciona el popup justo debajo del cursor actual en el input."""
+    def _reposition_popup(self, input_widget, current_value: str) -> None:
+        """Posiciona el popup justo encima del input activo (funciona tanto en splash como en chat)."""
         try:
-            screen_h = self.size.height
             screen_w = self.size.width
 
-            # Posición del widget input en la pantalla
+            # Usar SIEMPRE la región del widget activo, no del #input_container
+            # (que puede estar oculto durante el splash)
             input_region = input_widget.region
-            # El input_container tiene padding: 1 4 0 4, descontamos el padding izquierdo (4)
-            try:
-                input_container = self.query_one("#input_container")
-                container_region = input_container.region
-                # El input está dentro del contenedor centrado
-                input_x = container_region.x + 4  # padding-left del input_container
-            except Exception:
-                input_x = input_region.x
 
-            # Posición horizontal del cursor = longitud del texto escrito hasta ahora
-            # (cada carácter ocupa 1 columna en la terminal)
-            cursor_col = len(current_value)
-            popup_x = input_x + cursor_col
-
-            # Asegurar que el popup no se salga de la pantalla por la derecha
-            popup_w = 40  # ancho del popup definido en CSS
+            # Posición X: inicio del widget + pequeño indent para alinear con el texto
+            popup_w = 44  # ancho del popup definido en CSS
+            popup_x = input_region.x + 2
+            # No salirse por la derecha
             if popup_x + popup_w > screen_w:
                 popup_x = max(0, screen_w - popup_w)
 
-            # Posición vertical: justo encima del input (el popup sube desde abajo del input)
-            # El input está en el bottom_container (docked bottom)
-            # Calculamos la fila Y donde termina el popup (bottom del popup = top del input)
-            input_row = input_region.y  # fila donde empieza el input
-            popup_h = min(12, 4)  # estimación conservadora del alto del popup
-            popup_y = max(0, input_row - popup_h)
+            # Posición Y: justo ENCIMA del input
+            popup_max_h = 14  # max-height en CSS
+            popup_y = max(0, input_region.y - popup_max_h)
 
             self.command_popup.styles.offset = (popup_x, popup_y)
         except Exception:
-            # Fallback: posición por defecto cerca del input
             pass
 
     def _apply_completion(self, selected_text: str, input_widget: Input, current_val: str):
@@ -1374,22 +1440,27 @@ class KogniTermTUI(App):
             event.prevent_default()
 
     def on_key(self, event: events.Key):
-        # 1. Prioridad: Si el panel de terminal está enfocado y hay un proceso interactivo,
-        # enviar TODAS las teclas directamente al PTY (incluyendo flechas, etc.)
-        if self.focused and self.focused.id == "live_display" and self.interactive_executor:
-            # No procesar escape aquí, permitir que escape quite el foco
-            if event.key == "escape":
-                self.chat_input.focus()
-                event.prevent_default()
-                return
+        # 1. Prioridad: Si el panel de terminal está enfocado, enviar teclas al PTY
+        # Importación local para evitar circulares
+        try:
+            from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+            focused_widget = self.focused
+            is_terminal_focused = isinstance(focused_widget, (TerminalPanel, ToolOutputWidget))
+        except ImportError:
+            is_terminal_focused = False
+            focused_widget = None
 
+        if focused_widget and is_terminal_focused and self.command_executor and self.command_executor.process:
+            # Si es escape, devolver foco al input
+            if event.key == "escape":
+                try:
+                    self.query_one("#chat_input").focus()
+                except:
+                    pass
+                return
+            
             # Mapeo de teclas de Textual a secuencias PTY
             key_map = {
-                "enter": "\n",
-                "backspace": "\b",
-                "tab": "\t",
-                "up": "\x1b[A",
-                "down": "\x1b[B",
                 "right": "\x1b[C",
                 "left": "\x1b[D",
                 "home": "\x1b[H",
@@ -1508,19 +1579,28 @@ class KogniTermTUI(App):
         if hasattr(event.input, "add_to_history"):
             event.input.add_to_history(user_input.strip())
         
-        # Si un comando está corriendo en el PTY y está en modo interactivo, redirigir el input
-        if self.interactive_executor and self.interactive_executor.process:
-            self.interactive_executor.write_input(user_input + "\n")
-            event.input.value = ""
-            return
-        
-        # Fallback para agentes que están procesando
-        if self.is_processing and self.command_executor.process:
+        # Redirigir input si el foco está en una terminal O si el modo interactivo está forzado
+        is_interact_mode = self._cursor_active
+        try:
+            from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+            is_terminal_focused = isinstance(self.focused, (TerminalPanel, ToolOutputWidget))
+        except:
+            is_terminal_focused = False
+
+        if (is_interact_mode or is_terminal_focused) and self.command_executor and self.command_executor.process:
             self.command_executor.write_input(user_input + "\n")
             event.input.value = ""
             return
+        
+        # (El fallback anterior fue removido para evitar secuestro de input con shell persistente)
 
         event.input.value = ""
+        # Asegurar que el input mantenga el foco tras enviarse/limpiarse
+        try:
+            event.input.focus()
+        except Exception:
+            pass
+
         
         # Bloquear nuevo input si ya hay una petición en curso
         # PERO permitir encolar mensajes para mejor UX
@@ -1586,8 +1666,11 @@ class KogniTermTUI(App):
         self.screen.styles.background = bg_color
         self.styles.background = bg_color
         
-        chat_container = self.query_one("#chat_container")
-        chat_container.styles.background = bg_color
+        try:
+            chat_container = self.query_one("#chat_container")
+            chat_container.styles.background = bg_color
+        except Exception:
+            pass
         
         # 4. Estilizar el LOG y sus SCROLLBARS
         log = self.chat_log
@@ -1675,7 +1758,6 @@ class KogniTermTUI(App):
 
     def _start_spinner(self):
         """Inicia la animación del spinner en live_display (ejecutar desde main thread)."""
-        from rich.text import Text
         from kogniterm.terminal.themes import ColorPalette
         self._spinner_frame = 0
         self.live_display.display = True # Asegurar que sea visible
@@ -1699,7 +1781,6 @@ class KogniTermTUI(App):
             return
 
         self._spinner_frame = (self._spinner_frame + 1) % len(self.SPINNER_FRAMES)
-        from rich.text import Text
         from kogniterm.terminal.themes import ColorPalette
         frame = self.SPINNER_FRAMES[self._spinner_frame]
         
@@ -1716,8 +1797,21 @@ class KogniTermTUI(App):
         if self._spinner_timer:
             self._spinner_timer.stop()
             self._spinner_timer = None
+        
+        # Ocultar el live_display si no estamos en modo interactivo (terminal)
+        if not self._cursor_active:
+            self.live_display.display = False
+            
         # Cuando se detiene el spinner, finalizamos cualquier stream en el log
         self.chat_log.stop_stream()
+        
+        # Enfocar el input principal para permitir seguir escribiendo tras el fin de la respuesta
+        # Solo lo hacemos si no estamos en un modo que requiera foco en otro lado (como terminal interactiva)
+        if not self._cursor_active:
+            try:
+                self.query_one("#chat_input", ChatInput).focus()
+            except Exception:
+                pass
 
     def _resume_spinner(self):
         """Reactiva el spinner de procesamiento si was paused for streaming.
@@ -2021,7 +2115,20 @@ class KogniTermTUI(App):
         if panel_id:
             try:
                 panel = self.query_one(f"#{panel_id}")
-                panel.update(renderable)
+                panel.display = True
+                
+                # Manejo especial para terminales en paneles dedicados
+                if isinstance(renderable, tuple) and renderable[0] == "__TERMINAL__":
+                    tool_name = renderable[1]
+                    output = renderable[2]
+                    command = renderable[3] if len(renderable) >= 4 else tool_name
+                    
+                    if hasattr(panel, "update_content"):
+                        panel.update_content(output, command=command)
+                    else:
+                        panel.update(output)
+                else:
+                    panel.update(renderable)
                 return
             except Exception:
                 pass
@@ -2044,7 +2151,7 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-    def update_terminal_output(self, tool_name: str, output: str, show_cursor: bool = None):
+    def update_terminal_output(self, tool_name: str, output: str, show_cursor: bool = None, command: str = ""):
         """
         Actualiza el panel de terminal con soporte para cursor parpadeante.
         """
@@ -2055,16 +2162,47 @@ class KogniTermTUI(App):
         if show_cursor is None:
             # Pestañeo: visible en frame 0, invisible en frame 1
             show_cursor = self._cursor_active and (self._cursor_frame == 0)
+
+        # El comando a mostrar en el título: preferir el argumento explícito, si no el tool_name
+        # Si es el nombre genérico de la herramienta de ejecución, usamos un indicador más claro
+        if not command or command == "execute_command":
+            display_command = "bash" if tool_name == "execute_command" else tool_name
+        else:
+            display_command = command
+
+        # Pasamos el output crudo con una tupla marcadora para que ChatLogWidget instancie el ToolOutputWidget
+        # Tupla de 4 elementos: (__TERMINAL__, tool_name, output, display_command)
+        self.update_live_display(("__TERMINAL__", tool_name, output, display_command))
+
+    def update_task_tracker(self, agent_plans: dict):
+        """Actualiza los datos del task tracker y muestra el panel si hay tareas."""
+        if hasattr(self, "task_tracker_panel"):
+            self.task_tracker_panel.update_tasks(agent_plans)
             
-        from kogniterm.terminal.visual_components import create_terminal_output_panel
-        panel = create_terminal_output_panel(tool_name, output, show_cursor=show_cursor)
-        self.update_live_display(panel)
+            # Mostrar/Ocultar el contenedor del tracker
+            tracker = self.query_one("#tracker_container")
+            if agent_plans:
+                tracker.display = True
+            else:
+                tracker.display = False
+
+    def action_toggle_sidebar(self):
+        """Alterna la visibilidad del tracker manualmente."""
+        tracker = self.query_one("#tracker_container")
+        tracker.display = not tracker.display
 
     def hide_live_display(self):
         """Finaliza el streaming en el chat log."""
         # Asegurar que el spinner se detenga
         self._stop_spinner()
         
+        # Ocultar paneles dedicados si estaban visibles
+        try:
+            self.tool_display.display = False
+            self.live_display.display = False
+        except Exception:
+            pass
+            
         # NOTA: Ya no movemos contenido del live_display al log porque EL STREAMING SUCEDE EN EL LOG.
         # Solo marcamos el fin del stream actual en el ChatLogWidget.
         self.chat_log.stop_stream()

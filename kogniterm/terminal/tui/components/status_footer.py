@@ -19,25 +19,28 @@ class StatusFooter(Static):
     def __init__(self, model_name: str, **kwargs):
         super().__init__(**kwargs)
         self.model_name = model_name
+        self._auto_approve_active = False  # Estado de auto-aceptación
         
     def _get_current_dir(self):
         return os.path.basename(os.getcwd())
 
-    def _get_repo_name(self):
-        # Intentar buscar nombre de git repo, o usar nombre de carpeta padre
+    def _get_git_branch(self):
+        # Obtener el branch actual de git, o indicar si no hay repo
         try:
-            import subprocess
-            result = subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True)
-            return os.path.basename(result.stdout.strip())
+            result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True, check=True)
+            return result.stdout.strip()
         except Exception:
-            return self._get_current_dir()
+            return None
             
     def compose(self) -> ComposeResult:
         current_dir = self._get_current_dir()
-        repo_name = self._get_repo_name()
+        branch = self._get_git_branch()
         
-        # Siempre mostrarlos para evitar confusión de que no está
-        left_text = f"📦 {repo_name}  🗂️ {current_dir}"
+        # Mostrar branch si hay repo git, si no solo el directorio
+        if branch:
+            left_text = f" {branch}  🗂️ {current_dir}"
+        else:
+            left_text = f"🗂️ {current_dir}"
             
         display_model = self.model_name.split("/")[-1]
         right_text = f"{display_model} 🤖"
@@ -52,6 +55,26 @@ class StatusFooter(Static):
         right_text = f"{display_model} 🤖"
         try:
             self.query_one("#footer_right", Static).update(right_text)
+        except Exception:
+            pass
+
+    def set_auto_approve(self, active: bool):
+        """Actualiza el estado de auto-aceptación y refresca el footer."""
+        self._auto_approve_active = active
+        self._update_auto_approve_indicator()
+    
+    def _update_auto_approve_indicator(self):
+        """Actualiza el indicador visual de auto-aceptación en el footer."""
+        try:
+            from kogniterm.terminal.themes import ColorPalette
+            if self._auto_approve_active:
+                indicator = f" [bold {ColorPalette.SUCCESS}]⇥ Auto-aceptación ON[/]"
+            else:
+                indicator = f" [dim]⇥ Shift+Tab para auto-aceptar[/dim]"
+            # Actualizar el footer derecho con el indicador
+            footer_right = self.query_one("#footer_right", Static)
+            display_model = self.model_name.split("/")[-1]
+            footer_right.update(f"{display_model} 🤖{indicator}")
         except Exception:
             pass
 
@@ -80,7 +103,15 @@ class ChatInput(TextArea):
 
         self.styles.background = "transparent"
         self.soft_wrap = True
-        self.tab_behavior = "focus"  # Tab cambia el foco
+        self.tab_behavior = "focus"
+        # Desactivar explícitamente el scrollbar horizontal si aparece
+        self.styles.overflow_x = "hidden"
+        self.styles.overflow_y = "hidden"
+        
+        # Forzar altura inicial y permitir expansión
+        self.styles.height = 1
+        self.styles.min_height = 1
+        self.styles.max_height = 20
         
         # Usar historial persistente compartido
         self._history_manager = get_message_history()
@@ -209,7 +240,6 @@ class ChatInput(TextArea):
                 event.prevent_default()
         
 
-
     def on_mouse_scroll_up(self, event: events.MouseScrollUp):
         # Si el ratón está sobre el input pero ya no puede subir más, subir el chat log
         if self.cursor_location[0] == 0:
@@ -231,7 +261,32 @@ class ChatInput(TextArea):
 
     @value.setter
     def value(self, val: str):
-        self.text = val
+        if not val:
+            if hasattr(self, "clear"):
+                self.clear()
+            else:
+                self.text = ""
+        else:
+            self.text = val
+        self.cursor_location = (0, 0)
+        self._adjust_height()
+
+    def _adjust_height(self):
+        """Ajusta manualmente la altura basada en el número de líneas para corregir bug de Textual."""
+        line_count = self.document.line_count
+        # Altura mínima 1, máxima 20
+        target_height = max(1, min(20, line_count))
+        self.styles.height = target_height
+        
+        # Solo ajustamos nuestra propia altura. El contenedor (input_container) 
+        # tiene height: auto en CSS y se ajustará solo gracias al padding.
+        # Eliminamos el refresh(layout=True) para evitar parpadeos y pérdida de foco.
+        pass
+
+    def _on_text_area_changed(self, event: TextArea.Changed):
+        """Ajustar altura mientras se escribe."""
+        self._adjust_height()
+
 
     def on_mount(self):
         # Actualizar workspace del suggester si no se conocía en __init__
@@ -301,19 +356,27 @@ class KogniTermSuggester:
     def _update_files(self):
         """Escanea el workspace en busca de archivos."""
         try:
+            if not self.workspace_directory or not os.path.exists(self.workspace_directory):
+                return
+
             exclude = {
                 'build', 'venv', '.git', '__pycache__', 'node_modules', 
                 'dist', 'out', 'coverage', '.mypy_cache', '.pytest_cache',
-                '.gemini', '.antigravity'
+                '.gemini', '.antigravity', '.pyfly'
             }
-            exclude_extensions = {'.pyc', '.tmp', '.log', '.swp', '.bak', '.old'}
+            exclude_extensions = {'.pyc', '.tmp', '.log', '.swp', '.bak', '.old', '.pyfly'}
             
             items = []
+            # Usar una lista temporal para evitar bloqueos largos del lock
             for root, dirs, files in os.walk(self.workspace_directory):
-                # Filtrar directorios in-situ
+                # Filtrar directorios in-situ para no descender en ellos
                 dirs[:] = [d for d in dirs if not d.startswith('.') and d not in exclude]
                 
-                rel_root = os.path.relpath(root, self.workspace_directory)
+                try:
+                    rel_root = os.path.relpath(root, self.workspace_directory)
+                except ValueError:
+                    continue
+                    
                 if rel_root == ".": rel_root = ""
                 
                 for f in files:
@@ -322,13 +385,15 @@ class KogniTermSuggester:
                     
                     rel_path = os.path.join(rel_root, f) if rel_root else f
                     items.append(rel_path)
-                    if len(items) > 1000: # Límite razonable
+                    
+                    if len(items) > 5000: # Aumentado el límite para mejor cobertura
                         break
-                if len(items) > 1000: break
+                if len(items) > 5000: break
                 
             with self._lock:
                 self.cached_files_list = items
-        except Exception:
+        except Exception as e:
+            # Registrar error si es posible (aunque aquí suele ser silencioso)
             pass
 
     def _update_containers(self):
@@ -354,4 +419,3 @@ class KogniTermSuggester:
                     self._cached_containers = containers
         except Exception:
             pass
-

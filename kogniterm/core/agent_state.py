@@ -18,6 +18,7 @@ class AgentState:
     command_to_confirm: Optional[str] = None # Nuevo campo para comandos que requieren confirmación
     tool_call_id_to_confirm: Optional[str] = None # Nuevo campo para el tool_call_id asociado al comando
     current_agent_mode: str = "bash" # Añadido para el modo del agente
+    autonomous_approvals: bool = False # Permite que ciertos agentes aprueben cambios/comandos tras consentimiento previo
     history_for_api: Optional[List[BaseMessage]] = field(default=None, repr=False, compare=False) # Campo temporal para compatibilidad
     
     # MessageManager para manejo centralizado de mensajes
@@ -44,6 +45,19 @@ class AgentState:
     # NUEVO: Caché de hashes de archivos para detección de race conditions
     # Estructura: {file_path: {"hash": str, "timestamp": float, "content": str}}
     file_hash_cache: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    def __setattr__(self, name, value):
+        if name == "messages":
+            history_manager = self.__dict__.get("history_manager_ref")
+            if history_manager is not None:
+                history_manager.conversation_history = value or []
+                value = history_manager.conversation_history
+        super().__setattr__(name, value)
+
+    def attach_history_manager(self, history_manager: Any):
+        """Vincula el estado al HistoryManager para persistir cada mutación de mensajes."""
+        self.history_manager_ref = history_manager
+        self.messages = self.messages
 
     def reset_tool_confirmation(self):
         """Reinicia el estado de la confirmación de herramientas."""
