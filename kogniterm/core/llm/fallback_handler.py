@@ -47,6 +47,10 @@ class FallbackHandler:
                 "timeout": 90
             }
             
+            # Aplicar reasoning_effort si está configurado
+            if completion_kwargs.get("reasoning_effort"):
+                alt_kwargs["reasoning_effort"] = completion_kwargs["reasoning_effort"]
+            
             if "No endpoints found" in error_msg:
                 alt_kwargs.pop("tools", None)
                 alt_kwargs.pop("tool_choice", None)

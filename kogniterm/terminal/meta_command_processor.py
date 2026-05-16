@@ -2,14 +2,22 @@ import sys
 import asyncio
 import os
 import threading
+from .security import scrub_secrets, mask_url_credentials
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.insights import KogniInsightsEngine
 from kogniterm.core.agents.bash_agent import AgentState, get_system_message
 from kogniterm.terminal.terminal_ui import TerminalUI
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage
 from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.table import Table # Importar Table
+import json
+from kogniterm.terminal.visual_components import (
+    create_thought_bubble, 
+    create_tool_output_panel,
+    create_terminal_output_panel
+)
 from kogniterm.terminal.themes import set_kogniterm_theme, get_available_themes
 from kogniterm.terminal.config_manager import ConfigManager
 try:
@@ -53,112 +61,118 @@ class MetaCommandProcessor:
 
     async def process_meta_command(self, user_input: str) -> bool:
         """
-        Processes meta-commands like %salir, %reset, %undo, %help, %compress.
+        Processes meta-commands like /exit, /reset, /undo, /help, /compress.
         Returns True if a meta-command was processed, False otherwise.
         """
-        if user_input.lower().strip() in ['%salir', 'salir', 'exit']:
+        if not user_input or not isinstance(user_input, str):
+            return False
+
+        # Si empieza por %, es un meta-comando. Si no lo procesamos abajo,
+        # retornamos True al final para que NO se registre en el log.
+        is_meta = user_input.strip().startswith('/')
+
+        if user_input.lower().strip() in ['/exit', 'exit', 'quit', '/quit']:
             if hasattr(self.kogniterm_app, 'exit'):
                 self.kogniterm_app.exit()
                 return True
             sys.exit()
 
-        if user_input.lower().strip() == '%reset':
+        if user_input.lower().strip() == '/reset':
             self.agent_state.reset() # Reiniciar el estado
             # También reiniciamos el historial de llm_service al resetear la conversación
             self.llm_service.conversation_history = []
-            # ¡IMPORTANTE! Re-añadir el get_system_message(self.llm_service) después de resetear
+            # IMPORTANT! Re-add get_system_message(self.llm_service) after reset
             self.llm_service.conversation_history.append(get_system_message(self.llm_service))
             # Guardar historial CON el get_system_message(self.llm_service)
             self.llm_service._save_history(self.llm_service.conversation_history)
             # Sincronizar agent_state.messages con el historial
             self.agent_state.messages = self.llm_service.conversation_history.copy()
             
-            # Limpiar la pantalla de la terminal
+            # Clear chat screen
             if hasattr(self.terminal_ui, "clear_chat"):
                 self.terminal_ui.clear_chat()
             else:
-                # Intentar limpiar la consola y refrescar el tema/console para evitar
-                # glitches de renderizado (ej. el banner dividido en franjas tras %reset).
+                # Try to clear console and refresh theme to avoid rendering glitches
                 try:
                     self.terminal_ui.console.clear()
                 except Exception:
                     pass
-                # Recrear la consola (si aplica) para reaplicar opciones de Rich
+                # Recreate console (if applicable) to reapply Rich options
                 try:
                     self.terminal_ui.refresh_theme()
                 except Exception:
                     pass
-                # Finalmente volver a imprimir el banner
+                # Finally print banner again
                 self.terminal_ui.print_welcome_banner()
-            self.terminal_ui.print_message(f"Conversación reiniciada.", style="green")
+            self.terminal_ui.print_message(f"Conversation reset.", style="green")
             if hasattr(self.kogniterm_app, "session_manager") and self.kogniterm_app.session_manager:
                 self.kogniterm_app.session_manager.current_session_name = None
             return True
 
-        if user_input.lower().strip() == '%undo':
+        if user_input.lower().strip() == '/undo':
             if len(self.agent_state.messages) >= 3:
-                self.agent_state.messages.pop() # Eliminar respuesta del AI
-                self.agent_state.messages.pop() # Eliminar input del usuario
-                self.terminal_ui.print_message("Última interacción deshecha.", style="green")
+                self.agent_state.messages.pop() # Remove AI response
+                self.agent_state.messages.pop() # Remove user input
+                self.terminal_ui.print_message("Last interaction undone.", style="green")
             else:
-                self.terminal_ui.print_message("No hay nada que deshacer.", style="yellow")
+                self.terminal_ui.print_message("Nothing to undo.", style="yellow")
             return True
         
-        if user_input.lower().strip().startswith('%init'):
+        if user_input.lower().strip().startswith('/init'):
             command_parts = user_input.strip().split(' ', 1)
             files_to_include = None
             if len(command_parts) > 1:
                 files_to_include = [f.strip() for f in command_parts[1].split(',')]
             
-            self.terminal_ui.print_message("Inicializando contexto del espacio de trabajo... Esto puede tardar un momento. ⏳", style="yellow")
+            self.terminal_ui.print_message("Initializing workspace context... This may take a moment. ⏳", style="yellow")
             try:
                 self.llm_service.initialize_workspace_context(files_to_include=files_to_include)
-                self.terminal_ui.print_message("Contexto del espacio de trabajo inicializado correctamente. ✨", style="green")
+                self.terminal_ui.print_message("Workspace context initialized successfully. ✨", style="green")
             except Exception as e:
-                self.terminal_ui.print_message(f"Error al inicializar el contexto del espacio de trabajo: {e} ❌", style="red")
+                self.terminal_ui.print_message(f"Error initializing workspace context: {e} ❌", style="red")
             return True
             
-        if user_input.lower().strip().startswith('%mouse'):
+        if user_input.lower().strip().startswith('/mouse'):
             if hasattr(self, 'kogniterm_app') and hasattr(self.kogniterm_app, 'action_toggle_mouse'):
                 self.kogniterm_app.action_toggle_mouse()
             else:
-                self.terminal_ui.print_message("El comando %mouse solo está disponible en la interfaz TUI.", style="yellow")
+                self.terminal_ui.print_message("The /mouse command is only available in the TUI interface.", style="yellow")
             return True
             
-        if user_input.lower().strip().startswith('%theme') or user_input.lower().strip().startswith('%tema'):
+        if user_input.lower().strip().startswith('/theme'):
             parts = user_input.strip().split()
             theme_name = None
             if len(parts) > 1:
                 theme_name = parts[1].lower()
             else:
                 from kogniterm.terminal.themes import _THEMES
-                theme_options = [(name, f"Tema {name}") for name in _THEMES.keys()]
+                theme_options = [(name, f"Theme {name}") for name in _THEMES.keys()]
                 theme_name = await self._show_radiolist(
-                    title="🎨 Seleccionar Tema de Color",
-                    text="Elige un tema para personalizar la apariencia de KogniTerm:",
+                    title="🎨 Select Color Theme",
+                    text="Choose a theme to customize KogniTerm's appearance:",
                     values=theme_options
                 )
                 
             if theme_name:
                 try:
-                    # Aplicar a la TUI si estamos en ella
+                    # Apply to TUI if we are in it
                     if hasattr(self, 'kogniterm_app') and hasattr(self.kogniterm_app, 'apply_theme'):
                         self.kogniterm_app.apply_theme(theme_name)
                     else:
                         set_kogniterm_theme(theme_name)
                         self.terminal_ui.print_welcome_banner()
                     
-                    # Persistir el tema globalmente
+                    # Persist theme globally
                     config_manager = ConfigManager()
                     config_manager.set_global_config("theme", theme_name)
                     
                 except ValueError:
-                     self.terminal_ui.print_message(f"Tema '{theme_name}' no encontrado.", style="red")
+                     self.terminal_ui.print_message(f"Theme '{theme_name}' not found.", style="red")
                      self._show_themes_table()
             return True
 
 
-        if user_input.lower().strip().startswith('%session'):
+        if user_input.lower().strip().startswith('/session'):
             parts = user_input.strip().split()
             subcommand = parts[1].lower() if len(parts) > 1 else "list"
             args = parts[2:] if len(parts) > 2 else []
@@ -168,44 +182,46 @@ class MetaCommandProcessor:
             if subcommand == "list":
                 sessions = session_manager.list_sessions()
                 if not sessions:
-                    self.terminal_ui.print_message("No hay sesiones guardadas.", style="yellow")
+                    self.terminal_ui.print_message("No saved sessions found.", style="yellow")
                 else:
-                    table = Table(title="Sesiones Guardadas")
-                    table.add_column("Nombre", style="cyan")
-                    table.add_column("Modificado", style="dim")
-                    table.add_column("Mensajes", justify="right")
+                    table = Table(title="Saved Sessions")
+                    table.add_column("Name", style="cyan")
+                    table.add_column("Type", style="magenta")
+                    table.add_column("Modified", style="dim")
+                    table.add_column("Messages", justify="right")
                     
                     for s in sessions:
-                        table.add_row(s["name"], s["modified"], str(s["messages"]))
+                        session_type = "autosave" if s.get("source") == "history" or s["name"].startswith("autosave_") else "manual"
+                        table.add_row(s.get("display_name", s["name"]), session_type, s["modified"], str(s["messages"]))
                     
                     self.terminal_ui.console.print(table)
                     
                     current = session_manager.get_current_session_name()
                     if current:
-                        self.terminal_ui.print_message(f"Sesión actual: {current}", style="green")
+                        self.terminal_ui.print_message(f"Current session: {current}", style="green")
                     else:
-                        self.terminal_ui.print_message("Estás en una sesión temporal (no guardada).", style="dim")
+                        self.terminal_ui.print_message("You are in a temporary session (unsaved).", style="dim")
 
             elif subcommand == "save":
                 if not args:
-                    # Si no hay nombre, intentar usar el actual o pedir uno
+                    # If no name, try using the current one or ask for one
                     current = session_manager.get_current_session_name()
                     if current:
                         name = current
                     else:
-                        self.terminal_ui.print_message("Uso: %session save <nombre>", style="red")
+                        self.terminal_ui.print_message("Usage: /session save <name>", style="red")
                         return True
                 else:
                     name = args[0]
                 
                 if session_manager.save_session(name, self.llm_service.conversation_history):
-                    self.terminal_ui.print_message(f"Sesión '{name}' guardada exitosamente. ✅", style="green")
+                    self.terminal_ui.print_message(f"Session '{name}' saved successfully. ✅", style="green")
                 else:
-                    self.terminal_ui.print_message(f"Error al guardar la sesión '{name}'. ❌", style="red")
+                    self.terminal_ui.print_message(f"Error saving session '{name}'. ❌", style="red")
 
             elif subcommand == "load":
                 if not args:
-                    self.terminal_ui.print_message("Uso: %session load <nombre>", style="red")
+                    self.terminal_ui.print_message("Usage: /session load <name>", style="red")
                     return True
                 name = args[0]
                 
@@ -213,10 +229,10 @@ class MetaCommandProcessor:
                 if history:
                     self.llm_service.conversation_history = history
                     self.agent_state.messages = history
-                    self.llm_service._save_history(history) # Actualizar historial activo
-                    self.terminal_ui.print_message(f"Sesión '{name}' cargada. Historial actualizado. 🔄", style="green")
+                    self.llm_service._save_history(history) # Update active history
+                    self.terminal_ui.print_message(f"Session '{name}' loaded. History updated. 🔄", style="green")
                 else:
-                    self.terminal_ui.print_message(f"No se pudo cargar la sesión '{name}'.", style="red")
+                    self.terminal_ui.print_message(f"Could not load session '{name}'.", style="red")
 
             elif subcommand == "new":
                 name = args[0] if args else None
@@ -230,28 +246,135 @@ class MetaCommandProcessor:
                 
                 if name:
                     session_manager.save_session(name, self.llm_service.conversation_history)
-                    self.terminal_ui.print_message(f"Nueva sesión '{name}' creada e iniciada. ✨", style="green")
+                    self.terminal_ui.print_message(f"New session '{name}' created and started. ✨", style="green")
                 else:
                     session_manager.current_session_name = None
-                    self.terminal_ui.print_message("Nueva sesión temporal iniciada. ✨", style="green")
+                    self.terminal_ui.print_message("New temporary session started. ✨", style="green")
 
             elif subcommand == "delete":
                 if not args:
-                    self.terminal_ui.print_message("Uso: %session delete <nombre>", style="red")
+                    self.terminal_ui.print_message("Usage: /session delete <name>", style="red")
                     return True
                 name = args[0]
                 if session_manager.delete_session(name):
-                    self.terminal_ui.print_message(f"Sesión '{name}' eliminada. 🗑️", style="green")
+                    self.terminal_ui.print_message(f"Session '{name}' deleted. 🗑️", style="green")
                 else:
-                    self.terminal_ui.print_message(f"Error al eliminar sesión '{name}'.", style="red")
+                    self.terminal_ui.print_message(f"Error deleting session '{name}'.", style="red")
             
             else:
-                self.terminal_ui.print_message("Subcomandos disponibles: list, save, load, new, delete", style="yellow")
+                self.terminal_ui.print_message("Available subcommands: list, save, load, new, delete", style="yellow")
 
             return True
 
-        if user_input.lower().strip().startswith('%resume'):
-            # %resume [nombre] -> Si no hay nombre, mostrar selector de sesiones recientes
+        if user_input.lower().strip().startswith('/autosave'):
+            """Comando para gestionar versiones versionadas de autoguardos."""
+            parts = user_input.strip().split(maxsplit=2)
+            subcommand = parts[1].lower() if len(parts) > 1 else "list"
+            args = parts[2:] if len(parts) > 2 else []
+            
+            llm_service = self.llm_service
+            
+            if subcommand == "list":
+                # Listar versiones de autoguardos de la sesión actual
+                versions = llm_service.get_autosave_versions()
+                if not versions:
+                    all_versions = llm_service.get_all_autosave_versions()
+                    if all_versions:
+                        self.terminal_ui.print_message("No autosaves in current session. Available versions from other sessions:", style="yellow")
+                        table = Table(title="📦 All Autosave Versions")
+                    else:
+                        self.terminal_ui.print_message("No autosave versions found.", style="yellow")
+                        return True
+                else:
+                    self.terminal_ui.print_message(f"Found {len(versions)} autosave version(s) in current session:", style="cyan")
+                    all_versions = versions
+                    table = Table(title="📦 Autosave Versions (Current Session)")
+                
+                table.add_column("File", style="cyan", no_wrap=False)
+                table.add_column("Messages", justify="right", style="green")
+                table.add_column("Modified", style="dim")
+                
+                for v in all_versions[:20]:  # Mostrar máximo 20 versiones
+                    filename = v.get("filename", v.get("path", "unknown"))
+                    messages = v.get("message_count", "?")
+                    modified = v.get("modified", v.get("timestamp", "?"))[:19]  # Truncar timestamp
+                    table.add_row(filename, str(messages), modified)
+                
+                self.terminal_ui.console.print(table)
+                
+                stats = llm_service.get_autosave_statistics()
+                if stats:
+                    self.terminal_ui.print_message(
+                        f"📊 Statistics: {stats.get('current_session_versions', 0)} versions in current session, "
+                        f"{stats.get('total_versions', 0)} total versions across {stats.get('sessions_count', 0)} session(s).",
+                        style="dim"
+                    )
+
+            elif subcommand == "restore":
+                # Restaurar una versión específica
+                all_versions = llm_service.get_all_autosave_versions()
+                if not all_versions:
+                    self.terminal_ui.print_message("No autosave versions available to restore.", style="yellow")
+                    return True
+                
+                if not args:
+                    # Mostrar selector de versiones
+                    options = []
+                    for i, v in enumerate(all_versions[:10]):
+                        filename = v.get("filename", "unknown")
+                        modified = v.get("modified", "?")[:19]
+                        options.append((str(i), f"{filename} ({modified})"))
+                    
+                    selected = await self._show_radiolist(
+                        title="Restore Autosave",
+                        text="Select an autosave version to restore:",
+                        values=options
+                    )
+                    
+                    if selected is not None:
+                        idx = int(selected)
+                        file_path = all_versions[idx].get("path")
+                    else:
+                        self.terminal_ui.print_message("Restore cancelled.", style="yellow")
+                        return True
+                else:
+                    # Buscar por nombre de archivo
+                    target_filename = args[0]
+                    matching = [v for v in all_versions if target_filename in v.get("filename", "")]
+                    if not matching:
+                        self.terminal_ui.print_message(f"No autosave version matching '{target_filename}' found.", style="red")
+                        return True
+                    file_path = matching[0].get("path")
+                
+                # Cargar la versión
+                history = llm_service.load_autosave_version(file_path)
+                if history:
+                    llm_service.conversation_history = history
+                    self.agent_state.messages = history
+                    llm_service._save_history(history)
+                    self.terminal_ui.print_message(
+                        f"✅ Restored autosave with {len(history)} messages. "
+                        f"From: {file_path.split('/')[-1]}",
+                        style="green"
+                    )
+                else:
+                    self.terminal_ui.print_message(f"Error loading autosave version.", style="red")
+
+            else:
+                help_text = """
+Available `/autosave` subcommands:
+  • list              : 📋 List all autosave versions (current session + others)
+  • restore [file]    : 🔄 Restore a specific autosave version
+  • restore           : 🔄 Restore (interactive selector)
+
+Example: /autosave restore autosave_20250515_141530
+                """
+                self.terminal_ui.print_message(help_text.strip(), style="cyan")
+
+            return True
+
+        if user_input.lower().strip().startswith('/resume'):
+            # /resume [name] -> If no name, show recent sessions selector
             parts = user_input.strip().split()
             name = parts[1] if len(parts) > 1 else None
             session_manager = getattr(self.kogniterm_app, 'session_manager', None)
@@ -261,20 +384,24 @@ class MetaCommandProcessor:
 
             sessions = session_manager.list_sessions()
             if not sessions:
-                self.terminal_ui.print_message("No hay sesiones guardadas para reanudar.", style="yellow")
+                self.terminal_ui.print_message("No saved sessions to resume.", style="yellow")
                 return True
 
             if not name:
-                options = [(s['name'], f"{s['name']} — {s['modified']} ({s['messages']} msgs)") for s in sessions]
-                selected = await self._show_radiolist(title="Reanudar Sesión", text="Selecciona una sesión para reanudar:", values=options)
+                options = []
+                for s in sessions:
+                    session_type = "autosave" if s.get("source") == "history" or s["name"].startswith("autosave_") else "manual"
+                    label = f"{s.get('display_name', s['name'])} — {s['modified']} ({s['messages']} msgs, {session_type})"
+                    options.append((s['name'], label))
+                selected = await self._show_radiolist(title="Resume Session", text="Select a session to resume:", values=options)
                 if not selected:
-                    self.terminal_ui.print_message("Selección cancelada.", style="dim")
+                    self.terminal_ui.print_message("Selection canceled.", style="dim")
                     return True
                 name = selected
 
             history = session_manager.load_session(name)
             if history:
-                # Reemplazar el historial activo con la sesión seleccionada
+                # Replace active history with selected session
                 self.llm_service.conversation_history = history
                 # Sincronizar agent_state
                 self.agent_state.messages = history.copy()
@@ -283,13 +410,13 @@ class MetaCommandProcessor:
                     self.llm_service._save_history(self.llm_service.conversation_history)
                 except Exception:
                     pass
-                # Marcar sesión como actual en el SessionManager
+                # Mark session as current in SessionManager
                 try:
                     session_manager.current_session_name = name
                 except Exception:
                     pass
 
-                # Limpiar UI y notificar
+                # Clear UI and notify
                 if hasattr(self.terminal_ui, "clear_chat"):
                     self.terminal_ui.clear_chat()
                 else:
@@ -297,127 +424,287 @@ class MetaCommandProcessor:
                         self.terminal_ui.console.clear()
                     except Exception:
                         pass
-                self.terminal_ui.print_message(f"Sesión '{name}' reanudada. Historial cargado.", style="green")
+
+                # Renderizar el historial cargado en la TUI
+                self._render_history_in_ui(history)
+
+                self.terminal_ui.print_message(f"Session '{name}' resumed with {len([m for m in history if hasattr(m, 'type') and m.type in ('human', 'ai')])} messages.", style="green")
             else:
-                self.terminal_ui.print_message(f"No se pudo cargar la sesión '{name}'.", style="red")
+                self.terminal_ui.print_message(f"Could not load session '{name}'.", style="red")
             return True
 
-        if user_input.lower().strip() == '%help':
+        if user_input.lower().strip() == '/help':
             from prompt_toolkit.shortcuts import radiolist_dialog
             
             help_options = [
-                ("%models", "🤖 Cambiar Modelo de IA (Seleccionar modelo del proveedor actual)"),
-                ("%summarymodel", "📝 Cambiar Modelo de Resumen (Para comprimir historial)"),
-                ("%provider", "🌐 Cambiar Proveedor de LLM (OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud)"),
-                ("%keys", "🔑 Gestionar API Keys (Configurar llaves de proveedores)"),
-                ("%embeddings", "🧠 Configurar Embeddings (Local/FastEmbed, Gemini, OpenAI, etc.)"),
-                ("%reset", "🔄 Reiniciar Conversación (Borrar memoria actual)"),
-                ("%undo", "↩️ Deshacer (Eliminar última interacción)"),
-                ("%compress [force]", "🗜️ Comprimir Historial (Usa 'force' si excede límites)"),
-                ("%theme", "🎨 Cambiar Tema (Ver lista de temas disponibles)"),
-                ("%session", "🗂️ Gestión de Sesiones (list, save, load, new, delete)"),
-                ("%resume", "🔁 Reanudar Sesión (Reanuda una sesión guardada)"),
-                ("%mouse", "🖱️ Alternar Ratón (Activa/Desactiva selección nativa)"),
-                ("%insights", "📊 Analitica de Uso (Costos, Tokens, Patrones)"),
-                ("%init", "📁 Inicializar Contexto (Indexar archivos clave)"),
-                ("%salir", "🚪 Salir de KogniTerm"),
+                ("/models", "🤖 Change AI Model (Select model from current provider)"),
+                ("/reasoning", "🧠 Reasoning Level (low / medium / high)"),
+                ("/summarymodel", "📝 Change Summary Model (To compress history)"),
+                ("/provider", "🌐 Change LLM Provider (OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud)"),
+                ("/keys", "🔑 Manage API Keys (Configure provider keys)"),
+                ("/embeddings", "🧠 Configure Embeddings (Local/FastEmbed, Gemini, OpenAI, etc.)"),
+                ("/reset", "🔄 Reset Conversation (Clear current memory)"),
+                ("/undo", "↩️ Undo (Remove last interaction)"),
+                ("/compress [force]", "🗜️ Compress History (Use 'force' if exceeding limits)"),
+                ("/theme", "🎨 Change Theme (View list of available themes)"),
+                ("/session", "🗂️ Session Management (list, save, load, new, delete)"),
+                ("/instructions", "🧾 Agent Instructions (Global / Workspace)"),
+                ("/resume", "🔁 Resume Session (Resumes a saved session)"),
+                ("/skills", "🧩 Skills disponibles (Lista e invoca skills directamente)"),
+                ("/mouse", "🖱️ Toggle Mouse (Enable/Disable native selection)"),
+                ("/insights", "📊 Usage Insights (Costs, Tokens, Patterns)"),
+                ("/init", "📁 Initialize Context (Index key files)"),
+                ("/exit", "🚪 Exit KogniTerm"),
             ]
             
             selected_command = await self._show_radiolist(
-                title="Menú de Ayuda KogniTerm",
-                text="Selecciona un comando para ejecutarlo o ver más información:",
+                title="KogniTerm Help Menu",
+                text="Select a command to execute it or see more information:",
                 values=help_options
             )
 
             if selected_command:
-                # Ejecutar comandos directos
-                if selected_command in ["%models", "%summarymodel", "%provider", "%keys", "%reset", "%compress", "%undo", "%mouse", "%salir", "%resume"]:
-                    # Llamada recursiva para procesar el comando seleccionado
+                # Execute direct commands
+                if selected_command in ["/models", "/reasoning", "/summarymodel", "/provider", "/keys", "/reset", "/compress", "/undo", "/mouse", "/exit", "/resume", "/instructions", "/skills"]:
+                    # Recursive call to process selected command
                     return await self.process_meta_command(selected_command)
                 
                 # Comandos que requieren argumentos o interacción especial
-                elif selected_command == "%theme":
-                    # Ejecutar %theme sin argumentos muestra la lista de temas
-                    return await self.process_meta_command("%theme")
+                elif selected_command == "/theme":
+                    # Running /theme without arguments shows the theme list
+                    return await self.process_meta_command("/theme")
 
-                elif selected_command == "%session":
-                    self.terminal_ui.print_message("ℹ️  Gestión de Sesiones (%session)", style="bold cyan")
-                    self.terminal_ui.print_message("Uso: %session <subcomando> [argumentos]", style="blue")
-                    self.terminal_ui.print_message("Subcomandos disponibles:", style="yellow")
-                    self.terminal_ui.print_message("  • list           : 📋 Muestra todas las sesiones guardadas.", style="dim")
-                    self.terminal_ui.print_message("  • save <nombre>  : 💾 Guarda la sesión actual.", style="dim")
-                    self.terminal_ui.print_message("  • load <nombre>  : 🔄 Carga una sesión anterior.", style="dim")
-                    self.terminal_ui.print_message("  • new [nombre]   : ✨ Inicia una nueva sesión limpia.", style="dim")
-                    self.terminal_ui.print_message("  • delete <nombre>: 🗑️  Elimina una sesión guardada.", style="dim")
-                    self.terminal_ui.print_message("\nEjemplo: %session save mi_proyecto", style="italic dim")
+                elif selected_command == "/session":
+                    self.terminal_ui.print_message("ℹ️  Session Management (/session)", style="bold cyan")
+                    self.terminal_ui.print_message("Usage: /session <subcommand> [arguments]", style="blue")
+                    self.terminal_ui.print_message("Available subcommands:", style="yellow")
+                    self.terminal_ui.print_message("  • list           : 📋 Shows all saved sessions.", style="dim")
+                    self.terminal_ui.print_message("  • save <name>    : 💾 Saves current session.", style="dim")
+                    self.terminal_ui.print_message("  • load <name>    : 🔄 Loads a previous session.", style="dim")
+                    self.terminal_ui.print_message("  • new [name]     : ✨ Starts a new clean session.", style="dim")
+                    self.terminal_ui.print_message("  • delete <name>  : 🗑️  Deletes a saved session.", style="dim")
+                    self.terminal_ui.print_message("\nExample: /session save my_project", style="italic dim")
                 
-                elif selected_command == "%init":
-                    self.terminal_ui.print_message("ℹ️  Uso: %init [archivos]", style="blue")
-                    self.terminal_ui.print_message("Ejemplo: %init README.md,src/main.py", style="dim")
-                    self.terminal_ui.print_message("Tip: Usa este comando para cargar contexto específico en la memoria.", style="dim")
+                elif selected_command == "/init":
+                    self.terminal_ui.print_message("ℹ️  Usage: /init [files]", style="blue")
+                    self.terminal_ui.print_message("Example: /init README.md,src/main.py", style="dim")
+                    self.terminal_ui.print_message("Tip: Use this command to load specific context into memory.", style="dim")
             
             return True
 
-        if user_input.lower().strip().startswith('%compress'):
+        # Agent instructions management command (workspace or global)
+        if user_input.lower().strip().startswith('/instructions'):
+            config_manager = ConfigManager()
+
+            options = [
+                ("add_project", "➕ Add instruction (Workspace)"),
+                ("add_global", "➕ Add instruction (Global)"),
+                ("list", "📋 List current instructions"),
+                ("remove_project", "🗑️ Remove instruction (Workspace)"),
+                ("remove_global", "🗑️ Remove instruction (Global)"),
+                ("clear_project", "🧹 Clear all (Workspace)"),
+                ("clear_global", "🧹 Clear all (Global)"),
+            ]
+
+            selected = await self._show_radiolist(title="Agent Instructions", text="Select an action:", values=options)
+            if not selected:
+                self.terminal_ui.print_message("Operation canceled.", style="dim")
+                return True
+
+            # Helper to load list
+            def _get_list(scope: str):
+                if scope == 'global':
+                    return config_manager.load_global_config().get('agent_instructions', []) or []
+                return config_manager.load_project_config().get('agent_instructions', []) or []
+
+            # Helper to save list
+            def _save_list(scope: str, lst):
+                if scope == 'global':
+                    config_manager.set_global_config('agent_instructions', lst)
+                else:
+                    config_manager.set_project_config('agent_instructions', lst)
+
+            if selected in ('add_project', 'add_global'):
+                scope = 'project' if selected == 'add_project' else 'global'
+                instr = await self._show_input(title="New Instruction", text=f"Write the instruction for the agent ({scope}):")
+                if not instr:
+                    self.terminal_ui.print_message("No instruction provided. Canceled.", style="yellow")
+                    return True
+                lst = _get_list(scope)
+                lst.append(instr)
+                _save_list(scope, lst)
+                self.terminal_ui.print_message(f"Instruction saved in {scope}.", style="green")
+                return True
+
+            if selected == 'list':
+                global_list = _get_list('global')
+                project_list = _get_list('project')
+                if not global_list and not project_list:
+                    self.terminal_ui.print_message("No instructions configured.", style="yellow")
+                    return True
+                if project_list:
+                    self.terminal_ui.print_message("Instructions (Workspace):", style="bold cyan")
+                    for i, itm in enumerate(project_list, 1):
+                        self.terminal_ui.print_message(f"  {i}. {itm}", style="dim")
+                if global_list:
+                    self.terminal_ui.print_message("Instructions (Global):", style="bold magenta")
+                    for i, itm in enumerate(global_list, 1):
+                        self.terminal_ui.print_message(f"  {i}. {itm}", style="dim")
+                return True
+
+            if selected in ('remove_project', 'remove_global'):
+                scope = 'project' if selected == 'remove_project' else 'global'
+                lst = _get_list(scope)
+                if not lst:
+                    self.terminal_ui.print_message(f"No instructions in {scope} to remove.", style="yellow")
+                    return True
+                options = [(str(i), itm) for i, itm in enumerate(lst, 1)]
+                chosen = await self._show_radiolist(title="Remove Instruction", text="Select the instruction to remove:", values=options)
+                if not chosen:
+                    self.terminal_ui.print_message("Operation canceled.", style="dim")
+                    return True
+                idx = int(chosen) - 1
+                removed = lst.pop(idx)
+                _save_list(scope, lst)
+                self.terminal_ui.print_message(f"Instruction removed: {removed}", style="green")
+                return True
+
+            if selected in ('clear_project', 'clear_global'):
+                scope = 'project' if selected == 'clear_project' else 'global'
+                _save_list(scope, [])
+                self.terminal_ui.print_message(f"All instructions from {scope} have been cleared.", style="green")
+                return True
+
+            return True
+
+        if user_input.lower().strip().startswith('/compress'):
             force = 'force' in user_input.lower()
-            self.terminal_ui.print_message("Resumiendo historial de conversación...", style="yellow")
-            if force:
-                self.terminal_ui.print_message("⚠️ Modo FORCE activado: se truncará el historial si excede los límites de tokens.", style="bold red")
             
-            summary = self.llm_service.summarize_conversation_history(force_truncate=force)
+            # Validar que el historial tenga contenido antes de intentar resumir
+            if not self.llm_service.conversation_history:
+                self.terminal_ui.print_message("⚠️ Not enough history to compress.", style="yellow")
+                return True
+
+            self.terminal_ui.print_message("Summarizing conversation history...", style="yellow")
+            if force:
+                self.terminal_ui.print_message("⚠️ FORCE mode activated: history will be truncated if exceeding token limits.", style="bold red")
+            
+            try:
+                # Get summary generated by summarize_conversation_history
+                summary = self.llm_service.summarize_conversation_history(force_truncate=force)
+            except Exception as e:
+                self.terminal_ui.print_message(f"Error generating summary: {e}", style="red")
+                return True
 
             # Validar el resumen: error explícito, o string vacío (fallo silencioso del LLM)
             summary_failed = (
                 not summary
                 or summary.startswith("Error")
-                or summary.startswith("No se pudo")
+                or summary.startswith("Could not")
             )
 
             if summary_failed:
-                error_msg = summary if summary else "No se pudo generar el resumen (el modelo devolvió una respuesta vacía)."
+                error_msg = summary if summary else "Could not generate summary (model returned an empty response)."
                 self.terminal_ui.print_message(error_msg, style="red")
                 if "RateLimitError" in error_msg or "quota" in error_msg.lower():
-                    self.terminal_ui.print_message("\n💡 Tip: El modelo ha alcanzado su límite de cuota. Prueba usando [bold]%compress force[/bold] para resumir solo la parte más reciente que quepa en el límite.", style="cyan")
+                    self.terminal_ui.print_message("\n💡 Tip: Model has reached its quota limit. Try using [bold]/compress force[/bold] to summarize only the most recent part that fits.", style="cyan")
             else:
-                # Usar la lógica del HistoryManager para una compresión correcta
-                # La clave: el resumen se inserta como SystemMessage, NO como AIMessage
-                
-                # Obtener el resumen generado por summarize_conversation_history
-                # Este método ya recupera el resumen del historial actual
-                summary = self.llm_service.summarize_conversation_history(
-                    self.llm_service.conversation_history,
-                    force_truncate='force' in user_input.lower()
+                # Mostrar el resumen en un panel
+                summary_panel = Panel(
+                    Markdown(summary),
+                    title="[bold green]📊 Compressed History Summary[/bold green]",
+                    border_style="green",
+                    padding=(1, 2)
                 )
                 
-                # Crear una SystemMessage nueva con el resumen
-                summary_sys_msg = SystemMessage(content=f"📊 Resumen de conversación previa (historial comprimido):\n\n{summary}")
+                # Create a new SystemMessage with the summary
+                summary_sys_msg = SystemMessage(content=f"📊 Previous conversation summary (compressed history):\n\n{summary}")
                 
-                # Construir nuevo historial: SystemMessage original + el resumen + mensajes recientes si se desea conservar
-                # Pero %compress debe limpiar el historial a un estado limpio
-                # Entonces: solo SystemMessage + resumen
+                # Get recent messages (last 10)
+                recent_messages = self.llm_service.conversation_history[-10:]
+                
+                # Clean up messages that could break LLM message sequence (repeated SystemMessages or orphaned ToolMessages)
+                while recent_messages and isinstance(recent_messages[0], (SystemMessage, ToolMessage)):
+                    recent_messages.pop(0)
+                
+                # Obtener mensaje de sistema base
                 base_system_message = get_system_message(self.llm_service)
-                combined_system = SystemMessage(content=f"{base_system_message.content}\n\n{summary_sys_msg.content}")
                 
-                new_history = [combined_system]
+                # NO preservamos el project_context_msg en el historial de mensajes.
+                # El servicio LLM (_prepare_payload) ya lo inyecta automáticamente 
+                # en el System Message si no está presente, lo cual es más eficiente.
+                
+                # Nuevo historial: Base + Resumen + Recientes
+                new_history = [base_system_message, summary_sys_msg]
+                new_history.extend(recent_messages)
+                
                 self.llm_service.conversation_history = new_history
                 # Usar .copy() para que agent_state tenga su propia lista independiente
                 self.agent_state.messages = new_history.copy()
                 # Persistir el historial comprimido en disco
                 self.llm_service._save_history(self.llm_service.conversation_history)
                 
-                # NOTA: El resumen no se muestra en el chat log porque se guardó en el SystemMessage
-                # Solo mostrar un mensaje de éxito simple para que el usuario sepa que terminó
+                # Show result to user
                 if hasattr(self.terminal_ui, "clear_chat"):
                     self.terminal_ui.clear_chat()
-                    self.terminal_ui.print_message("🗜️ **Historial comprimido exitosamente.** Contexto previo condensado.", style="green")
+                    # In TUI, console.print writes to ChatLogWidget
+                    self.terminal_ui.console.print(summary_panel)
+                    self.terminal_ui.print_message(f"🗜️ **History compressed successfully.** Kept the last {len(recent_messages)} messages for context.", style="green")
                 else:
-                    # Terminal clásica: panel Rich simple
-                    from rich.panel import Panel
-                    from rich.markdown import Markdown
-                    self.terminal_ui.console.print(Panel(Markdown("✅ **Historial comprimido exitosamente.**"), border_style="green", title="[bold green]📊 Compresión Completada[/bold green]"))
+                    # Classic terminal
+                    self.terminal_ui.console.print(summary_panel)
+                    self.terminal_ui.console.print(Panel(Markdown(f"✅ **History compressed successfully.** Kept the last {len(recent_messages)} messages."), border_style="green"))
             return True
 
-        if user_input.lower().strip() == '%models':
+        if user_input.lower().strip() == '/summarize':
+            self.terminal_ui.print_message("🔄 Summarizing history to improve context...", style="yellow")
+            
+            result = self.llm_service.force_summarize_history()
+            
+            if "successfully" in result.lower():
+                self.terminal_ui.print_message(result, style="green")
+                self.terminal_ui.print_message("💡 The agent should now maintain the conversation thread better.", style="cyan")
+            else:
+                self.terminal_ui.print_message(f"⚠️ {result}", style="yellow")
+            
+            return True
+
+        if user_input.lower().strip() == '/reasoning':
+            current_effort = self.llm_service.generation_params.get("reasoning_effort", "medium")
+            values = [
+                ("low", "Low (fast, less reasoning)"),
+                ("medium", "Medium (balanced)"),
+                ("high", "High (deeper, may take longer)"),
+            ]
+
+            selected_effort = await self._show_radiolist(
+                title="Reasoning Level",
+                text=f"Current level: {current_effort}\n\nSelect reasoning effort for compatible models:",
+                values=values,
+                default=current_effort if current_effort in {"low", "medium", "high"} else "medium",
+            )
+
+            if not selected_effort:
+                self.terminal_ui.print_message("Configuration canceled.", style="dim")
+                return True
+
+            self.llm_service.generation_params["reasoning_effort"] = selected_effort
+            os.environ["KOGNITERM_REASONING_EFFORT"] = selected_effort
+
+            config_manager = ConfigManager()
+            config_manager.set_global_config("reasoning_effort", selected_effort)
+
+            self.terminal_ui.print_message(
+                f"✅ Reasoning level updated to: {selected_effort}",
+                style="green"
+            )
+            self.terminal_ui.print_message(
+                "ℹ️ Will apply to the next response and is persisted in global config.",
+                style="dim"
+            )
+            return True
+
+        if user_input.lower().strip() == '/models':
             from prompt_toolkit.shortcuts import radiolist_dialog
             import httpx
             import json
@@ -427,10 +714,10 @@ class MetaCommandProcessor:
                 try:
                     google_key = os.environ.get("GOOGLE_API_KEY")
                     if not google_key:
-                        self.terminal_ui.print_message("⚠️ No se encontró GOOGLE_API_KEY en el entorno.", style="yellow")
+                        self.terminal_ui.print_message("⚠️ GOOGLE_API_KEY not found in environment.", style="yellow")
                         return []
                     
-                    self.terminal_ui.print_message("⏳ Obteniendo modelos actualizados de Google AI...", style="dim")
+                    self.terminal_ui.print_message("⏳ Fetching updated models from Google AI...", style="dim")
                     async with httpx.AsyncClient() as client:
                         # Usar la API de Google para listar modelos
                         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}"
@@ -445,7 +732,7 @@ class MetaCommandProcessor:
                                     model_id = m['name'].replace('models/', 'gemini/')
                                     display_name = m.get('displayName', m['name'].split('/')[-1])
                                     
-                                    # Añadir info de versión o capacidades si es relevante
+                                    # Add version or capability info if relevant
                                     description = m.get('description', '')
                                     version = ""
                                     if "1.5" in model_id: version = " (1.5)"
@@ -458,16 +745,16 @@ class MetaCommandProcessor:
                             models.sort(key=lambda x: x[0], reverse=True)
                             return models
                         else:
-                            self.terminal_ui.print_message(f"⚠️ Error API Google: {response.status_code}", style="yellow")
+                            self.terminal_ui.print_message(f"⚠️ Google API Error: {response.status_code}", style="yellow")
                             return []
                 except Exception as e:
-                    self.terminal_ui.print_message(f"⚠️ Error al conectar con Google: {e}", style="red")
+                    self.terminal_ui.print_message(f"⚠️ Error connecting with Google: {e}", style="red")
                     return []
 
-            # Función auxiliar para obtener modelos de OpenRouter
+            # Helper function to fetch OpenRouter models
             async def _fetch_openrouter_models():
                 try:
-                    self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de OpenRouter...", style="dim")
+                    self.terminal_ui.print_message("⏳ Fetching models list from OpenRouter...", style="dim")
                     async with httpx.AsyncClient() as client:
                         response = await client.get("https://openrouter.ai/api/v1/models")
                         if response.status_code == 200:
@@ -494,16 +781,16 @@ class MetaCommandProcessor:
                             models.sort(key=lambda x: x[1])
                             return models
                         else:
-                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de OpenRouter: {response.status_code}", style="yellow")
+                            self.terminal_ui.print_message(f"⚠️ Error fetching OpenRouter models: {response.status_code}", style="yellow")
                             return []
                 except Exception as e:
-                    self.terminal_ui.print_message(f"⚠️ Excepción al conectar con OpenRouter: {e}", style="red")
+                    self.terminal_ui.print_message(f"⚠️ Exception connecting to OpenRouter: {e}", style="red")
                     return []
 
-            # Función auxiliar para obtener modelos de Ollama Cloud
+            # Helper function to fetch Ollama Cloud models
             async def _fetch_ollama_cloud_models():
                 try:
-                    self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de Ollama Cloud...", style="dim")
+                    self.terminal_ui.print_message("⏳ Fetching models list from Ollama Cloud...", style="dim")
                     api_key = os.getenv("OLLAMA_CLOUD_API_KEY")
                     headers = {}
                     if api_key:
@@ -514,7 +801,7 @@ class MetaCommandProcessor:
                         if response.status_code == 200:
                             data = response.json()
                             if not isinstance(data, dict) or 'models' not in data:
-                                self.terminal_ui.print_message("⚠️ Respuesta inesperada de Ollama Cloud: no se encontró la clave 'models'", style="yellow")
+                                self.terminal_ui.print_message("⚠️ Unexpected response from Ollama Cloud: 'models' key not found", style="yellow")
                                 return []
                             models = []
                             for m in data.get('models', []):
@@ -527,10 +814,10 @@ class MetaCommandProcessor:
                             models.sort(key=lambda x: x[1])
                             return models
                         else:
-                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de Ollama Cloud: {response.status_code}", style="yellow")
+                            self.terminal_ui.print_message(f"⚠️ Error fetching Ollama Cloud models: {response.status_code}", style="yellow")
                             return []
                 except Exception as e:
-                    self.terminal_ui.print_message(f"⚠️ Excepción al conectar con Ollama Cloud: {e}", style="red")
+                    self.terminal_ui.print_message(f"⚠️ Exception connecting to Ollama Cloud: {e}", style="red")
                     return []
 
             # Función auxiliar para obtener modelos de KiloCode Gateway
@@ -541,7 +828,7 @@ class MetaCommandProcessor:
                         self.terminal_ui.print_message("⚠️ No se encontró KILOCODE_API_KEY en el entorno.", style="yellow")
                         return []
 
-                    self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de KiloCode Gateway...", style="dim")
+                    self.terminal_ui.print_message("⏳ Fetching models list from KiloCode Gateway...", style="dim")
                     import httpx
                     async with httpx.AsyncClient() as client:
                         response = await client.get(
@@ -576,10 +863,10 @@ class MetaCommandProcessor:
                             models.sort(key=lambda x: x[1])
                             return models
                         else:
-                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de KiloCode: {response.status_code}", style="yellow")
+                            self.terminal_ui.print_message(f"⚠️ Error fetching KiloCode models: {response.status_code}", style="yellow")
                             return []
                 except Exception as e:
-                    self.terminal_ui.print_message(f"⚠️ Excepción al conectar con KiloCode Gateway: {e}", style="red")
+                    self.terminal_ui.print_message(f"⚠️ Exception connecting to KiloCode Gateway: {e}", style="red")
                     return []
 
             # Función auxiliar para obtener modelos de Ollama Local
@@ -598,8 +885,8 @@ class MetaCommandProcessor:
                         base + "/tags",
                         ollama_url.rstrip('/') + "/tags",
                     ]
-                    # Mostrar las rutas que vamos a intentar
-                    self.terminal_ui.print_message(f"⏳ Obteniendo modelos de Ollama Local en {candidates[0]} (probando alternativas)...", style="dim")
+                    # Show routes we're going to try
+                    self.terminal_ui.print_message(f"⏳ Fetching Ollama Local models at {candidates[0]} (trying alternatives)...", style="dim")
                     import httpx
                     async with httpx.AsyncClient() as client:
                         response = None
@@ -612,12 +899,12 @@ class MetaCommandProcessor:
                                 response = None
                                 continue
                         if not response:
-                            self.terminal_ui.print_message("⚠️ No se pudo conectar a Ollama Local en las rutas esperadas.", style="yellow")
+                            self.terminal_ui.print_message("⚠️ Could not connect to Ollama Local on expected routes.", style="yellow")
                             return []
                         if response.status_code == 200:
                             data = response.json()
                             models = []
-                            # Aceptar varias formas de respuesta: {'models': [...]}, {'data': [...]}, o una lista
+                            # Accept various response formats: {'models': [...]}, {'data': [...]}, or a list
                             if isinstance(data, dict) and 'models' in data:
                                 items = data.get('models', [])
                             elif isinstance(data, dict) and 'data' in data:
@@ -642,7 +929,7 @@ class MetaCommandProcessor:
                             models.sort(key=lambda x: x[1])
                             return models
                         else:
-                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de Ollama Local: {response.status_code}", style="yellow")
+                            self.terminal_ui.print_message(f"⚠️ Error fetching models from Ollama Local: {response.status_code}", style="yellow")
                             return []
                 except Exception as e:
                     self.terminal_ui.print_message(f"⚠️ Excepción al conectar con Ollama Local: {e}", style="red")
@@ -659,7 +946,7 @@ class MetaCommandProcessor:
             elif current_model.startswith("ollama/"):
                 # Distinguir entre local y cloud según variables de entorno y configuración explícita.
                 api_base = os.environ.get("OLLAMA_API_BASE")
-                cloud_base = os.environ.get("OLLAMA_CLOUD_API_BASE", "https://ollama.com")
+                cloud_base = os.environ.get("OLLAMA_CLOUD_API_BASE", "https://ollama.com/v1")
                 cloud_key = os.environ.get("OLLAMA_CLOUD_API_KEY")
                 explicit = (os.environ.get("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
 
@@ -680,7 +967,7 @@ class MetaCommandProcessor:
                             current_provider = "ollama"
                     else:
                         # Sin API_BASE: si hay clave cloud, preferir cloud para evitar usar local por defecto si no está configurado
-                        # Pero si no hay clave cloud, el único que queda es local.
+                        # But if no cloud key, the only one left is local.
                         # MEJORA: Si estamos aquí y el modelo no tiene prefijo cloud, preferir local.
                         current_provider = "ollama" if not cloud_key else "ollama_cloud"
             elif "gpt" in current_model:
@@ -723,9 +1010,9 @@ class MetaCommandProcessor:
                     ]
             elif current_provider == "ollama_cloud":
                 target_list = await _fetch_ollama_cloud_models()
-                # Si no hay modelos, mostrar solo un mensaje, no hacer fallback a OpenRouter
+                # If no models, show only a message, do not fallback to OpenRouter
                 if not target_list:
-                    self.terminal_ui.print_message("⚠️ No se encontraron modelos en Ollama Cloud. Verifica tu API Key o acceso.", style="yellow")
+                    self.terminal_ui.print_message("⚠️ No models found in Ollama Cloud. Check your API Key or access.", style="yellow")
                     target_list = []
             elif current_provider == "openai":
                 target_list = [
@@ -761,17 +1048,25 @@ class MetaCommandProcessor:
                 values.append((model_id, model_label))
             
             selected_model = await self._show_radiolist(
-                title=f"Seleccionar Modelo de IA ({len(values)} disponibles)",
-                text=f"Modelo actual: {current_model}\nProveedor: {current_provider.capitalize()}\n\nEscribe para buscar/filtrar en la lista (clásico):",
+                title=f"Select AI Model ({len(values)} available)",
+                text=f"Current model: {current_model}\nProvider: {current_provider.capitalize()}\n\nType to search/filter in the list:",
                 values=values,
                 default=current_model if any(m[0] == current_model for m in values) else None
             )
 
             if selected_model:
                 if selected_model != current_model:
-                    self.terminal_ui.print_message(f"Cambiando modelo a: {selected_model}...", style="yellow")
+                    self.terminal_ui.print_message(f"Changing model to: {selected_model}...", style="yellow")
                     try:
+                        # Extraer el proveedor del modelo (ej: "openrouter" de "openrouter/google/gemini-...")
+                        model_prefix = selected_model.split('/')[0] if '/' in selected_model else None
+                        
                         self.llm_service.set_model(selected_model)
+                        
+                        # Actualizar proveedor preferido en MultiProviderManager
+                        from kogniterm.core.multi_provider_manager import set_preferred_provider
+                        if model_prefix:
+                            set_preferred_provider(model_prefix)
                         
                         # Persistir en .env de forma inteligente según el proveedor
                         if DOTENV_AVAILABLE:
@@ -782,14 +1077,14 @@ class MetaCommandProcessor:
                                     gemini_pure_name = selected_model.replace("gemini/", "")
                                     set_key(dotenv_path, "GEMINI_MODEL", gemini_pure_name)
                                     os.environ["GEMINI_MODEL"] = gemini_pure_name
-                                    # SIEMPRE establecer LITELLM_MODEL para consistencia
+                                    # ALWAYS set LITELLM_MODEL for consistency
                                     set_key(dotenv_path, "LITELLM_MODEL", selected_model)
                                     os.environ["LITELLM_MODEL"] = selected_model
                                 else:
                                     # Para otros proveedores (OpenRouter, OpenAI, etc.)
                                     set_key(dotenv_path, "LITELLM_MODEL", selected_model)
                                     os.environ["LITELLM_MODEL"] = selected_model
-                                    # Limpiar GEMINI_MODEL
+                                    # Clear GEMINI_MODEL
                                     unset_key(dotenv_path, "GEMINI_MODEL")
                                     if "GEMINI_MODEL" in os.environ: del os.environ["GEMINI_MODEL"]
                         
@@ -797,21 +1092,21 @@ class MetaCommandProcessor:
                         config_manager = ConfigManager()
                         config_manager.set_global_config("default_model", selected_model)
                         
-                        self.terminal_ui.print_message(f"✅ Modelo cambiado exitosamente a: {selected_model}", style="green")
+                        self.terminal_ui.print_message(f"✅ Model successfully changed to: {selected_model}", style="green")
                         # Actualizar footer si estamos en TUI
                         if hasattr(self.kogniterm_app, "update_status_footer"):
                             self.kogniterm_app.update_status_footer(selected_model)
-                        self.terminal_ui.print_message(f"ℹ️  Configuración persistida en .env ({'GEMINI_MODEL' if selected_model.startswith('gemini/') else 'LITELLM_MODEL'}).", style="dim")
-                        self.terminal_ui.print_message(f"ℹ️  Configuración guardada como predeterminada.", style="dim")
+                        self.terminal_ui.print_message(f"ℹ️  Configuration persisted in .env ({'GEMINI_MODEL' if selected_model.startswith('gemini/') else 'LITELLM_MODEL'}).", style="dim")
+                        self.terminal_ui.print_message(f"ℹ️  Configuration saved as default.", style="dim")
                     except Exception as e:
-                        self.terminal_ui.print_message(f"❌ Error al cambiar el modelo: {e}", style="red")
+                        self.terminal_ui.print_message(f"❌ Error changing model: {e}", style="red")
                 else:
-                    self.terminal_ui.print_message("Modelo no cambiado (selección idéntica).", style="dim")
+                    self.terminal_ui.print_message("Model not changed (identical selection).", style="dim")
             
             return True
 
-        if user_input.lower().strip() == '%summarymodel':
-            """Permite cambiar el modelo usado para resumir/comprimir el historial."""
+        if user_input.lower().strip() == '/summarymodel':
+            """Allows changing the model used for summarizing/compressing history."""
             current_summary_model = self.llm_service.summary_model
             current_model = self.llm_service.model_name
             current_provider = self.llm_service.model_name.split('/')[0] if '/' in self.llm_service.model_name else 'google'
@@ -824,7 +1119,7 @@ class MetaCommandProcessor:
                         self.terminal_ui.print_message("⚠️ No se encontró GOOGLE_API_KEY en el entorno.", style="yellow")
                         return []
                     
-                    self.terminal_ui.print_message("⏳ Obteniendo modelos actualizados de Google AI...", style="dim")
+                    self.terminal_ui.print_message("⏳ Fetching updated models from Google AI...", style="dim")
                     async with httpx.AsyncClient() as client:
                         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}"
                         response = await client.get(url)
@@ -853,7 +1148,7 @@ class MetaCommandProcessor:
 
             async def _fetch_openrouter_models():
                 try:
-                    self.terminal_ui.print_message("⏳ Obteniendo lista de modelos de OpenRouter...", style="dim")
+                    self.terminal_ui.print_message("⏳ Fetching models list from OpenRouter...", style="dim")
                     async with httpx.AsyncClient() as client:
                         response = await client.get("https://openrouter.ai/api/v1/models")
                         if response.status_code == 200:
@@ -878,7 +1173,7 @@ class MetaCommandProcessor:
                             models.sort(key=lambda x: x[1])
                             return models
                         else:
-                            self.terminal_ui.print_message(f"⚠️ Error al obtener modelos de OpenRouter: {response.status_code}", style="yellow")
+                            self.terminal_ui.print_message(f"⚠️ Error fetching models from OpenRouter: {response.status_code}", style="yellow")
                             return []
                 except Exception as e:
                     self.terminal_ui.print_message(f"⚠️ Error al conectar con OpenRouter: {e}", style="red")
@@ -886,7 +1181,7 @@ class MetaCommandProcessor:
 
             async def _fetch_ollama_cloud_models():
                 try:
-                    self.terminal_ui.print_message("⏳ Obteniendo modelos de Ollama Cloud...", style="dim")
+                    self.terminal_ui.print_message("⏳ Fetching models from Ollama Cloud...", style="dim")
                     async with httpx.AsyncClient() as client:
                         response = await client.get(
                             "https://ollama.com/api/models",
@@ -926,18 +1221,18 @@ class MetaCommandProcessor:
                 target_list = await _fetch_openrouter_models()
 
             # Agregar opción para usar el mismo que el modelo principal
-            values = [(current_model, f"Usar modelo principal ({current_model}) [Recomendado]")]
+            values = [(current_model, f"Use main model ({current_model}) [Recommended]")]
             for model_id, model_label in target_list:
                 if model_id != current_model:
                     values.append((model_id, model_label))
             
             # También agregar opción de Gemini 1.5 Flash como fallback gratuito
             if current_model != "gemini/gemini-1.5-flash":
-                values.append(("gemini/gemini-1.5-flash", "Gemini 1.5 Flash (Gratis, rápido)"))
+                values.append(("gemini/gemini-1.5-flash", "Gemini 1.5 Flash (Free, fast)"))
             
             selected_model = await self._show_radiolist(
-                title="Seleccionar Modelo de Resumen",
-                text=f"Modelo actual de resumen: {current_summary_model}\nModelo principal: {current_model}\n\nEste modelo se usa para comprimir el historial con %compress:",
+                title="Select Summary Model",
+                text=f"Current summary model: {current_summary_model}\nMain model: {current_model}\n\nThis model is used to compress history with /compress:",
                 values=values,
                 default=current_summary_model
             )
@@ -956,36 +1251,36 @@ class MetaCommandProcessor:
                         config_manager = ConfigManager()
                         config_manager.set_global_config("summary_model", selected_model)
                         
-                        self.terminal_ui.print_message(f"✅ Modelo de resumen cambiado a: {selected_model}", style="green")
-                        self.terminal_ui.print_message(f"ℹ️  Este modelo se usará para comprimir el historial con %compress", style="dim")
+                        self.terminal_ui.print_message(f"✅ Summary model changed to: {selected_model}", style="green")
+                        self.terminal_ui.print_message(f"ℹ️  This model will be used to compress history with /compress", style="dim")
                     except Exception as e:
-                        self.terminal_ui.print_message(f"❌ Error al cambiar el modelo de resumen: {e}", style="red")
+                        self.terminal_ui.print_message(f"❌ Error changing summary model: {e}", style="red")
                 else:
-                    self.terminal_ui.print_message("Modelo de resumen no cambiado (selección idéntica).", style="dim")
+                    self.terminal_ui.print_message("Summary model not changed (identical selection).", style="dim")
             
             return True
 
-        if user_input.lower().strip() == '%provider':
+        if user_input.lower().strip() == '/provider':
             from prompt_toolkit.shortcuts import radiolist_dialog
 
             providers = [
-                ("openrouter", "🌐 OpenRouter (Acceso a múltiples modelos)"),
+                ("openrouter", "🌐 OpenRouter (Access to multiple models)"),
                 ("google", "🤖 Google AI (Gemini nativo)"),
                 ("openai", "🧠 OpenAI (GPT-4, GPT-3.5)"),
                 ("anthropic", "🎭 Anthropic (Claude)"),
                 ("ollama", "🦙 Ollama Local (servidor local)",),
-                ("ollama_cloud", "☁️  Ollama Cloud (Modelos de Ollama)"),
+                ("ollama_cloud", "☁️  Ollama Cloud (Ollama Models)"),
                 ("kilocode", "⚡ KiloCode Gateway (Routing inteligente)"),
             ]
 
             selected_provider = await self._show_radiolist(
-                title="Seleccionar Proveedor de LLM",
-                text="Selecciona el proveedor que deseas utilizar. Esto actualizará tu configuración predeterminada:",
+                title="Select LLM Provider",
+                text="Select the provider you wish to use. This will update your default configuration:",
                 values=providers
             )
 
             if selected_provider:
-                self.terminal_ui.print_message(f"Cambiando proveedor a: {selected_provider.capitalize()}...", style="yellow")
+                self.terminal_ui.print_message(f"Changing provider to: {selected_provider.capitalize()}...", style="yellow")
                 # Definir modelo por defecto para cada proveedor
                 default_models = {
                     "openrouter": "openrouter/google/gemini-2.0-flash-exp:free",
@@ -1017,7 +1312,10 @@ class MetaCommandProcessor:
                         config_manager = ConfigManager()
                         config_manager.set_global_config("ollama_api_base", ollama_url)
                         config_manager.set_global_config("ollama_provider_target", "local")
-                        self.terminal_ui.print_message(f"🔗 URL de Ollama Local configurada: {ollama_url}", style="dim")
+                        # Enmascarar URL si contiene credenciales
+                        masked_url = mask_url_credentials(ollama_url)
+                            
+                        self.terminal_ui.print_message(f"🔗 URL de Ollama Local configurada: {masked_url}", style="dim")
                         self.terminal_ui.print_message(f"🎯 Target de Ollama establecido a: LOCAL", style="dim")
                     else:
                         os.environ["OLLAMA_PROVIDER_TARGET"] = "local"
@@ -1036,6 +1334,9 @@ class MetaCommandProcessor:
                     
                     # Actualizar LLMService
                     self.llm_service.set_model(new_model)
+                    # Actualizar proveedor preferido en MultiProviderManager
+                    from kogniterm.core.multi_provider_manager import set_preferred_provider
+                    set_preferred_provider(selected_provider)
                     # Persistir en .env si es posible
                     if DOTENV_AVAILABLE:
                         dotenv_path = find_dotenv()
@@ -1044,29 +1345,153 @@ class MetaCommandProcessor:
                     # Persistir en ConfigManager
                     config_manager = ConfigManager()
                     config_manager.set_global_config("default_model", new_model)
-                    self.terminal_ui.print_message(f"✅ Proveedor cambiado a {selected_provider.capitalize()}.", style="green")
+                    self.terminal_ui.print_message(f"✅ Provider changed to {selected_provider.capitalize()}.", style="green")
                     # Actualizar footer si estamos en TUI
                     if hasattr(self.kogniterm_app, "update_status_footer"):
                         self.kogniterm_app.update_status_footer(new_model)
-                    self.terminal_ui.print_message(f"🤖 Modelo predeterminado establecido: {new_model}", style="dim")
-                    self.terminal_ui.print_message("ℹ️  Puedes cambiar el modelo específico con %models", style="italic dim")
+                    self.terminal_ui.print_message(f"🤖 Default model set: {new_model}", style="dim")
+                    self.terminal_ui.print_message("ℹ️  You can change the specific model with /models", style="italic dim")
                 except Exception as e:
-                    self.terminal_ui.print_message(f"❌ Error al cambiar el proveedor: {e}", style="red")
+                    self.terminal_ui.print_message(f"❌ Error changing provider: {e}", style="red")
             
             return True
 
-        if user_input.lower().strip() == '%keys':
+        if user_input.lower().strip() == '/keys':
             await self._manage_keys_interactive()
             return True
 
-        if user_input.lower().strip().startswith('%embeddings'):
+        if user_input.lower().strip().startswith('/embeddings'):
             await self._manage_embeddings_interactive()
             return True
-        if user_input.lower().strip().startswith('%insights'):
+        if user_input.lower().strip().startswith('/insights'):
             await self._process_insights_command(user_input)
             return True
 
-        return False
+        # ─────────────────────── SKILL COMMANDS ───────────────────────
+        # /skills → listar todas las skills disponibles
+        if user_input.lower().strip() in ('/skills', '/skill'):
+            await self._list_skills_command()
+            return True
+
+        # /skill_name [args_json | key=value ...] → invocar skill directamente
+        if is_meta and hasattr(self.llm_service, 'skill_manager'):
+            slash_cmd = user_input.strip()
+            cmd_parts = slash_cmd.split(None, 1)
+            skill_cmd = cmd_parts[0].lstrip('/')  # ej. "task_tracker"
+            skill_args_raw = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+
+            tool = self.llm_service.get_tool(skill_cmd)
+            if tool is not None:
+                await self._invoke_skill_command(skill_cmd, tool, skill_args_raw)
+                return True
+
+        return is_meta
+
+    async def _list_skills_command(self):
+        """Muestra una tabla con todas las skills disponibles en el sistema."""
+        import json
+        sm = getattr(self.llm_service, 'skill_manager', None)
+        if not sm:
+            self.terminal_ui.print_message("⚠️ SkillManager no disponible.", style="yellow")
+            return
+
+        skills_info = sm.list_skills()
+        if not skills_info:
+            self.terminal_ui.print_message("No hay skills registradas. Usa `skill_factory` para crear una.", style="yellow")
+            return
+
+        table = Table(title="🧩 Skills Disponibles en KogniTerm")
+        table.add_column("Skill", style="cyan", no_wrap=True)
+        table.add_column("Estado", justify="center")
+        table.add_column("Herramientas", justify="right")
+        table.add_column("Categoría", style="dim")
+        table.add_column("Descripción")
+
+        for s in sorted(skills_info, key=lambda x: x['name']):
+            status = "[green]✅ Cargada[/green]" if s['loaded'] else "[yellow]⏸ No cargada[/yellow]"
+            desc = (s.get('description') or "")[:60] + ("…" if len(s.get('description', '')) > 60 else "")
+            table.add_row(
+                f"/{s['name']}",
+                status,
+                str(s['tool_count']),
+                s.get('category', '—'),
+                desc
+            )
+
+        self.terminal_ui.console.print(Padding(table, (1, 2)))
+        self.terminal_ui.print_message(
+            "💡 Invoca una skill directamente: [bold cyan]/nombre_skill[/bold cyan] [dim][args_json opcional][/dim]",
+            style="dim"
+        )
+
+    async def _invoke_skill_command(self, skill_name: str, tool, args_raw: str):
+        """Invoca una skill directamente desde el input del usuario."""
+        import json
+        from rich.panel import Panel
+        from rich.markdown import Markdown
+
+        # Parsear argumentos: JSON o key=value
+        tool_args = {}
+        if args_raw:
+            # Intentar JSON primero
+            try:
+                parsed = json.loads(args_raw)
+                if isinstance(parsed, dict):
+                    tool_args = parsed
+                else:
+                    tool_args = {"input": parsed}
+            except json.JSONDecodeError:
+                # Intentar key=value simple
+                for part in args_raw.split():
+                    if '=' in part:
+                        k, v = part.split('=', 1)
+                        tool_args[k.strip()] = v.strip()
+                    else:
+                        # Argumento posicional → lo asignamos a 'input' o primer parámetro
+                        tool_args['input'] = args_raw
+                        break
+
+        sm = getattr(self.llm_service, 'skill_manager', None)
+        skill_info = sm.get_skill_info(skill_name) if sm else None
+        category = skill_info.get('category', '') if skill_info else ''
+
+        self.terminal_ui.print_message(
+            f"🧩 Ejecutando skill [bold cyan]/{skill_name}[/bold cyan]" +
+            (f" [dim]({category})[/dim]" if category else "") +
+            (f" con args: [dim]{json.dumps(tool_args)}[/dim]" if tool_args else ""),
+            style="blue"
+        )
+
+        try:
+            # Invocar usando el wrapper inject del LLMService
+            result = self.llm_service._invoke_tool_with_interrupt(tool, tool_args)
+            # Consumir generador si es necesario
+            output_parts = []
+            if hasattr(result, '__iter__') and not isinstance(result, str):
+                for chunk in result:
+                    output_parts.append(str(chunk))
+                output = ''.join(output_parts)
+            else:
+                output = str(result)
+
+            # Mostrar resultado en un panel
+            self.terminal_ui.console.print(Padding(
+                Panel(
+                    Markdown(output) if output.strip().startswith('#') or '**' in output else output,
+                    title=f"[bold green]✅ Resultado: /{skill_name}[/bold green]",
+                    border_style="green",
+                    padding=(1, 2)
+                ), (1, 2)
+            ))
+
+            # Registrar en historial de conversación para que el LLM tenga contexto
+            from langchain_core.messages import AIMessage as _AI, ToolMessage as _TM
+            tool_id = f"skill_direct_{skill_name}"
+            self.agent_state.messages.append(_TM(content=output, tool_call_id=tool_id))
+            self.llm_service._save_history(self.agent_state.messages)
+
+        except Exception as e:
+            self.terminal_ui.print_message(f"❌ Error al ejecutar la skill '{skill_name}': {e}", style="red")
 
     async def _manage_keys_interactive(self):
         """Muestra una interfaz interactiva para gestionar API Keys."""
@@ -1081,7 +1506,7 @@ class MetaCommandProcessor:
                     with open(dotenv_path, 'w') as f:
                         f.write("# KogniTerm Environment Variables\n")
                 except Exception as e:
-                    self.terminal_ui.print_message(f"❌ No se pudo crear el archivo .env: {e}", style="red")
+                    self.terminal_ui.print_message(f"❌ Could not create .env file: {e}", style="red")
                     return
 
         common_keys = [
@@ -1133,12 +1558,12 @@ class MetaCommandProcessor:
                     # Usar HTML para que prompt_toolkit renderice los estilos
                     options.append((key, HTML(f'{key:<20} | {status}')))
             
-            options.append(("CUSTOM", "➕ Añadir otra variable..."))
-            options.append(("BACK", "⬅️  Volver"))
+            options.append(("CUSTOM", "➕ Add another variable..."))
+            options.append(("BACK", "⬅️  Back"))
             
             selected_key = await self._show_radiolist(
-                title="Gestión de API Keys / Variables de Entorno",
-                text=f"Archivo: {os.path.basename(dotenv_path)}\nSelecciona una llave para editarla o eliminarla:",
+                title="API Keys / Environment Variables Management",
+                text=f"File: {os.path.basename(dotenv_path)}\nSelect a key to edit or delete it:",
                 values=options
             )
             
@@ -1155,7 +1580,7 @@ class MetaCommandProcessor:
                 else:
                     continue
 
-            # Acción para la llave seleccionada
+            # Action for selected key
             current_val = os.environ.get(selected_key, "")
             masked_val = f"{current_val[:4]}...{current_val[-4:]}" if len(current_val) > 8 else ("****" if current_val else "Vacío")
             
@@ -1163,26 +1588,26 @@ class MetaCommandProcessor:
                 title=f"Acción para {selected_key}",
                 text=f"Variable: {selected_key}\nValor actual: {masked_val}",
                 values=[
-                    ("SET", "✏️  Establecer / Cambiar valor"),
-                    ("DELETE", "🗑️  Eliminar llave"),
-                    ("CANCEL", "🚫 Cancelar")
+                    ("SET", "✏️  Set / Change value"),
+                    ("DELETE", "🗑️  Delete key"),
+                    ("CANCEL", "🚫 Cancel")
                 ]
             )
             
             if action == "SET":
                 new_val = await self._show_input(
-                    title=f"Establecer {selected_key}",
+                    title=f"Set {selected_key}",
                     text=f"Introduce el valor para {selected_key}:",
                     password=True
                 )
                 
                 if new_val is not None: # Permitir valor vacío si el usuario pulsa OK
-                    new_val = new_val.strip() # Limpiar espacios y saltos de línea que pueden truncar la clave
+                    new_val = new_val.strip() # Clean up spaces and newlines that can truncate the key
                     
                     # Validación de seguridad: no permitir guardar API Keys en LITELLM_MODEL
                     if selected_key == "LITELLM_MODEL" and new_val.startswith("AIza"):
                         await self._show_message(
-                            title="⚠️ Error de Configuración",
+                            title="⚠️ Configuration Error",
                             text=f"Parece que estás intentando guardar una API Key en LITELLM_MODEL.\nEsta variable debe contener el nombre del modelo (ej: google/gemini-1.5-flash), no la clave.\n\nLa clave debe ir en GOOGLE_API_KEY o OPENROUTER_API_KEY."
                         )
                         continue
@@ -1200,20 +1625,95 @@ class MetaCommandProcessor:
                         key_len = len(new_val)
                         masked_preview = f"{new_val[:4]}...{new_val[-4:]}" if key_len > 8 else "****"
                         await self._show_message(
-                            title="Éxito", 
-                            text=f"Llave {selected_key} guardada correctamente.\nLongitud: {key_len} caracteres.\nVista previa: {masked_preview}"
+                            title="Success", 
+                            text=f"Key {selected_key} saved successfully.\nLength: {key_len} characters.\nPreview: {masked_preview}"
                         )
                     except Exception as e:
-                        await self._show_message(title="Error", text=f"No se pudo guardar la llave: {e}")
+                        await self._show_message(title="Error", text=f"Could not save key: {e}")
             
             elif action == "DELETE":
                 try:
                     unset_key(dotenv_path, selected_key)
                     if selected_key in os.environ:
                         del os.environ[selected_key]
-                    await self._show_message(title="Éxito", text=f"Llave {selected_key} eliminada del archivo y del entorno.")
+                    await self._show_message(title="Success", text=f"Key {selected_key} deleted from file and environment.")
                 except Exception as e:
-                    await self._show_message(title="Error", text=f"No se pudo eliminar la llave: {e}")
+                    await self._show_message(title="Error", text=f"Could not delete key: {e}")
+
+    def _render_history_in_ui(self, history: list):
+        """Renderiza los mensajes de un historial cargado en la TUI."""
+        if not history:
+            return
+        chat_log = None
+        try:
+            chat_log = self.terminal_ui.app.chat_log
+        except Exception:
+            pass
+
+        for msg in history:
+            msg_type = getattr(msg, "type", None)
+            content = getattr(msg, "content", "")
+            
+            # 1. Manejar HumanMessage
+            if msg_type == "human" or isinstance(msg, HumanMessage):
+                if not content: continue
+                if chat_log is not None:
+                    chat_log.write_user_message(content)
+                else:
+                    self.terminal_ui.print_message(content, is_user_message=True)
+            
+            # 2. Manejar AIMessage (puede tener pensamientos y tool_calls)
+            elif msg_type == "ai" or isinstance(msg, AIMessage):
+                # a) Renderizar Pensamiento (si existe en additional_kwargs)
+                reasoning = ""
+                if hasattr(msg, "additional_kwargs"):
+                    reasoning = msg.additional_kwargs.get("reasoning_content", "")
+                
+                if reasoning:
+                    if chat_log is not None:
+                        # ChatLogWidget.write acepta renderizables
+                        chat_log.write(create_thought_bubble(reasoning))
+                    else:
+                        self.terminal_ui.console.print(create_thought_bubble(reasoning))
+                
+                # b) Renderizar Tool Calls (si existen)
+                tool_calls = getattr(msg, "tool_calls", [])
+                if tool_calls:
+                    for tc in tool_calls:
+                        tool_name = tc.get("name", "unknown")
+                        args = tc.get("args", {})
+                        action_desc = f"Llamando a {tool_name} con {json.dumps(args)}"
+                        
+                        if chat_log is not None:
+                            chat_log.write_tool_notification(tool_name, action_desc)
+                        else:
+                            from kogniterm.terminal.themes import ColorPalette, Icons
+                            from rich.text import Text
+                            notify = Text.from_markup(f"{Icons.TOOL} [bold {ColorPalette.SECONDARY}]Acción:[/] {action_desc}")
+                            self.terminal_ui.console.print(Padding(notify, (0, 4)))
+
+                # c) Renderizar Contenido de Texto
+                if content and isinstance(content, str):
+                    if chat_log is not None:
+                        chat_log.write_agent_message(content)
+                    else:
+                        self.terminal_ui.print_message(content)
+            
+            # 3. Manejar ToolMessage (resultado de ejecución)
+            elif msg_type == "tool" or isinstance(msg, ToolMessage):
+                if not content: continue
+                tool_name = getattr(msg, "name", "tool")
+                
+                if chat_log is not None:
+                    chat_log.write_tool_output(content, tool_name)
+                else:
+                    # En CLI, usar el panel de visual_components
+                    # Detectar si es salida de terminal (bash)
+                    if tool_name == "bash" or "comando" in tool_name.lower():
+                        panel = create_terminal_output_panel(tool_name, content)
+                    else:
+                        panel = create_tool_output_panel(tool_name, content)
+                    self.terminal_ui.console.print(panel)
 
     def _show_themes_table(self):
         """Muestra una tabla con los temas disponibles y sus colores."""
@@ -1258,11 +1758,11 @@ class MetaCommandProcessor:
             table.add_row(name, preview, desc)
             
         self.terminal_ui.console.print(Padding(table, (1, 2)))
-        self.terminal_ui.print_message(f"Usa [bold cyan]%theme <nombre>[/bold cyan] para cambiar.", style="dim")
+        self.terminal_ui.print_message(f"Use [bold cyan]/theme <name>[/bold cyan] to change.", style="dim")
 
     
     async def _process_insights_command(self, user_input: str):
-        """Procesa el comando %insights para mostrar analitica de uso."""
+        """Processes the /insights command to show usage analytics."""
         parts = user_input.strip().split()
         days = 30  # Default
         
@@ -1270,7 +1770,7 @@ class MetaCommandProcessor:
             try:
                 days = int(parts[1])
             except ValueError:
-                self.terminal_ui.print_message("Uso incorrecto. Uso: %insights [dias]", style="yellow")
+                self.terminal_ui.print_message("Uso incorrecto. Uso: /insights [dias]", style="yellow")
                 return
         
         self.terminal_ui.print_message(f"Generando reporte de analitica (ultimos {days} dias)...", style="dim")
@@ -1336,17 +1836,17 @@ class MetaCommandProcessor:
 
         while True:
             options = [
-                ("PROVIDER", f"🌐 Cambiar Proveedor (Actual: {current_provider})"),
+                ("PROVIDER", f"🌐 Change Provider (Current: {current_provider})"),
             ]
             
             if current_provider == "fastembed":
-                options.append(("MODEL", f"🤖 Cambiar Modelo Local (Actual: {current_model})"))
+                options.append(("MODEL", f"🤖 Change Local Model (Current: {current_model})"))
             
-            options.append(("BACK", "⬅️  Volver"))
+            options.append(("BACK", "⬅️  Back"))
 
             choice = await self._show_radiolist(
                 title="Configuración de Embeddings",
-                text=f"Proveedor actual: {current_provider}\nModelo actual: {current_model}\n\nSelecciona una opción:",
+                text=f"Current provider: {current_provider}\nCurrent model: {current_model}\n\nSelect an option:",
                 values=options
             )
 
@@ -1355,14 +1855,14 @@ class MetaCommandProcessor:
 
             if choice == "PROVIDER":
                 providers = [
-                    ("fastembed", "🚀 Local (FastEmbed) - Autónomo y Rápido"),
+                    ("fastembed", "🚀 Local (FastEmbed) - Autonomous and Fast"),
                     ("gemini", "♊ Google Gemini - Alta Calidad (Requiere API Key)"),
                     ("openai", "🧠 OpenAI - Estándar de la Industria (Requiere API Key)"),
                     ("ollama", "🦙 Ollama - Contenedor Externo (Requiere Ollama corriendo)"),
                 ]
                 
                 new_provider = await self._show_radiolist(
-                    title="Seleccionar Proveedor de Embeddings",
+                    title="Select Embedding Provider",
                     text="Elige el proveedor que deseas utilizar:",
                     values=providers,
                     default=current_provider
@@ -1377,22 +1877,22 @@ class MetaCommandProcessor:
                         config_manager.set_global_config("embeddings_model", current_model)
                     
                     await self._show_message(
-                        title="Éxito",
+                        title="Success",
                         text=f"Proveedor de embeddings cambiado a: {new_provider}\n\nNota: Es posible que necesites reiniciar KogniTerm para aplicar los cambios en el servicio activo."
                     )
 
             elif choice == "MODEL" and current_provider == "fastembed":
                 # Lista de modelos populares en fastembed
                 models = [
-                    ("BAAI/bge-small-en-v1.5", "BGE Small (En) - Muy rápido y eficiente"),
+                    ("BAAI/bge-small-en-v1.5", "BGE Small (En) - Very fast and efficient"),
                     ("BAAI/bge-base-en-v1.5", "BGE Base (En) - Balance entre velocidad y calidad"),
                     ("snowflake/snowflake-arctic-embed-m", "Snowflake Arctic M - Gran rendimiento"),
                     ("sentence-transformers/all-MiniLM-L6-v2", "MiniLM-L6-v2 - Clásico y ligero"),
                 ]
                 
                 new_model = await self._show_radiolist(
-                    title="Seleccionar Modelo Local (FastEmbed)",
-                    text="Selecciona el modelo que se descargará y usará localmente:",
+                    title="Select Local Model (FastEmbed)",
+                    text="Select the model to be downloaded and used locally:",
                     values=models,
                     default=current_model
                 )
@@ -1401,6 +1901,6 @@ class MetaCommandProcessor:
                     config_manager.set_global_config("embeddings_model", new_model)
                     current_model = new_model
                     await self._show_message(
-                        title="Éxito",
+                        title="Success",
                         text=f"Modelo local cambiado a: {new_model}\n\nNota: La primera vez que lo uses, se descargará automáticamente."
                     )

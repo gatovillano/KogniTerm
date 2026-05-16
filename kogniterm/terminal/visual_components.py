@@ -13,6 +13,10 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn
 from rich.table import Table
+from rich.panel import Panel
+from rich.columns import Columns
+from rich.console import Group
+from rich import box
 from rich.padding import Padding
 from rich.align import Align
 from rich.rule import Rule
@@ -181,7 +185,7 @@ def create_info_panel(
         border_style=border_color,
         expand=expand,
         padding=(1, 2),
-        box=None if status == "minimal" else None
+        box=box.MINIMAL if status == "minimal" else box.ROUNDED
     )
     
     return Padding(panel, padding)
@@ -303,20 +307,20 @@ def create_tool_output_panel(tool_name: str, output: str, is_markdown: Optional[
     from rich import box
     panel = Panel(
         content,
-        title=f"[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Tool Output: {tool_name}[/bold {ColorPalette.SECONDARY}]",
-        title_align="left",
-        border_style=ColorPalette.SECONDARY,
-        box=box.ROUNDED,
+        box=box.SQUARE,
         padding=(0, 2), # Padding interno idéntico al panel de pensamiento para alinear texto
         expand=True
     )
     
+    # Título externo para mayor estabilidad
+    title_text = Text.from_markup(f"{Icons.TOOL} [bold {ColorPalette.SECONDARY}]Tool Output:[/] {tool_name} ", style="normal")
+    
     # IMPORTANTE: No usar padding lateral aquí si la TUI/CSS ya lo añade.
     # Solo añadimos un margen vertical mínimo para separación.
-    return Padding(panel, (1, 0))
+    return Padding(Group(title_text, panel), (1, 0))
 
 
-def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 25, show_cursor: bool = False) -> Padding:
+def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = None, show_cursor: bool = False) -> Padding:
     """
     Crea un panel estilizado para mostrar la salida de una terminal.
     Mantiene una altura fija y hace que el texto emerja desde abajo hacia arriba.
@@ -380,14 +384,15 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 2
         display_lines = [""]
         if show_cursor: display_lines = ["█"]
     else:
-        # Obtener sólo las últimas max_lines
-        if len(lines) > max_lines:
+        # Obtener líneas según max_lines
+        if max_lines and len(lines) > max_lines:
             display_lines = lines[-max_lines:]
         else:
             display_lines = lines
         
-    formatted_content = "\n".join(display_lines)
-    
+    # Expandir tabuladores para evitar errores de cálculo de ancho
+    formatted_content = "\n".join(display_lines).expandtabs(4)
+    from rich.panel import Panel
     from rich.console import Group
     from rich import box
     
@@ -398,15 +403,16 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = 2
     elements = []
     if tool_name:
         # Título más profesional
-        title_text = Text.from_markup(f" {Icons.TOOL} [bold {ColorPalette.SECONDARY}]TERMINAL[/bold {ColorPalette.SECONDARY}] [dim]│[/dim] {tool_name} ", style="normal")
+        title_text = Text.from_markup(f" {Icons.TOOL}  [bold {ColorPalette.SECONDARY}]TERMINAL[/] [dim]│[/dim] {tool_name} ", style="normal")
         elements.append(title_text)
         elements.append(Rule(style=f"dim {ColorPalette.GRAY_700}"))
         elements.append(Text("")) # Espacio divisor
     
     # Añadir el contenido con fondo oscuro para resaltar que es una terminal
     terminal_style = f"on #0c0c0c" if "#0c0c0c" else "on black"
-    elements.append(Padding(content, (0, 1), style=terminal_style))
+    elements.append(Padding(content, (1, 4), style=terminal_style))
     
+    # Crear grupo sin panel
     return Padding(Group(*elements), (1, 0))
 
  
@@ -671,7 +677,7 @@ def create_info_table(data: dict, title: Optional[str] = None) -> Table:
 MOTIVATIONAL_MESSAGES = [
     "¡Listo para ayudarte a conquistar la terminal! 🚀",
     "¡Hagamos que el código cobre vida! ✨",
-    "Tu asistente de terminal favorito está aquí 💜",
+    "Tu agente evolutivo de terminal favorito está aquí 💜",
     "¡Preparado para automatizar todo! ⚡",
     "¡Vamos a hacer magia con código! 🎩",
     "Tu copiloto de terminal está listo 🛸",

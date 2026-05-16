@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Loader2, Sparkles, StopCircle } from 'lucide-react';
+import { Send, Loader2, Sparkles } from 'lucide-react';
 
 interface ChatInputProps {
     onSendMessage: (message: string) => void;
@@ -19,49 +19,47 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
     const getCursorOffset = useCallback(() => {
         const textarea = textareaRef.current;
         if (!textarea) return null;
+        
+        try {
+            const selectionStart = textarea.selectionStart;
 
-        const selectionStart = textarea.selectionStart;
+            // Create a hidden mirror div to measure text
+            const mirror = document.createElement('div');
+            const style = window.getComputedStyle(textarea);
 
-        // Create a hidden mirror div to measure text
-        const mirror = document.createElement('div');
-        const style = window.getComputedStyle(textarea);
+            // Copy all relevant styles
+            mirror.style.position = 'absolute';
+            mirror.style.visibility = 'hidden';
+            mirror.style.whiteSpace = 'pre-wrap';
+            mirror.style.wordWrap = 'break-word';
+            mirror.style.width = style.width;
+            mirror.style.fontSize = style.fontSize;
+            mirror.style.fontFamily = style.fontFamily;
+            mirror.style.lineHeight = style.lineHeight;
+            mirror.style.padding = style.padding;
+            mirror.style.boxSizing = style.boxSizing;
 
-        // Copy all relevant styles
-        mirror.style.position = 'absolute';
-        mirror.style.visibility = 'hidden';
-        mirror.style.whiteSpace = 'pre-wrap';
-        mirror.style.wordWrap = 'break-word';
-        mirror.style.overflow = 'hidden';
-        mirror.style.width = style.width;
-        mirror.style.height = style.height;
-        mirror.style.fontSize = style.fontSize;
-        mirror.style.fontFamily = style.fontFamily;
-        mirror.style.fontWeight = style.fontWeight;
-        mirror.style.lineHeight = style.lineHeight;
-        mirror.style.letterSpacing = style.letterSpacing;
-        mirror.style.padding = style.padding;
-        mirror.style.border = style.border;
-        mirror.style.boxSizing = style.boxSizing;
+            // Insert text up to cursor with a marker span
+            const textBeforeCursor = textarea.value.substring(0, selectionStart);
+            mirror.textContent = textBeforeCursor;
 
-        // Insert text up to cursor with a marker span
-        const textBeforeCursor = textarea.value.substring(0, selectionStart);
-        mirror.textContent = textBeforeCursor;
+            const marker = document.createElement('span');
+            marker.textContent = '|';
+            mirror.appendChild(marker);
 
-        const marker = document.createElement('span');
-        marker.textContent = '|';
-        mirror.appendChild(marker);
+            document.body.appendChild(mirror);
+            const markerRect = marker.getBoundingClientRect();
+            const mirrorRect = mirror.getBoundingClientRect();
+            document.body.removeChild(mirror);
 
-        document.body.appendChild(mirror);
-        const markerRect = marker.getBoundingClientRect();
-        const mirrorRect = mirror.getBoundingClientRect();
-        document.body.removeChild(mirror);
-
-        const scrollTop = textarea.scrollTop;
-
-        return {
-            top: markerRect.top - mirrorRect.top - scrollTop,
-            left: markerRect.left - mirrorRect.left,
-        };
+            return {
+                top: markerRect.top - mirrorRect.top,
+                left: markerRect.left - mirrorRect.left,
+            };
+        } catch (e) {
+            console.error("Error calculating cursor offset", e);
+            return null;
+        }
     }, []);
 
     const updateCursorPosition = useCallback(() => {
@@ -104,19 +102,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
         const value = e.target.value;
         setInput(value);
 
-        // Detect command trigger
-        const match = value.match(/([%/])(\w*)$/);
+        // Detect command trigger at the current cursor position
+        // We look for % or / followed by word characters until the cursor
+        const cursorPosition = e.target.selectionStart;
+        const textBeforeCursor = value.substring(0, cursorPosition);
+        const match = textBeforeCursor.match(/([%/])(\w*)$/);
+
         if (match) {
-            const prefix = match[1];
             const query = match[2].toLowerCase();
             const filtered = COMMANDS.filter(c =>
-                c.command.replace('%', '').toLowerCase().startsWith(query)
+                c.command.toLowerCase().includes(query) || 
+                c.desc.toLowerCase().includes(query)
             );
 
             if (filtered.length > 0) {
                 setSuggestions(filtered);
                 setShowSuggestions(true);
                 setSelectedIndex(0);
+                // Update position relative to the cursor if possible, 
+                // but we'll use a more stable fallback
                 requestAnimationFrame(updateCursorPosition);
                 return;
             }
@@ -125,12 +129,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
     };
 
     const handleSelectCommand = (cmd: string) => {
-        const newValue = input.replace(/([%/])(\w*)$/, cmd + ' ');
+        const cursorPosition = textareaRef.current?.selectionStart || 0;
+        const textBeforeCursor = input.substring(0, cursorPosition);
+        const textAfterCursor = input.substring(cursorPosition);
+        
+        const newValue = textBeforeCursor.replace(/([%/])(\w*)$/, cmd + ' ') + textAfterCursor;
         setInput(newValue);
         setShowSuggestions(false);
-        if (textareaRef.current) {
-            textareaRef.current.focus();
-        }
+        
+        // Focus back and set cursor position after the inserted command
+        setTimeout(() => {
+            if (textareaRef.current) {
+                textareaRef.current.focus();
+                const newPos = textBeforeCursor.replace(/([%/])(\w*)$/, cmd + ' ').length;
+                textareaRef.current.setSelectionRange(newPos, newPos);
+            }
+        }, 0);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -164,7 +178,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
 
     useEffect(() => {
         if (textareaRef.current) {
-            textareaRef.current.style.height = 'inherit';
+            textareaRef.current.style.height = '0px';
             textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
         }
     }, [input]);
@@ -191,11 +205,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isGeneratin
             {/* Command Suggestions Menu */}
             {showSuggestions && (
                 <div
-                    className="absolute z-50 bg-[#18181b]/95 backdrop-blur-xl rounded-xl shadow-2xl shadow-black/50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200"
+                    className="absolute z-[100] bg-[#18181b] border border-zinc-700/50 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden transition-all duration-200"
                     style={{
-                        bottom: '100%',
-                        left: cursorOffset ? `${Math.min(cursorOffset.left, 400)}px` : '16px',
-                        marginBottom: cursorOffset ? `${-(cursorOffset.top + 24)}px` : '8px',
+                        bottom: 'calc(100% + 16px)',
+                        left: cursorOffset ? `${Math.min(Math.max(cursorOffset.left + 52, 16), 400)}px` : '50%',
+                        transform: cursorOffset ? 'none' : 'translateX(-50%)',
+                        width: 'min(350px, calc(100vw - 32px))',
+                        opacity: 1,
+                        visibility: 'visible',
                     }}
                 >
                     <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5">

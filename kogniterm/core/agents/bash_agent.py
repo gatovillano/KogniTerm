@@ -14,13 +14,15 @@ import sys # Nueva importación
 import json # Importar json para verificar si la salida es un JSON
 import queue # Importar el módulo queue
 from concurrent.futures import ThreadPoolExecutor, as_completed # Nueva importación para paralelización
+import os
+import re
 
 from ..llm_service import LLMService
 from kogniterm.terminal.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
 from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 from ..async_io_manager import get_io_manager, AsyncTaskResult
-from ..utils.tool_utils import get_tool_action_description
+from ..utils.tool_utils import get_tool_action_description, tool_requires_content_for_confirmation
 
 import logging
 
@@ -28,14 +30,30 @@ logger = logging.getLogger(__name__)
 
 console = Console()
 
+def process_file_references(content: str, workspace_directory: str) -> str:
+    """Procesa referencias a archivos con @ y las reemplaza con su contenido."""
+    def replace_file_ref(match):
+        file_path = match.group(1)
+        full_path = os.path.join(workspace_directory, file_path)
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            return f"```{file_path}\n{file_content}\n```"
+        except Exception as e:
+            logger.warning(f"No se pudo leer el archivo {full_path}: {e}")
+            return f"@ {file_path} (Error al leer archivo: {e})"
+    
+    # Reemplazar @ruta con el contenido del archivo
+    return re.sub(r'@([^\s]+)', replace_file_ref, content)
+
 
 
 # --- Mensaje de Sistema ---
 def get_system_message(llm_service: LLMService) -> SystemMessage:
-    base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un asistente experto de terminal con **Capacidad Evolutiva**.
+    base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un agente evolutivo de terminal con **Capacidad Evolutiva**.
 
 **Tus Principios:**
-1.  **Eres KogniTerm**: Experto en terminal, depuración y Python.
+1.  **Eres KogniTerm**: Agente evolutivo experto en terminal, depuración y Python.
 2.  **Contexto**: Utiliza el "Contexto Actual del Proyecto" que recibes para ubicarte.
 3.  **Autonomía**: Tú ejecutas los comandos. No le pidas al usuario que lo haga.
 4.  **Seguridad**: Usa `execute_command` para comandos de shell.
@@ -50,13 +68,59 @@ def get_system_message(llm_service: LLMService) -> SystemMessage:
     - Las herramientas creadas con `skill_factory` aparecen en tu **esquema de herramientas** y DEBES invocarlas igual que `execute_command` o `file_operations`: **directamente por su nombre** (ej. `nombre_skill(param=valor)`).
     - **NUNCA uses `execute_command` ni `call_agent` para ejecutar una skill que ya está en tu arsenal.**
     - Si acabas de crear una skill y no aparece en tu lista, usa `refresh_tools` una vez y luego invócala directamente.
-10. **Memoria y Proactividad**: Eres el guardián del contexto. Usa proactivamente las herramientas de memoria (`memory_init`, `memory_append`, `memory_summarize`) para guardar decisiones clave, preferencias del usuario o progreso importante del proyecto. NO esperes a que el usuario te lo pida. Escribe en tu memoria cuando percibas que se ha logrado un hito, o cuando haya información valiosa.
+10. **Skills Disponibles**: Tienes acceso a skills especializadas que puedes invocar directamente. Para usar una skill, escribe `/nombre_skill` en el chat. Por ejemplo, `/task_tracker` para gestionar tareas. Las skills disponibles incluyen gestión de tareas, búsqueda de código, y más. Si no existe una skill adecuada, usa primero el adaptador de skills externas para buscar e instalar una nueva.
+11. **Skills Externas**: Para descubrir o instalar capacidades nuevas usa `agent_skills_adapter` con `action="search"` para skills.sh o `action="install_repo"` para repositorios GitHub de colecciones de skills. Si encuentras una coincidencia clara, puedes instalarla automáticamente y luego cargarla como una skill local.
+12. **Memoria y Proactividad**: Eres el guardián del contexto. Usa proactivamente las herramientas de memoria (`memory_init`, `memory_append`, `memory_summarize`) para guardar decisiones clave, preferencias del usuario o progreso importante del proyecto. NO esperes a que el usuario te lo pida. Escribe en tu memoria cuando percibas que se ha logrado un hito, o cuando haya información valiosa.
+13. **Paralelismo de Herramientas (MUY IMPORTANTE para reducir latencia)**:
+    - El sistema ejecuta TODAS tus tool_calls de un mismo turno **en paralelo** de forma automática.
+    - Cuando necesites hacer varias acciones independientes (leer varios archivos, buscar en varios lugares, etc.), emite **todas las llamadas a herramientas en el mismo turno**, no una por una.
+    - *Ejemplo correcto*: leer `archivo_a.py`, `archivo_b.py` y buscar en el codebase → emite las 3 tool_calls a la vez.
+    - *Ejemplo incorrecto*: leer `archivo_a.py`, esperar resultado, luego leer `archivo_b.py`.
+    - La única excepción es `execute_command`: siempre se presenta al usuario tras las demás, no la combines con herramientas que aún necesitas ejecutar antes.
 """
+
+    # Adjuntar instrucciones del usuario (global y del proyecto) si existen
+    try:
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        global_conf = cm.load_global_config() or {}
+        project_conf = cm.load_project_config() or {}
+        global_instr = global_conf.get('agent_instructions', []) or []
+        project_instr = project_conf.get('agent_instructions', []) or []
+
+        if project_instr:
+            base_content += "\n\n### Instrucciones del Workspace (específicas del proyecto):\n"
+            for ins in project_instr:
+                base_content += f"- {ins}\n"
+
+        if global_instr:
+            base_content += "\n### Instrucciones Globales del Usuario:\n"
+            for ins in global_instr:
+                base_content += f"- {ins}\n"
+    except Exception:
+        # No bloquear si el ConfigManager falla
+        pass
+    
+    # Cargar memorias dinámicas de Gemini (si existen)
+    try:
+        memories_path = os.path.join(os.getcwd(), ".kogniterm", "instructions.md")
+        if os.path.exists(memories_path):
+            with open(memories_path, 'r', encoding='utf-8') as f:
+                learned_memories = f.read().strip()
+                if learned_memories:
+                    base_content += f"\n\n### Memorias y Preferencias Aprendidas:\n{learned_memories}\n"
+    except Exception:
+        pass
     
     # Solo añadir la instrucción de pensar si el modelo NO es de razonamiento nativo
     if not llm_service.is_thinking_model():
         base_content += "\nRecuerda: ¡PIENSA ANTES DE ACTUAR!\n"
-    
+
+    # Instrucciones explícitas para usar la skill 'task_tracker'
+    base_content += "\nCuando debas gestionar o trackear el progreso de tareas, usa la herramienta 'task_tracker' con un objeto JSON."
+    base_content += " Ejemplo: {\"action\": \"init\", \"agent_name\": \"<tu_nombre_de_agente>\", \"plan\": [\"tarea1\", \"tarea2\"]}."
+    base_content += " Asegúrate de incluir el campo 'agent_name' para que el panel visual asocie las tareas al agente correcto.\n"
+
     return SystemMessage(content=base_content)
 
 # Para mantener compatibilidad con imports si los hay, aunque ahora usaremos la función get_system_message
@@ -107,7 +171,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
             tool = llm_service.get_tool(tool_name)
             if tool:
                 # Si es file_update_tool o advanced_file_editor_tool, añadir el parámetro confirm=True
-                if tool_name == "file_update_tool" or tool_name == "advanced_file_editor":
+                if tool_name in {"file_update_tool", "advanced_file_editor", "advanced_file_editor_tool", "sophisticated_editor_tool"}:
                     tool_args["confirm"] = True
                     # Si el contenido original se pasó como parte de tool_args,
                     # debemos asegurarnos de que el 'content' que se pasa para la re-ejecución
@@ -115,7 +179,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
                     # No necesitamos el diff aquí, solo el contenido final.
                     # El diff ya se mostró al usuario para la confirmación.
                     # Si el content es None, significa que el LLM no lo proporcionó, lo cual es un error.
-                    if tool_args.get("content") is None:
+                    if tool_requires_content_for_confirmation(tool_name, tool_args) and tool_args.get("content") is None:
                         error_output = "Error: El contenido a actualizar no puede ser None."
                         state.add_message(ToolMessage(content=error_output, tool_call_id=tool_id))
                         console.print(f"[bold red]❌ {error_output}[/bold red]")
@@ -160,6 +224,77 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
     state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
     return state
 
+
+
+def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
+    """Verifica la integridad de los archivos modificados tras una ejecución de herramientas.
+    Ejecuta py_compile para Python sin involucrar al LLM, cortando un ciclo de tool calls.
+    """
+    last_ai_msg = None
+    for msg in reversed(state.messages):
+        if isinstance(msg, AIMessage):
+            last_ai_msg = msg
+            break
+
+    if not last_ai_msg or not last_ai_msg.tool_calls:
+        return {"messages": state.messages}
+
+    editing_tools = {
+        "advanced_file_editor",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "file_update_tool",
+        "file_create_tool",
+        "file_operations",
+    }
+
+    modified_files = set()
+    for tc in last_ai_msg.tool_calls:
+        if tc['name'] in editing_tools:
+            args = tc['args']
+            path = args.get('path') or args.get('TargetFile') or args.get('file_path') or args.get('target_file')
+            if path:
+                modified_files.add(path)
+
+    if not modified_files:
+        return {"messages": state.messages}
+
+    if terminal_ui and hasattr(terminal_ui, "update_live"):
+        from kogniterm.terminal.themes import Icons
+        from rich.padding import Padding
+        # Añadir Padding (0, 4) para mantener la alineación centrada de la TUI
+        terminal_ui.update_live(Padding(Panel(f"{Icons.CODE} [bold]Verificando sintaxis de archivos modificados...[/bold]", border_style="yellow"), (0, 4)))
+        terminal_ui.stop_live()
+
+    verification_results = []
+    cmd_tool = llm_service.get_tool("execute_command")
+
+    for file_path in modified_files:
+        if file_path.endswith(".py"):
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["python3", "-m", "py_compile", file_path],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode != 0:
+                    verification_results.append(f"❌ Error de sintaxis en `{file_path}`:\n{result.stderr.strip()}")
+                else:
+                    verification_results.append(f"✅ `{file_path}` — sintaxis OK")
+            except Exception as e:
+                verification_results.append(f"⚠️ No se pudo verificar `{file_path}`: {e}")
+
+    if verification_results:
+        summary = "\n".join(verification_results)
+        state.messages.append(ToolMessage(
+            content=f"VERIFICACIÓN AUTOMÁTICA DE SINTAXIS:\n{summary}",
+            tool_call_id="verification_node"
+        ))
+
+    return {"messages": state.messages}
+
+
 def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
 
     """
@@ -191,6 +326,15 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
             }
 
     history = [get_system_message(llm_service)] + state.messages
+    
+    # Procesar referencias a archivos en el último mensaje del usuario
+    if state.messages and isinstance(state.messages[-1], HumanMessage):
+        workspace_directory = os.getcwd()  # Asumir que el workspace es el cwd
+        processed_content = process_file_references(state.messages[-1].content, workspace_directory)
+        # Actualizar el mensaje en el estado con el contenido procesado
+        state.messages[-1] = HumanMessage(content=processed_content)
+        # Actualizar history también
+        history = [get_system_message(llm_service)] + state.messages
     full_response_content = ""
     full_thinking_content = ""
     final_ai_message_from_llm = None
@@ -230,7 +374,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
     # Iniciamos con el spinner
     
     # Iniciar KeyboardHandler para detectar ESC durante la generación (solo en CLI)
-    is_tui = getattr(terminal_ui, "is_tui", False)
+    is_tui = terminal_ui.is_tui if (terminal_ui and hasattr(terminal_ui, "is_tui")) else False
     kh = None
     if not is_tui:
         kh = KeyboardHandler(interrupt_queue)
@@ -337,7 +481,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                     terminal_ui.stop_live()
                 else:
                     # Si no hubo nada, simplemente esconder el live display sin consolidar
-                    self._safe_call(terminal_ui.app.hide_live_display)
+                    terminal_ui.stop_live()
     finally:
         if kh:
             kh.stop()
@@ -361,8 +505,10 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                     command_to_execute = tc['args'].get('command')
                     break # Asumimos una sola llamada a comando por ahora
 
-        # Guardar historial explícitamente para asegurar sincronización con LLMService
-        llm_service._save_history(state.messages)
+        # Solo guardar si no hay tool_calls pendientes (respuesta final sin herramientas).
+        # Cuando hay tool_calls, execute_tool_node se encarga del guardado final.
+        if not final_ai_message_from_llm.tool_calls:
+            llm_service._save_history(state.messages)
 
         # Añadir separación visual después de la respuesta del LLM
         console.print()  # Línea en blanco para separación
@@ -376,7 +522,6 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
         # Fallback si por alguna razón no se obtuvo un AIMessage (poco probable con llm_service.py)
         error_message = "El modelo no proporcionó una respuesta AIMessage válida después de procesar los chunks."
         state.add_message(AIMessage(content=error_message))
-        # Guardar historial explícitamente
         llm_service._save_history(state.messages)
         return {"messages": state.messages}
 
@@ -448,15 +593,19 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
         # --- Refresco automático de herramientas ---
         # Si la herramienta es 'refresh_tools', forzar al SkillManager a recargar
         if tool_name == 'refresh_tools' and hasattr(llm_service, 'skill_manager'):
-            logger.info("Detectada llamada a refresh_tools. Disparando SkillManager.refresh_skills().")
-            llm_service.skill_manager.refresh_skills()
+            logger.info("Detectada llamada a refresh_tools. Disparando SkillManager.refresh_skills(force=True).")
+            llm_service.skill_manager.refresh_skills(force=True)
+            if hasattr(llm_service, 'sync_tools'):
+                llm_service.sync_tools()
 
         # Si la herramienta es 'skill_factory' y terminó con éxito, refrescar el arsenal
         # automáticamente para que la nueva skill quede disponible en el siguiente turno.
         if tool_name == 'skill_factory' and hasattr(llm_service, 'skill_manager'):
             logger.info("Detectada creación de skill via skill_factory. Disparando refresh automático.")
             try:
-                llm_service.skill_manager.refresh_skills()
+                llm_service.skill_manager.refresh_skills(force=True)
+                if hasattr(llm_service, 'sync_tools'):
+                    llm_service.sync_tools()
                 new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
                 logger.info(f"Arsenal actualizado. Herramientas disponibles: {new_tool_names}")
                 # Añadir al output la lista de herramientas para que el LLM sepa qué puede invocar
@@ -472,123 +621,161 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
     except Exception as e:
         return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
 
+def call_task_tracker(llm_service: LLMService, action: str, agent_name: str = None, plan: list = None, task_index: int = None, status: str = None) -> str:
+    """Convenience helper to invoke the bundled task_tracker skill.
+
+    Ensures the skill is loaded, calls the tool and returns its textual output.
+    """
+    try:
+        # Asegurar que la skill esté cargada
+        if hasattr(llm_service, 'skill_manager'):
+            try:
+                if 'task_tracker' not in llm_service.skill_manager.loaded_skills:
+                    llm_service.skill_manager.load_skill('task_tracker')
+            except Exception:
+                pass
+
+        tool = llm_service.get_tool('task_tracker') if llm_service else None
+        if not tool:
+            return "Error: herramienta 'task_tracker' no disponible."
+
+        args = { 'action': action, 'agent_name': agent_name or 'kogni_agent' }
+        if plan is not None:
+            args['plan'] = plan
+        if task_index is not None:
+            args['task_index'] = task_index
+        if status is not None:
+            args['status'] = status
+
+        # Preferir invoke wrapper si existe (SkillLoader lo inyecta)
+        if hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
+            result = tool.invoke(args)
+            # Si devuelve un generador, concatenar
+            if hasattr(result, '__iter__') and not isinstance(result, str):
+                out = ''.join([str(p) for p in result])
+            else:
+                out = str(result)
+        else:
+            # Llamada directa
+            out = str(tool(**args))
+
+        return out
+    except Exception as e:
+        return f"Error llamando a task_tracker: {e}"
+
+
+def _print_tool_notification(tool_name: str, bajada: str, skill_name: str, is_tui: bool, terminal_ui: TerminalUI, is_interactive: bool = False):
+    """Emite la notificación visual para una herramienta. Extrae la lógica repetida del loop."""
+    try:
+        from kogniterm.terminal.themes import Icons, ColorPalette
+        from rich.text import Text
+        if is_tui:
+            terminal_ui.print_tool_notification(tool_name, bajada, skill_name=skill_name)
+        else:
+            verb = "Preparando comando de terminal" if is_interactive else "Ejecutando herramienta"
+            label = Text.from_markup(
+                f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} {verb}:[/]"
+                f" [{ColorPalette.SECONDARY_LIGHT}]{tool_name}[/{ColorPalette.SECONDARY_LIGHT}]"
+            )
+            if bajada:
+                label.append("\n  ")
+                label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic]"))
+            terminal_ui.console.print(label)
+    except (ImportError, Exception):
+        verb = "Preparando comando" if is_interactive else "Ejecutando herramienta"
+        terminal_ui.console.print(f"\n[bold blue]🛠️ {verb}:[/bold blue] [yellow]{tool_name}[/yellow]")
+
+
 def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None, command_approval_handler=None):
-    """Ejecuta las herramientas solicitadas por el modelo."""
-    # Obtener command_approval_handler del llm_service.skill_manager si no se pasó directamente
+    """Ejecuta las herramientas solicitadas por el modelo.
+
+    Estrategia de paralelismo:
+    - Las herramientas se particionan en paralelas (todo excepto execute_command)
+      e interactivas (execute_command).
+    - Metadata de herramientas (descripciones, skill_name) se obtiene en paralelo
+      antes de hacer submit al executor principal.
+    - Todas las herramientas paralelas se envían al executor de una sola vez (batch
+      submit) para maximizar concurrencia real.
+    - execute_command se presenta al usuario DESPUÉS de que las herramientas
+      paralelas terminan, eliminando el descarte prematuro anterior.
+    """
     if command_approval_handler is None and hasattr(llm_service, 'skill_manager') and hasattr(llm_service.skill_manager, 'approval_handler'):
         command_approval_handler = llm_service.skill_manager.approval_handler
-    
+
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return state
 
+    is_tui = terminal_ui.is_tui if (terminal_ui and hasattr(terminal_ui, "is_tui")) else False
     tool_messages = []
-    
-    # Iniciar KeyboardHandler si no hay herramientas interactivas (como execute_command)
-    # execute_command ya maneja su propia interactividad y detección de ESC.
-    has_interactive_tool = any(tc['name'] == 'execute_command' for tc in last_message.tool_calls)
-    is_tui = getattr(terminal_ui, "is_tui", False)
+
+    # --- PASO 1: Particionar herramientas ---
+    # Las interactivas (execute_command) se ejecutan al final para no bloquear las paralelas.
+    parallel_calls = [tc for tc in last_message.tool_calls if tc['name'] != 'execute_command']
+    interactive_calls = [tc for tc in last_message.tool_calls if tc['name'] == 'execute_command']
+
+    # --- PASO 2: Registrar historial para detección de bucles (todas a la vez) ---
+    for tc in last_message.tool_calls:
+        try:
+            args_hash = json.dumps(tc['args'], sort_keys=True)
+        except TypeError:
+            args_hash = str(tc['args'])
+        state.tool_call_history.append({"name": tc['name'], "args_hash": args_hash})
+
+    # --- PASO 3: Verificar interrupción temprana ---
+    if interrupt_queue and not interrupt_queue.empty():
+        interrupt_queue.get()
+        terminal_ui.console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
+        state.stop_requested = True
+        state.reset_temporary_state()
+        return state
+
+    # --- PASO 4: Pre-fetch de metadata de herramientas en paralelo ---
+    # Obtener tool instances, skill_names y descripciones para TODAS las herramientas
+    # de forma concurrente antes de hacer submit al executor principal.
+    def fetch_metadata(tc):
+        tool = llm_service.get_tool(tc['name'])
+        skill_name = ""
+        bajada = ""
+        if tool:
+            if hasattr(llm_service, 'skill_manager'):
+                skill = llm_service.skill_manager.get_skill_for_tool(tc['name'])
+                if skill:
+                    skill_name = skill.name
+            bajada = get_tool_action_description(tool, tc['args'])
+        return tc['id'], skill_name, bajada
+
+    metadata_map: Dict[str, tuple] = {}  # tool_id -> (skill_name, bajada)
+    all_calls = parallel_calls + interactive_calls
+    if all_calls:
+        with ThreadPoolExecutor(max_workers=min(len(all_calls), 8)) as meta_exec:
+            for tool_id, skill_name, bajada in meta_exec.map(fetch_metadata, all_calls):
+                metadata_map[tool_id] = (skill_name, bajada)
+
+    # --- PASO 5: Emitir notificaciones visuales batch para herramientas paralelas ---
+    for tc in parallel_calls:
+        skill_name, bajada = metadata_map.get(tc['id'], ("", ""))
+        _print_tool_notification(tc['name'], bajada, skill_name, is_tui, terminal_ui, is_interactive=False)
+
+    # --- PASO 6: Iniciar KeyboardHandler (solo cuando no hay interactivas y no es TUI) ---
     kh = None
-    if not has_interactive_tool and not is_tui:
+    if not interactive_calls and not is_tui:
         kh = KeyboardHandler(interrupt_queue)
         kh.start()
-        
+
     try:
-        # Set current agent state for race condition detection
         llm_service._current_agent_state = state
-        
-        executor = ThreadPoolExecutor(max_workers=min(len(last_message.tool_calls), 5))
-        futures = []
-        for tool_call in last_message.tool_calls:
-            # Registrar la llamada a la herramienta en el historial para detección de bucles
-            tool_name = tool_call['name']
-            tool_args = tool_call['args']
-            
-            # Generar un hash consistente de los argumentos
-            try:
-                args_hash = json.dumps(tool_args, sort_keys=True)
-            except TypeError:
-                args_hash = str(tool_args) # Fallback si los argumentos no son serializables
-            
-            state.tool_call_history.append({"name": tool_name, "args_hash": args_hash})
 
-            # Verificar si hay una señal de interrupción antes de enviar
-            if interrupt_queue and not interrupt_queue.empty():
-                interrupt_queue.get()
-                terminal_ui.console.print("[bold yellow]⚠️ Interrupción detectada. Volviendo al input del usuario.[/bold yellow]")
-                state.stop_requested = True
-                state.reset_temporary_state()
-                executor.shutdown(wait=False)
-                return state
+        # --- PASO 7: Submit batch al executor principal ---
+        executor = ThreadPoolExecutor(max_workers=min(len(parallel_calls), 10) if parallel_calls else 1)
+        futures_map: Dict = {}  # future -> tool_id
+        for tc in parallel_calls:
+            logger.info(f"Agente: Enviando herramienta '{tc['name']}' al executor.")
+            future = executor.submit(execute_single_tool, tc, llm_service, terminal_ui, interrupt_queue)
+            futures_map[future] = tc['id']
 
-            # Obtener la instancia de la herramienta para buscar la descripción de la acción y skill
-            tool = llm_service.get_tool(tool_call['name'])
-            bajada = ""
-            skill_name = ""
-            if tool:
-                # Obtener skill_name del skill_manager
-                if hasattr(llm_service, 'skill_manager'):
-                    skill = llm_service.skill_manager.get_skill_for_tool(tool_call['name'])
-                    if skill:
-                        skill_name = skill.name
-
-                bajada = get_tool_action_description(tool, tool_call['args'])
-
-            # CASO ESPECIAL: execute_command
-            # No ejecutamos los comandos de terminal a través de executor.submit/execute_single_tool
-            # porque eso los ejecutaría de forma silenciosa primero, bloqueando al agente.
-            # En su lugar, simplemente los marcamos para confirmación y dejamos que la terminal
-            # (KogniTermApp + CommandApprovalHandler) maneje la ejecución interactiva real.
-            if tool_name == "execute_command":
-                state.command_to_confirm = tool_args['command']
-                state.tool_call_id_to_confirm = tool_call['id']
-                # Feedback visual de preparación de comando
-                try:
-                    from kogniterm.terminal.themes import Icons, ColorPalette
-                    from rich.text import Text
-                    if is_tui:
-                        # En TUI: notificación izquierda con acción en segunda línea
-                        terminal_ui.print_tool_notification(tool_call['name'], bajada, skill_name=skill_name)
-                    else:
-                        cmd_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Preparando comando de terminal:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
-                        if bajada:
-                            cmd_label.append("\n  ")
-                            cmd_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
-                        terminal_ui.console.print(cmd_label)
-                except ImportError:
-                    terminal_ui.console.print(f"\n[bold blue]🛠️ Preparando comando:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
-                
-                # IMPORTANTE: Si hay execute_command, salir del loop de tools y devolver
-                # sin ejecutar nada más en paralelo. Previene comandos ejecutándose
-                # simultáneamente o en background mientras el modal está abierto.
-                executor.shutdown(wait=False)
-                return {
-                    "messages": state.messages,
-                    "command_to_confirm": state.command_to_confirm,
-                    "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
-                }
-
-
-            # Mensaje de ejecución con iconos y colores temáticos
-            try:
-                from kogniterm.terminal.themes import Icons, ColorPalette
-                from rich.text import Text
-                if is_tui:
-                    # En TUI: notificación izquierda con acción en segunda línea
-                    terminal_ui.print_tool_notification(tool_call['name'], bajada, skill_name=skill_name)
-                else:
-                    tool_label = Text.from_markup(f"\n[bold {ColorPalette.SECONDARY}]{Icons.TOOL} Ejecutando herramienta:[/bold {ColorPalette.SECONDARY}] [{ColorPalette.SECONDARY_LIGHT}]{tool_call['name']}[/{ColorPalette.SECONDARY_LIGHT}]")
-                    if bajada:
-                        tool_label.append("\n  ")
-                        tool_label.append(Text.from_markup(f"[italic {ColorPalette.TEXT_SECONDARY}]└─ {bajada}[/italic {ColorPalette.TEXT_SECONDARY}]"))
-                    terminal_ui.console.print(tool_label)
-            except ImportError:
-                terminal_ui.console.print(f"\n[bold blue]🛠️ Ejecutando herramienta:[/bold blue] [yellow]{tool_call['name']}[/yellow]")
-            logger.info(f"Agente: Enviando herramienta '{tool_call['name']}' al executor.")
-            futures.append(executor.submit(execute_single_tool, tool_call, llm_service, terminal_ui, interrupt_queue))
-
-        logger.info(f"Agente: Esperando resultados de {len(futures)} herramientas.")
-        for future in as_completed(futures):
+        logger.info(f"Agente: Esperando resultados de {len(futures_map)} herramientas en paralelo.")
+        for future in as_completed(futures_map):
             try:
                 tool_id, content, exception = future.result()
                 logger.info(f"Agente: Herramienta con ID {tool_id} completada.")
@@ -737,7 +924,14 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 else:
                     tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
             else:
-                tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+                # Procesamiento especializado para agentes paralelos (DeepCoder/Researcher)
+                if "<coder_analysis>" in content or "<researcher_analysis>" in content:
+                    clean_content = f"--- RESULTADOS DE AGENTES PARALELOS ---\n\n{content}\n\n--- FIN DE RESULTADOS ---\n\n[SISTEMA: Estos son los resultados consolidados de tus sub-agentes (Coder y Researcher). Analízalos profesionalmente como KogniTerm, sin adoptar sus roles.]"
+                else:
+                    # Limpieza estándar para herramientas normales
+                    clean_content = content.replace("## 🔬 Informe de Deep Research", "").strip()
+                
+                tool_messages.append(ToolMessage(content=clean_content, tool_call_id=tool_id))
                 # Lógica para herramientas que requieren confirmación
                 tool_call_info = next(tc for tc in last_message.tool_calls if tc['id'] == tool_id)
                 tool_name = tool_call_info['name']
@@ -781,8 +975,24 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
 
         executor.shutdown(wait=True)
         state.add_messages(tool_messages)
-        
-        # Guardar historial explícitamente al finalizar la ejecución de herramientas
+
+        # --- PASO 8: Procesar execute_command DESPUÉS de las herramientas paralelas ---
+        # Así las herramientas de lectura/búsqueda ya terminaron antes de que el usuario
+        # tenga que confirmar el comando de terminal.
+        if interactive_calls:
+            tc = interactive_calls[0]  # Solo puede haber uno significativo
+            skill_name, bajada = metadata_map.get(tc['id'], ("", ""))
+            _print_tool_notification(tc['name'], bajada, skill_name, is_tui, terminal_ui, is_interactive=True)
+            state.command_to_confirm = tc['args'].get('command', '')
+            state.tool_call_id_to_confirm = tc['id']
+            llm_service._save_history(state.messages)
+            return {
+                "messages": state.messages,
+                "command_to_confirm": state.command_to_confirm,
+                "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+            }
+
+        # Guardar historial al finalizar la ejecución de herramientas
         llm_service._save_history(state.messages)
 
     finally:
@@ -798,6 +1008,85 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             "tool_call_id_to_confirm": getattr(state, 'tool_call_id_to_confirm', None),
             "file_update_diff_pending_confirmation": getattr(state, 'file_update_diff_pending_confirmation', None)
         }
+
+def learning_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
+    """
+    Nodo de aprendizaje que analiza la interacción reciente para extraer 
+    preferencias y personalizaciones del usuario de forma persistente.
+    """
+    # 1. Verificar si es el final de un turno (sin herramientas pendientes)
+    if not state.messages or not isinstance(state.messages[-1], AIMessage):
+        return state
+
+    # No aprender si hubo errores críticos o interrupciones
+    if state.critical_loop_detected or state.stop_requested:
+        return state
+
+    # No aprender si el AI propuso herramientas (esperar a que se ejecuten y den respuesta final)
+    if state.messages[-1].tool_calls:
+        return state
+
+    # 2. Extraer ventana de contexto para análisis (últimos 4 mensajes)
+    recent_msgs = state.messages[-4:]
+    conversation_text = ""
+    for msg in recent_msgs:
+        role = "Usuario" if isinstance(msg, HumanMessage) else "Asistente"
+        content = str(msg.content)[:500]
+        conversation_text += f"{role}: {content}\n"
+
+    learning_prompt = f"""Analiza la siguiente conversación técnica y extrae un ÚNICO aprendizaje relevante sobre el usuario o el proyecto.
+Busca:
+- Preferencias de estilo, herramientas o lenguajes.
+- Hechos estructurales del proyecto que se hayan descubierto.
+- Correcciones que el usuario haya hecho sobre tu comportamiento.
+
+Reglas:
+1. Responde con UNA SOLA FRASE corta y clara en español.
+2. Si no hay nada nuevo que valga la pena recordar para siempre, responde: NADA
+
+CONVERSACIÓN:
+{conversation_text}
+
+APRENDIZAJE:"""
+
+    try:
+        from litellm import completion
+        response = completion(
+            model=llm_service.model_name,
+            messages=[{"role": "user", "content": learning_prompt}],
+            api_key=llm_service.api_key,
+            max_tokens=100,
+            temperature=0.3
+        )
+        learned_text = response.choices[0].message.content.strip()
+
+        if "NADA" not in learned_text.upper() and len(learned_text) > 8:
+            # Limpiar formato
+            learned_text = re.sub(r'^[-\*\s]+', '', learned_text)
+            
+            # Guardar en .kogniterm/instructions.md
+            instructions_path = os.path.join(os.getcwd(), ".kogniterm", "instructions.md")
+            os.makedirs(os.path.dirname(instructions_path), exist_ok=True)
+            
+            is_duplicate = False
+            if os.path.exists(instructions_path):
+                with open(instructions_path, 'r', encoding='utf-8') as f:
+                    if learned_text.lower() in f.read().lower():
+                        is_duplicate = True
+            
+            if not is_duplicate:
+                with open(instructions_path, "a", encoding="utf-8") as f:
+                    if os.path.getsize(instructions_path) == 0:
+                        f.write("## Memorias y Preferencias Aprendidas\n\n")
+                    f.write(f"- {learned_text}\n")
+                
+                if terminal_ui:
+                    from kogniterm.terminal.themes import Icons
+                    terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]", style="cyan")
+    except Exception:
+        pass # Aprendizaje silencioso, no debe interrumpir el flujo principal
+
+    return state
 
 # --- Lógica Condicional del Grafo ---
 
@@ -825,7 +1114,7 @@ def should_continue(state: AgentState) -> str:
     elif isinstance(last_message, ToolMessage):
         return "call_model"
     else:
-        return END
+        return "learning"
 
 # --- Construcción del Grafo ---
 
@@ -834,6 +1123,8 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
 
     bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
     bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue, command_approval_handler=command_approval_handler))
+    bash_agent_graph.add_node("verify", functools.partial(verification_node, llm_service=llm_service, terminal_ui=terminal_ui))
+    bash_agent_graph.add_node("learning", functools.partial(learning_node, llm_service=llm_service, terminal_ui=terminal_ui))
 
     bash_agent_graph.set_entry_point("call_model")
 
@@ -842,6 +1133,7 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
         should_continue,
         {
             "execute_tool": "execute_tool",
+            "learning": "learning",
             END: END
         }
     )
@@ -850,10 +1142,14 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
         "execute_tool",
         should_continue,
         {
-            "call_model": "call_model",
+            "call_model": "verify",   # pasar por verificación antes de volver al modelo
             "execute_tool": "execute_tool",
+            "learning": "learning",
             END: END
         }
     )
+
+    bash_agent_graph.add_edge("verify", "call_model")
+    bash_agent_graph.add_edge("learning", END)
 
     return bash_agent_graph.compile()

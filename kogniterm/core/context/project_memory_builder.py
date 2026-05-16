@@ -177,7 +177,7 @@ class ProjectMemoryBuilder:
 
         if (self.root_dir / "kogniterm" / "core" / "skills" / "skill_manager.py").exists():
             bullets.append(
-                "- Each skill directory must contain `SKILL.md` plus `scripts/`; optional reference material goes in `references/`."
+                "- Skills follow the open `SKILL.md` folder format: `SKILL.md` is required, while `scripts/`, `references/`, `assets/`, and `resources/` are optional depending on whether the skill is prompt-only or executable."
             )
 
         terminal_py = self._read_text(

@@ -67,7 +67,7 @@ def think_with_ui(thought: str, terminal_ui=None) -> Generator[str, None, None]:
             from kogniterm.terminal.themes import ColorPalette, Icons
             
             # Mostrar encabezado de pensamiento
-            terminal_ui.console.print(f"\n[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} KogniTerm está pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]")
+            terminal_ui.console.print(f"\n[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} KogniTerm está pensando...[/]")
             
             # Streaming del pensamiento
             terminal_ui.print_stream(thought, delay=0.01)

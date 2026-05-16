@@ -2,7 +2,7 @@
 
 ## 1. Introducción y Espíritu 🌟
 
-**KogniTerm** no es simplemente un asistente de terminal; es un **Entorno de Desarrollo Agéntico (ADE)** que reside en tu línea de comandos. Su objetivo es transformar la interacción solitaria entre el desarrollador y el sistema operativo en una colaboración dinámica con un equipo de agentes de IA especializados.
+**KogniTerm** no es simplemente una herramienta de terminal; es un **agente evolutivo** y un **Entorno de Desarrollo Agéntico (ADE)** que reside en tu línea de comandos. Su objetivo es transformar la interacción solitaria entre el desarrollador y el sistema operativo en una colaboración dinámica con un equipo de agentes de IA especializados.
 
 ### Filosofía del Proyecto
 

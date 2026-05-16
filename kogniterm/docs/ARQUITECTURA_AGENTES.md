@@ -68,7 +68,7 @@ KogniTerm es un **sistema multi-agente con capacidad evolutiva** diseñado para 
 ## 🤖 Catálogo de Agentes
 
 ### 1. **KogniTerm** (Orquestador Principal)
-- **Rol**: Asistente experto de terminal, depuración y Python
+- **Rol**: Agente evolutivo de terminal, depuración y Python
 - **Capacidades**:
   - Ejecución autónoma de comandos bash
   - Edición de archivos con advanced_file_editor

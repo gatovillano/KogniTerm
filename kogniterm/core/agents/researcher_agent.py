@@ -9,6 +9,9 @@ import functools
 import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from rich.console import Console
@@ -101,10 +104,9 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
                     full_thinking_content += thinking_chunk
                     thinking_panel = Panel(
                         Markdown(full_thinking_content),
-                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} ResearcherAgent Pensando...[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} ResearcherAgent Pensando...[/]",
                         border_style=ColorPalette.PRIMARY_LIGHT,
-                        padding=(0, 1),
-                        dim=True
+                        padding=(0, 1)
                     )
                     live.update(Padding(thinking_panel, (0, 4)))
                 else:
@@ -113,10 +115,9 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
                     if full_thinking_content:
                         renderables.append(Panel(
                             Markdown(full_thinking_content),
-                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Investigación finalizada[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Investigación finalizada[/]",
                             border_style=ColorPalette.GRAY_600,
-                            padding=(0, 1),
-                            dim=True
+                            padding=(0, 1)
                         ))
                     renderables.append(Markdown(full_response_content))
                     live.update(Padding(Group(*renderables), (0, 4)))
@@ -164,6 +165,27 @@ def execute_single_tool(tc, llm_service, interrupt_queue):
             padding=(0, 2)
         ))
         
+        # --- Refresco automático de herramientas ---
+        # Si la herramienta es 'refresh_tools', forzar al SkillManager a recargar
+        if tool_name == 'refresh_tools' and hasattr(llm_service, 'skill_manager'):
+            logger.info("Detectada llamada a refresh_tools en ResearcherAgent. Disparando SkillManager.refresh_skills(force=True).")
+            llm_service.skill_manager.refresh_skills(force=True)
+            if hasattr(llm_service, 'sync_tools'):
+                llm_service.sync_tools()
+
+        # Si la herramienta es 'skill_factory' y terminó con éxito, refrescar el arsenal
+        if tool_name == 'skill_factory' and hasattr(llm_service, 'skill_manager'):
+            logger.info("Detectada creación de skill via skill_factory en ResearcherAgent. Disparando refresh automático.")
+            try:
+                llm_service.skill_manager.refresh_skills(force=True)
+                if hasattr(llm_service, 'sync_tools'):
+                    llm_service.sync_tools()
+                new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
+                logger.info(f"Arsenal de ResearcherAgent actualizado. Herramientas: {new_tool_names}")
+                output_str += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
+            except Exception as e:
+                logger.warning(f"Error al refrescar skills en ResearcherAgent tras skill_factory: {e}")
+
         return tool_id, output_str, None
     except InterruptedError:
         console.print(f"[bold yellow]⚠️ Ejecución de {tool_name} interrumpida por el usuario.[/bold yellow]")

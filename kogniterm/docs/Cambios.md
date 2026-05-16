@@ -64,6 +64,14 @@ Se ha mejorado la coherencia visual del área de entrada de texto en la interfaz
 - **Punto 3**: Desactivación definitiva del resaltado de la línea del cursor (`show_cursor_line = False`), eliminando la franja horizontal que causaba el contraste visual en el área de escritura.
 - **Punto 4**: Eliminación de temas personalizados en el `TextArea` para permitir que el fondo transparente funcione correctamente y coincida siempre con el contenedor.
 
+---
+
+## 07-05-2026 Mejora de Input Bar Extensible en TUI
+
+Se modificaron los estilos en la interfaz TUI para permitir que la barra de entrada de texto (`ChatInput` y su contenedor `#input_container`) crezca automáticamente en altura a medida que se ingresa más texto, mejorando la experiencia de usuario con mensajes largos.
+
+- **Punto 1**: Se actualizó `kogniterm/terminal/tui/tui_app.py` modificando el CSS para asignar `height: auto` a `#input_container` y `ChatInput`.
+- **Punto 2**: Se definieron `max-height` y `min-height` en el contenedor para asegurar que la caja de texto no crezca desproporcionadamente.
 
 
 

@@ -94,40 +94,40 @@ _THEMES = {
         "TEXT_DIM": "#38bdf8",
     },
     "matrix": {
-        "PRIMARY_LIGHTEST": "#d1fae5",
-        "PRIMARY_LIGHTER": "#a7f3d0",
-        "PRIMARY_LIGHT": "#6ee7b7",
-        "PRIMARY": "#10b981",
-        "PRIMARY_DARK": "#059669",
-        "PRIMARY_DARKER": "#047857",
-        "SECONDARY_LIGHT": "#a3e635",
-        "SECONDARY": "#84cc16",
-        "SECONDARY_DARK": "#4d7c0f",
-        "ACCENT_PINK": "#f472b6",
-        "ACCENT_BLUE": "#60a5fa",
-        "ACCENT_GREEN": "#4ade80",
-        "SUCCESS": "#10b981",
-        "SUCCESS_LIGHT": "#34d399",
-        "WARNING": "#f59e0b",
-        "WARNING_LIGHT": "#fbbf24",
-        "ERROR": "#ef4444",
-        "ERROR_LIGHT": "#f87171",
-        "INFO": "#3b82f6",
-        "INFO_LIGHT": "#60a5fa",
-        "GRAY_50": "#f0fdf4",
-        "GRAY_100": "#dcfce7",
-        "GRAY_200": "#bbf7d0",
-        "GRAY_300": "#86efac",
-        "GRAY_400": "#4ade80",
-        "GRAY_500": "#22c55e",
-        "GRAY_600": "#16a34a",
-        "GRAY_700": "#15803d",
-        "GRAY_800": "#166534",
-        "GRAY_900": "#14532d",
-        "TEXT_PRIMARY": "#f0fdf4",
-        "TEXT_SECONDARY": "#bbf7d0",
-        "TEXT_MUTED": "#86efac",
-        "TEXT_DIM": "#4ade80",
+        "PRIMARY_LIGHTEST": "#00ff41",
+        "PRIMARY_LIGHTER": "#00e538",
+        "PRIMARY_LIGHT": "#00cc32",
+        "PRIMARY": "#00b32c",
+        "PRIMARY_DARK": "#009926",
+        "PRIMARY_DARKER": "#008020",
+        "SECONDARY_LIGHT": "#39ff14",
+        "SECONDARY": "#00ff41",
+        "SECONDARY_DARK": "#007a1a",
+        "ACCENT_PINK": "#00ff41",
+        "ACCENT_BLUE": "#00cc32",
+        "ACCENT_GREEN": "#39ff14",
+        "SUCCESS": "#00ff41",
+        "SUCCESS_LIGHT": "#39ff14",
+        "WARNING": "#ccff00",
+        "WARNING_LIGHT": "#ddff33",
+        "ERROR": "#ff4444",
+        "ERROR_LIGHT": "#ff6666",
+        "INFO": "#00cc32",
+        "INFO_LIGHT": "#00ff41",
+        "GRAY_50":  "#0d1a0d",   # fondo oscuro con matiz verde
+        "GRAY_100": "#0a140a",   # fondo muy oscuro
+        "GRAY_200": "#071007",   # fondo casi negro
+        "GRAY_300": "#1a4d1a",   # verde oscuro — visible como texto dim
+        "GRAY_400": "#1f6b1f",   # verde medio oscuro
+        "GRAY_500": "#267a26",   # verde legible (texto razonamiento dim)
+        "GRAY_600": "#2d9e2d",   # verde medio — bordes visibles
+        "GRAY_700": "#157a15",   # verde oscuro para bordes del panel
+        "GRAY_800": "#050d05",   # fondo muy oscuro del panel de razonamiento
+        "GRAY_900": "#000000",   # fondo base negro puro
+        "TEXT_PRIMARY": "#00ff41",
+        "TEXT_SECONDARY": "#00cc32",
+        "TEXT_MUTED": "#009926",
+        "TEXT_DIM": "#267a26",   # visible como texto atenuado sobre negro
     },
     "sunset": {
         "PRIMARY_LIGHTEST": "#fef3c7",
@@ -274,20 +274,20 @@ _THEMES = {
         "TEXT_DIM": "#44475a",
     },
     "light": {
-        "PRIMARY_LIGHTEST": "#f1f5f9",
-        "PRIMARY_LIGHTER": "#cbd5e1",
-        "PRIMARY_LIGHT": "#94a3b8",
-        "PRIMARY": "#475569",
-        "PRIMARY_DARK": "#334155",
-        "PRIMARY_DARKER": "#1e293b",
-        "PRIMARY_DARKEST": "#0f172a",
-        "SECONDARY": "#475569",
-        "SECONDARY_LIGHT": "#334155",
-        "SECONDARY_DARK": "#cbd5e1",
-        "ACCENT": "#64748b",
-        "ACCENT_PINK": "#27272a",
-        "ACCENT_BLUE": "#1e293b",
-        "ACCENT_GREEN": "#3f3f46",
+        "PRIMARY_LIGHTEST": "#f5f9ff",
+        "PRIMARY_LIGHTER": "#dbeafe",
+        "PRIMARY_LIGHT": "#93c5fd",
+        "PRIMARY": "#2563eb",
+        "PRIMARY_DARK": "#1d4ed8",
+        "PRIMARY_DARKER": "#1e3a8a",
+        "PRIMARY_DARKEST": "#172554",
+        "SECONDARY": "#0284c7",
+        "SECONDARY_LIGHT": "#38bdf8",
+        "SECONDARY_DARK": "#0369a1",
+        "ACCENT": "#475569",
+        "ACCENT_PINK": "#be185d",
+        "ACCENT_BLUE": "#1d4ed8",
+        "ACCENT_GREEN": "#15803d",
         "SUCCESS": "#059669",
         "SUCCESS_LIGHT": "#10b981",
         "WARNING": "#d97706",
@@ -296,20 +296,20 @@ _THEMES = {
         "ERROR_LIGHT": "#ef4444",
         "INFO": "#2563eb",
         "INFO_LIGHT": "#3b82f6",
-        "GRAY_50": "#f8fafc",
-        "GRAY_100": "#f1f5f9",
+        "GRAY_50": "#ffffff",
+        "GRAY_100": "#f8fafc",
         "GRAY_200": "#e2e8f0",
         "GRAY_300": "#cbd5e1",
         "GRAY_400": "#94a3b8",
         "GRAY_500": "#64748b",
         "GRAY_600": "#475569",
         "GRAY_700": "#334155",
-        "GRAY_800": "#f1f5f9",
-        "GRAY_900": "#ffffff",
-        "TEXT_PRIMARY": "#0f172a",
-        "TEXT_SECONDARY": "#334155",
-        "TEXT_MUTED": "#475569",
-        "TEXT_DIM": "#64748b",
+        "GRAY_800": "#e2e8f0",
+        "GRAY_900": "#f8fafc",
+        "TEXT_PRIMARY": "#0b1324",
+        "TEXT_SECONDARY": "#1e293b",
+        "TEXT_MUTED": "#334155",
+        "TEXT_DIM": "#475569",
     },
 }
 
@@ -496,6 +496,8 @@ class Icons:
     PROCESSING = "🔄"
     THINKING = "🤔"
     ROBOT = "🤖"
+    RESEARCH = "🔍"
+    FOCO = "🎯"
     SPARKLES = "✨"
     ROCKET = "🚀"
     FIRE = "🔥"
@@ -506,6 +508,7 @@ class Icons:
     WRENCH = "🔧"
     HAMMER = "🔨"
     GEAR = "⚙️"
+    TERMINAL = "🐚"
     
     # Archivos y carpetas
     FILE = "📄"
@@ -654,6 +657,14 @@ class Gradients:
         "#004e92", # Azul oscuro
     ]
 
+    LIGHT = [
+        "#1d4ed8", # Azul intenso
+        "#2563eb", # Azul primario
+        "#3b82f6", # Azul medio
+        "#60a5fa", # Azul claro
+        "#93c5fd", # Azul suave
+    ]
+
     MATRIX = [
         "#00ff00", # Verde brillante
         "#008f11", # Verde medio
@@ -693,6 +704,7 @@ class Gradients:
         
         mapping = {
             "default": cls.PRIMARY,
+            "light": cls.LIGHT,
             "ocean": cls.OCEAN,
             "matrix": cls.MATRIX,
             "sunset": cls.SUNSET,

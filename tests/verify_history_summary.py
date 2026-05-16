@@ -35,7 +35,6 @@ def test_history_summarization():
         max_history_messages=5,
         max_history_chars=1000,
         console=None,
-        current_llm_messages=[], 
         save_history=True
     )
     

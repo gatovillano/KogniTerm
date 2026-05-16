@@ -19,6 +19,7 @@ import threading
 from typing import Union # ¡Nueva importación para Union!
 
 from .multi_provider_manager import get_provider_manager, MultiProviderManager
+from .utils.tool_utils import normalize_tool_parameters_schema
 
 def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
@@ -80,23 +81,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> 
         # Soporte para skills que usan parameters_schema directo (JSON Schema)
         args_schema = tool.parameters_schema
 
-    # Limpiar el esquema de títulos y otros metadatos de Pydantic que a veces molestan a LiteLLM/OpenRouter
-    def clean_schema(s):
-        if not isinstance(s, dict):
-            return s
-        s.pop("title", None)
-        s.pop("additionalProperties", None)
-        s.pop("definitions", None)
-        s.pop("$defs", None)
-        if "properties" in s:
-            for prop_name, prop_val in s["properties"].items():
-                if isinstance(prop_val, dict):
-                    clean_schema(prop_val)
-                    # Algunos proveedores fallan con 'default' si no coincide exactamente con el tipo
-                    prop_val.pop("default", None)
-        return s
-
-    cleaned_schema = clean_schema(args_schema)
+    cleaned_schema = normalize_tool_parameters_schema(args_schema)
 
     # Asegurarse de que el esquema sea válido para proveedores estrictos
     if not cleaned_schema.get("properties"):
@@ -150,7 +135,9 @@ litellm.suppress_debug_info = True # Nueva bandera para evitar mensajes de ayuda
 litellm.add_fastapi_middleware = False # Evitar ruidos innecesarios
 
 # Configuración inicial de modelo y proveedor
-model_to_use = litellm_model or (f"gemini/{gemini_model}" if gemini_model else "google/gemini-1.5-flash")
+# Si no hay modelo en el env, intentamos priorizar ollama si está configurado
+default_model = "ollama/llama3" if (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower() in ["local", "ollama"] else "google/gemini-1.5-flash"
+model_to_use = litellm_model or (f"gemini/{gemini_model}" if gemini_model else default_model)
 
 # Variables para configuración de Ollama
 ollama_api_base = os.getenv("OLLAMA_API_BASE")
@@ -171,23 +158,23 @@ if model_to_use.startswith("ollama/"):
         use_cloud_init = True
     
     if use_cloud_init:
-        base = os.getenv("OLLAMA_CLOUD_API_BASE") or "https://ollama.com"
-        print(f"☁️ Configuración inicial detectada: Ollama Cloud ({model_to_use}) en {base}")
+        base = os.getenv("OLLAMA_CLOUD_API_BASE") or "https://ollama.com/v1"
+        logger.info(f"☁️ Configuración inicial detectada: Ollama Cloud ({model_to_use}) en {base}")
     else:
         base = ollama_api_base or "http://localhost:11434/v1"
-        print(f"🦙 Configuración inicial detectada: Ollama Local ({model_to_use}) en {base}")
+        logger.info(f"🦙 Configuración inicial detectada: Ollama Local ({model_to_use}) en {base}")
 elif model_to_use.startswith("gemini/") or ("gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower()):
     if google_api_key:
-        print(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
+        logger.info(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
     elif openrouter_api_key:
-        print(f"🤖 Configuración inicial detectada: OpenRouter/Gemini ({model_to_use})")
+        logger.info(f"🤖 Configuración inicial detectada: OpenRouter/Gemini ({model_to_use})")
 else:
     if openrouter_api_key:
-        print(f"🤖 Configuración inicial detectada: OpenRouter ({model_to_use})")
+        logger.info(f"🤖 Configuración inicial detectada: OpenRouter ({model_to_use})")
     elif google_api_key:
-        print(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
+        logger.info(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
     else:
-        print("⚠️ ADVERTENCIA: No se encontraron credenciales válidas. Configura OPENROUTER_API_KEY o GOOGLE_API_KEY.", file=sys.stderr)
+        logger.warning("No se encontraron credenciales válidas. Configura OPENROUTER_API_KEY o GOOGLE_API_KEY.")
 
 from .exceptions import UserConfirmationRequired # Importar la excepción
 import tiktoken # Importar tiktoken
@@ -211,14 +198,14 @@ class LLMService:
         else:
             self.provider_manager = None
         
-        self.model_name = os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash")
+        self.model_name = os.environ.get("LITELLM_MODEL", default_model)
         # Validación de seguridad: si el modelo parece una API Key de Google, corregirlo
         if self.model_name.startswith("AIza"):
-            logger.warning(f"Se detectó una API Key en LITELLM_MODEL ('{self.model_name[:8]}...'). Corrigiendo a 'google/gemini-1.5-flash'.")
-            self.model_name = "google/gemini-1.5-flash"
+            logger.warning(f"Se detectó una API Key en LITELLM_MODEL ('{self.model_name[:8]}...'). Corrigiendo a '{default_model}'.")
+            self.model_name = default_model
         
         # Modelo para resumen de historial (fallback/summary) - usa el mismo por defecto
-        self.summary_model = os.environ.get("SUMMARY_MODEL", self.model_name)
+        self.summary_model = self.model_name
             
         # Determinar API Key de forma inteligente según el modelo inicial
         if self.model_name.startswith("gemini/"):
@@ -280,33 +267,42 @@ class LLMService:
         # print("DEBUG: Tokenizer listo.")
         self.history_file_path = os.path.join(os.getcwd(), ".kogniterm", "history.json") # Inicializar history_file_path
         self.console = None # Inicializar console
-        self.max_history_messages = 20 # Valor por defecto, ajustar según necesidad
-        self.max_history_chars = 15000 # Valor por defecto, ajustar según necesidad
+        self.max_history_messages = 40 # Aumentado para mejor contexto y menor latencia por resumenes
+        self.max_history_chars = 40000 # Aumentado para mejor contexto
+        self.auto_save_interval = float(os.getenv("KOGNITERM_AUTO_SAVE_INTERVAL", "0")) or None  # Intervalo en segundos para autoguardado, 0 para desactivar
         # print("DEBUG: Inicializando WorkspaceContext...")
         self.workspace_context = WorkspaceContext(root_dir=os.getcwd())
         self.workspace_context_initialized = False
         self.call_timestamps = deque() # Inicializar call_timestamps
         self.rate_limit_period = 60 # Por ejemplo, 60 segundos
-        self.rate_limit_calls = 5 # Ajustado a 5 llamadas por minuto para evitar RateLimit
+        self.rate_limit_calls = 100 # Aumentado para reducir latencia artificial entre turnos
         self.generation_params = {"temperature": 0.7, "top_p": 0.95, "top_k": 40} # Parámetros de generación por defecto
+        configured_reasoning_effort = self._normalize_reasoning_effort(os.getenv("KOGNITERM_REASONING_EFFORT"))
+        if configured_reasoning_effort:
+            self.generation_params["reasoning_effort"] = configured_reasoning_effort
         # Configurable timeouts (env vars)
-        # KOGNITERM_AGENT_POLL_MS: poll interval (ms) used when waiting on tool futures (default 2000 ms)
-        self.tool_poll_timeout = float(os.getenv("KOGNITERM_AGENT_POLL_MS", "2000")) / 1000.0
+        # KOGNITERM_AGENT_POLL_MS: poll interval (ms) used when waiting on tool futures (default 100 ms)
+        self.tool_poll_timeout = float(os.getenv("KOGNITERM_AGENT_POLL_MS", "100")) / 1000.0
         # KOGNITERM_API_TIMEOUT_S: timeout for LLM/API calls in seconds (default 120 s)
         self.api_timeout_seconds = float(os.getenv("KOGNITERM_API_TIMEOUT_S", "120"))
         # Optional fallback timeout for alternative calls
         self.api_timeout_fallback_seconds = float(os.getenv("KOGNITERM_API_FALLBACK_TIMEOUT_S", "90"))
+        # KOGNITERM_STREAM_OVERALL_TIMEOUT_S: total timeout for streaming responses (default 1800 s)
+        self.stream_overall_timeout = float(os.getenv("KOGNITERM_STREAM_OVERALL_TIMEOUT_S", "1800"))
+        # KOGNITERM_STREAM_CHUNK_TIMEOUT_S: timeout between chunks in streaming (default 45 s)
+        self.stream_chunk_timeout = float(os.getenv("KOGNITERM_STREAM_CHUNK_TIMEOUT_S", "45"))
         # Máximo de reintentos automáticos de continuación cuando la respuesta se corta (por finish_reason 'length')
         self.max_continuations = int(os.getenv("KOGNITERM_MAX_CONTINUATIONS", "3"))
 
         self.tool_execution_lock = threading.Lock() # Inicializar el lock
         self.active_tool_future = None # Referencia a la última tarea iniciada
-        self.tool_executor = ThreadPoolExecutor(max_workers=10) # Aumentado para permitir paralelismo y llamadas anidadas
+        self.tool_executor = ThreadPoolExecutor(max_workers=20) # Aumentado para permitir mayor paralelismo en ejecución de herramientas
         # Inicializar HistoryManager para gestión optimizada del historial
         self.history_manager = HistoryManager(
             history_file_path=self.history_file_path,
             max_history_messages=self.max_history_messages,
-            max_history_chars=self.max_history_chars
+            max_history_chars=self.max_history_chars,
+            auto_save_interval=self.auto_save_interval
         )
         self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
         
@@ -345,10 +341,29 @@ class LLMService:
         chars = string.ascii_letters + string.digits
         return ''.join(random.choice(chars) for _ in range(length))
 
+    def _normalize_reasoning_effort(self, effort: Optional[str]) -> Optional[str]:
+        """Normaliza y valida el esfuerzo de razonamiento soportado por modelos compatibles."""
+        if not effort:
+            return None
+        normalized = str(effort).strip().lower()
+        if normalized in {"low", "medium", "high"}:
+            return normalized
+        return None
+
+    def _apply_reasoning_effort_param(self, completion_kwargs: Dict[str, Any], model_name: Optional[str] = None):
+        """Inyecta reasoning_effort cuando está configurado.
+
+        LiteLLM tiene `drop_params=True`, por lo que proveedores incompatibles ignoran el campo.
+        """
+        effort = self._normalize_reasoning_effort(self.generation_params.get("reasoning_effort"))
+        if not effort:
+            return
+        completion_kwargs["reasoning_effort"] = effort
+
     def _parse_tool_calls_from_text(self, text: str) -> List[Dict[str, Any]]:
         """
         Analiza el texto para encontrar llamadas a herramientas usando múltiples estrategias.
-        Versión permisiva: extrae tool calls sin validar contra self.tool_map.
+        Versión conservadora: evita falsos positivos con palabras comunes y JSONs genéricos.
         """
         if not text:
             return []
@@ -363,6 +378,7 @@ class LLMService:
         clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
         
         # ESTRATEGIA A: Patrones explícitos "LLAMADA_A_HERRAMIENTA: name {args}"
+        # Estos son los más seguros porque tienen un prefijo claro.
         explicit_patterns = [
             r'LLAMADA_A_HERRAMIENTA:\s*(\w+)',
             r'Herramienta:\s*(\w+)',
@@ -372,90 +388,68 @@ class LLMService:
         for pat in explicit_patterns:
             for match in re.finditer(pat, clean_text, re.IGNORECASE):
                 tool_name = match.group(1).strip()
-                # NO validar contra self.tool_map - usar el nombre literal
-                search_start = match.end()
-                json_start = clean_text.find('{', search_start)
-                if json_start != -1 and (json_start - search_start) < 200:
-                    args_str = self._extract_balanced_content(clean_text, json_start)
-                    if args_str:
-                        args = self.extract_args(args_str)
-                        tool_calls.append({"id": self._generate_short_id(), "name": tool_name, "args": args})
+                # El nombre debe existir en el mapa de herramientas
+                if tool_name in self.tool_map or tool_name.lower() in self.tool_map or tool_name in ['call_agent', 'think', 'execute_command']:
+                    search_start = match.end()
+                    json_start = clean_text.find('{', search_start)
+                    # El JSON debe estar cerca del nombre
+                    if json_start != -1 and (json_start - search_start) < 100:
+                        args_str = self._extract_balanced_content(clean_text, json_start)
+                        if args_str:
+                            args = self.extract_args(args_str)
+                            tool_calls.append({"id": self._generate_short_id(), "name": tool_name, "args": args if isinstance(args, dict) else {}})
 
-        # ESTRATEGIA B: Bloques JSON estructurados (solo a nivel raíz, no dentro de args)
-        # Buscamos JSONs balanceados en el texto principal, evitando procesar JSONs anidados
+        # ESTRATEGIA B: Bloques JSON estructurados
         i = 0
         while i < len(clean_text):
             if clean_text[i] == '{':
                 json_str = self._extract_balanced_content(clean_text, i)
                 if json_str:
-                    tool_call_added = False
                     try:
                         data = json.loads(json_str)
                         if isinstance(data, dict) and data:
-                            # Formato directo: {"name": "...", "args": {...}}
-                            name = data.get("name") or data.get("tool") or data.get("function")
-                            args = data.get("args") or data.get("arguments") or data.get("parameters") or {}
+                            # Formato 1: {"name": "...", "args": {...}} o similares
+                            name_key = next((k for k in ["name", "tool", "function", "skill"] if k in data), None)
+                            if name_key:
+                                name = data.get(name_key)
+                                args = data.get("args") or data.get("arguments") or data.get("parameters") or {}
+                                
+                                if isinstance(name, str) and (name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'think', 'execute_command']):
+                                    tool_calls.append({"id": self._generate_short_id(), "name": name, "args": args if isinstance(args, dict) else {}})
+                                    i += len(json_str)
+                                    continue
                             
-                            if name:
-                                # NO validar contra self.tool_map - usar el nombre literal
-                                tool_calls.append({"id": self._generate_short_id(), "name": str(name), "args": args})
-                                tool_call_added = True
-                            
-                            # Formato: {"tool_name": {...args...}}
-                            # Solo si NO hay claves name/tool/function (ya manejadas arriba)
+                            # Formato 2: {"tool_name": {...args...}}
+                            # MUY RESTRICTIVO: Solo si tiene exactamente una clave, esa clave es una herramienta, 
+                            # el valor es un objeto, y el nombre es lo suficientemente largo/específico.
                             elif len(data) == 1:
                                 potential_name = list(data.keys())[0]
                                 potential_args = data[potential_name]
-                                # Asegurarse de que potential_args es un dict (no una cadena simple)
-                                # Esto evita reportar claves simples dentro de args como tool calls
-                                if isinstance(potential_args, dict):
-                                    # NO validar contra self.tool_map - usar el nombre literal
-                                    tool_calls.append({"id": self._generate_short_id(), "name": potential_name, "args": potential_args})
-                                    tool_call_added = True
-                            
-                            # ESTRATEGIA D: Lookback detection para JSON sin nombre de herramienta
-                            # Si no se ha añadido una llamada a herramienta, buscar nombres de herramientas en el texto anterior
-                            if not tool_call_added:
-                                # Definir ventana de lookback (por ejemplo, 300 caracteres)
-                                lookback_start = max(0, i - 300)
-                                lookback_text = clean_text[lookback_start:i]
-                                # Buscar nombres de herramientas disponibles (self.tool_map)
-                                for tool_name in self.tool_map.keys():
-                                    # Buscar el nombre de la herramienta como palabra completa (case-insensitive)
-                                    if re.search(r'\b' + re.escape(tool_name) + r'\b', lookback_text, re.IGNORECASE):
-                                        # Se encontró una herramienta mencionada antes del JSON
-                                        # Usar el JSON completo como argumentos
-                                        tool_calls.append({"id": self._generate_short_id(), "name": tool_name, "args": data})
-                                        tool_call_added = True
-                                        break
+                                if isinstance(potential_args, dict) and (potential_name in self.tool_map or potential_name.lower() in self.tool_map):
+                                    # Evitar palabras comunes de menos de 4 letras a menos que sea un match exacto con case
+                                    if len(potential_name) > 3 or potential_name in self.tool_map:
+                                        tool_calls.append({"id": self._generate_short_id(), "name": potential_name, "args": potential_args})
+                                        i += len(json_str)
+                                        continue
                     except:
                         pass
-                    # Avanzar i al final de este JSON para evitar procesar JSONs anidados dentro de args
-                    i += len(json_str)
-                    continue
             i += 1
 
-
-        # ESTRATEGIA C: Formatos Legacy tipo Código "name({args})" o "name[{args}]"
-        # Soporta múltiples delimitadores: paréntesis () o corchetes [] externos
-        # y llaves {} o corchetes [] internos para los argumentos
-        legacy_pattern = r'(\w+)\s*[\(\[]\s*([\{\[]' + r'.*?[\}\]]\s*[\)\]])'
+        # ESTRATEGIA C: Formatos Legacy tipo Código "name({args})"
+        # Solo si el nombre es una herramienta válida y está seguido por ({
+        legacy_pattern = r'\b(\w+)\s*\(\s*(\{.*?\})\s*\)'
         for match in re.finditer(legacy_pattern, clean_text, re.DOTALL):
-            full_match = match.group(0)
             name = match.group(1)
-            # Extraer el contenido interno (argumentos) quitando delimitadores externos
-            inner = match.group(2)
-            # Quitar posibles espacios y delimitadores externos sobrantes
-            inner_stripped = inner.strip()
-            # Si inner_stripped empieza con { o [ y termina con } o ], quitarlos
-            if (inner_stripped.startswith("{") and inner_stripped.endswith("}")) or \
-               (inner_stripped.startswith("[") and inner_stripped.endswith("]")):
-                args_str = inner_stripped[1:-1]
-            else:
-                args_str = inner_stripped
-            # NO validar contra self.tool_map - usar el nombre literal
-            args = self.extract_args(args_str)
-            tool_calls.append({"id": self._generate_short_id(), "name": name, "args": args})
+            # Solo aceptar funciones que estén en el tool_map o sean comandos conocidos
+            if name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'think', 'execute_command']:
+                # Evitar funciones comunes de Python
+                if name.lower() not in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'range', 'open']:
+                    try:
+                        args = json.loads(match.group(2))
+                        if isinstance(args, dict):
+                            tool_calls.append({"id": self._generate_short_id(), "name": name, "args": args})
+                    except:
+                        pass
 
         # Filtrar duplicados y consolidar
         for tc in tool_calls:
@@ -466,9 +460,11 @@ class LLMService:
                     seen_combinations.add(key)
                     valid_tool_calls.append(tc)
             except:
-                if tc not in valid_tool_calls: valid_tool_calls.append(tc)
+                if tc not in valid_tool_calls: 
+                    valid_tool_calls.append(tc)
 
         return valid_tool_calls
+
     def extract_args(self, args_str: str) -> Dict[str, Any]:
         """Extrae argumentos de una cadena de texto de forma permisiva."""
         if not args_str: return {}
@@ -704,15 +700,50 @@ class LLMService:
         self.tool_names.append(tool_instance.name)
         # Tools will be converted at runtime, so no need to update litellm_tools here
 
+    def sync_tools(self):
+        """Sincroniza el caché interno de herramientas con el estado actual de SkillManager."""
+        logger.info("Sincronizando herramientas en LLMService...")
+        self.litellm_tools = None  # Invalidar caché
+        tools = self.skill_manager.get_tools()
+        self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in tools]
+        self.tool_schemas = []
+        for tool in tools:
+            schema = {}
+            if hasattr(tool, 'args_schema') and tool.args_schema is not None:
+                if hasattr(tool.args_schema, 'schema'):
+                    schema = tool.args_schema.schema()
+                elif hasattr(tool.args_schema, 'model_json_schema'):
+                    schema = tool.args_schema.model_json_schema()
+            elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
+                schema = tool.parameters_schema
+            self.tool_schemas.append(schema)
+        self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in tools}
+
     def _get_litellm_tools(self) -> List[dict]:
         """Convierte las herramientas al formato LiteLLM apropiado para el modelo actual."""
         if self.litellm_tools is None:
             logger.info(f"🔧 Convirtiendo herramientas para modelo: {self.model_name}")
+            # Asegurar que la skill task_tracker esté cargada si está disponible
+            try:
+                if hasattr(self, 'skill_manager') and 'task_tracker' in getattr(self.skill_manager, 'skills', {}):
+                    if 'task_tracker' not in getattr(self.skill_manager, 'loaded_skills', set()):
+                        try:
+                            self.skill_manager.load_skill('task_tracker')
+                        except Exception as e:
+                            logger.debug(f"No se pudo cargar skill 'task_tracker': {e}")
+            except Exception:
+                pass
+
             converted_tools = []
             for tool in self.skill_manager.get_tools():
                 converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
                 logger.info(f"✅ Herramienta convertida: {tool.name} -> {converted.get('type', 'standard')}")
                 converted_tools.append(converted)
+            # Reconstruir el mapa de herramientas para incluir las recién cargadas
+            try:
+                self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.skill_manager.get_tools()}
+            except Exception:
+                pass
             self.litellm_tools = converted_tools
             logger.info(f"📋 Total herramientas convertidas: {len(converted_tools)}")
         return self.litellm_tools
@@ -720,7 +751,9 @@ class LLMService:
     def set_model(self, model_name: str):
         """Cambia el modelo actual en tiempo de ejecución de forma robusta."""
         self.model_name = model_name
+        self.summary_model = model_name  # Sincronizar modelo de resumen
         os.environ["LITELLM_MODEL"] = model_name
+        os.environ["SUMMARY_MODEL"] = model_name # Persistir también en env
         
         # Invalidar caché de herramientas
         self.litellm_tools = None
@@ -768,7 +801,7 @@ class LLMService:
                 use_cloud = True
 
             if use_cloud:
-                self.api_base = os.environ.get("OLLAMA_CLOUD_API_BASE") or "https://ollama.com"
+                self.api_base = os.environ.get("OLLAMA_CLOUD_API_BASE") or "https://ollama.com/v1"
                 self.api_key = api_key_cloud or api_key_local
                 if self.api_key:
                     self.headers = {"Authorization": f"Bearer {self.api_key}"}
@@ -785,6 +818,8 @@ class LLMService:
             # Limpiar estado global de litellm para evitar interferencias
             litellm.api_base = None
             litellm.headers = None
+            # Para Ollama Cloud, usar el API key real; para local, usar "ollama"
+            litellm.api_key = self.api_key if use_cloud and self.api_key else (self.api_key or "ollama")
             
         else:
             # Otros proveedores genéricos
@@ -832,6 +867,16 @@ class LLMService:
             history=messages_to_process
         )
 
+        last_user_text = None
+        for msg in reversed(processed_history):
+            if isinstance(msg, HumanMessage):
+                content = msg.content
+                if isinstance(content, str):
+                    last_user_text = content
+                else:
+                    last_user_text = str(content)
+                break
+
         # 3. Construir mensajes para LiteLLM
         litellm_messages = []
         system_contents = []
@@ -856,10 +901,22 @@ class LLMService:
         if not any(tool_confirmation_instruction in sc for sc in system_contents):
             system_contents.append(tool_confirmation_instruction)
 
-        # Añadir el mensaje de contexto del espacio de trabajo si está inicializado
+        # Añadir el mensaje de contexto del espacio de trabajo si está inicializado y no está en el historial
         workspace_context_message = self._build_llm_context_message()
         if workspace_context_message:
-            system_contents.append(workspace_context_message.content)
+            # Solo añadir si no hay ya un mensaje con ese encabezado en el historial procesado
+            if not any("## 📁 CONTEXTO DEL PROYECTO" in str(msg.content) for msg in processed_history):
+                system_contents.append(workspace_context_message.content)
+
+        # Añadir contexto progresivo de skills cargadas (estándar Agent Skills / Skills SH)
+        if hasattr(self, 'skill_manager'):
+            try:
+                skill_context_message = self.skill_manager.build_skill_context_message(query=last_user_text)
+            except Exception:
+                skill_context_message = None
+
+            if skill_context_message:
+                system_contents.append(skill_context_message.content)
 
         # Unificar todos los mensajes de sistema al principio (Requerido por muchos proveedores)
         if system_contents:
@@ -897,25 +954,40 @@ class LLMService:
                     last_user_content = msg["content"]
             elif role == "assistant":
                 if msg.get("tool_calls"):
-                    # Si tiene tool_calls, verificar que existan las respuestas correspondientes en el historial
-                    # Si es el ÚLTIMO mensaje, Mistral fallará si tiene tool_calls pendientes.
-                    # En ese caso, si no hay respuestas, eliminamos los tool_calls para evitar el error 400.
-                    has_responses = False
+                    # Validar secuencia estricta: assistant(tool_calls) debe tener ToolMessage(s)
+                    # con IDs que coincidan antes del siguiente user/assistant.
+                    responded_tool_ids = set()
                     for j in range(i + 1, len(raw_conv_messages)):
                         next_msg = raw_conv_messages[j]
                         if next_msg["role"] == "tool":
-                            has_responses = True
-                            break
+                            next_tool_id = next_msg.get("tool_call_id")
+                            if next_tool_id:
+                                responded_tool_ids.add(next_tool_id)
+                            continue
                         if next_msg["role"] in ["user", "assistant"]:
                             break
-                    
-                    if has_responses or i < len(raw_conv_messages) - 1:
-                        # Mantener tool_calls si hay respuestas o no es el último (aunque lo ideal es que tenga respuestas)
-                        for tc in msg["tool_calls"]:
+
+                    original_tool_calls = msg.get("tool_calls", [])
+                    valid_tool_calls = [
+                        tc for tc in original_tool_calls
+                        if tc.get("id") and tc.get("id") in responded_tool_ids
+                    ]
+
+                    # Si no hay respuestas válidas y no es el último, permitir continuar sin tool_calls.
+                    # Esto evita errores de formato en proveedores estrictos (ej. Baidu via OpenRouter).
+                    if valid_tool_calls:
+                        msg_copy = msg.copy()
+                        msg_copy["tool_calls"] = valid_tool_calls
+                        for tc in valid_tool_calls:
                             known_tool_call_ids.add(tc["id"])
-                        litellm_messages.append(msg)
+                        litellm_messages.append(msg_copy)
+                    elif i < len(raw_conv_messages) - 1:
+                        msg_copy = msg.copy()
+                        msg_copy.pop("tool_calls", None)
+                        if msg_copy.get("content"):
+                            litellm_messages.append(msg_copy)
                     else:
-                        # Si es el último y no tiene respuestas, quitar tool_calls para evitar error 400
+                        # Último mensaje con tool_calls pendientes: remover tool_calls para evitar 400.
                         msg_copy = msg.copy()
                         msg_copy.pop("tool_calls", None)
                         if msg_copy.get("content"):
@@ -952,8 +1024,19 @@ class LLMService:
             "temperature": self.generation_params.get("temperature", 0.7),
             "max_tokens": 8192,
             "num_retries": 3, # Aumentado para manejar errores temporales
-            "timeout": self.api_timeout_seconds,    # Configurable via KOGNITERM_API_TIMEOUT_S (seconds)
         }
+        
+        # Añadir herramientas si están disponibles y el modelo las soporta
+        try:
+            tools = self._get_litellm_tools()
+            if tools:
+                completion_kwargs["tools"] = tools
+                # Forzar tool_choice a auto para incentivar el uso de herramientas
+                completion_kwargs["tool_choice"] = "auto"
+                logger.info(f"🔧 Incluyendo {len(tools)} herramientas en la llamada al LLM")
+        except Exception as e:
+            logger.warning(f"No se pudieron cargar las herramientas para el LLM: {e}")
+        self._apply_reasoning_effort_param(completion_kwargs, self.model_name)
 
         # Pasar api_base y headers explícitamente si están definidos
         if hasattr(self, 'api_base') and self.api_base:
@@ -1005,7 +1088,13 @@ class LLMService:
         if final_tools:
             completion_kwargs["tools"] = final_tools
             # Forzar tool_choice="auto" para modelos que lo soporten
-            if "gpt" in self.model_name.lower() or "openai" in self.model_name.lower() or "gemini" in self.model_name.lower():
+            if (
+                "gpt" in self.model_name.lower()
+                or "openai" in self.model_name.lower()
+                or "gemini" in self.model_name.lower()
+                or self.model_name.lower().startswith("ollama/")
+                or "ollama" in self.model_name.lower()
+            ):
                 completion_kwargs["tool_choice"] = "auto"
 
         # Validación estricta de secuencia para Mistral/OpenRouter
@@ -1087,9 +1176,14 @@ class LLMService:
                     model_name=self.model_name,
                     messages=completion_kwargs["messages"],
                     stream=completion_kwargs.get("stream", True),
+                    api_key=completion_kwargs.get("api_key"),
+                    api_base=completion_kwargs.get("api_base"),
+                    headers=completion_kwargs.get("headers"),
                     temperature=completion_kwargs.get("temperature", 0.7),
+                    reasoning_effort=completion_kwargs.get("reasoning_effort"),
                     max_tokens=completion_kwargs.get("max_tokens", 8192),
                     tools=completion_kwargs.get("tools"),
+                    tool_choice=completion_kwargs.get("tool_choice"),
                 )
             else:
                 # Fallback al comportamiento original
@@ -1101,8 +1195,8 @@ class LLMService:
             self.call_timestamps.append(time.time())
             start_time = time.time()
             last_chunk_time = time.time()
-            chunk_timeout = 60 # 60 segundos entre chunks
-            overall_timeout = 300 # 5 minutos total
+            chunk_timeout = self.stream_chunk_timeout
+            overall_timeout = self.stream_overall_timeout
             
             # Variables para detección de truncamiento y reintentos de continuación
             last_finish_reason = None
@@ -1113,10 +1207,12 @@ class LLMService:
                 
                 # Detectar estancamiento entre chunks
                 if current_time - last_chunk_time > chunk_timeout:
-                    logger.warning(f"Estancamiento detectado: {current_time - last_chunk_time:.1f}s sin chunks.")
-                
-                last_chunk_time = current_time
-                
+                    logger.warning(f"⚠️ Estancamiento detectado: {current_time - last_chunk_time:.1f}s sin chunks. Intentando esperar un poco más...")
+                    if current_time - last_chunk_time > (chunk_timeout * 2):
+                         logger.error(f"❌ Timeout severo de chunk alcanzado: {current_time - last_chunk_time:.1f}s.")
+                         break
+
+                last_chunk_time = current_time                
                 # Detectar timeout total de la solicitud
                 if current_time - start_time > overall_timeout:
                     logger.error(f"Timeout total de {overall_timeout}s alcanzado en el stream.")
@@ -1151,15 +1247,59 @@ class LLMService:
                 # Log the raw delta for debugging
                 logger.debug(f"DEBUG: LiteLLM Delta recibido: {delta}")
 
-                # Capturar contenido de razonamiento (Thinking) si está disponible
+                # Capturar contenido de razonamiento (Thinking) nativo si está disponible
                 reasoning_delta = getattr(delta, 'reasoning_content', None)
                 if reasoning_delta is not None:
                     full_reasoning_content += str(reasoning_delta)
                     yield f"__THINKING__:{reasoning_delta}"
 
-                if getattr(delta, 'content', None) is not None:
-                    full_response_content += str(delta.content)
-                    yield str(delta.content)
+                content_delta = getattr(delta, 'content', None)
+                if content_delta is not None:
+                    chunk_str = str(content_delta)
+                    
+                    # Detección de pensamiento manual (etiquetas <thought> o prefijo THINKING:)
+                    # Si estamos dentro de un bloque de pensamiento manual
+                    if getattr(self, '_in_manual_thought', False):
+                        if "</thought>" in chunk_str:
+                            parts = chunk_str.split("</thought>", 1)
+                            full_reasoning_content += parts[0]
+                            yield f"__THINKING__:{parts[0]}"
+                            self._in_manual_thought = False
+                            logger.info(f"🧠 Fin de pensamiento manual detectado: {parts[0][:20]}...")
+                            if parts[1]:
+                                full_response_content += parts[1]
+                                yield parts[1]
+                        else:
+                            full_reasoning_content += chunk_str
+                            yield f"__THINKING__:{chunk_str}"
+                    elif "<thought>" in chunk_str:
+                        self._in_manual_thought = True
+                        logger.info("🧠 Inicio de pensamiento manual detectado (<thought>)")
+                        parts = chunk_str.split("<thought>", 1)
+                        if parts[0]:
+                            full_response_content += parts[0]
+                            yield parts[0]
+                        if parts[1]:
+                            if "</thought>" in parts[1]:
+                                thought_parts = parts[1].split("</thought>", 1)
+                                full_reasoning_content += thought_parts[0]
+                                yield f"__THINKING__:{thought_parts[0]}"
+                                self._in_manual_thought = False
+                                if thought_parts[1]:
+                                    full_response_content += thought_parts[1]
+                                    yield thought_parts[1]
+                            else:
+                                full_reasoning_content += parts[1]
+                                yield f"__THINKING__:{parts[1]}"
+                    elif chunk_str.strip().startswith("THINKING:") and not full_response_content:
+                        # Detección rudimentaria de prefijo manual al inicio de la respuesta
+                        logger.info("🧠 Inicio de pensamiento manual detectado (THINKING:)")
+                        full_reasoning_content += chunk_str
+                        yield f"__THINKING__:{chunk_str}"
+                        self._in_manual_thought = True # Tratar el resto como pensamiento hasta un doble salto de línea
+                    else:
+                        full_response_content += chunk_str
+                        yield chunk_str
                 
                 tool_calls_from_delta = getattr(delta, 'tool_calls', None)
                 if tool_calls_from_delta is not None:
@@ -1212,6 +1352,7 @@ class LLMService:
                                     messages=cont_msgs,
                                     stream=True,
                                     temperature=completion_kwargs.get("temperature", 0.7),
+                                    reasoning_effort=completion_kwargs.get("reasoning_effort"),
                                     max_tokens=min(4096, completion_kwargs.get("max_tokens", 8192)),
                                     tools=completion_kwargs.get("tools"),
                                 )
@@ -1226,9 +1367,19 @@ class LLMService:
                             cont_last_chunk_time = time.time()
                             for cont_chunk in cont_gen:
                                 current_time = time.time()
-                                if current_time - cont_last_chunk_time > chunk_timeout:
-                                    logger.warning(f"Estancamiento detectado durante continuación: {current_time - cont_last_chunk_time:.1f}s sin chunks.")
+                                # Detectar estancamiento entre chunks durante la continuación
+                                if current_time - cont_last_chunk_time > self.stream_chunk_timeout:
+                                    logger.warning(f"⚠️ Estancamiento detectado en continuación: {current_time - cont_last_chunk_time:.1f}s sin chunks.")
+                                    if current_time - cont_last_chunk_time > (self.stream_chunk_timeout * 2):
+                                        logger.error(f"❌ Timeout severo de continuación alcanzado: {current_time - cont_last_chunk_time:.1f}s.")
+                                        break
                                 cont_last_chunk_time = current_time
+                                
+                                # Detectar timeout total de la solicitud durante la continuación
+                                if current_time - start_time > self.stream_overall_timeout:
+                                    logger.error(f"Timeout total de {self.stream_overall_timeout}s alcanzado en el stream de continuación.")
+                                    yield f"\n\n⚠️ Error: Tiempo de espera agotado ({self.stream_overall_timeout}s). La conexión se ha cerrado.\n"
+                                    break
 
                                 cont_choices = getattr(cont_chunk, 'choices', None)
                                 if not cont_choices or not isinstance(cont_choices, list) or not cont_choices[0]:
@@ -1392,6 +1543,10 @@ class LLMService:
                         "timeout": self.api_timeout_fallback_seconds
                     }
                     
+                    # Aplicar reasoning_effort si está configurado
+                    if completion_kwargs.get("reasoning_effort"):
+                        alt_kwargs["reasoning_effort"] = completion_kwargs["reasoning_effort"]
+                    
                     # IMPORTANTE: Si es error de soporte, quitamos 'tools' de la llamada para que el servidor no la rechace
                     if "No endpoints found" in error_msg:
                         alt_kwargs.pop("tools", None)
@@ -1522,6 +1677,10 @@ class LLMService:
                                 "api_key": completion_kwargs["api_key"],
                                 "user": f"user_{self._generate_short_id(8)}"  # ID más corto
                             }
+                            
+                            # Aplicar reasoning_effort si está configurado
+                            if completion_kwargs.get("reasoning_effort"):
+                                ultra_kwargs["reasoning_effort"] = completion_kwargs["reasoning_effort"]
                             
                             logger.debug(f"Configuración ultra-minimalista: {list(ultra_kwargs.keys())}")
                             response_generator = completion(**ultra_kwargs)
@@ -1702,14 +1861,21 @@ class LLMService:
             flat_history = "... [Contenido antiguo truncado para resumen] ...\n\n" + flat_history[-max_history_chars:]
 
         # 2. Crear un único mensaje de usuario con todo el historial y las instrucciones
-        summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior. 
+        summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior que permita retomar el hilo sin perder contexto.
         
 CONTEXTO DE LA CONVERSACIÓN:
 {flat_history}
 
-INSTRUCCIONES:
-Incluye todos los puntos clave, decisiones tomadas, tareas pendientes, el contexto esencial para la continuidad, cualquier información relevante que ayude a retomar la conversación sin perder el hilo, y **especialmente, cualquier error de herramienta encontrado, las razones de su fallo y las acciones intentadas para resolverlos**. 
-Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la información crítica."""
+INSTRUCCIONES PARA EL RESUMEN:
+- **Estado actual de la conversación:** ¿En qué punto estábamos? ¿Qué tarea o tema se estaba discutiendo?
+- **Decisiones tomadas:** ¿Qué decisiones se han tomado hasta ahora?
+- **Tareas pendientes:** ¿Qué acciones estaban en progreso o planeadas?
+- **Errores y problemas:** Cualquier error de herramienta, fallo o problema encontrado, y las acciones tomadas para resolverlos.
+- **Contexto esencial:** Información crítica que el asistente necesita recordar para continuar coherentemente.
+- **Hilo de la conversación:** El flujo lógico de la discusión para no perder la continuidad.
+
+IMPORTANTE: El resumen debe ser lo suficientemente detallado para que un asistente pueda retomar la conversación exactamente donde se dejó, sin hacer preguntas innecesarias sobre el pasado reciente.
+Limita el resumen a 4000 caracteres. Sé exhaustivo en los puntos clave pero conciso en los detalles menores."""
 
         litellm_messages_for_summary = [{"role": "user", "content": summarize_prompt}]
         
@@ -1726,10 +1892,47 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             # Añadir reintentos para errores 503 y otros errores de servidor
             "num_retries": 3,
         }
+        self._apply_reasoning_effort_param(summary_completion_kwargs, self.summary_model)
         if "top_p" in litellm_generation_params:
             summary_completion_kwargs["top_p"] = litellm_generation_params["top_p"]
         if "top_k" in litellm_generation_params:
             summary_completion_kwargs["top_k"] = litellm_generation_params["top_k"]
+
+        # Pasar api_base y headers explícitamente si están definidos para que el resumen use el mismo canal que el principal
+        if hasattr(self, 'api_base') and self.api_base:
+            summary_completion_kwargs["api_base"] = self.api_base
+        if hasattr(self, 'headers') and self.headers:
+            summary_completion_kwargs["headers"] = self.headers
+
+        # Configuración específica para OpenRouter/SiliconFlow con campos adicionales
+        if "openrouter" in self.summary_model.lower():
+            # Asegurar formato correcto del modelo
+            if not summary_completion_kwargs["model"].startswith("openrouter/"):
+                summary_completion_kwargs["model"] = f"openrouter/{self.summary_model}"
+
+            # Habilitar Reasoning por defecto para OpenRouter
+            if "extra_body" not in summary_completion_kwargs:
+                summary_completion_kwargs["extra_body"] = {}
+            summary_completion_kwargs["extra_body"]["reasoning"] = { "type": "enabled" }
+            # También añadir el parámetro directo si LiteLLM lo soporta
+            summary_completion_kwargs["include_reasoning"] = True
+
+            # Para modelos específicos como Nex-AGI, usar configuración más simple
+            if "nex-agi" in self.summary_model.lower() or "deepseek" in self.summary_model.lower():
+                # Configuración minimalista para Nex-AGI/DeepSeek
+                summary_completion_kwargs["user"] = f"user_{self._generate_short_id(12)}"
+                # NO enviar campos adicionales que puedan causar problemas
+                logger.debug(f"Configuración minimalista para Nex-AGI/DeepSeek (resumen): {summary_completion_kwargs['model']}")
+            else:
+                # Configuración estándar para otros modelos
+                summary_completion_kwargs["user"] = f"user_{self._generate_short_id(12)}"
+                summary_completion_kwargs["metadata"] = {
+                    "user_id": summary_completion_kwargs["user"],
+                    "application_name": "KogniTerm"
+                }
+
+            # Logging para debug
+            logger.debug(f"OpenRouter configuration (resumen): model={summary_completion_kwargs['model']}, user={summary_completion_kwargs.get('user', 'N/A')}")
 
         try:
             # Usar MultiProviderManager si está disponible para aprovechar fallbacks y prefijos correctos
@@ -1795,6 +1998,39 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             # devolvemos una cadena vacía para que el sistema sepa que no hubo resumen.
             return ""
 
+    def force_summarize_history(self) -> str:
+        """
+        Fuerza un resumen del historial actual para mejorar la gestión de contexto.
+        Útil cuando el agente parece perder el hilo de la conversación.
+        
+        Returns:
+            Mensaje confirmando el resumen realizado
+        """
+        try:
+            # Obtener el historial actual
+            current_history = self.conversation_history
+            if len(current_history) <= 10:
+                return "El historial es demasiado corto para resumir (menos de 10 mensajes)."
+            
+            # Generar resumen
+            summary = self.summarize_conversation_history(current_history)
+            if not summary:
+                return "No se pudo generar el resumen del historial."
+            
+            # Crear nuevo historial con resumen
+            summary_message = SystemMessage(content=f"Resumen forzado de la conversación: {summary}")
+            new_history = [summary_message] + current_history[-20:]  # Mantener los últimos 20 mensajes
+            
+            # Actualizar historial
+            self.conversation_history = new_history
+            self._save_history(self.conversation_history)
+            
+            return f"Historial resumido exitosamente. Se conservaron los últimos {len(new_history)-1} mensajes con un resumen del contexto anterior."
+            
+        except Exception as e:
+            logger.error(f"Error al forzar resumen del historial: {e}")
+            return f"Error al resumir el historial: {str(e)}"
+
     def get_tool(self, tool_name: str) -> Optional[Any]:
         """Encuentra y devuelve una herramienta por su nombre (soporta BaseTool y Callables)."""
         return self.skill_manager.get_tool(tool_name)
@@ -1813,6 +2049,10 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             if hasattr(self, 'provider_manager') and self.provider_manager:
                 self.provider_manager.close()
                 logger.info("LLMService: ProviderManager cerrado.")
+            
+            if hasattr(self, 'history_manager') and self.history_manager:
+                self.history_manager.stop_auto_save()
+                logger.info("LLMService: Autoguardado de historial detenido.")
         except Exception as e:
             logger.error(f"Error al cerrar LLMService: {e}")
     
@@ -1861,10 +2101,6 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
 
                 if isinstance(result, dict) and result.get("status") == "requires_confirmation":
                     # Intentar obtener el nombre más descriptivo posible
-                    # 1. 'operation' en el dict de respuesta (común en skills)
-                    # 2. Atributo 'name' del objeto herramienta
-                    # 3. Nombre de la función (__name__)
-                    # 4. Fallback genérico
                     inferred_tool_name = (
                         result.get("operation") or 
                         getattr(tool, 'name', None) or 
@@ -1884,48 +2120,30 @@ Limita el resumen a 4000 caracteres. Sé exhaustivo y enfocado en la informació
             except Exception as e:
                 raise e
 
-        with self.tool_execution_lock:
-            # Eliminamos la restricción de 'una sola herramienta' para permitir que agentes (que son herramientas)
-            # puedan invocar otras herramientas de forma anidada.
-            future = self.tool_executor.submit(_tool_target)
-            self.active_tool_future = future
+        future = self.tool_executor.submit(_tool_target)
+        if not hasattr(self, 'active_tool_futures'):
+            self.active_tool_futures = []
+        self.active_tool_futures.append(future)
 
         try:
-            full_tool_output = "" # Eliminar esta línea, la acumulación se hará en el llamador
-            while True:
+            while not future.done():
+                if self.interrupt_queue and not self.interrupt_queue.empty():
+                    raise InterruptedError("Interrupción detectada")
                 try:
-                    # Intentar obtener el resultado. Si es un generador, iterar sobre él.
-                    result = future.result(timeout=self.tool_poll_timeout)  # Configurable poll interval (seconds)
-                    if isinstance(result, Generator):
-                        yield from result # Ceder directamente del generador de la herramienta
-                        return # El generador de la herramienta ha terminado
+                    result = future.result(timeout=self.tool_poll_timeout)
+                    
+                    # Robust check for generators
+                    import inspect
+                    if inspect.isgenerator(result):
+                        yield from result
                     else:
-                        # Si no es un generador, ceder el resultado directamente
                         yield result
-                        return
+                    return
                 except TimeoutError:
-                    if self.interrupt_queue and not self.interrupt_queue.empty():
-                        # print("DEBUG: _invoke_tool_with_interrupt - Interrupción detectada en la cola (via TimeoutError).", file=sys.stderr)
-                        self.interrupt_queue.get()
-                        if future.running():
-                            # print("DEBUG: _invoke_tool_with_interrupt - Intentando cancelar la tarea (via TimeoutError).", file=sys.stderr)
-                            future.cancel()
-                            # print("DEBUG: _invoke_tool_with_interrupt - Lanzando InterruptedError (via TimeoutError).", file=sys.stderr)
-                            raise InterruptedError("Ejecución de herramienta interrumpida por el usuario.")
-                except InterruptedError:
-                    raise
-                except UserConfirmationRequired as e:
-                    raise e
-                except Exception as e:
-                    raise e
-        except InterruptedError:
-            raise
-        except UserConfirmationRequired as e:
-            raise e
-        except Exception as e:
-            raise e
+                    continue
         finally:
+            if future in self.active_tool_futures:
+                self.active_tool_futures.remove(future)
             with self.tool_execution_lock:
-                if self.active_tool_future is future:
+                if getattr(self, 'active_tool_future', None) is future:
                     self.active_tool_future = None
-

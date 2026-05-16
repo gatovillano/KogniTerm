@@ -8,6 +8,9 @@ import os
 from typing import Generator, Optional
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 # Metadata de la herramienta
 name = "tavily_search"
 description = "Búsqueda web optimizada para agentes de IA usando Tavily."
@@ -32,9 +35,11 @@ def tavily_search(
     Raises:
         Exception: Errores de conexión o API
     """
+    logger.info(f"Ejecutando tavily_search con query='{query}', max_results={max_results}")
     api_key = os.getenv("TAVILY_API_KEY")
     
     if not api_key:
+        logger.error("TAVILY_API_KEY no configurada")
         yield "Error: La variable de entorno 'TAVILY_API_KEY' no está configurada.\n"
         yield "Obtén una clave gratuita en: https://tavily.com\n"
         return
@@ -58,6 +63,9 @@ def tavily_search(
         if search_depth not in ["basic", "advanced"]:
             search_depth = "basic"
 
+        # Notificar inicio
+        yield f"# Resultados de búsqueda: {query}\n\n"
+
         # Realizar búsqueda
         response = client.search(
             query=query,
@@ -67,9 +75,6 @@ def tavily_search(
             include_raw_content=False  # No incluir HTML completo
         )
 
-        # Formatear resultados
-        yield f"# Resultados de búsqueda: {query}\n\n"
-
         # Incluir respuesta resumida si está disponible
         if response.get("answer"):
             yield f"## Resumen\n{response['answer']}\n\n"
@@ -77,17 +82,21 @@ def tavily_search(
         # Incluir resultados individuales
         yield "## Fuentes\n\n"
         
-        for i, result in enumerate(response.get("results", []), 1):
-            title = result.get("title", "Sin título")
-            url = result.get("url", "")
-            content = result.get("content", "")
-            score = result.get("score", 0)
+        results = response.get("results", [])
+        if not results and not response.get("answer"):
+            yield "No se encontraron resultados relevantes para esta búsqueda.\n"
+        else:
+            for i, result in enumerate(results, 1):
+                title = result.get("title", "Sin título")
+                url = result.get("url", "")
+                content = result.get("content", "")
+                score = result.get("score", 0)
 
-            yield f"### {i}. {title}\n"
-            yield f"**URL:** {url}\n"
-            yield f"**Relevancia:** {score:.2f}\n\n"
-            yield f"{content}\n\n"
-            yield "---\n\n"
+                yield f"### {i}. {title}\n"
+                yield f"**URL:** {url}\n"
+                yield f"**Relevancia:** {score:.2f}\n\n"
+                yield f"{content}\n\n"
+                yield "---\n\n"
 
     except Exception as e:
         yield f"Error al realizar la búsqueda con Tavily: {str(e)}\n"

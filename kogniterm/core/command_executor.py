@@ -76,10 +76,11 @@ class CommandExecutor:
         except:
             pass
 
-        # Enviar el comando al shell persistente
-        # Asegurar tamaño, ejecutar el comando y luego el marcador.
+        # Enviar el comando al shell persistente.
+        # El tamaño ya se ajusta con ioctl(TIOCSWINSZ), por lo que no inyectamos
+        # un comando stty en línea para evitar que aparezca en el output renderizado.
         marker = f"echo '{self._last_command_done_marker}'"
-        full_cmd = f"stty rows {rows} cols {cols} 2>/dev/null ; {command} ; {marker}\n"
+        full_cmd = f"{command} ; {marker}\n"
         
         # Filtro de echo: definiremos la cadena exacta a borrar que producirá bash readline
         self._expected_echo = full_cmd.replace('\n', '\r\n')

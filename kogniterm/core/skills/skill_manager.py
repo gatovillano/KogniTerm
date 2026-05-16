@@ -18,8 +18,11 @@ import logging
 import json
 import queue
 import inspect
+import re
+from types import ModuleType
 from dataclasses import dataclass, field
 from datetime import datetime
+from langchain_core.messages import SystemMessage
 
 logger = logging.getLogger(__name__)
 
@@ -36,25 +39,33 @@ class Skill:
     tags: List[str] = field(default_factory=list)
     dependencies: List[str] = field(default_factory=list)
     required_permissions: List[str] = field(default_factory=list)
+    allowed_tools: List[str] = field(default_factory=list)
+    denied_tools: List[str] = field(default_factory=list)
     security_level: str = "low"  # low, medium, high, elevated
     allowlist: bool = False
     auto_approve: bool = False
     sandbox_required: bool = False
     instructions: str = ""
+    resources: List[str] = field(default_factory=list)
+    assets: List[str] = field(default_factory=list)
+    compatibility: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
     scripts_path: Path = field(init=False)
     references_path: Path = field(init=False)
+    assets_path: Path = field(init=False)
     loaded: bool = False
     tools: List[Any] = field(default_factory=list)
 
     def __post_init__(self):
         self.scripts_path = self.path / 'scripts'
         self.references_path = self.path / 'references'
+        self.assets_path = self.path / 'assets'
 
 
 class SkillValidator:
     """Valida la estructura y metadatos de una skill."""
 
-    REQUIRED_FIELDS = ['name', 'version', 'description']
+    REQUIRED_FIELDS = ['name', 'description']
     VALID_SECURITY_LEVELS = ['low', 'standard', 'medium', 'high', 'elevated']
 
     def validate_skill(self, skill_path: Path) -> Tuple[bool, List[str]]:
@@ -88,28 +99,37 @@ class SkillValidator:
             if field not in config:
                 errors.append(f"Campo requerido faltante en SKILL.md: {field}")
 
+        scripts_dir = skill_path / 'scripts'
+        has_scripts_dir = scripts_dir.exists() and scripts_dir.is_dir()
+
+        # 4.1. Verificar que exista al menos una vía útil: instrucciones o scripts/
+        instructions = str(config.get('instructions', '')).strip()
+        if not instructions and not has_scripts_dir:
+            errors.append("SKILL.md debe incluir instrucciones o un directorio scripts/")
+
         # 5. Verificar security_level
         if 'security_level' in config:
             if config['security_level'] not in self.VALID_SECURITY_LEVELS:
                 errors.append(f"security_level inválido: {config['security_level']}. "
                               f"Válidos: {self.VALID_SECURITY_LEVELS}")
 
-        # 6. Verificar estructura de directorios
-        scripts_dir = skill_path / 'scripts'
-        if not scripts_dir.exists():
-            errors.append(f"Directorio 'scripts/' no encontrado")
-        elif not scripts_dir.is_dir():
+        # 6. Verificar estructura de directorios opcionales
+        if scripts_dir.exists() and not scripts_dir.is_dir():
             errors.append(f"'scripts/' no es un directorio")
 
         references_dir = skill_path / 'references'
         if references_dir.exists() and not references_dir.is_dir():
             errors.append(f"'references/' no es un directorio")
 
-        # 7. Verificar que hay al menos un archivo .py en scripts/
-        if scripts_dir.exists():
-            py_files = list(scripts_dir.glob('*.py'))
-            if not py_files:
-                errors.append(f"No hay archivos .py en scripts/")
+        assets_dir = skill_path / 'assets'
+        if assets_dir.exists() and not assets_dir.is_dir():
+            errors.append(f"'assets/' no es un directorio")
+
+        # 7. Si existe scripts/, verificar que tenga archivos Python o al menos sea un contenedor válido
+        if scripts_dir.exists() and scripts_dir.is_dir():
+            # El estándar permite skills solo-instrucciones; scripts/ puede estar vacío.
+            # Si el directorio existe, no forzamos presencia de código.
+            pass
 
         return len(errors) == 0, errors
 
@@ -124,7 +144,10 @@ class SkillValidator:
                 end_idx = content.find('---', 3)
                 if end_idx != -1:
                     yaml_content = content[3:end_idx].strip()
-                    config = yaml.safe_load(yaml_content) or {}
+                    body = content[end_idx + 3:].strip()
+                    raw_config = yaml.safe_load(yaml_content) or {}
+                    config = self._normalize_manifest(raw_config)
+                    config['instructions'] = body
                     return config, None
             return None, "Formato frontmatter YAML inválido (debe empezar con ---)"
         except yaml.YAMLError as e:
@@ -132,9 +155,67 @@ class SkillValidator:
         except Exception as e:
             return None, f"Error leyendo archivo: {str(e)}"
 
+    def _normalize_manifest(self, raw_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Normaliza claves del manifiesto al formato interno de KogniTerm."""
+        key_map = {
+            'allowed-tools': 'allowed_tools',
+            'denied-tools': 'denied_tools',
+            'required-tools': 'required_tools',
+            'security-level': 'security_level',
+            'required-permissions': 'required_permissions',
+        }
+
+        normalized: Dict[str, Any] = {}
+        for key, value in raw_config.items():
+            normalized_key = key_map.get(key, key)
+            normalized[normalized_key] = value
+
+        for list_key in ('tags', 'dependencies', 'required_permissions', 'allowed_tools', 'denied_tools', 'resources', 'assets'):
+            value = normalized.get(list_key)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                normalized[list_key] = [value]
+            elif not isinstance(value, list):
+                normalized[list_key] = list(value) if isinstance(value, (tuple, set)) else [value]
+
+        if 'metadata' not in normalized or normalized['metadata'] is None:
+            normalized['metadata'] = {}
+        if 'compatibility' not in normalized or normalized['compatibility'] is None:
+            normalized['compatibility'] = {}
+
+        # Conservar campos estándar adicionales sin romper la construcción del dataclass Skill.
+        allowed_field_names = {
+            name for name, field_info in Skill.__dataclass_fields__.items()
+            if field_info.init
+        }
+        extra_fields = {
+            key: value for key, value in normalized.items()
+            if key not in allowed_field_names
+        }
+        if extra_fields:
+            existing_metadata = normalized.get('metadata', {}) or {}
+            if not isinstance(existing_metadata, dict):
+                existing_metadata = {'value': existing_metadata}
+            merged_metadata = dict(existing_metadata)
+            merged_metadata.setdefault('frontmatter', {})
+            if not isinstance(merged_metadata['frontmatter'], dict):
+                merged_metadata['frontmatter'] = {'value': merged_metadata['frontmatter']}
+            merged_metadata['frontmatter'].update(extra_fields)
+            normalized['metadata'] = merged_metadata
+
+        normalized = {
+            key: value for key, value in normalized.items()
+            if key in allowed_field_names
+        }
+
+        return normalized
+
 
 class SkillLoader:
     """Carga dinámica de módulos Python desde scripts/."""
+
+    DYNAMIC_SKILLS_PACKAGE = "kogniterm_dynamic_skills"
 
     def load_tools_from_skill(self, skill: Skill) -> List[Any]:
         """
@@ -144,11 +225,13 @@ class SkillLoader:
         """
         tools = []
 
-        if not skill.scripts_path.exists():
-            logger.warning(f"Skill '{skill.name}' no tiene directorio scripts/")
-            return tools
+        script_candidates: List[Path] = []
+        if skill.scripts_path.exists() and skill.scripts_path.is_dir():
+            script_candidates.extend(sorted(skill.scripts_path.rglob('*.py')))
+        else:
+            script_candidates.extend(sorted(skill.path.glob('*.py')))
 
-        for script_file in skill.scripts_path.glob('*.py'):
+        for script_file in script_candidates:
             try:
                 module_tools = self._load_module_tools(script_file, skill.name)
                 tools.extend(module_tools)
@@ -160,13 +243,17 @@ class SkillLoader:
 
     def _load_module_tools(self, script_file: Path, skill_name: str) -> List[Any]:
         """Carga un módulo Python y extrae las herramientas."""
-        module_name = f"skill_{skill_name}_{script_file.stem}"
+        module_name = self._build_dynamic_module_name(skill_name, script_file.stem)
+        package_name = module_name.rsplit('.', 1)[0]
+        self._ensure_namespace_package(package_name, script_file.parent)
+
         spec = importlib.util.spec_from_file_location(module_name, script_file)
 
         if spec is None or spec.loader is None:
             raise ImportError(f"No se pudo cargar spec para {script_file}")
 
         module = importlib.util.module_from_spec(spec)
+        module.__package__ = package_name
         sys.modules[module_name] = module  # Registrar en sys.modules
         spec.loader.exec_module(module)
 
@@ -302,10 +389,61 @@ class SkillLoader:
                                     attr.get_action_description = get_desc_func
                                     logger.debug(f"Inyectado get_action_description en {attr.name}")
 
+                        # 5. Asegurar método invoke para compatibilidad con LangChain
+                        if not hasattr(attr, 'invoke'):
+                            # Crear un wrapper para que funcione como una herramienta de LangChain
+                            def create_invoke(func):
+                                def invoke(input_data=None, config=None, **kwargs):
+                                    # Manejar diferentes formas de pasar argumentos
+                                    if isinstance(input_data, dict):
+                                        return func(**input_data)
+                                    return func(**kwargs)
+                                return invoke
+                            attr.invoke = create_invoke(attr)
+
                         tools.append(attr)
                         seen_objects.add(id(attr))
 
         return tools
+
+    def _build_dynamic_module_name(self, skill_name: str, module_stem: str) -> str:
+        """Construye un nombre de módulo válido y estable para imports relativos."""
+        safe_skill_name = self._to_valid_module_part(skill_name)
+        safe_module_stem = self._to_valid_module_part(module_stem)
+        return f"{self.DYNAMIC_SKILLS_PACKAGE}.{safe_skill_name}.scripts.{safe_module_stem}"
+
+    @staticmethod
+    def _to_valid_module_part(value: str) -> str:
+        """Normaliza texto para usarlo como parte de un nombre de módulo Python."""
+        normalized = re.sub(r'[^0-9a-zA-Z_]', '_', value)
+        if not normalized:
+            return "module"
+        if normalized[0].isdigit():
+            return f"_{normalized}"
+        return normalized
+
+    def _ensure_namespace_package(self, package_name: str, package_path: Path) -> None:
+        """Crea paquetes namespace dinámicos para soportar imports relativos entre scripts."""
+        parts = package_name.split('.')
+        current_name = ""
+
+        for index, part in enumerate(parts):
+            current_name = part if not current_name else f"{current_name}.{part}"
+            module = sys.modules.get(current_name)
+
+            if module is None:
+                module = ModuleType(current_name)
+                module.__package__ = current_name
+                module.__path__ = []
+                sys.modules[current_name] = module
+
+            # Solo el paquete leaf (scripts) necesita saber dónde buscar submódulos.
+            if index == len(parts) - 1:
+                existing_paths = list(getattr(module, '__path__', []))
+                path_str = str(package_path)
+                if path_str not in existing_paths:
+                    existing_paths.append(path_str)
+                module.__path__ = existing_paths
 
 
 class SkillManager:
@@ -357,8 +495,12 @@ class SkillManager:
 
         # Rutas de skills por nivel
         self.bundled_path = self.base_path / 'skills' / 'bundled'
+        self.legacy_bundled_path = self.base_path / 'bundled'
         self.managed_path = self.user_skills_path / 'managed'
         self.workspace_path = self.base_path / 'skills' / 'workspace'
+        self.legacy_workspace_path = self.base_path / 'workspace'
+        self.external_path = self.base_path / 'skills' / 'external'
+        self.legacy_external_path = self.base_path / 'external'
 
         # Registros
         self.skills: Dict[str, Skill] = {}  # name -> Skill
@@ -381,10 +523,15 @@ class SkillManager:
         discovered = []
         search_paths = [
             ('bundled', self.bundled_path),
+            ('bundled', self.legacy_bundled_path),
             ('managed', self.managed_path),
-            ('workspace', self.workspace_path)
+            ('workspace', self.workspace_path),
+            ('workspace', self.legacy_workspace_path),
+            ('external', self.external_path),
+            ('external', self.legacy_external_path),
         ]
 
+        seen_skill_paths = set()
         for level, base_dir in search_paths:
             if not base_dir.exists():
                 logger.debug(f"Directorio no existe (skip): {base_dir}")
@@ -392,7 +539,12 @@ class SkillManager:
 
             logger.info(f"Buscando skills en {level}: {base_dir}")
             skills_in_dir = self._discover_in_dir(base_dir, level)
-            discovered.extend(skills_in_dir)
+            for skill in skills_in_dir:
+                resolved_path = skill.path.resolve()
+                if resolved_path in seen_skill_paths:
+                    continue
+                seen_skill_paths.add(resolved_path)
+                discovered.append(skill)
 
         # Registrar en diccionario
         for skill in discovered:
@@ -405,18 +557,16 @@ class SkillManager:
         """Busca skills en un directorio base."""
         skills = []
 
-        for skill_dir in base_dir.iterdir():
-            if not skill_dir.is_dir():
-                continue
+        seen_paths = set()
+        for skill_file in base_dir.rglob('SKILL.md'):
+            skill_dir = skill_file.parent
 
-            # Saltar directorios que empiezan con _
-            if skill_dir.name.startswith('_'):
+            # Saltar directorios ocultos o de soporte
+            if any(part.startswith('.') or part.startswith('_') for part in skill_dir.parts):
                 continue
-
-            skill_file = skill_dir / 'SKILL.md'
-            if not skill_file.exists():
-                logger.debug(f"SKILL.md no encontrado en {skill_dir}, skip")
+            if skill_dir in seen_paths:
                 continue
+            seen_paths.add(skill_dir)
 
             try:
                 is_valid, errors = self.validator.validate_skill(skill_dir)
@@ -425,6 +575,8 @@ class SkillManager:
                     continue
 
                 config, _ = self.validator._parse_skill_file(skill_file)
+                if not config:
+                    continue
                 skill = Skill(path=skill_dir, **config)
                 skills.append(skill)
                 logger.debug(f"Skill descubierta: {skill.name} (nivel: {level})")
@@ -464,17 +616,51 @@ class SkillManager:
             # 1. Validar dependencias
             self._validate_dependencies(skill.dependencies)
 
-            # 2. Cargar herramientas desde scripts/
+            # 2. Cargar herramientas desde scripts/ o archivos Python del skill
             tools = self.loader.load_tools_from_skill(skill)
-            if not tools:
-                logger.error(f"No se encontraron herramientas en skill '{skill_name}'")
+            if not tools and not skill.instructions.strip():
+                logger.error(f"La skill '{skill_name}' no tiene herramientas ni instrucciones")
                 return False
+
+            # Inyectar llm_service en el módulo y herramientas
+            if self.llm_service:
+                # Inyectar en el módulo (variable global _llm_service)
+                for tool in tools:
+                    module_name = getattr(tool, '__module__', None)
+                    if module_name:
+                        module = sys.modules.get(module_name)
+                        if module and hasattr(module, '_llm_service'):
+                            setattr(module, '_llm_service', self.llm_service)
+                
+                # Inyectar en cada herramienta individual si lo soporta
+                for tool in tools:
+                    if hasattr(tool, 'llm_service'):
+                        try:
+                            setattr(tool, 'llm_service', self.llm_service)
+                        except Exception:
+                            pass
+
+            # Inyectar terminal_ui en el módulo y herramientas
+            if self.terminal_ui:
+                for tool in tools:
+                    module_name = getattr(tool, '__module__', None)
+                    if module_name:
+                        module = sys.modules.get(module_name)
+                        if module and hasattr(module, '_terminal_ui'):
+                            setattr(module, '_terminal_ui', self.terminal_ui)
+
+                for tool in tools:
+                    if hasattr(tool, 'terminal_ui'):
+                        try:
+                            setattr(tool, 'terminal_ui', self.terminal_ui)
+                        except Exception:
+                            pass
 
             # 3. Registrar cada herramienta en tool_registry
             for tool in tools:
                 tool_name = getattr(tool, 'name', tool.__class__.__name__)
                 # Asegurar nombre único
-                unique_name = self._get_unique_tool_name(tool_name)
+                unique_name = self._get_unique_tool_name(tool_name, skill_name)
                 if unique_name != tool_name and hasattr(tool, 'name'):
                     try:
                         setattr(tool, 'name', unique_name)
@@ -515,13 +701,18 @@ class SkillManager:
             logger.error(f"❌ Error cargando skill '{skill_name}': {e}", exc_info=True)
             return False
 
-    def _get_unique_tool_name(self, base_name: str) -> str:
+    def _get_unique_tool_name(self, base_name: str, skill_name: Optional[str] = None) -> str:
         """Genera un nombre único para evitar colisiones."""
         unique_name = base_name
-        suffix = 1
-        while unique_name in self.tool_registry:
-            unique_name = f"{base_name}_{suffix}"
-            suffix += 1
+        if unique_name in self.tool_registry:
+            # Si la herramienta ya existe y pertenece a la misma skill, permitimos el override
+            if skill_name and self.tool_registry.get(unique_name, {}).get('skill') == skill_name:
+                return unique_name
+
+            suffix = 1
+            while unique_name in self.tool_registry:
+                unique_name = f"{base_name}_{suffix}"
+                suffix += 1
         return unique_name
 
     def _check_permissions(self, skill: Skill, agent_context: dict) -> bool:
@@ -670,15 +861,134 @@ class SkillManager:
             'tags': skill.tags,
             'dependencies': skill.dependencies,
             'required_permissions': skill.required_permissions,
+            'allowed_tools': skill.allowed_tools,
+            'denied_tools': skill.denied_tools,
             'security_level': skill.security_level,
             'allowlist': skill.allowlist,
             'auto_approve': skill.auto_approve,
             'sandbox_required': skill.sandbox_required,
+            'instructions': skill.instructions,
             'loaded': skill.loaded,
             'tool_count': len(skill.tools),
             'tools': [getattr(t, 'name', t.__class__.__name__) for t in skill.tools],
+            'resources': skill.resources,
+            'assets': skill.assets,
+            'compatibility': skill.compatibility,
+            'metadata': skill.metadata,
             'path': str(skill.path)
         }
+
+    def _score_skill_relevance(self, skill: Skill, query: str) -> float:
+        """Calcula una puntuación simple de relevancia entre una skill y una consulta."""
+        if not query:
+            return 0.0
+
+        normalized_query = re.sub(r"\s+", " ", query.lower()).strip()
+        if not normalized_query:
+            return 0.0
+
+        score = 0.0
+        haystack_parts = [
+            skill.name,
+            skill.description,
+            skill.category,
+            " ".join(skill.tags),
+            " ".join(skill.required_permissions),
+            skill.instructions,
+            str(skill.metadata),
+            str(skill.compatibility),
+        ]
+        haystack = " ".join(part for part in haystack_parts if part).lower()
+
+        query_tokens = [token for token in re.split(r"\W+", normalized_query) if token]
+        if not query_tokens:
+            return 0.0
+
+        if normalized_query in haystack:
+            score += 6.0
+
+        if skill.name.lower() in normalized_query:
+            score += 5.0
+
+        for token in query_tokens:
+            if token in skill.name.lower():
+                score += 3.0
+            if token in skill.description.lower():
+                score += 2.0
+            if any(token == tag.lower() for tag in skill.tags):
+                score += 2.5
+            if token in skill.instructions.lower():
+                score += 1.0
+
+        return score
+
+    def find_relevant_skills(
+        self,
+        query: str,
+        limit: int = 5,
+        include_unloaded: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """Busca skills relevantes para una consulta textual."""
+        candidates = self.skills.values() if include_unloaded else [s for s in self.skills.values() if s.loaded]
+        scored = []
+
+        for skill in candidates:
+            score = self._score_skill_relevance(skill, query)
+            if score <= 0:
+                continue
+            scored.append((score, skill))
+
+        scored.sort(key=lambda item: (-item[0], item[1].name))
+        results = []
+        for score, skill in scored[:limit]:
+            results.append({
+                'name': skill.name,
+                'version': skill.version,
+                'description': skill.description,
+                'category': skill.category,
+                'tags': skill.tags,
+                'loaded': skill.loaded,
+                'tool_count': len(skill.tools),
+                'path': str(skill.path),
+                'score': round(score, 3),
+            })
+
+        return results
+
+    def get_loaded_skill_instructions(self, query: Optional[str] = None, limit: int = 5) -> List[str]:
+        """Devuelve bloques de instrucciones de las skills cargadas, priorizando relevancia si hay query."""
+        loaded_skills = [skill for skill in self.skills.values() if skill.loaded]
+        if query:
+            ranked = sorted(
+                ((self._score_skill_relevance(skill, query), skill) for skill in loaded_skills),
+                key=lambda item: (-item[0], item[1].name)
+            )
+            loaded_skills = [skill for score, skill in ranked if score > 0][:limit]
+
+        blocks: List[str] = []
+        for skill in loaded_skills:
+            instructions = (skill.instructions or "").strip()
+            if not instructions:
+                continue
+
+            blocks.append(
+                f"### Skill: {skill.name}\n"
+                f"- description: {skill.description}\n"
+                f"- category: {skill.category}\n"
+                f"- security_level: {skill.security_level}\n\n"
+                f"{instructions}"
+            )
+
+        return blocks
+
+    def build_skill_context_message(self, query: Optional[str] = None) -> Optional[SystemMessage]:
+        """Construye un bloque de contexto para skills cargadas, filtrado por query si existe."""
+        blocks = self.get_loaded_skill_instructions(query=query)
+        if not blocks:
+            return None
+
+        content = "## 🧩 CONTEXTO DE SKILLS\n\n" + "\n\n".join(blocks)
+        return SystemMessage(content=content)
 
     def refresh_skills(self, agent_context: Optional[dict] = None, force: bool = False):
         """

@@ -9,6 +9,7 @@ import time
 import threading
 import queue
 import logging
+import json
 from typing import Generator, Optional, Any
 
 logger = logging.getLogger(__name__)
@@ -166,12 +167,14 @@ def _get_kernel_instance() -> Optional[KogniTermKernel]:
     return _kernel_instance
 
 
-def python_executor(code: str, terminal_ui: Any = None) -> Generator[str, None, None]:
+def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = False) -> Generator[str, None, None]:
     """
     Ejecuta código Python en un kernel de Jupyter.
 
     Args:
         code: El código Python a ejecutar
+        terminal_ui: Interfaz de terminal para mostrar mensajes
+        auto_confirm: Si True, ejecuta sin pedir confirmación
 
     Yields:
         str: Resultados de la ejecución formateados
@@ -183,6 +186,18 @@ def python_executor(code: str, terminal_ui: Any = None) -> Generator[str, None, 
     
     if not _jupyter_client_available:
         yield "Error: La herramienta PythonExecutor no está disponible porque jupyter_client no está instalado."
+        return
+
+    # Siempre usar el flujo de confirmación estándar como otras herramientas
+    # El sistema de aprobación se encarga de verificar auto_approve_mode
+    if not auto_confirm:
+        # Devolver estado de confirmación requerida para que el sistema lo maneje
+        yield json.dumps({
+            "status": "requires_confirmation",
+            "operation": "python_executor",
+            "action_description": "¿Ejecutar código Python?",
+            "code_preview": code
+        })
         return
 
     kernel = _get_kernel_instance()

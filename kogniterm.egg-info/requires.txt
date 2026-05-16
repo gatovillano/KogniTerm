@@ -25,6 +25,9 @@ chromadb
 urllib3<2
 pyautogui
 pywinctl
+opencv-python
+pillow
+python-xlib
 langchain-litellm
 nest_asyncio
 tiktoken
@@ -32,6 +35,10 @@ requests
 crewai
 fastembed
 textual
+pyte
+fastapi
+uvicorn[standard]
+sse-starlette
 
 [dev]
 radon

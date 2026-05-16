@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: kogniterm
-Version: 0.3.5
+Version: 0.3.6
 Summary: KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀
 Author-email: Gato Villano <stola@disroot.org>
 License: MIT License
@@ -63,6 +63,9 @@ Requires-Dist: chromadb
 Requires-Dist: urllib3<2
 Requires-Dist: pyautogui
 Requires-Dist: pywinctl
+Requires-Dist: opencv-python
+Requires-Dist: pillow
+Requires-Dist: python-xlib
 Requires-Dist: langchain-litellm
 Requires-Dist: nest_asyncio
 Requires-Dist: tiktoken
@@ -70,6 +73,10 @@ Requires-Dist: requests
 Requires-Dist: crewai
 Requires-Dist: fastembed
 Requires-Dist: textual
+Requires-Dist: pyte
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: sse-starlette
 Provides-Extra: dev
 Requires-Dist: radon; extra == "dev"
 Requires-Dist: pylint; extra == "dev"

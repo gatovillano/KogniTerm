@@ -12,6 +12,7 @@ from rich.text import Text
 from rich.align import Align
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
+from .security import scrub_secrets
 
 from .themes import ColorPalette, Icons, Gradients
 from .visual_components import (
@@ -82,12 +83,20 @@ class TerminalUI:
         
         # Si hay procesos de streaming activos, esto asegurará que el próximo chunk use el nuevo ancho.
 
+    def get_terminal_dimensions(self) -> tuple[int, int]:
+        """Retorna dimensiones actuales de terminal para ejecutar comandos PTY."""
+        size = shutil.get_terminal_size(fallback=(120, 30))
+        cols = max(40, int(size.columns))
+        rows = max(12, int(size.lines))
+        return cols, rows
+
 
     def print_stream(self, text: str):
         """
         Prints a chunk of text to the console without adding a newline,
         and flushes the output immediately.
         """
+        text = scrub_secrets(text)
         self.console.print(text, end="")
 
     def update_live(self, renderable):
@@ -287,7 +296,7 @@ class TerminalUI:
         if is_user_message:
             self.console.print(Padding(Panel(
                 Markdown(message),
-                title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.SPEECH} Tu Mensaje[/bold {ColorPalette.PRIMARY_LIGHT}]",
+                title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.SPEECH} Tu Mensaje[/]",
                 border_style=ColorPalette.PRIMARY,
                 expand=False
             ), (1, 2)))
@@ -308,6 +317,7 @@ class TerminalUI:
         else:
             # Por defecto, imprimir como Markdown o texto plano
             if message.strip():
+                message = scrub_secrets(message)
                 content = Markdown(message) if not style else message
                 # Aplicar el mismo margen que en el stream (sangría de 4 espacios)
                 self.console.print(Padding(content, (0, 4)) if not style else content)
@@ -403,7 +413,7 @@ class TerminalUI:
         # Panel de bienvenida con mejor estilo
         welcome_panel = Panel(
             f"""Escribe '[{ColorPalette.SUCCESS}]%salir[/{ColorPalette.SUCCESS}]' para terminar o '[{ColorPalette.SUCCESS}]%help[/{ColorPalette.SUCCESS}]' para ver los comandos.""",
-            title=f"[bold {ColorPalette.SUCCESS}]{Icons.SPARKLES} Bienvenido[/bold {ColorPalette.SUCCESS}]",
+            title=f"[bold {ColorPalette.SUCCESS}]{Icons.SPARKLES} Bienvenido[/]",
             border_style=ColorPalette.SUCCESS,
             expand=False
         )

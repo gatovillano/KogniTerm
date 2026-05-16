@@ -3,7 +3,7 @@
 ![KogniTerm Banner](image.png)
 <video controls src="kogniterm/kogniterm.mp4" title="KogniTerm Demo"></video>
 
-**KogniTerm** es un asistente de terminal agéntico de última generación. Transforma tu línea de comandos en un entorno de desarrollo colaborativo donde **Agentes de IA Especializados** trabajan contigo para razonar, investigar, codificar y ejecutar tareas complejas.
+**KogniTerm** es un agente evolutivo de terminal de última generación. Transforma tu línea de comandos en un entorno de desarrollo colaborativo donde **Agentes de IA Especializados** trabajan contigo para razonar, investigar, codificar y ejecutar tareas complejas.
 
 A diferencia de otros asistentes, KogniTerm no depende de las capacidades nativas de "Tool Calling" de los modelos. Gracias a su **Motor de Parseo Universal**, es capaz de otorgar capacidades agénticas a prácticamente cualquier LLM (DeepSeek, Llama 3, Mistral, etc.), interpretando sus intenciones directamente desde el lenguaje natural.
 
@@ -52,11 +52,12 @@ Sistema de estado global que orquesta toda la sesión:
 ### ⚙️ **SkillManager** (642 líneas) - Framework de Habilidades
 Sistema modular para extender funcionalidades:
 
+- **Compatibilidad estándar**: Las skills usan `SKILL.md` con frontmatter YAML compatible con Agent Skills / Skills SH
 - **Carga dinámica JIT**: Las skills se cargan solo cuando se necesitan por primera vez
-- **Validación estricta**: Cada skill debe implementar un esquema de parámetros `parameters_schema`
+- **Skills prompt-only o ejecutables**: `scripts/`, `references/`, `assets/` y `resources/` son opcionales según el tipo de skill
 - **27 skills bundled**: Incluyendo `file_operations`, `execute_command`, `code_analysis`, etc.
 - **Registro automático**: Las skills creadas con `skill_factory` se integran automáticamente
-- **Directorio `scripts/`**: Skills personalizadas pueden almacenarse como scripts externos
+- **Directorio `scripts/`**: Skills ejecutables pueden almacenarse como scripts externos
 - **Documentación integrada**: Cada skill genera su propio `SKILL.md` automáticamente
 
 Ejemplo de skill personalizada:
@@ -247,6 +248,26 @@ kogniterm keys set openai sk-...
 # Ver estado de las llaves
 kogniterm keys list
 ```
+
+
+### 🤖 Configuración de bot de Telegram
+
+Configura tu bot de Telegram paso a paso (no canal, solo bot) sin editar JSON a mano:
+
+```bash
+# Asistente interactivo
+kogniterm config telegram
+
+# Ver la configuración actual
+kogniterm config telegram status
+
+# Activar o desactivar el bot
+kogniterm config telegram enable
+kogniterm config telegram disable
+```
+
+El asistente guarda la configuración en `.kogniterm/server_config.json` y reemplaza la entrada anterior de bot de Telegram para evitar duplicados.
+El tipo de canal es ahora `telegram_bot` y el token debe ser el que entrega BotFather.
 
 ### 🧠 Selección de Modelos
 

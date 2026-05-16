@@ -173,10 +173,18 @@ class SkillMigrator:
             'tags': [tool_name] + self._infer_tags(tool_name),
             'dependencies': dependencies,
             'required_permissions': permissions,
+            'allowed-tools': [],
+            'denied-tools': [],
             'security_level': security_level,
             'allowlist': needs_allowlist,
             'auto_approve': False,
-            'sandbox_required': needs_sandbox
+            'sandbox_required': needs_sandbox,
+            'resources': [],
+            'assets': [],
+            'metadata': {
+                'migrated_from': str(tool_file),
+                'format': 'agent-skills-compatible'
+            }
         }
 
         skill_md_content = self._generate_skill_md(skill_config, docstring)

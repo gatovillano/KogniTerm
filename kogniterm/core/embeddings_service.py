@@ -12,6 +12,12 @@ class EmbeddingAdapter(ABC):
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         pass
 
+    def embed_query(self, text: str) -> List[float]:
+        embeddings = self.embed_documents([text])
+        if not embeddings:
+            raise ValueError("No se pudo generar embedding para la consulta.")
+        return embeddings[0]
+
 class GeminiAdapter(EmbeddingAdapter):
     def __init__(self, api_key: str, model: str = "models/text-embedding-004"):
         try:
@@ -50,6 +56,20 @@ class GeminiAdapter(EmbeddingAdapter):
                     logger.error(f"Error crítico en embedding individual de Gemini: {inner_e}")
                     raise inner_e
             return embeddings
+
+    def embed_query(self, text: str) -> List[float]:
+        if not text:
+            raise ValueError("La consulta no puede estar vacía.")
+        try:
+            result = self.genai.embed_content(
+                model=self.model,
+                content=text,
+                task_type="retrieval_query"
+            )
+            return result['embedding']
+        except Exception as e:
+            logger.warning(f"Error en query embedding de Gemini, usando fallback de documento: {e}")
+            return super().embed_query(text)
 
 class OpenAIAdapter(EmbeddingAdapter):
     def __init__(self, api_key: str, model: str = "text-embedding-3-small"):
@@ -215,7 +235,7 @@ class EmbeddingsService:
         EmbeddingsService._instance = self  # Guardar como singleton
         self.config_manager = ConfigManager()
         self.config = self.config_manager.get_config()
-        self.provider = self.config.get("embeddings_provider", "sentence_transformers")
+        self.provider = self.config.get("embeddings_provider", "fastembed")
         self.model = self.config.get("embeddings_model")
         self.api_key = self._get_api_key()
         
@@ -284,5 +304,17 @@ class EmbeddingsService:
             except Exception as e:
                 logger.error(f"Error en el lote de embeddings {i//batch_size}: {e}")
                 raise e
-                
+                 
         return all_embeddings
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        """Compatibilidad con llamadas antiguas que esperan una API tipo LangChain."""
+        return self.generate_embeddings(texts)
+
+    def embed_query(self, text: str) -> List[float]:
+        """Genera un embedding para una única consulta."""
+        if not self.adapter:
+            raise ValueError("EmbeddingsService is not initialized properly.")
+        if not text:
+            raise ValueError("La consulta no puede estar vacía.")
+        return self.adapter.embed_query(text)

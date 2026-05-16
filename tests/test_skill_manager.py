@@ -73,24 +73,26 @@ sandbox_required: false
         assert not is_valid
         assert any("SKILL.md" in e for e in errors)
 
-    def test_validate_missing_scripts_dir(self, tmp_path):
-        """Debe rechazar skill sin directorio scripts/."""
+    def test_validate_prompt_only_skill_without_scripts(self, tmp_path):
+        """Debe aceptar una skill solo de instrucciones sin scripts/."""
         skill_dir = tmp_path / "invalid_skill"
         skill_dir.mkdir()
         (skill_dir / "references").mkdir()
         (skill_dir / "SKILL.md").write_text("""---
 name: invalid_skill
-version: 1.0.0
 description: "Skill sin scripts"
 ---
+
+# Instrucciones
+Esta skill solo contiene instrucciones.
 
 """)
 
         validator = SkillValidator()
         is_valid, errors = validator.validate_skill(skill_dir)
 
-        assert not is_valid
-        assert any("scripts" in e for e in errors)
+        assert is_valid, f"Errores: {errors}"
+        assert len(errors) == 0
 
     def test_validate_invalid_security_level(self, tmp_path):
         """Debe rechazar security_level inválido."""
@@ -178,13 +180,14 @@ sandbox_required: false
 ---
 """)
 
-        skill2 = bundled / "skill_two"
+        skill2_root = bundled / "topic"
+        skill2_root.mkdir()
+        skill2 = skill2_root / "skill_two"
         skill2.mkdir()
         (skill2 / "scripts").mkdir()
         (skill2 / "references").mkdir()
         (skill2 / "SKILL.md").write_text("""---
 name: skill_two
-version: 1.0.0
 description: "Skill dos"
 category: system
 tags: ["test"]
@@ -251,6 +254,41 @@ description = "Tool de prueba"
 
         assert success
         assert "test_tool" in manager.tool_registry or len(manager.tool_registry) > 0
+
+    def test_load_prompt_only_skill(self, tmp_path):
+        """Debe cargar una skill de solo instrucciones sin herramientas."""
+        bundled = tmp_path / "bundled"
+        bundled.mkdir()
+
+        skill_dir = bundled / "prompt_only"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("""---
+name: prompt_only
+description: "Skill de solo instrucciones"
+category: system
+tags: ["prompt"]
+dependencies: []
+required_permissions: []
+allowed-tools: []
+denied-tools: []
+security_level: "low"
+allowlist: false
+auto_approve: false
+sandbox_required: false
+---
+
+# Instrucciones
+Actúa como una guía especializada para una tarea concreta.
+""")
+
+        manager = SkillManager(base_path=tmp_path)
+        manager.discover_all_skills()
+
+        success = manager.load_skill("prompt_only")
+
+        assert success
+        assert "prompt_only" in manager.loaded_skills
+        assert manager.get_skill_info("prompt_only")["instructions"].strip().startswith("# Instrucciones")
 
     def test_unload_skill(self, tmp_path):
         """Debe descargar una skill correctamente."""

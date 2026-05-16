@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from .tool_parser import generate_short_id
+from ..utils.tool_utils import normalize_tool_parameters_schema
 
 logger = logging.getLogger(__name__)
 
@@ -52,20 +53,7 @@ def convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> d
     elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
         args_schema = tool.parameters_schema
 
-    def clean_schema(s):
-        if not isinstance(s, dict): return s
-        s.pop("title", None)
-        s.pop("additionalProperties", None)
-        s.pop("definitions", None)
-        s.pop("$defs", None)
-        if "properties" in s:
-            for prop_name, prop_val in s["properties"].items():
-                if isinstance(prop_val, dict):
-                    clean_schema(prop_val)
-                    prop_val.pop("default", None)
-        return s
-
-    cleaned_schema = clean_schema(args_schema)
+    cleaned_schema = normalize_tool_parameters_schema(args_schema)
 
     if not cleaned_schema.get("properties"):
         cleaned_schema = {"type": "object", "properties": {}, "required": []}

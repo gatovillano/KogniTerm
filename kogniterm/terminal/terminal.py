@@ -10,7 +10,14 @@ from rich.syntax import Syntax
 from rich.panel import Panel
 import re
 
-load_dotenv() # Cargar variables de entorno al inicio
+# Cargar primero el .env local del proyecto, luego el global con override.
+# El global (~/.kogniterm/.env) siempre tiene precedencia: las API keys
+# configuradas con /keys persisten independientemente del .env del proyecto.
+import pathlib as _pathlib
+_global_env = _pathlib.Path.home() / ".kogniterm" / ".env"
+load_dotenv()  # local .env del proyecto (base)
+if _global_env.exists():
+    load_dotenv(_global_env, override=True)  # global siempre gana
 
 # New helper function
 def _format_text_with_basic_markdown(text: str) -> Text:
@@ -128,6 +135,12 @@ async def _main_async():
             os.environ["LITELLM_MODEL"] = default_model
             # print(f"ℹ️  Using configured model: {default_model}")
 
+    # --- INYECCIÓN DE ESFUERZO DE RAZONAMIENTO ---
+    # Permite persistir el nivel (low/medium/high) en config y aplicarlo al iniciar.
+    saved_reasoning_effort = config_manager.get_config("reasoning_effort")
+    if saved_reasoning_effort and "KOGNITERM_REASONING_EFFORT" not in os.environ:
+        os.environ["KOGNITERM_REASONING_EFFORT"] = str(saved_reasoning_effort)
+
     # --- INYECCIÓN DE API KEYS ---
     # Mapeo de proveedores a variables de entorno
     api_key_mapping = {
@@ -148,6 +161,14 @@ async def _main_async():
             if saved_key:
                 os.environ[env_var] = saved_key
 
+    # Disable console logging in TUI mode to prevent logs from disrupting the UI
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.CRITICAL)
+    # Remove all stream handlers from the root logger to ensure no console output
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.StreamHandler):
+            root_logger.removeHandler(handler)
+
     from kogniterm.core.agents.bash_agent import get_system_message
 
     llm_service_instance = LLMService() # Usar el project_context inicializado
@@ -158,6 +179,7 @@ async def _main_async():
     
     command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
     agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
+    agent_state_instance.attach_history_manager(llm_service_instance.history_manager)
     llm_service_instance.skill_manager.set_agent_state(agent_state_instance) # Vincular estado del agente a las herramientas
 
     app = KogniTermTUI(

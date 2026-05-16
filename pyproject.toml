@@ -1,7 +1,7 @@
 [project]
 name = "kogniterm"
-version = "0.3.5"
-description = "KogniTerm: Tu asistente de terminal inteligente con esteroides 🚀"
+version = "0.3.6"
+description = "KogniTerm: Tu agente evolutivo de terminal inteligente 🚀"
 authors = [
     { name = "Gato Villano", email = "stola@disroot.org" }
 ]
@@ -43,6 +43,11 @@ dependencies = [
     "crewai",
     "fastembed",
     "textual",
+    "pyte",
+    "fastapi",
+    "uvicorn[standard]",
+    "sse-starlette",
+    "python-telegram-bot",
   ]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -72,6 +77,7 @@ Issues = "https://github.com/gatovillano/KogniTerm/issues"
 
 [project.scripts]
 kogniterm = "kogniterm.terminal.terminal:main"
+kogniterm-server = "kogniterm.server.__main__:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]

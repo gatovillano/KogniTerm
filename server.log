@@ -1,0 +1,45 @@
+INFO:     Started server process [2216659]
+INFO:     Waiting for application startup.
+2026-05-15 05:53:05,153 [INFO] kogniterm.server.app: 🚀 Iniciando KogniTerm Server...
+2026-05-15 05:53:05,153 [INFO] kogniterm.server.app: ⚙️  Cargando LLMService...
+2026-05-15 05:53:05,153 [INFO] kogniterm.core.multi_provider_manager: MultiProviderManager inicializado con 9 proveedores
+2026-05-15 05:53:06,445 [INFO] kogniterm.core.skills.skill_manager: SkillManager inicializado. Bases: bundled=/home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled, managed=/home/gato/.kogniterm/skills/managed, workspace=/home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/workspace
+2026-05-15 05:53:06,445 [INFO] kogniterm.core.skills.skill_manager: Buscando skills en bundled: /home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled
+2026-05-15 05:53:06,520 [INFO] kogniterm.core.skills.skill_manager: Buscando skills en workspace: /home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/workspace
+2026-05-15 05:53:06,539 [INFO] kogniterm.core.skills.skill_manager: Discovery completado: 32 skills encontradas
+2026-05-15 05:53:06,540 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'code_tools' cargada (2 herramientas)
+2026-05-15 05:53:06,578 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'python_executor' cargada (1 herramientas)
+2026-05-15 05:53:06,579 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'plan_creation' cargada (1 herramientas)
+2026-05-15 05:53:06,643 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'web_tools' cargada (4 herramientas)
+2026-05-15 05:53:06,646 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'advanced_file_editor' cargada (1 herramientas)
+2026-05-15 05:53:06,647 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'execute_command' cargada (1 herramientas)
+2026-05-15 05:53:06,647 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'think' cargada (1 herramientas)
+2026-05-15 05:53:06,751 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'pc_interaction' cargada (1 herramientas)
+2026-05-15 05:53:06,751 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'memory_append' cargada (1 herramientas)
+2026-05-15 05:53:06,753 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'task_complete' cargada (1 herramientas)
+2026-05-15 05:53:06,753 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'memory_read' cargada (1 herramientas)
+2026-05-15 05:53:06,757 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'file_operations' cargada (14 herramientas)
+2026-05-15 05:53:06,757 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'skill_factory' cargada (1 herramientas)
+2026-05-15 05:53:06,759 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'call_agent' cargada (1 herramientas)
+2026-05-15 05:53:06,759 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'memory_init' cargada (1 herramientas)
+2026-05-15 05:53:06,759 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'search_memory' cargada (1 herramientas)
+2026-05-15 05:53:06,760 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'task_tracker' cargada (2 herramientas)
+2026-05-15 05:53:06,760 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'call_agents_parallel' cargada (1 herramientas)
+2026-05-15 05:53:06,761 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'file_read_directory' cargada (1 herramientas)
+2026-05-15 05:53:06,761 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'file_update' cargada (1 herramientas)
+2026-05-15 05:53:06,762 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'refresh_tools' cargada (1 herramientas)
+2026-05-15 05:53:06,763 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'set_llm_instructions' cargada (1 herramientas)
+2026-05-15 05:53:06,763 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'agent_skills_adapter' cargada (2 herramientas)
+2026-05-15 05:53:06,763 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'memory_summarize' cargada (1 herramientas)
+2026-05-15 05:53:06,764 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'project_analyzer' cargada (1 herramientas)
+2026-05-15 05:53:06,764 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'safe_cleanup' cargada (1 herramientas)
+2026-05-15 05:53:06,765 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'parse_iso_mirrors_from_html' cargada (1 herramientas)
+2026-05-15 05:53:06,765 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'native_photo_organizer' cargada (1 herramientas)
+2026-05-15 05:53:06,765 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'evolution_test_skill' cargada (1 herramientas)
+2026-05-15 05:53:06,766 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'photo_organizer' cargada (1 herramientas)
+2026-05-15 05:53:06,766 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'docker_audit_skill' cargada (1 herramientas)
+2026-05-15 05:53:06,767 [INFO] kogniterm.core.skills.skill_manager: ✅ Skill 'photo_organizer_tool' cargada (1 herramientas)
+2026-05-15 05:53:06,768 [INFO] kogniterm.server.session_pool: SessionPool inicializado con LLMService.
+2026-05-15 05:53:06,768 [INFO] kogniterm.server.app: ✅ KogniTerm Server listo.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8765 (Press CTRL+C to quit)

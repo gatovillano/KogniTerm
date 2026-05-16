@@ -172,18 +172,28 @@ class FileCompleter(Completer):
             return []
 
     MAGIC_COMMANDS = [
-        ("%help", "Mostrar menú de ayuda interactivo"),
-        ("%models", "Cambiar modelo de IA"),
-        ("%provider", "Cambiar proveedor de LLM"),
-        ("%reset", "Reiniciar conversación"),
-        ("%undo", "Deshacer última acción"),
-        ("%compress", "Resumir historial"),
-        ("%theme", "Cambiar tema de colores"),
-        ("%init", "Inicializar contexto"),
-        ("%keys", "Gestionar API Keys"),
-        ("%session", "Gestión de sesiones"),
-        ("%resume", "Reanudar sesión guardada"),
-        ("%salir", "Salir de KogniTerm")
+        ("/help", "Mostrar menú de ayuda interactivo"),
+        ("/models", "Cambiar modelo de IA"),
+        ("/provider", "Cambiar proveedor de LLM"),
+        ("/reset", "Reiniciar conversación"),
+        ("/undo", "Deshacer última acción"),
+        ("/compress", "Resumir historial"),
+        ("/theme", "Cambiar tema de colores"),
+        ("/tema", "Cambiar tema de colores (alias)"),
+        ("/init", "Inicializar contexto"),
+        ("/keys", "Gestionar API Keys"),
+        ("/session", "Gestión de sesiones"),
+        ("/instructions", "Instrucciones del agente (global/workspace)"),
+        ("/instruct", "Instrucciones del agente (alias)"),
+        ("/resume", "Reanudar sesión guardada"),
+        ("/skills", "Listar todas las skills disponibles"),
+        ("/salir", "Salir de KogniTerm"),
+        ("/mouse", "Alternar ratón"),
+        ("/summarize", "Resumir historial para mejorar contexto"),
+        ("/reasoning", "Ajustar nivel de razonamiento"),
+        ("/summarymodel", "Cambiar modelo de resumen"),
+        ("/embeddings", "Configurar embeddings"),
+        ("/insights", "Analítica de uso")
     ]
 
     SESSION_SUBCOMMANDS = [
@@ -198,40 +208,37 @@ class FileCompleter(Completer):
         text_before_cursor = document.text_before_cursor
         word_before_cursor = document.get_word_before_cursor(WORD=True)
         
-        # 1. Autocompletado de Comandos Mágicos (%)
-        if text_before_cursor.lstrip().startswith('%') or word_before_cursor.startswith('%'):
+        # 1. Autocompletado de Comandos Mágicos (/)
+        if text_before_cursor.lstrip().startswith('/') or word_before_cursor.startswith('/'):
             stripped_text = text_before_cursor.lstrip()
             
-            # Caso especial para subcomandos de %session
-            if stripped_text.startswith('%session '):
+            # Caso especial para subcomandos de /session
+            if stripped_text.startswith('/session '):
                 parts = stripped_text.split()
-                # Si estamos escribiendo el subcomando (ej: "%session sa")
+                # Si estamos escribiendo el subcomando (ej: "/session sa")
                 if len(parts) == 2 and not stripped_text.endswith(' '):
                     current_subcmd = parts[1]
                     for subcmd, desc in self.SESSION_SUBCOMMANDS:
                         if subcmd.startswith(current_subcmd):
                             yield Completion(subcmd, start_position=-len(current_subcmd), display_meta=desc)
                     return
-                # Si acabamos de escribir "%session " y queremos ver opciones
+                # Si acabamos de escribir "/session " y queremos ver opciones
                 elif len(parts) == 1 and stripped_text.endswith(' '):
                      for subcmd, desc in self.SESSION_SUBCOMMANDS:
                         yield Completion(subcmd, start_position=0, display_meta=desc)
                      return
 
-            # Autocompletado de nombres de sesiones para %resume
-            if stripped_text.startswith('%resume '):
+            # Autocompletado de nombres de sesiones para /resume
+            if stripped_text.startswith('/resume '):
                 parts = stripped_text.split()
-                sessions_dir = os.path.join(self.workspace_directory or os.getcwd(), '.kogniterm', 'sessions')
                 try:
-                    names = []
-                    if os.path.exists(sessions_dir):
-                        for filename in os.listdir(sessions_dir):
-                            if filename.endswith('.json'):
-                                names.append(filename[:-5])
+                    from kogniterm.core.session_manager import SessionManager
+                    session_manager = SessionManager(self.workspace_directory or os.getcwd())
+                    names = [session["name"] for session in session_manager.list_sessions()]
                 except Exception:
                     names = []
 
-                # Si estamos escribiendo el nombre (ej: "%resume proyecto")
+                # Si estamos escribiendo el nombre (ej: "/resume proyecto")
                 if len(parts) == 2 and not stripped_text.endswith(' '):
                     current_name = parts[1]
                     for name in names:
@@ -239,7 +246,7 @@ class FileCompleter(Completer):
                             yield Completion(name, start_position=-len(current_name), display_meta='Sesión guardada')
                     return
 
-                # Si acabamos de escribir "%resume " y queremos ver opciones
+                # Si acabamos de escribir "/resume " y queremos ver opciones
                 if len(parts) == 1 and stripped_text.endswith(' '):
                     for name in names:
                         yield Completion(name, start_position=0, display_meta='Sesión guardada')
@@ -248,12 +255,29 @@ class FileCompleter(Completer):
             # Determinar qué parte está escribiendo el usuario (comando principal)
             if ' ' not in stripped_text: # Solo si es la primera palabra
                 current_input = stripped_text
-                matches = [cmd for cmd, desc in self.MAGIC_COMMANDS if cmd.startswith(current_input)]
+
+                # Construir lista completa: comandos fijos + skills dinámicas del SkillManager
+                all_commands = list(self.MAGIC_COMMANDS)
+                if self.skill_manager:
+                    try:
+                        for skill_info in self.skill_manager.list_skills():
+                            s_name = skill_info['name']
+                            s_desc = skill_info.get('description', '')
+                            s_loaded = skill_info.get('loaded', False)
+                            icon = "✅" if s_loaded else "⏸"
+                            entry = (f"/{s_name}", f"{icon} Skill: {s_desc[:40]}")
+                            # Evitar duplicados con comandos del sistema
+                            if not any(cmd == entry[0] for cmd, _ in all_commands):
+                                all_commands.append(entry)
+                    except Exception:
+                        pass
+
+                matches = [cmd for cmd, desc in all_commands if cmd.startswith(current_input)]
                 # Si hay un único match y es exacto, no mostrar autocompletado
                 if len(matches) == 1 and matches[0] == current_input:
                     return
                 
-                for cmd, desc in self.MAGIC_COMMANDS:
+                for cmd, desc in all_commands:
                     if cmd.startswith(current_input):
                         yield Completion(cmd, start_position=-len(current_input), display_meta=desc)
                 return # Si estamos completando un comando, no buscamos archivos
@@ -261,43 +285,109 @@ class FileCompleter(Completer):
         # 2. Autocompletado de Archivos (@)
         if '@' in text_before_cursor:
             current_input_part = text_before_cursor.split('@')[-1]
-            
+
             # Intentar obtener los archivos de la caché
             with self.cache_lock:
                 cached_files = self._cached_files
-            
+
             if cached_files is None:
-                # Si la caché está vacía, iniciar la carga en segundo plano si no está ya en progreso
                 if self._loading_future is None or self._loading_future.done():
                     self._start_background_load_files()
-                
-                # Mientras se carga, podemos ofrecer una sugerencia básica o ninguna
                 if self.show_indicator:
                     yield Completion("(Cargando archivos...)", start_position=-len(current_input_part))
                 return
 
-            suggestions = []
-            for relative_item_path in cached_files:
-                # Construir la ruta absoluta para verificar si es un directorio
-                absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
-                
-                display_item = relative_item_path
-                # Solo añadir '/' si es un directorio real y no un patrón excluido que podría parecer un directorio
-                if os.path.isdir(absolute_item_path) and not display_item.endswith('/'):
-                     display_item += '/'
+            query = current_input_part.lower()
 
-                if current_input_part.lower() in display_item.lower():
-                    suggestions.append(display_item)
-            
-            suggestions.sort()
+            # Detectar si el usuario está navegando en un subdirectorio (contiene '/')
+            # En ese caso filtramos por prefijo de ruta
+            path_prefix = ""
+            basename_query = query
+            if '/' in query:
+                # Separar el prefijo de directorio de la parte de nombre a buscar
+                path_prefix = query.rsplit('/', 1)[0] + '/'
+                basename_query = query.rsplit('/', 1)[1]
+
+            scored: List[tuple] = []  # (score, display_item, meta)
+            for relative_item_path in cached_files:
+                absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
+                is_dir = os.path.isdir(absolute_item_path)
+                display_item = relative_item_path
+                if is_dir and not display_item.endswith('/'):
+                    display_item += '/'
+
+                display_lower = display_item.lower()
+
+                # --- Filtro por prefijo de directorio ---
+                if path_prefix and not display_lower.startswith(path_prefix):
+                    continue
+
+                # El segmento a evaluar: si hay prefijo, usar solo la parte tras él
+                segment = display_lower[len(path_prefix):] if path_prefix else display_lower
+                base_name = os.path.basename(display_item.rstrip('/')).lower()
+
+                if not basename_query:
+                    # Sin query de nombre → mostrar todo en el directorio actual
+                    score = 100 if is_dir else 50
+                elif base_name == basename_query or base_name.rstrip('/') == basename_query.rstrip('/'):
+                    score = 200  # Coincidencia exacta en el nombre base
+                elif base_name.startswith(basename_query):
+                    score = 150  # Prefijo en el nombre base
+                elif basename_query in base_name:
+                    score = 100  # Subcadena en el nombre base
+                elif basename_query in segment:
+                    score = 50   # Subcadena en el path completo
+                else:
+                    continue  # No coincide
+
+                # Bonus: directorios primero, archivos relevantes después
+                if is_dir:
+                    score += 10
+
+                # Penalizar rutas muy largas/profundas para preferir lo más cercano
+                depth = display_item.count('/')
+                score -= depth
+
+                # Meta: tipo de archivo
+                ext = os.path.splitext(display_item)[1]
+                if is_dir:
+                    meta = "📁 dir"
+                elif ext in ('.py',):
+                    meta = "🐍 python"
+                elif ext in ('.md', '.rst', '.txt'):
+                    meta = "📝 texto"
+                elif ext in ('.json', '.yaml', '.yml', '.toml', '.ini', '.env'):
+                    meta = "⚙️ config"
+                elif ext in ('.js', '.ts', '.jsx', '.tsx'):
+                    meta = "🌐 js/ts"
+                elif ext in ('.sh', '.bash'):
+                    meta = "🖥️ shell"
+                elif ext in ('.html', '.css'):
+                    meta = "🎨 web"
+                else:
+                    meta = ext if ext else "📄 archivo"
+
+                scored.append((-score, display_item, meta))
+
+            # Ordenar por score descendente, luego alfabéticamente
+            scored.sort(key=lambda x: (x[0], x[1]))
+
+            # Limitar resultados para no saturar el menú
+            MAX_COMPLETIONS = 30
+            results = scored[:MAX_COMPLETIONS]
 
             # Si hay un único match y es exacto, no mostrar autocompletado
-            if len(suggestions) == 1 and (suggestions[0] == current_input_part or suggestions[0].rstrip('/') == current_input_part.rstrip('/')):
-                return
+            if len(results) == 1:
+                only = results[0][1]
+                if only == current_input_part or only.rstrip('/') == current_input_part.rstrip('/'):
+                    return
 
-            for suggestion in suggestions:
-                start_position = -len(current_input_part)
-                yield Completion(suggestion, start_position=start_position)
+            for _, suggestion, meta in results:
+                yield Completion(
+                    suggestion,
+                    start_position=-len(current_input_part),
+                    display_meta=meta,
+                )
 
         # 3. Autocompletado de Docker (:)
         if ':' in text_before_cursor:
@@ -348,7 +438,6 @@ class KogniTermApp:
         # Inicializar el resto de atributos
         self.command_executor = command_executor
         self.agent_state = agent_state
-        self.auto_approve = auto_approve
         self.workspace_directory = workspace_directory
         self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.terminal_ui, self)
         
@@ -403,6 +492,23 @@ class KogniTermApp:
             # Salir del prompt actual para que el bucle principal procese la interrupción
             event.app.exit() 
 
+        # KeyBinding para conmutar auto-aprobación con Shift+Tab (s-tab)
+        @self.terminal_ui.kb.add('s-tab', eager=True)
+        def _(event):
+            if hasattr(self, 'command_approval_handler'):
+                old_state = self.command_approval_handler.auto_approve
+                self.command_approval_handler.auto_approve = not self.command_approval_handler.auto_approve
+                new_state = self.command_approval_handler.auto_approve
+                # Mostrar feedback visual en la consola
+                state_text = "ACTIVADO" if new_state else "DESACTIVADO"
+                color = ColorPalette.SUCCESS if new_state else ColorPalette.ERROR
+                self.terminal_ui.print_message(
+                    f"Auto-aprobación {state_text} [dim](Shift+Tab para alternar)[/dim]",
+                    style=f"bold {color}"
+                )
+                # Invalidar la aplicación para forzar el refresco de la barra de herramientas
+                event.app.invalidate()
+
         # Combinar los KeyBindings (eliminamos kb_enter que causaba conflictos)
         combined_key_bindings = merge_key_bindings([kb_esc, self.terminal_ui.kb])
 
@@ -428,6 +534,8 @@ class KogniTermApp:
             advanced_file_editor_tool,
             file_operations_tool
         )
+        # Sincronizar el estado inicial de auto-aprobación
+        self.command_approval_handler.auto_approve = auto_approve
         
         # Inyectar el manejador en el SkillManager y en CallAgentTool para que CrewAI pueda usarlo
         if hasattr(self.llm_service, 'skill_manager'):
@@ -503,15 +611,23 @@ class KogniTermApp:
         # Limpiar el nombre del modelo para que se vea mejor (quitar prefijos largos si es necesario)
         display_model = model_name.replace("openrouter/", "OR/").replace("google/", "G/").replace("openai/", "OAI/").replace("anthropic/", "ANT/")
         
-        toolbar_content = [
-            ('class:bottom-toolbar', f' 🤖 {display_model} '),
-        ]
-
-        if self.indexing_status:
-            toolbar_content.append(('class:bottom-toolbar.key', ' | '))
-            toolbar_content.append(('class:bottom-toolbar', f' Indexando: {self.indexing_status} '))
+        # Colores y texto para auto-aprobación
+        is_auto = self.command_approval_handler.auto_approve if hasattr(self, 'command_approval_handler') else False
+        if THEMES_AVAILABLE:
+            approve_color = ColorPalette.SUCCESS if is_auto else ColorPalette.ERROR
+        else:
+            approve_color = "#00ff00" if is_auto else "#ff0000"
             
-        return HTML(f'<style bg="#333333" fg="#ffffff">{"".join([t[1] for t in toolbar_content])}</style>')
+        approve_text = "ON" if is_auto else "OFF"
+        
+        # Construir el contenido HTML para la barra
+        html_content = f' 🤖 {display_model} | '
+        html_content += f'Auto-Approve: <style fg="{approve_color}">[{approve_text}]</style> (Shift+Tab)'
+        
+        if self.indexing_status:
+            html_content += f' | Indexando: {self.indexing_status} '
+            
+        return HTML(f'<style bg="#333333" fg="#ffffff">{html_content}</style>')
 
     def _update_indexing_progress(self, current, total, description):
         """Callback para actualizar el estado de la indexación."""
@@ -623,7 +739,7 @@ class KogniTermApp:
         """Runs the main loop of the KogniTerm application."""
         self.terminal_ui.print_welcome_banner()
 
-        if self.auto_approve:
+        if self.command_approval_handler.auto_approve:
             self.terminal_ui.print_message("Modo de auto-aprobación activado.", style="yellow")
         
         # --- Prompt for Codebase Indexing ---
@@ -687,15 +803,18 @@ class KogniTermApp:
                 # Si el usuario ingresa un comando, se imprime como mensaje de usuario.
                 # Si el agente propone un comando, no se imprime aquí, se maneja en CommandApprovalHandler.
                 # Se determina si es un comando propuesto por el agente si self.agent_state.command_to_confirm es True.
-                if not self.agent_state.command_to_confirm:
-                    self.terminal_ui.print_message(user_input, is_user_message=True)
-
-                # Limpiar el input después de enviar el mensaje
-                self.prompt_session.app.current_buffer.text = ""
-                self.prompt_session.app.current_buffer.cursor_position = 0
+                # Limpiar el input después de recibirlo
+                if hasattr(self.prompt_session, "app") and self.prompt_session.app:
+                    self.prompt_session.app.current_buffer.text = ""
+                    self.prompt_session.app.current_buffer.cursor_position = 0
 
                 if await self.meta_command_processor.process_meta_command(user_input):
                     continue
+
+                # Si el usuario ingresa un comando, se imprime como mensaje de usuario.
+                # Si el agente propone un comando, no se imprime aquí, se maneja en CommandApprovalHandler.
+                if not self.agent_state.command_to_confirm:
+                    self.terminal_ui.print_message(user_input, is_user_message=True)
 
                 # Procesar etiquetas @archivo para inyectar contenido
                 enhanced_user_input = self._process_file_tags(user_input)
@@ -729,7 +848,7 @@ class KogniTermApp:
                         
                         approval_result = self.command_approval_handler.handle_command_approval(
                             command_to_execute=f"confirm_action('{confirmation_message}')",
-                            auto_approve=self.auto_approve,
+                            auto_approve=self.command_approval_handler.auto_approve,
                             is_user_confirmation=False,
                             is_file_update_confirmation=True,
                             confirmation_prompt=confirmation_message,
@@ -753,7 +872,7 @@ class KogniTermApp:
                         self.agent_state.command_to_confirm = None # Limpiar
                         
                         approval_result = self.command_approval_handler.handle_command_approval(
-                            command_to_execute, self.auto_approve
+                            command_to_execute, self.command_approval_handler.auto_approve
                         )
                         
                         if approval_result['approved']:
@@ -767,6 +886,7 @@ class KogniTermApp:
                     break
                 
                 # --- FIN DEL BUCLE DE TRABAJO ---
+                self.llm_service._save_history(self.llm_service.conversation_history)
                 self._auto_save_session()
 
                 # Manejo de la salida de PythonTool
@@ -821,4 +941,3 @@ class KogniTermApp:
             if self.completer:
                 self.completer.dispose()
 
-        

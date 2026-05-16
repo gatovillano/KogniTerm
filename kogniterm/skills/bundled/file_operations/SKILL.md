@@ -19,18 +19,28 @@ Esta skill proporciona herramientas granulares y avanzadas para interactuar con 
 
 ## Herramientas disponibles
 
+> [!TIP]
+> **Flujo de trabajo recomendado:** Siempre lee el archivo con `read_file_tool` antes de usar `sophisticated_editor_tool`. Prefiere `replace_block` (ahora flexible con los espacios) o `replace_lines` (muy preciso) para evitar errores de coincidencia.
+
+
+
 ### sophisticated_editor_tool (PREMIUM)
 
 Herramienta avanzada para edición precisa de archivos. Combina múltiples estrategias de edición con protección contra Race Conditions.
 
 **Acciones disponibles (`action`):**
 - `insert_line`: Inserta `content` en la línea `line_number`.
-- `replace_regex`: Reemplaza ocurrencias de `regex_pattern` con `replacement_content`.
+- `replace_block`: Reemplaza un bloque de texto literal (`target_content`) con `replacement_content`. **Muy robusto**: ahora tolera pequeñas variaciones en espacios y sangría. Recomendado para fragmentos de código.
+- `replace_lines`: Reemplaza desde `line_number` hasta `end_line` (inclusive) con `replacement_content`. Opcionalmente valida con `target_content`.
+- `insert_after_match`: Inserta `content` justo después de la coincidencia de `target_content`.
+- `insert_before_match`: Inserta `content` justo antes de la coincidencia de `target_content`.
+- `replace_regex`: Reemplaza ocurrencias de `regex_pattern` con `replacement_content`. Útil para patrones complejos.
+- `delete_lines`: Borra desde `line_number` hasta `end_line` (inclusive). Si no se da `end_line`, borra solo una línea.
 - `prepend_content`: Añade `content` al inicio del archivo.
 - `append_content`: Añade `content` al final del archivo.
 - `full_replacement`: Reemplaza todo el contenido del archivo (equivalente a `write_file`).
 
-**Parámetros adicionales:** `path`, `content`, `line_number`, `regex_pattern`, `replacement_content`.
+**Parámetros adicionales:** `path`, `content`, `line_number`, `end_line`, `regex_pattern`, `replacement_content`, `target_content`.
 
 ### file_read_tool
 

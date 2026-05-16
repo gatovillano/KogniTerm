@@ -4,6 +4,7 @@ import threading
 import time
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from kogniterm.core.agent_state import AgentState
 from kogniterm.core.history_manager import HistoryManager
 
 
@@ -127,3 +128,28 @@ def test_tool_message_pairing(history_manager):
     assert isinstance(history[0], AIMessage)
     assert isinstance(history[1], ToolMessage)
     assert history[1].tool_call_id == "call_123"
+
+
+def test_direct_history_list_mutation_persists_immediately(temp_history_file):
+    history_manager = HistoryManager(history_file_path=temp_history_file)
+
+    history_manager.conversation_history.append(HumanMessage(content="Hola inmediata"))
+
+    reloaded = HistoryManager(history_file_path=temp_history_file)
+    history = reloaded.get_history()
+    assert len(history) == 1
+    assert history[0].content == "Hola inmediata"
+
+
+def test_agent_state_messages_stay_bound_to_history_manager(temp_history_file):
+    history_manager = HistoryManager(history_file_path=temp_history_file)
+    state = AgentState(messages=[HumanMessage(content="hola")])
+
+    state.attach_history_manager(history_manager)
+    state.messages.append(AIMessage(content="respuesta"))
+
+    reloaded = HistoryManager(history_file_path=temp_history_file)
+    history = reloaded.get_history()
+
+    assert state.messages is history_manager.conversation_history
+    assert [msg.content for msg in history] == ["hola", "respuesta"]

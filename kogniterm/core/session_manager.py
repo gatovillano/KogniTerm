@@ -3,14 +3,17 @@ import json
 import logging
 from typing import List, Optional, Dict
 from datetime import datetime
-from langchain_core.messages import BaseMessage, HumanMessage, messages_from_dict, messages_to_dict
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage, messages_from_dict, messages_to_dict
 
 logger = logging.getLogger(__name__)
 
 class SessionManager:
+    ACTIVE_AUTOSAVE_NAME = "autosave_actual"
+
     def __init__(self, workspace_dir: str):
         self.workspace_dir = workspace_dir
         self.sessions_dir = os.path.join(workspace_dir, ".kogniterm", "sessions")
+        self.history_file_path = os.path.join(workspace_dir, ".kogniterm", "history.json")
         self.current_session_name: Optional[str] = None
         
         # Asegurar que el directorio de sesiones existe
@@ -20,34 +23,71 @@ class SessionManager:
     def list_sessions(self) -> List[Dict[str, str]]:
         """Lista todas las sesiones disponibles con sus metadatos básicos."""
         sessions = []
-        if not os.path.exists(self.sessions_dir):
-            return sessions
+        if os.path.exists(self.sessions_dir):
+            for filename in os.listdir(self.sessions_dir):
+                if filename.endswith(".json"):
+                    name = filename[:-5] # Quitar extensión .json
+                    file_path = os.path.join(self.sessions_dir, filename)
+                    try:
+                        sessions.append(self._build_session_entry(name=name, file_path=file_path, source="session"))
+                    except Exception as e:
+                        logger.warning(f"Error al leer sesión {filename}: {e}")
 
-        for filename in os.listdir(self.sessions_dir):
-            if filename.endswith(".json"):
-                name = filename[:-5] # Quitar extensión .json
-                file_path = os.path.join(self.sessions_dir, filename)
-                try:
-                    stats = os.stat(file_path)
-                    modified_time = datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    # Leer brevemente para ver cuántos mensajes hay (opcional, pero útil)
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        msg_count = len(data) if isinstance(data, list) else 0
-                        
-                    sessions.append({
-                        "name": name,
-                        "modified": modified_time,
-                        "messages": msg_count,
-                        "path": file_path
-                    })
-                except Exception as e:
-                    logger.warning(f"Error al leer sesión {filename}: {e}")
+        if os.path.exists(self.history_file_path):
+            try:
+                autosave_entry = self._build_session_entry(
+                    name=self.ACTIVE_AUTOSAVE_NAME,
+                    file_path=self.history_file_path,
+                    source="history",
+                    display_name="Autoguardado actual"
+                )
+                if autosave_entry["messages"] > 0:
+                    sessions.append(autosave_entry)
+            except Exception as e:
+                logger.warning(f"Error al leer autoguardado activo: {e}")
         
         # Ordenar por fecha de modificación descendente
-        sessions.sort(key=lambda x: x["modified"], reverse=True)
+        sessions.sort(key=lambda x: x["modified_ts"], reverse=True)
         return sessions
+
+    def _build_session_entry(self, name: str, file_path: str, source: str, display_name: Optional[str] = None) -> Dict[str, str]:
+        stats = os.stat(file_path)
+        modified_dt = datetime.fromtimestamp(stats.st_mtime)
+        return {
+            "name": name,
+            "display_name": display_name or name,
+            "modified": modified_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "modified_ts": stats.st_mtime,
+            "messages": self._count_messages(file_path),
+            "path": file_path,
+            "source": source,
+        }
+
+    def _count_messages(self, file_path: str) -> int:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return len(data) if isinstance(data, list) else 0
+
+    def _deserialize_messages(self, data: List[dict]) -> List[BaseMessage]:
+        if not data:
+            return []
+
+        first_item = data[0]
+        if isinstance(first_item, dict) and "data" in first_item:
+            return messages_from_dict(data)
+
+        messages: List[BaseMessage] = []
+        for item in data:
+            item_type = item.get('type')
+            if item_type == 'human':
+                messages.append(HumanMessage(content=item.get('content', '')))
+            elif item_type == 'ai':
+                messages.append(AIMessage(content=item.get('content', ''), tool_calls=item.get('tool_calls', [])))
+            elif item_type == 'tool':
+                messages.append(ToolMessage(content=item.get('content', ''), tool_call_id=item.get('tool_call_id', '')))
+            elif item_type == 'system':
+                messages.append(SystemMessage(content=item.get('content', '')))
+        return messages
 
     def save_session(self, name: str, history: List[BaseMessage]) -> bool:
         """Guarda el historial actual como una sesión con nombre."""
@@ -68,7 +108,10 @@ class SessionManager:
 
     def load_session(self, name: str) -> Optional[List[BaseMessage]]:
         """Carga una sesión por nombre y devuelve el historial de mensajes."""
-        file_path = os.path.join(self.sessions_dir, f"{name}.json")
+        if name == self.ACTIVE_AUTOSAVE_NAME:
+            file_path = self.history_file_path
+        else:
+            file_path = os.path.join(self.sessions_dir, f"{name}.json")
         
         if not os.path.exists(file_path):
             logger.warning(f"Sesión '{name}' no encontrada.")
@@ -79,7 +122,7 @@ class SessionManager:
                 data = json.load(f)
             
             if isinstance(data, list):
-                messages = messages_from_dict(data)
+                messages = self._deserialize_messages(data)
                 self.current_session_name = name
                 return messages
             else:
@@ -91,6 +134,10 @@ class SessionManager:
 
     def delete_session(self, name: str) -> bool:
         """Elimina una sesión guardada."""
+        if name == self.ACTIVE_AUTOSAVE_NAME:
+            logger.warning("No se puede eliminar el autoguardado activo desde el gestor de sesiones.")
+            return False
+
         file_path = os.path.join(self.sessions_dir, f"{name}.json")
         
         if not os.path.exists(file_path):

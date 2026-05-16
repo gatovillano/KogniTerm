@@ -1,6 +1,106 @@
 import sys
+from copy import deepcopy
 from typing import Dict, Any
 from langchain_core.tools import BaseTool
+
+
+CONTENT_REQUIRED_EDITOR_ACTIONS = {
+    'insert_line',
+    'insert_after_match',
+    'insert_before_match',
+    'prepend_content',
+    'append_content',
+    'full_replacement',
+}
+
+
+def tool_requires_content_for_confirmation(tool_name: str, tool_args: Dict[str, Any]) -> bool:
+    """Indica si la herramienta necesita `content` al reintentarse tras confirmación."""
+    if tool_name == 'file_update_tool':
+        return True
+
+    if tool_name not in {
+        'advanced_file_editor',
+        'advanced_file_editor_tool',
+        'sophisticated_editor_tool',
+    }:
+        return False
+
+    return tool_args.get('action') in CONTENT_REQUIRED_EDITOR_ACTIONS
+
+
+def normalize_tool_parameters_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Normaliza JSON Schema para proveedores estrictos como Google AI Studio / Vertex."""
+
+    def _normalize(node: Any) -> Any:
+        if isinstance(node, list):
+            return [_normalize(item) for item in node]
+
+        if not isinstance(node, dict):
+            return node
+
+        node = deepcopy(node)
+        node.pop("title", None)
+        node.pop("additionalProperties", None)
+        node.pop("definitions", None)
+        node.pop("$defs", None)
+        node.pop("default", None)
+
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            node["properties"] = {
+                prop_name: _normalize(prop_schema) if isinstance(prop_schema, dict) else {"type": "string"}
+                for prop_name, prop_schema in properties.items()
+            }
+
+        for keyword in ("anyOf", "oneOf", "allOf"):
+            variants = node.get(keyword)
+            if isinstance(variants, list):
+                node[keyword] = [
+                    _normalize(variant) if isinstance(variant, dict) else {"type": "string"}
+                    for variant in variants
+                ]
+
+        if "items" in node:
+            items = node["items"]
+            if isinstance(items, dict):
+                node["items"] = _normalize(items)
+            elif isinstance(items, list):
+                normalized_items = [
+                    _normalize(item) if isinstance(item, dict) else {"type": "string"}
+                    for item in items
+                ]
+                node["items"] = normalized_items[0] if normalized_items else {"type": "string"}
+            else:
+                node["items"] = {"type": "string"}
+
+        if "type" not in node:
+            if "properties" in node:
+                node["type"] = "object"
+            elif "items" in node:
+                node["type"] = "array"
+            else:
+                node["type"] = "string"
+
+        if node.get("type") == "object":
+            node.setdefault("properties", {})
+        elif node.get("type") == "array":
+            items = node.get("items")
+            if not isinstance(items, dict):
+                node["items"] = {"type": "string"}
+            elif "type" not in items:
+                node["items"]["type"] = "string"
+
+        return node
+
+    normalized = _normalize(schema or {"type": "object", "properties": {}})
+    if not isinstance(normalized, dict):
+        normalized = {"type": "object", "properties": {}}
+
+    normalized["type"] = "object"
+    normalized.setdefault("properties", {})
+    normalized.setdefault("required", [])
+    return normalized
 
 def convert_langchain_tool_to_litellm(tool: BaseTool) -> Dict[str, Any]:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
@@ -87,12 +187,7 @@ def convert_langchain_tool_to_litellm(tool: BaseTool) -> Dict[str, Any]:
                 "required": ["path", "content"]
             }
 
-    # Asegurarse de que cada propiedad en args_schema['properties'] tenga un 'type'
-    if 'properties' in args_schema:
-        for prop_name, prop_details in args_schema['properties'].items():
-            if 'type' not in prop_details:
-                # Intentar inferir el tipo o establecer un valor predeterminado
-                args_schema['properties'][prop_name]['type'] = 'string'
+    args_schema = normalize_tool_parameters_schema(args_schema)
 
     return {
         "type": "function",
@@ -135,4 +230,3 @@ def get_tool_action_description(tool: Any, tool_args: Dict[str, Any]) -> str:
         return "Ejecutando código Python"
         
     return ""
-

@@ -6,6 +6,7 @@ kogniterm
 kogniterm-android
 kogniterm-desktop
 plans
+scratch
 scripts
 test_environment
 tests

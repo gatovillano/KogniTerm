@@ -1,6 +1,7 @@
 import json
 import logging
 import queue
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, List, Dict, Any, Union, Generator
 
@@ -70,11 +71,20 @@ class ToolExecutor:
 
         try:
             full_tool_output = ""
+            last_ui_update = 0
+            ui_update_interval = 0.05 # 50ms throttling para no saturar la UI
+            
             for part in llm_service._invoke_tool_with_interrupt(tool, tool_args):
                 if part:
                     full_tool_output += str(part)
-                    if terminal_ui and hasattr(terminal_ui, "update_tool_display"):
+                    current_time = time.time()
+                    if terminal_ui and hasattr(terminal_ui, "update_tool_display") and (current_time - last_ui_update > ui_update_interval):
                         terminal_ui.update_tool_display(tool_name, full_tool_output, command=command_hint)
+                        last_ui_update = current_time
+            
+            # Asegurar una última actualización con el output completo
+            if terminal_ui and hasattr(terminal_ui, "update_tool_display"):
+                terminal_ui.update_tool_display(tool_name, full_tool_output, command=command_hint)
 
             # Post-procesamiento (Skills refresh, etc.)
             ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)
@@ -124,7 +134,7 @@ class ToolExecutor:
         is_tui = getattr(terminal_ui, "is_tui", False)
         shared_executor = getattr(llm_service, "tool_executor", None)
         managed_executor = None
-        executor = shared_executor or ThreadPoolExecutor(max_workers=5)
+        executor = shared_executor or ThreadPoolExecutor(max_workers=10)
         if shared_executor is None:
             managed_executor = executor
         

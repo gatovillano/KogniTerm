@@ -5,6 +5,87 @@ from typing import List, Union, Callable, Any, Optional, Dict, Set
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage, BaseMessage
 import sys
 import tiktoken
+import time
+import threading
+from contextlib import contextmanager
+
+# Importar AutosaveManager
+from kogniterm.core.autosave_manager import AutosaveManager
+
+
+class AutoSavingMessageList(list):
+    """Lista que persiste automáticamente el historial tras cada mutación."""
+
+    def __init__(self, iterable=None, on_change=None):
+        super().__init__(iterable or [])
+        self._on_change = on_change
+        self._autosave_suspended = 0
+
+    def set_on_change(self, callback):
+        self._on_change = callback
+
+    @contextmanager
+    def suspend_autosave(self):
+        self._autosave_suspended += 1
+        try:
+            yield self
+        finally:
+            self._autosave_suspended = max(0, self._autosave_suspended - 1)
+
+    def _notify_change(self):
+        if self._on_change and self._autosave_suspended == 0:
+            self._on_change(self)
+
+    def append(self, item):
+        super().append(item)
+        self._notify_change()
+
+    def extend(self, items):
+        super().extend(items)
+        self._notify_change()
+
+    def insert(self, index, item):
+        super().insert(index, item)
+        self._notify_change()
+
+    def clear(self):
+        super().clear()
+        self._notify_change()
+
+    def pop(self, index=-1):
+        value = super().pop(index)
+        self._notify_change()
+        return value
+
+    def remove(self, value):
+        super().remove(value)
+        self._notify_change()
+
+    def __setitem__(self, index, value):
+        super().__setitem__(index, value)
+        self._notify_change()
+
+    def __delitem__(self, index):
+        super().__delitem__(index)
+        self._notify_change()
+
+    def __iadd__(self, other):
+        result = super().__iadd__(other)
+        self._notify_change()
+        return result
+
+    def __imul__(self, value):
+        result = super().__imul__(value)
+        self._notify_change()
+        return result
+
+    def sort(self, *args, **kwargs):
+        super().sort(*args, **kwargs)
+        self._notify_change()
+
+    def reverse(self):
+        super().reverse()
+        self._notify_change()
 
 class HistoryManager:
     """
@@ -18,19 +99,107 @@ class HistoryManager:
     """
     
     # Constantes de configuración
-    MIN_MESSAGES_TO_KEEP = 5 # Aumentado para mantener más contexto
+    MIN_MESSAGES_TO_KEEP = 10 # Aumentado para mantener más contexto
     MAX_SUMMARY_LENGTH_RATIO = 0.25  # 25% del max_history_chars
     DEFAULT_MAX_SUMMARY_LENGTH = 2000
     SUMMARY_TRUNCATION_SUFFIX = "... [Resumen truncado para evitar bucles]"
     MAX_TOOL_MESSAGE_CONTENT_LENGTH_ASSUMED = 100000
     
-    def __init__(self, history_file_path: str, max_history_messages: int = 50, max_history_chars: int = 75000):
+    def __init__(self, history_file_path: str, max_history_messages: int = 100, max_history_chars: int = 150000, auto_save_interval: Optional[float] = None):
         self.history_file_path = history_file_path
         self.max_history_messages = max_history_messages
         self.max_history_chars = max_history_chars
-        self.conversation_history: List[BaseMessage] = self._load_history() or []
+        self._save_lock = threading.RLock()
+        self._conversation_history = AutoSavingMessageList()
+        self.conversation_history = self._load_history() or []
         self.tokenizer = tiktoken.encoding_for_model("gpt-4")
         self._message_length_cache: Dict[int, int] = {}
+        
+        # Autoguardado versioned
+        self.autosave_manager = None
+        try:
+            workspace_dir = os.path.dirname(history_file_path)
+            self.autosave_manager = AutosaveManager(workspace_dir)
+        except Exception as e:
+            print(f"Advertencia: No se pudo inicializar AutosaveManager: {e}", file=sys.stderr)
+        
+        # Autoguardado periódico
+        self.auto_save_interval = auto_save_interval
+        self._stop_auto_save = threading.Event()
+        self._auto_save_thread = None
+        if self.auto_save_interval:
+            self._start_auto_save()
+
+    @property
+    def conversation_history(self) -> AutoSavingMessageList:
+        return self._conversation_history
+
+    @conversation_history.setter
+    def conversation_history(self, value: Optional[List[BaseMessage]]):
+        if isinstance(value, AutoSavingMessageList):
+            value.set_on_change(self._handle_history_mutation)
+            self._conversation_history = value
+            return
+
+        self._conversation_history = AutoSavingMessageList(value or [], self._handle_history_mutation)
+
+    def _handle_history_mutation(self, history: List[BaseMessage]):
+        """Maneja mutaciones del historial guardando en ambos sistemas."""
+        self._save_history(history)
+        
+        # Guardar versión en AutosaveManager (no bloqueante)
+        if self.autosave_manager:
+            try:
+                # Guardar en el sistema versionado
+                self.autosave_manager.save_version(
+                    messages=history,
+                    description="Mutación automática del historial"
+                )
+            except Exception as e:
+                # No fallar si el autoguardado versionado falla
+                print(f"Advertencia: Error en autoguardado versionado: {e}", file=sys.stderr)
+
+    def _start_auto_save(self):
+        """Inicia el hilo de autoguardado."""
+        if self._auto_save_thread and self._auto_save_thread.is_alive():
+            return  # Ya está corriendo
+        
+        self._stop_auto_save.clear()
+        self._auto_save_thread = threading.Thread(target=self._auto_save_loop, daemon=True)
+        self._auto_save_thread.start()
+
+    def _auto_save_loop(self):
+        """Loop del hilo de autoguardado."""
+        while not self._stop_auto_save.is_set():
+            self._stop_auto_save.wait(self.auto_save_interval)
+            if not self._stop_auto_save.is_set():
+                try:
+                    self._save_history(self.conversation_history)
+                    
+                    # Guardar versión en AutosaveManager
+                    if self.autosave_manager:
+                        try:
+                            self.autosave_manager.save_version(
+                                messages=self.conversation_history,
+                                description="Autoguardado periódico"
+                            )
+                        except Exception as e:
+                            print(f"Error en autoguardado versionado periódico: {e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"Error en autoguardado: {e}", file=sys.stderr)
+
+    def stop_auto_save(self):
+        """Detiene el autoguardado."""
+        if self._auto_save_thread:
+            self._stop_auto_save.set()
+            self._auto_save_thread.join(timeout=5)  # Esperar hasta 5 segundos
+        
+        # Detener también el AutosaveManager
+        if self.autosave_manager:
+            try:
+                self.autosave_manager.stop()
+            except Exception as e:
+                print(f"Error al detener AutosaveManager: {e}", file=sys.stderr)
 
     def _get_token_count(self, text: str) -> int:
         """Calcula el número de tokens en un texto."""
@@ -79,6 +248,8 @@ class HistoryManager:
                     loaded_history.append(HumanMessage(content=item['content']))
                 elif item['type'] == 'ai':
                     tool_calls = item.get('tool_calls', [])
+                    reasoning = item.get('reasoning_content') or item.get('reasoning')
+                    additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
                     if tool_calls:
                         formatted_tool_calls = []
                         for tc in tool_calls:
@@ -106,9 +277,16 @@ class HistoryManager:
                                         'args': {}, 
                                         'id': tc.get('id')
                                     })
-                        loaded_history.append(AIMessage(content=item['content'], tool_calls=formatted_tool_calls))
+                        # Incluir additional_kwargs (razonamiento) si existe
+                        if additional_kwargs:
+                            loaded_history.append(AIMessage(content=item['content'], tool_calls=formatted_tool_calls, additional_kwargs=additional_kwargs))
+                        else:
+                            loaded_history.append(AIMessage(content=item['content'], tool_calls=formatted_tool_calls))
                     else:
-                        loaded_history.append(AIMessage(content=item['content']))
+                        if additional_kwargs:
+                            loaded_history.append(AIMessage(content=item['content'], additional_kwargs=additional_kwargs))
+                        else:
+                            loaded_history.append(AIMessage(content=item['content']))
                 elif item['type'] == 'tool':
                     loaded_history.append(ToolMessage(content=item['content'], tool_call_id=item['tool_call_id']))
                 elif item['type'] == 'system':
@@ -124,75 +302,151 @@ class HistoryManager:
 
     def _save_history(self, history: List[BaseMessage]):
         """Guarda el historial en el archivo JSON."""
-        if history is None:
-            history = []
-        if not self.history_file_path:
-            return
+        with self._save_lock:
+            if history is None:
+                history = []
+            if not self.history_file_path:
+                return
 
-        if self.conversation_history is None:
-            self.conversation_history = []
+            if self.conversation_history is None:
+                self.conversation_history = []
 
-        if self.conversation_history is not history:
-            self.conversation_history[:] = history # <<--- MODIFICADO: Actualizar in-place para mantener referencias
+            if history is not self.conversation_history:
+                self.conversation_history = history
+                history = self.conversation_history
 
-        history_dir = os.path.dirname(self.history_file_path)
-        os.makedirs(history_dir, exist_ok=True)
+            history_dir = os.path.dirname(self.history_file_path)
+            os.makedirs(history_dir, exist_ok=True)
 
-        serializable_history = []
-        for message in history:
-            if isinstance(message, HumanMessage):
-                serializable_history.append({'type': 'human', 'content': message.content})
-            elif isinstance(message, AIMessage):
-                if message.tool_calls:
-                    # Asegurarse de que los args se guarden como diccionario
-                    tool_calls_for_save = []
-                    for tc in message.tool_calls:
-                        args = tc.get('args', {})
-                        # Si args es un string, intentar parsearlo
-                        if isinstance(args, str):
-                            try:
-                                args = json.loads(args)
-                            except json.JSONDecodeError:
-                                args = {}
-                        tool_calls_for_save.append({
-                            'name': tc['name'], 
-                            'args': args, 
-                            'id': tc.get('id')
-                        })
+            serializable_history = []
+            for message in history:
+                if isinstance(message, HumanMessage):
+                    serializable_history.append({'type': 'human', 'content': message.content})
+                elif isinstance(message, AIMessage):
+                    # Extraer razonamiento si existe en additional_kwargs o como atributo directo
+                    reasoning = None
+                    if getattr(message, 'additional_kwargs', None):
+                        reasoning = message.additional_kwargs.get('reasoning_content')
+                    if not reasoning and getattr(message, 'reasoning_content', None):
+                        reasoning = getattr(message, 'reasoning_content')
+
+                    if message.tool_calls:
+                        # Asegurarse de que los args se guarden como diccionario
+                        tool_calls_for_save = []
+                        for tc in message.tool_calls:
+                            args = tc.get('args', {})
+                            # Si args es un string, intentar parsearlo
+                            if isinstance(args, str):
+                                try:
+                                    args = json.loads(args)
+                                except json.JSONDecodeError:
+                                    args = {}
+                            tool_calls_for_save.append({
+                                'name': tc['name'], 
+                                'args': args, 
+                                'id': tc.get('id')
+                            })
+                        entry = {
+                            'type': 'ai', 
+                            'content': message.content, 
+                            'tool_calls': tool_calls_for_save
+                        }
+                        if reasoning:
+                            entry['reasoning_content'] = reasoning
+                        serializable_history.append(entry)
+                    else:
+                        entry = {'type': 'ai', 'content': message.content}
+                        if reasoning:
+                            entry['reasoning_content'] = reasoning
+                        serializable_history.append(entry)
+                elif isinstance(message, ToolMessage):
                     serializable_history.append({
-                        'type': 'ai', 
+                        'type': 'tool', 
                         'content': message.content, 
-                        'tool_calls': tool_calls_for_save
+                        'tool_call_id': message.tool_call_id
                     })
-                else:
-                    serializable_history.append({'type': 'ai', 'content': message.content})
-            elif isinstance(message, ToolMessage):
-                serializable_history.append({
-                    'type': 'tool', 
-                    'content': message.content, 
-                    'tool_call_id': message.tool_call_id
-                })
-            elif isinstance(message, SystemMessage):
-                serializable_history.append({'type': 'system', 'content': message.content})
+                elif isinstance(message, SystemMessage):
+                    serializable_history.append({'type': 'system', 'content': message.content})
 
-        with open(self.history_file_path, 'w', encoding='utf-8') as f:
-            # Optimización: Eliminar indentación para reducir tamaño de archivo y tiempo de I/O
-            json.dump(serializable_history, f, ensure_ascii=False, separators=(',', ':'))
+            # Persistencia atómica y síncrona (Immediate Persistence)
+            temp_path = self.history_file_path + ".tmp"
+            try:
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    # Optimización: Eliminar indentación para reducir tamaño de archivo y tiempo de I/O
+                    json.dump(serializable_history, f, ensure_ascii=False, separators=(',', ':'))
+                    f.flush()
+                    os.fsync(f.fileno()) # Asegurar que los datos lleguen al disco físicamente
+                
+                # Reemplazo atómico
+                os.replace(temp_path, self.history_file_path)
+            except Exception as e:
+                if os.path.exists(temp_path):
+                    try: os.remove(temp_path)
+                    except: pass
+                raise e
 
     def add_message(self, message: BaseMessage):
         """Agrega un mensaje al historial y lo guarda."""
         self.conversation_history.append(message)
-        self._save_history(self.conversation_history)
 
     def get_history(self) -> List[BaseMessage]:
-        """Retorna el historial de conversación."""
-        return self.conversation_history
+        """Retorna una copia del historial de conversación."""
+        return self.conversation_history.copy()
 
     def clear_history(self):
         """Limpia el historial de conversación."""
         self.conversation_history.clear()
-        self._save_history([])
         self._message_length_cache.clear()
+
+    # ==================== Métodos de Acceso a Autoguardados Versionados ====================
+    
+    def get_autosave_versions(self) -> List[Dict]:
+        """
+        Obtiene todas las versiones de autoguardos de la sesión actual.
+        
+        Returns:
+            Lista de diccionarios con información de versiones
+        """
+        if self.autosave_manager:
+            return self.autosave_manager.get_session_versions()
+        return []
+    
+    def get_all_autosave_versions(self) -> List[Dict]:
+        """
+        Obtiene TODAS las versiones de autoguardos de todas las sesiones.
+        Útil para recuperar autoguardados de sesiones anteriores.
+        
+        Returns:
+            Lista de diccionarios con información de versiones
+        """
+        if self.autosave_manager:
+            return self.autosave_manager.get_all_versions()
+        return []
+    
+    def load_autosave_version(self, file_path: str) -> Optional[List[BaseMessage]]:
+        """
+        Carga una versión específica de autoguardado.
+        
+        Args:
+            file_path: Ruta al archivo de autoguardado
+            
+        Returns:
+            Lista de mensajes o None si hay error
+        """
+        if self.autosave_manager:
+            return self.autosave_manager.load_version(file_path)
+        return None
+    
+    def get_autosave_statistics(self) -> Dict:
+        """
+        Obtiene estadísticas del sistema de autoguardados.
+        
+        Returns:
+            Diccionario con estadísticas
+        """
+        if self.autosave_manager:
+            return self.autosave_manager.get_statistics()
+        return {}
 
     def _filter_empty_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -511,9 +765,9 @@ class HistoryManager:
             console.print("[yellow]El historial de conversación es demasiado largo. Resumiendo mensajes antiguos...[/yellow]")
         
         # 1. Determinar qué mensajes resumir y cuáles mantener
-        # Mantenemos los últimos N mensajes (ej. 50% del límite) para contexto inmediato
+        # Mantenemos los últimos N mensajes (ej. 70% del límite) para contexto inmediato
         # Aseguramos mantener al menos MIN_MESSAGES_TO_KEEP
-        keep_count = max(self.MIN_MESSAGES_TO_KEEP, int(self.max_history_messages * 0.5))
+        keep_count = max(self.MIN_MESSAGES_TO_KEEP, int(self.max_history_messages * 0.7))
         
         if len(history) <= keep_count:
             return history
@@ -540,6 +794,17 @@ class HistoryManager:
         # Pasamos explícitamente los mensajes a resumir
         summary = summarize_method(messages_to_summarize)
         
+        # Limitar la longitud del resumen para evitar que el resumen mismo haga overflow
+        try:
+            max_summary_chars = int(min(self.DEFAULT_MAX_SUMMARY_LENGTH, int(self.max_history_chars * self.MAX_SUMMARY_LENGTH_RATIO)))
+        except Exception:
+            max_summary_chars = self.DEFAULT_MAX_SUMMARY_LENGTH
+
+        if summary and len(summary) > max_summary_chars:
+            if console:
+                console.print(f"[yellow]Resumen demasiado largo ({len(summary)} chars). Truncando a {max_summary_chars} chars.[/yellow]")
+            summary = summary[:max_summary_chars] + "\n\n" + self.SUMMARY_TRUNCATION_SUFFIX
+
         if not summary:
             if console:
                 console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento estándar.[/red]")
@@ -656,6 +921,7 @@ class HistoryManager:
             
         Returns:
             Mensaje en formato LiteLLM (diccionario)
+        """
         if isinstance(message, HumanMessage):
             return {"role": "user", "content": message.content}
         elif isinstance(message, AIMessage):
@@ -694,4 +960,4 @@ class HistoryManager:
         # Fallback para tipos desconocidos
         return {"role": "user", "content": str(message)}
 
-"""
+

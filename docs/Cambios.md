@@ -5117,3 +5117,2444 @@ El flujo resultante para el modelo `kilocode/kilo-auto/free`:
 
 ✅ **Interfaz más limpia**: El menú de autocompletado desaparece automáticamente al terminar de escribir un comando o ruta válida.
 ✅ **Mejor UX**: Evita que el menú bloquee la visibilidad una vez que el usuario ha ingresado la información completa.
+
+### 2026-05-05 - Solución al Problema de Cierre Prematuro en Herramientas (Skill call_agents_parallel)
+
+#### **Cambios Realizados**
+
+1.  **kogniterm/core/llm_service.py**
+    - Se unificó y corrigió el método duplicado `_invoke_tool_with_interrupt`.
+    - Se solucionó un error crítico de variable no definida (`NameError`) cambiando `interrupt_queue` por `self.interrupt_queue`. Esto impedía que las herramientas lanzaran una excepción silenciosa que causaba su término inmediato.
+    - Se solucionó un error de importación al referenciar `concurrent.futures.TimeoutError` sin la importación completa de `concurrent`, sustituyéndolo por `TimeoutError`.
+
+2.  **kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py**
+    - Se añadió la importación faltante `import time` antes de llamar a `time.sleep(1.0)`, previniendo otro posible error de `NameError` que interrumpiría la ejecución.
+
+3.  **kogniterm/core/agents/deep_researcher.py**
+    - Se solucionó un error `AttributeError` en el `planning_node` donde se intentaba invocar un método inexistente `invoke_structured_output` en `LLMService`. Esto se reemplazó por una llamada estándar a `invoke` con procesamiento del generador para extraer el plan en formato JSON, evitando que el agente investigador finalizara con error instantáneo de manera silenciosa.
+    - Se corrigió un error adicional que bloqueaba la ejecución instantánea por `AttributeError: type object 'Icons' has no attribute 'RESEARCH'`, sustituyendo la referencia de un ícono inexistente en el tema por el correspondiente caracter unicode `🔍`.
+
+4.  **kogniterm/terminal/tui/tui_app.py**
+    - Se solucionó el problema de desaparición de los paneles paralelos durante la ejecución de herramientas. El método `hide_live_display` (que el ejecutor llama por defecto antes de correr una herramienta) ocultaba el contenedor al asumir que era un único flujo. Ahora preserva la visibilidad si el `panel_id` contiene `live_display_`.
+    - Se corrigió el enrutamiento de notificaciones de herramientas (`print_tool_notification` y `update_terminal_output`) para que la salida de comandos y ejecución de skills de los agentes paralelos se renderice encapsulada de manera limpia dentro de sus propios paneles, en lugar de escribirse en el registro global del chat.
+    - Se solucionó un bug del motor de renderizado de Textual que causaba el colapso y desaparición de ambos paneles al alcanzar su altura máxima (`max-height`). Se cambió el modelo dinámico `height: auto` por una altura fija adaptativa (`height: 50vh`), lo cual evita que el cálculo de `overflow-y` sobrecargue el bucle de eventos y detenga abruptamente el proceso del agente.
+    - Se migraron los paneles paralelos del widget `Static` al widget `RichLog` (clase `ParallelAgentPanel`), lo que garantiza una estabilidad total durante el streaming intensivo de texto y evita cierres inesperados de la interfaz al manejar grandes volúmenes de contenido.
+    - Se corrigieron las firmas de los métodos en `ParallelPanelUI` (`tool.py`) usando `*args` y `**kwargs` para evitar errores de tipo (`TypeError`) al invocar funciones de la UI con argumentos variables, asegurando que el flujo del agente no se interrumpa por colisiones en la comunicación con la terminal.
+    - Se modificó el nodo de ejecución de herramientas en `code_agent.py` para que, cuando se detecta un panel paralelo activo (`panel_id`), el resultado de la herramienta se renderice explícitamente dentro de dicho panel. Esto evita que el flujo parezca "cortado" o que se imprima fuera del contenedor asignado.
+    - Se implementó un truncado de seguridad en la visualización de resultados de herramientas dentro de los paneles paralelos para prevenir bloqueos de la interfaz ante salidas extremadamente extensas (ej. listados masivos de archivos).
+    - Se ajustó la estética de los paneles paralelos para que tengan fondo transparente y bordes delgados que sigan el color del tema (`$primary-lighten-2`), eliminando el fondo negro sólido para una integración visual más fluida con el chat log.
+    - Se migró la implementación de `ParallelAgentPanel` a un widget `Static` con scroll habilitado, optimizando la estabilidad del renderizado dentro del layout de rejilla fijo.
+    - Se implementó un manejo de excepciones en `_safe_call` para capturar y silenciar errores de tipo `RuntimeError: App is not running`, evitando cierres forzados de la terminal cuando los hilos de los agentes intentan actualizar la interfaz durante un apagado o reinicio de la aplicación.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad**: Las herramientas en background (como `call_agents_parallel`) ahora pueden ejecutarse el tiempo necesario sin interrumpirse repentinamente por excepciones ocultas.
+✅ **Confiabilidad**: Menos bloqueos o comportamientos inesperados causados por dependencias faltantes.
+
+---
+
+### 2026-05-05 - Corrección de Errores Críticos en Agentes Paralelos (DeepCoder y DeepResearcher)
+
+#### **🐛 Bugs Corregidos**
+- **`deep_coder.py` — `AttributeError: 'AgentState' object has no attribute 'iteration_count'`**: Se eliminaron referencias erróneas a `iteration_count` y `research_plan` del nodo `call_deep_coder_node`. Estos campos pertenecen a `DeepResearchState`, no a `AgentState`. El archivo fue reescrito limpiamente para evitar importaciones anidadas que causaban problemas de scope en closures.
+- **`deep_researcher.py` — `TypeError: Panel.__init__() got an unexpected keyword argument 'dim'`**: Se eliminó el argumento `dim=True` del constructor `Panel` de Rich, ya que no es un argumento válido de esa clase.
+- **`deep_coder.py` — Variable libre `Panel` en closure `update_display()`**: Se reorganizaron los imports al nivel de módulo para que el closure `update_display()` tenga acceso directo a `Panel`, `Markdown`, `Group`, etc., sin depender de imports locales que podían fallar.
+- **`tui_app.py` — `RuntimeError: App is not running`**: Se añadió manejo de excepciones en `_safe_call` para capturar y silenciar errores de app cerrada durante el apagado de la aplicación.
+
+#### **✅ Estado Verificado**
+- Los agentes `DeepCoder` y `DeepResearcher` se crean y ejecutan correctamente en paralelo usando `concurrent.futures.ThreadPoolExecutor`.
+- Ambos grafos de LangGraph procesan mensajes, llaman herramientas y generan respuestas sin excepciones.
+- **`tui_app.py` — CSS `display: none` en paneles hijos**: Se eliminó `display: none` del CSS de `ParallelAgentPanel` que impedía que los paneles del grid fueran visibles al activarlos. El contenedor padre se ocultaba/mostraba correctamente pero los hijos permanecían invisibles.
+- **`tool.py` / `tui_app.py` — Deadlock por `call_from_thread` anidado**: Se refactorizó `_activate_panels` para acceder directamente a los widgets via `query_one` sin pasar por `action_toggle_parallel_panels`, eliminando el doble `call_from_thread` que causaba bloqueos.
+- **`tool.py` — Código duplicado**: Se eliminó el bloque de threading duplicado que ejecutaba `_activate_panels` dos veces consecutivas.
+- **`ParallelAgentPanel` — Auto-scroll**: Se añadió `scroll_end(animate=False)` al método `update()` del panel para que el contenido más reciente siempre sea visible automáticamente. Se ajustó el CSS con `scrollbar-gutter: stable` para un scrollbar limpio y consistente.
+
+---
+
+## 06-05-2026 Restauración de Comunicación y Visibilidad en TUI
+
+**Descripción**: Se han corregido varios problemas críticos que impedían que los mensajes del agente y sus pensamientos (thinking) se mostraran en tiempo real en la interfaz TUI (Textual).
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  **kogniterm/terminal/tui/tui_app.py**
+    - Se redirigió el flujo de `update_live` y `update_live_display` directamente al `ChatLogWidget.write_stream`. Anteriormente, el streaming se enviaba a un panel efímero que a menudo estaba oculto o no persistía los mensajes.
+    - Se mejoró `_safe_call` para registrar errores en el log en lugar de silenciarlos, facilitando el diagnóstico de fallos en el hilo principal de la UI.
+    - Se restauró la lógica de sugerencias (`suggester`) que había sido afectada accidentalmente.
+
+2.  **kogniterm/core/agents/bash_agent.py**
+    - Se corrigió un error de tipo `NoneType` al acceder a `terminal_ui.is_tui`, asegurando que el agente sea robusto incluso si se invoca sin una interfaz gráfica.
+    - Se eliminó una referencia inválida a `self._safe_call` en un contexto de función global, reemplazándola por una llamada correcta a `terminal_ui.stop_live()`.
+
+3.  **kogniterm/terminal/tui/components/chat_log.py**
+    - Se añadió soporte de `logging` y `threading` para monitorear la entrega de mensajes desde hilos secundarios.
+    - Se implementó una verificación de seguridad de hilos en `write_stream` y `write_agent_message` para asegurar que las actualizaciones de la UI siempre se despachen correctamente al hilo principal si vienen desde el trabajador del agente.
+
+#### **🎯 Beneficios**
+
+✅ **Visibilidad Total**: El "pensamiento" del agente y su respuesta final ahora aparecen correctamente en el log del chat.
+✅ **Robustez del Hilo**: Mejor manejo de la comunicación entre el hilo de trabajo del agente y el hilo principal de Textual.
+✅ **Depuración Mejorada**: Los errores en las llamadas a la UI ya no se pierden silenciosamente, sino que se registran para su análisis.
+✅ **Persistencia**: Los mensajes en streaming ahora se integran directamente en el historial del chat, evitando que desaparezcan al finalizar la generación.
+
+
+## 06-05-2026 Sincronización de Modelo de Resumen con el Modelo Principal
+### Cambios Implementados
+#### **🔧 Archivos Modificados**
+1. **kogniterm/core/llm_service.py**
+    - Se modificó la inicialización de `self.summary_model` para que use el mismo valor que `self.model_name` por defecto, asegurando que la primera carga sea consistente.
+    - Se actualizó el método `set_model` para sincronizar automáticamente `self.summary_model` cuando el usuario cambia el modelo principal en la TUI.
+    - Se ajustó `summarize_conversation_history` para incluir `api_base` y `headers` en la llamada al LLM, garantizando que el resumen use el mismo canal de comunicación que las consultas normales (especialmente crítico para Ollama y OpenRouter).
+
+#### **🎯 Beneficios**
+✅ **Consistencia**: El resumen del historial ahora utiliza siempre el mismo modelo que el usuario ha configurado como principal, evitando discrepancias de comportamiento o fallos por falta de configuración en el modelo de resumen.
+✅ **Robustez**: Al pasar los parámetros de red (`api_base`, `headers`), el proceso de resumen es ahora compatible con cualquier proveedor configurado, eliminando errores de conexión en modelos locales.
+
+---
+
+## 06-05-2026 Fix: Paneles de Agentes Paralelos Desaparecen Inmediatamente
+
+### Problema
+Los paneles de la herramienta `call_agents_parallel` (DeepCoder y DeepResearcher) aparecían brevemente en la TUI y luego desaparecían de inmediato sin ejecutar ningún agente.
+
+### Causa Raíz
+En `kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`, el bloque `try` que usaba el `ThreadPoolExecutor` llamaba a las funciones `run_coder` y `run_researcher`, pero **dichas funciones nunca habían sido definidas** en el archivo. Esto causaba un `NameError` instantáneo que disparaba el bloque `finally`, el cual ocultaba los paneles paralelos y restauraba la UI al estado original, dando la ilusión de que los paneles "desaparecían".
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+- **`kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`**
+
+#### **📋 Cambios Específicos**
+1. **Definición de `run_coder` como closure**: Invoca `agent_coder.invoke()` con el estado inicial `{"messages": [HumanMessage(content=task_coder)]}` y retorna el contenido del último mensaje.
+2. **Definición de `run_researcher` como closure**: Invoca `agent_researcher.invoke()` con el estado inicial `{"messages": [HumanMessage(content=task_researcher)]}` usando el `RESEARCHER_RECURSION_LIMIT` configurado.
+3. **Corrección del `initial_state`**: Se eliminó el campo `task` que no existe en `AgentState` (el cual solo tiene `messages`), lo que también habría causado un error al inicializar el grafo LangGraph.
+
+#### **🎯 Beneficios**
+✅ **Agentes ejecutan correctamente**: Los threads ahora tienen funciones válidas que invocar.  
+✅ **Paneles persisten**: Al no lanzar una excepción inmediata, el `finally` no se ejecuta prematuramente.  
+✅ **Compatibilidad con AgentState**: El estado inicial es consistente con la definición del dataclass.
+
+---
+
+## 06-05-2026 Protocolo Obligatorio de task_tracker en Agentes Paralelos
+
+### Objetivo
+Forzar que DeepCoder y DeepResearcher usen obligatoriamente la herramienta `task_tracker` para registrar su progreso paso a paso durante la ejecución paralela.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. **`kogniterm/core/agents/deep_coder.py`** — System Prompt
+   - Se añadió sección `## 📌 PROTOCOLO OBLIGATORIO: task_tracker` al system prompt del DeepCoder.
+   - Define el flujo obligatorio: `init` al recibir la tarea → `update in-progress` al iniciar cada paso → `update done` al completarlo → `get` antes de dar la respuesta final.
+
+2. **`kogniterm/core/agents/deep_researcher.py`** — System Prompt
+   - Se añadió la misma sección de protocolo obligatorio al system prompt del DeepResearcher, adaptada para sub-preguntas de investigación en lugar de pasos de desarrollo.
+
+3. **`kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`**
+   - **Reset del tracker antes de cada sesión**: Se llama a `task_tracker(action="init", plan=[])` antes de crear los agentes para limpiar estado de sesiones anteriores.
+   - **Instrucción explícita en el mensaje inicial**: El `HumanMessage` inicial de cada agente incluye ahora un recordatorio `📌 INSTRUCCION OBLIGATORIA` que exige inicializar el tracker con el plan como primera acción.
+
+#### **🎯 Flujo resultante**
+
+```
+call_agents_parallel invocado
+  └─ Reset task_tracker (limpia estado previo)
+  └─ DeepCoder recibe mensaje con recordatorio obligatorio
+       └─ PRIMERA acción: task_tracker(action="init", plan=[...])
+       └─ Por cada paso: update in-progress → ejecuta → update done
+       └─ Al finalizar: task_tracker(action="get") → verifica plan
+  └─ DeepResearcher (mismo flujo, con sub-preguntas)
+```
+
+#### **✅ Beneficios**
+✅ **Trazabilidad**: Cada paso queda registrado con su estado.  
+✅ **Auto-verificación**: Los agentes verifican su progreso antes de finalizar.  
+✅ **Sesiones limpias**: El estado del tracker se resetea entre invocaciones.  
+✅ **Doble enforcement**: Tanto el system prompt como el HumanMessage inicial exigen el uso del tracker.
+
+---
+
+## 06-05-2026 Fix: Texto de Agentes Paralelos Ajustado al Ancho del Panel
+
+### Problema
+El contenido renderizado en los paneles paralelos (DeepCoder / DeepResearcher) usaba el ancho del terminal completo en lugar del ancho real del widget, causando que el texto se desbordara o no envolviera correctamente dentro del panel.
+
+### Causa Raíz
+`RichLog.write(renderable)` sin parámetro `width` usa el ancho del `Console` interno de Textual, que por defecto corresponde al ancho total del terminal — no al del widget individual.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+- **`kogniterm/terminal/tui/tui_app.py`** — clase `ParallelAgentPanel`
+
+#### **📋 Cambios Específicos**
+1. **Constructor con `wrap=True`**: Se añadió `__init__` que llama a `super().__init__(wrap=True, **kwargs)`, habilitando el word-wrap para texto plano.
+2. **Propiedad `content_width`**: Calcula el ancho disponible real descontando borde (2 cols) y padding CSS horizontal (2 cols): `max(20, self.size.width - 4)`.
+3. **`write(renderable, width=self.content_width)`**: Fuerza a Rich a renderizar `Panel`, `Markdown`, `Group` y cualquier otro renderable dentro del ancho efectivo del widget.
+
+#### **🎯 Beneficios**
+✅ **Wrapping correcto**: El texto y los renderables Rich (Panel, Markdown) envuelven al ancho del panel.  
+✅ **Sin overflow**: El contenido ya no se desborda horizontalmente fuera del widget.  
+✅ **Adaptativo**: El ancho se recalcula en cada `update()`, por lo que responde correctamente si el usuario redimensiona la terminal.
+
+---
+
+## 06-05-2026 Fix: task_tracker no disponible para los agentes
+
+### Problema
+Los agentes (`DeepCoder` / `DeepResearcher`) no podían usar la herramienta `task_tracker` porque no estaba siendo registrada correctamente por el `SkillManager`.
+
+### Causa Raíz
+La skill `task_tracker` carecía de un archivo `SKILL.md`, el cual es indispensable para que el `SkillManager` la descubra y registre sus herramientas en el `tool_registry`. Además, el sistema de skills no se refrescaba automáticamente tras cambios en el sistema de archivos.
+
+### Cambios Implementados
+
+#### **📁 Nuevo Archivo**
+- **`kogniterm/skills/bundled/task_tracker/SKILL.md`**: Creado con metadatos y documentación para habilitar el registro de la skill.
+
+#### **🔧 Archivo Modificado**
+- **`kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`**:
+    - Se añadió una llamada forzada a `llm_service.skill_manager.refresh_skills(force=True)` antes de lanzar los agentes.
+    - Esto asegura que cualquier cambio en las skills (como la adición de `SKILL.md`) sea detectado y las herramientas estén disponibles en el `tool_registry` antes de que los hilos comiencen su ejecución.
+
+#### **🎯 Beneficios**
+✅ **Disponibilidad garantizada**: Los agentes ahora encuentran y pueden invocar `task_tracker`.  
+✅ **Registro dinámico**: El sistema ahora es capaz de reconocer nuevas skills añadidas en runtime durante la preparación de agentes paralelos.
+
+---
+
+## 06-05-2026 Fix: Alineación del Input de Chat en Modo Paralelo
+
+### Problema
+Al activarse los paneles de agentes paralelos, el input de chat y el footer se desplazaban hacia el borde izquierdo de la pantalla, perdiendo el centrado visual característico de la interfaz.
+
+### Causa Raíz
+El contenedor `#bottom_container` perdía la efectividad de su propiedad de alineación horizontal cuando uno de sus hijos (`#parallel_agents_container`) ocupaba el 100% del ancho. Sin márgenes automáticos explícitos, los widgets con ancho parcial (85%) se alineaban por defecto al inicio (izquierda).
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+- **`kogniterm/terminal/tui/tui_app.py`** — CSS interno
+
+#### **📋 Cambios Específicos**
+1. **Robustez en `#bottom_container`**: Se expandió `align: center bottom` a sus propiedades atómicas `align-horizontal: center` y `align-vertical: bottom` para asegurar consistencia.
+2. **Márgenes Automáticos (`margin: 0 auto`)**: Se aplicó centrado vía márgenes a todos los componentes de ancho parcial dentro del bloque inferior:
+    - `#input_container`
+    - `#queue_display`
+    - `StatusFooter`
+    - `TerminalPanel` (live display y tool display)
+3. **Alineación Explícita**: Se añadió `align-horizontal: center` directamente al `#input_container`.
+
+#### **🎯 Beneficios**
+✅ **Interfaz Centrada**: El input de chat permanece perfectamente centrado sin importar si los paneles paralelos están activos o no.  
+✅ **Consistencia Visual**: Todos los elementos del footer mantienen su alineación respecto al log de chat superior.
+
+---
+
+## 06-05-2026 Fix: Crash de Agentes Paralelos por Error en task_tracker
+
+### Problema
+Los agentes paralelos se cerraban inmediatamente después de su primer paso. El monitor de pensamientos mostraba un error `TypeError: get_status() got unexpected keyword argument 'action'`.
+
+### Causa Raíz
+Debido a la forma en que el `SkillLoader` descubre herramientas en un archivo `tool.py`, la función `get_status` (que no recibe argumentos) estaba siendo registrada como la herramienta principal `task_tracker` en lugar de la función `invoke`. Esto ocurría porque `get_status` aparecía antes en el módulo y el cargador la tomaba como default.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+- **`kogniterm/skills/bundled/task_tracker/scripts/tool.py`**
+
+#### **📋 Cambios Específicos**
+1. **Renombrado de Entry Point**: Se renombró la función `invoke` a `task_tracker` para que coincida exactamente con el nombre de la skill y sea priorizada por el cargador.
+2. **Encapsulamiento de Helpers**: Se prefijaron con guion bajo (`_`) todas las funciones auxiliares (`_init_tasks`, `_update_task`, `_get_status`). Esto evita que el `SkillLoader` las considere como herramientas independientes.
+3. **Asignación de Schema**: Se asignó el `tool_schema` directamente a la función `task_tracker` (`task_tracker.tool_schema = ...`) para asegurar que el LLM reciba la descripción correcta de los parámetros.
+
+#### **🎯 Beneficios**
+✅ **Estabilidad**: Se elimina el `TypeError` que hacía colapsar a los agentes en su primer turno.  
+✅ **Correctitud de API**: Los agentes ahora pueden usar `action='init'`, `action='update'`, etc., invocando la lógica correcta de despacho.
+
+---
+
+## 06-05-2026 Fix: Error de Sintaxis CSS en Textual (Márgenes 'auto')
+
+### Problema
+La aplicación fallaba al iniciar con errores de parseo de CSS. Se intentó usar `margin: 0 auto`, pero Textual CSS no soporta el valor `auto`; solo acepta valores enteros.
+
+### Causa Raíz
+Confusión entre CSS estándar de navegador y el subconjunto implementado por la librería Textual de Python.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+- **`kogniterm/terminal/tui/tui_app.py`** — CSS interno
+
+#### **📋 Cambios Específicos**
+1. **Eliminación de `auto`**: Se removieron todos los valores `auto` de las propiedades `margin` en `#input_container`, `#queue_display`, `StatusFooter` y `TerminalPanel`.
+2. **Dependencia de `align-horizontal`**: Se mantiene y refuerza el uso de `align-horizontal: center` en el contenedor padre (`#bottom_container`) para lograr el centrado deseado de forma nativa en Textual.
+
+#### **🎯 Beneficios**
+✅ **Arranque Limpio**: Se eliminan los errores de parseo de CSS al iniciar la TUI.  
+✅ **Centrado Nativo**: Se logra el objetivo visual usando las herramientas correctas de la librería Textual.
+
+---
+
+## 06-05-2026 Fix: Estabilidad y Observabilidad de Agentes Paralelos
+
+### Problema
+Los agentes paralelos se cerraban prematuramente después del primer paso y el usuario no podía ver el motivo del fallo ni el resultado final si la ventana se ocultaba demasiado rápido.
+
+### Causa Raíz
+1. **Firma de Herramientas**: Al mover `tool_schema` dentro de la función en el fix anterior, el `SkillLoader` dejó de detectar los parámetros de la herramienta, haciendo que el LLM la invocara sin argumentos, lo que provocaba un `TypeError`.
+2. **Cierre Abrupto**: La lógica de finalización ocultaba los paneles inmediatamente al terminar los hilos, sin dar tiempo al usuario a leer el resultado o capturar errores.
+3. **Falta de Persistencia**: Si los paneles se cerraban por un error, el resultado no se reflejaba en el chat log principal, dejando al usuario sin contexto.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+- **`kogniterm/skills/bundled/task_tracker/scripts/tool.py`**: Restauración de `tool_schema` al nivel de módulo.
+- **`kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`**: Mejoras en la lógica de finalización.
+
+#### **📋 Cambios Específicos**
+1. **Restauración de Schema**: Se movió `tool_schema` de nuevo al nivel de módulo en `task_tracker` para asegurar su correcta detección por el `SkillLoader`.
+2. **Persistencia en Chat Log**: Al terminar la misión paralela (éxito o fallo), los resultados finales de ambos agentes se imprimen ahora en el chat log principal (`terminal_ui.print_message`).
+3. **Margen de Lectura**: Se añadió una pausa de 2 segundos antes de ocultar los paneles paralelos para permitir al usuario ver el estado final ("Finalizado" o "Error").
+4. **Logging Robusto**: Se mejoró la captura de excepciones en los hilos de los agentes para reportar errores críticos de forma más clara.
+
+#### **🎯 Beneficios**
+✅ **Descubrimiento Correcto**: El LLM ahora recibe el esquema completo de `task_tracker` y puede invocarlo con los argumentos correctos.  
+✅ **Mejor UX**: Los resultados no desaparecen; se consolidan en el historial de chat principal.  
+✅ **Depuración Facilitada**: Los errores críticos ahora son visibles tanto en los paneles como en el log general.
+
+---
+
+## 06-05-2026 Feature: Panel Visual de Task Tracker
+
+### Solicitud del Usuario
+"¿Podemos hacer que task tracker tenga un panel visible que muestre las tareas pendientes y realizadas?"
+
+### Cambios Implementados
+
+#### **🎨 UI/UX (TUI)**
+- **Nuevo Componente `TaskTrackerPanel`**: Un panel dedicado en la parte superior del contenedor de agentes paralelos que muestra el plan de trabajo actual.
+- **Layout Adaptativo**: El contenedor paralelo ahora usa un `Vertical` layout con el Tracker arriba (auto-height) y la rejilla de agentes debajo.
+- **Estilo Enriquecido**: Las tareas se muestran en una tabla con iconos (`✅`, `⚙️`, `⏳`) y colores según su estado.
+
+#### **🔧 Integración Técnica**
+- **Inyección de `llm_service`**: Se actualizó el `SkillManager` para inyectar automáticamente la instancia de `LLMService` en los módulos de las skills (vía variable global `_llm_service`).
+- **Callbacks de UI**: La skill `task_tracker` ahora notifica a la TUI cada vez que se inicializa un plan o se actualiza una tarea, refrescando el panel visual en tiempo real.
+- **Gestión de Paneles**: El `ParallelPanelsManager` en `tui_app.py` incluye ahora el método `update_tracker` para manejar estas actualizaciones de forma segura desde hilos secundarios.
+
+#### **🎯 Beneficios**
+✅ **Visibilidad Total**: El usuario y los agentes comparten una visión clara del progreso de la misión.  
+✅ **Foco en el Proceso**: Facilita entender en qué paso se encuentra cada agente paralelo.  
+✅ **Arquitectura Limpia**: Se utiliza un sistema de inyección de dependencias que permite a las skills interactuar con la UI de forma desacoplada.
+
+---
+
+## 06-05-2026 Fix: Robustez en Planificación de Investigación
+
+### Problema
+El `DeepResearcher` se detenía con un error `Expecting value: line 1 column 1 (char 0)` si el modelo no respondía exactamente con un bloque JSON puro en el nodo de planificación.
+
+### Cambios Implementados
+- **Extracción de JSON**: Se implementó una búsqueda mediante expresiones regulares (`re.search`) para localizar el objeto JSON dentro de cualquier bloque de texto, ignorando preámbulos o cierres del modelo.
+- **Plan de Contingencia (Fallback)**: Si el parseo de JSON falla totalmente, el sistema ahora intenta extraer tareas de una lista con viñetas o, en última instancia, genera un plan genérico de investigación. Esto asegura que el agente nunca se bloquee y pueda proceder a la fase de búsqueda.
+
+### Resultado
+✅ **Resiliencia**: El agente es ahora capaz de recuperarse de errores de formato en la respuesta del LLM sin intervención del usuario.
+
+---
+
+## 06-05-2026 Fix: Visibilidad del Pensamiento y Optimización de Velocidad
+
+### Problema
+Tras las últimas optimizaciones, el pensamiento ("Thinking") de los agentes dejó de ser visible en los paneles paralelos, y el rendimiento se veía afectado por el exceso de actualizaciones en la UI.
+
+### Cambios Implementados
+
+#### **🔧 Corrección de Renderizado**
+- **Fix en `ParallelAgentPanel`**: Se eliminó el parámetro `width` de la llamada a `self.write()` en `tui_app.py`, ya que `RichLog` no soporta este argumento y provocaba un fallo silencioso en cada actualización del panel. Esto restaura la visibilidad del razonamiento y del contenido generado.
+
+#### **🚀 Optimización de Velocidad (Throttling)**
+- **Limitación de FPS**: Se implementó un sistema de "throttling" en `ParallelPanelUI` que limita las actualizaciones de la interfaz a un máximo de 10 por segundo (100ms entre actualizaciones). 
+- **Impacto**: Esto reduce drásticamente la sobrecarga del hilo principal de la TUI, permitiendo que los agentes paralelos procesen información y generen respuestas mucho más rápido, especialmente con modelos de alto volumen de streaming.
+
+### Resultado
+✅ **Visibilidad Restaurada**: El bloque de pensamiento vuelve a ser visible y dinámico.  
+✅ **Fluidez Máxima**: La interfaz se siente más ligera y los agentes terminan sus tareas en menos tiempo al no estar bloqueados por el renderizado constante de la UI.
+
+---
+
+## 06-05-2026 Feature: Planes de Trabajo Especializados por Agente
+
+### Solicitud del Usuario
+"el plan no debe ser el mismo para ambos agentes. cada agente con su plan especializado"
+
+### Cambios Implementados
+
+#### **🛠️ Herramienta `task_tracker`**
+- **Soporte para Múltiples Agentes**: Se refactorizó la skill para que use un diccionario interno indexado por `agent_name`.
+- **Esquema Actualizado**: Se añadió `agent_name` como parámetro obligatorio en las acciones `init`, `update` y `get`.
+
+#### **🤖 Agentes Especializados**
+- **DeepCoder**: Ahora reporta sus tareas bajo el nombre **"Coder"**.
+- **DeepResearcher**: Ahora reporta sus tareas bajo el nombre **"Researcher"**.
+- **Independencia de Nodos**: Se eliminaron las llamadas genéricas al tracker en los nodos de ejecución de herramientas para evitar que un agente sobrescriba accidentalmente el progreso del otro.
+
+#### **🎨 UI/UX (TUI)**
+- **Visualización Dual**: El `TaskTrackerPanel` ahora detecta si hay múltiples agentes activos y renderiza una rejilla de tablas (una por cada agente).
+- **Claridad Visual**: Cada tabla tiene el nombre del agente como título, permitiendo al usuario supervisar ambos planes de forma independiente y simultánea.
+
+### Resultado
+✅ **Desacoplamiento**: Los agentes ya no compiten por el mismo espacio de tareas.  
+✅ **Transparencia**: El usuario tiene una visión clara de qué está haciendo exactamente cada especialista en cada momento.
+
+---
+
+## 06-05-2026 Corrección en la Selección de Proveedor y Fallback Silencioso
+
+**Descripción**: Se corrigió un problema donde la selección de proveedores sin API keys (como Ollama Cloud) fallaba silenciosamente y hacía fallback al proveedor principal (ej. OpenRouter) cuando el objetivo era explícitamente forzado por el usuario.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/multi_provider_manager.py`](kogniterm/core/multi_provider_manager.py)
+
+#### **📋 Cambios Específicos**
+
+1. **Corrección de Estado Configurado en `is_configured`**:
+   - Se añadió lógica para considerar a `ollama_cloud` u `ollama` local como **configurados** (retornar `True`) si la variable de entorno `OLLAMA_PROVIDER_TARGET` explícitamente fuerza su uso.
+   - Esto evita que proveedores elegidos por el usuario sean excluidos de la lista de disponibles por falta de API Key (que no es estrictamente necesaria en ciertos entornos locales o targets forzados).
+
+2. **Prioridad Absoluta del Proveedor Preferido en `execute`**:
+   - Se reescribió la lógica de fallback para respetar la variable `self.preferred_provider` por encima del nombre del modelo (`model_name`) si el modelo no tiene un prefijo explícito que lo contradiga, o si ambos comparten origen.
+   - Se asegura de que al seleccionar un proveedor específico (ej. Ollama Cloud) desde la UI (`%provider`), las ejecuciones se canalicen adecuadamente a ese proveedor sin silenciosamente delegar a otro como OpenRouter.
+
+#### **🎯 Beneficios de la Solución**
+
+✅ **Previsibilidad**: El proveedor escogido por el usuario es respetado y usado correctamente.
+✅ **Evita Fallbacks Silenciosos**: Si el proveedor elegido falla, fallará de forma visible con el proveedor correcto, en lugar de enmascarar el error procesando el prompt a expensas del saldo en otro proveedor como OpenRouter.
+
+---
+
+## 06-05-2026 Fix: Estabilización Visual y Alineación de Paneles
+
+### Problema
+Las líneas de los bordes de los paneles en la TUI aparecían "desencajadas" o rotas, especialmente cuando se utilizaban emojis en los títulos o cuando el contenido se renderizaba en contenedores de ancho variable.
+
+### Cambios Implementados
+
+#### **🎨 UI/UX (TUI)**
+- **Estilo de Bordes Robusto**: Se cambió el estilo de caja de `box.ROUNDED` a `box.SQUARE` en todos los paneles críticos (Task Tracker, Tool Output, Notificaciones). Los bordes cuadrados son más estables en terminales con manejo ambiguo de anchos de celda.
+- **Buffer de Emojis**: Se implementó un espaciado de seguridad ("padding") tras los emojis en títulos y tablas (ej. `" 📋  Plan "` en lugar de `"📋Plan"`). Esto compensa la discrepancia entre cómo diferentes terminales calculan el ancho de los caracteres Unicode complejos.
+- **Alineación de Títulos**: Se añadieron espacios explícitos al inicio y final de los títulos de los paneles para asegurar que el texto no "empuje" los bordes de la caja.
+
+#### **🔧 Correcciones Técnicas**
+- **Importación de `box`**: Se corrigieron errores de referencia en `tui_app.py` asegurando que el módulo `box` de Rich esté disponible en los ámbitos de actualización de paneles.
+- **Consistencia Visual**: Se estandarizó el uso de `expand=True` y el padding interno para asegurar que los paneles paralelos mantengan una estructura geométrica perfecta sin importar el contenido.
+
+### Resultado
+✅ **Interfaz Limpia**: Las líneas de los paneles ahora cierran perfectamente y mantienen su alineación incluso durante el streaming intensivo de datos.
+✅ **Compatibilidad Mejorada**: Mayor robustez visual en diferentes emuladores de terminal.
+
+---
+
+## 07-05-2026 Seguridad y Privacidad: Protección de Credenciales en Logs y Configuración
+
+**Descripción**: Se implementaron medidas de seguridad para evitar que información sensible (API Keys, URLs con credenciales) sea expuesta en el historial de chat de la TUI o en los mensajes de confirmación de la CLI.
+
+### Cambios Implementados
+
+#### **🔒 Seguridad y Privacidad**
+- **Ocultamiento de Meta-Comandos**: Se modificó el flujo de entrada en la TUI (`tui_app.py`) y en la CLI interactiva (`kogniterm_app.py`) para procesar los meta-comandos (ej. `%keys`, `%models`) antes de registrarlos en el historial de chat. Esto evita que comandos de configuración aparezcan en la conversación persistente.
+- **Enmascaramiento de Valores en CLI**: Se actualizó el manejador de comandos CLI (`cli.py`) para detectar y enmascarar automáticamente valores sensibles (que contengan "KEY", "TOKEN", etc.) en los mensajes de confirmación de `kogniterm config set`.
+- **Protección de URLs**: Se implementó una lógica de filtrado por expresión regular para ocultar credenciales (usuario:password) en URLs de proveedores (ej. Ollama URL) antes de imprimirlas en pantalla.
+
+#### **🔧 Mejoras Técnicas**
+- **Reordenamiento de Procesamiento**: En `kogniterm_app.py`, se reubicó la lógica de limpieza del buffer y detección de meta-comandos para asegurar una respuesta más limpia y segura en la interfaz de línea de comandos.
+- **Refactorización de Logs**: Se ajustó `tui_app.py` para que el log de chat solo capture interacciones destinadas al agente, eliminando el ruido de comandos administrativos del sistema.
+
+### Resultado
+✅ **Privacidad Mejorada**: Los secretos y configuraciones sensibles ya no se guardan accidentalmente en los archivos de historial de chat.
+✅ **Interfaz Segura**: La retroalimentación al usuario ahora es informativa sin comprometer la seguridad de las credenciales configuradas.
+
+---
+
+## 06-05-2026 Fix: Corrección de Padding y Desbordamiento en Paneles Paralelos
+
+### Problema
+Incluso con bordes cuadrados, los paneles internos de los agentes paralelos seguían apareciendo "desencajados" o con los bordes derechos desplazados.
+
+### Cambios Implementados
+
+#### **🔧 Corrección de Estructura (ChatLogWidget)**
+- **Padding Dinámico**: Se identificó que `ChatLogWidget` aplicaba un padding izquierdo hardcodeado de 4 celdas. En paneles estrechos (agentes en paralelo), esto causaba que el contenido se desplazara demasiado a la derecha, rompiendo la alineación.
+- **Parametrización**: Se añadió el atributo `left_padding` a `ChatLogWidget`. Para los paneles de agentes paralelos, ahora se establece en 1 celda, maximizando el espacio útil y alineando los bordes.
+
+#### **🎨 Estabilidad de Renderizado**
+- **Desactivación de `expand=True`**: Se cambió el comportamiento de los paneles internos para no expandirse automáticamente al ancho máximo calculado por Rich (`expand=False`). Esto asegura que el borde derecho se ajuste al contenido real y no intente ocupar espacio inexistente debido a errores de redondeo en el Grid de Textual.
+- **Ajuste en Tracker**: El panel de `Planes de Trabajo Especializados` ahora también usa `expand=False` para evitar fugas visuales en su borde derecho.
+
+### Resultado
+✅ **Alineación Perfecta**: Los bordes laterales de las notificaciones de herramientas y bloques de código ahora se mantienen dentro de los límites del panel padre sin desplazamientos laterales.
+✅ **Mejor Legibilidad**: Se gana espacio horizontal en los paneles paralelos al reducir el margen izquierdo innecesario.
+
+---
+
+## 06-05-2026 Optimización de Flujo Multi-Agente y Paralelismo
+
+**Descripción**: Se ha optimizado la coordinación entre agentes (DeepCoder y DeepResearcher) y el Bash Agent (KogniTerm) para mejorar la velocidad mediante ejecución paralela de herramientas y establecer un paradigma de reporte estructurado.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [**`kogniterm/core/agents/deep_coder.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/deep_coder.py)
+    -   **Actualización de System Prompt**: Se redefinió la identidad del agente como miembro de un equipo multi-agente que reporta al Bash Agent.
+    -   **Instrucciones de Paralelismo**: Se instruyó explícitamente al agente para emitir múltiples llamadas a herramientas en un solo turno para optimizar la velocidad.
+    -   **Paradigma de Reporte**: Se especificó que la respuesta final debe ser un informe técnico autocontenido para consumo del Coordinador.
+
+2.  [**`kogniterm/core/agents/deep_researcher.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/deep_researcher.py)
+    -   **Corrección de Bug en task_tracker**: Se solucionó un error de `TypeError` al añadir el parámetro `agent_name="Researcher"` en la llamada a `task_tracker(action="get")`.
+    -   **Actualización de System Prompt**: Alineación con el rol de "Detective de Código" que entrega un "Informe de Investigación Magistral" al Bash Agent.
+    -   **Optimización de Velocidad**: Instrucciones para ejecutar búsquedas y lecturas de archivos en paralelo.
+
+3.  [**`kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py)
+    -   **Refinamiento de Tareas**: Se inyectaron instrucciones obligatorias en los mensajes de inicio para asegurar que ambos agentes inicialicen correctamente el `task_tracker` al comenzar su ejecución paralela.
+
+#### **🎯 Beneficios**
+
+✅ **Mayor Velocidad**: La ejecución simultánea de herramientas dentro de cada agente reduce el tiempo total de resolución de tareas complejas.
+✅ **Coordinación Robusta**: Los agentes ahora entienden su posición en la jerarquía y entregan resultados estructurados al Bash Agent.
+✅ **Estabilidad**: Corregido error crítico de parámetros en el seguimiento de tareas (`task_tracker`).
+✅ **Claridad**: Los informes finales son ahora más profesionales y técnicos, orientados a la integración por parte del agente coordinador.
+
+
+## [2026-05-07] - Optimización de Agentes con Grafos Complejos y Ejecución Paralela
+
+### Cambios realizados:
+- **DeepCoder**:
+  - Implementación de un nodo de **Verificación Técnica** () que valida automáticamente la sintaxis de archivos Python modificados.
+  - Reestructuración del grafo de LangGraph para incluir un ciclo de retroalimentación automática entre ejecución y verificación.
+  - Optimización del System Prompt para incentivar el envío de múltiples llamadas a herramientas en un solo turno (Paralelismo).
+- **DeepResearcher**:
+  - Implementación de un nodo de **Reflexión Crítica** () que evalúa la calidad y consistencia de los hallazgos antes de la síntesis final.
+  - Optimización del flujo para permitir un "Fan-Out Search", donde el agente procesa múltiples focos de investigación simultáneamente.
+  - Ajuste del grafo para integrar el nodo de registro de hallazgos () de forma más eficiente tras cada ejecución de herramientas.
+- **General**:
+  - Corrección de errores de firma en los métodos de actualización de la UI () en ambos agentes.
+  - Mejora de la robustez del sistema ante errores de sintaxis inyectados durante el desarrollo.
+
+
+## [2026-05-07] - Optimización de Agentes con Grafos Complejos y Ejecución Paralela
+
+### Cambios realizados:
+- **DeepCoder**:
+  - Implementación de un nodo de **Verificación Técnica** (`verification_node`) que valida automáticamente la sintaxis de archivos Python modificados.
+  - Reestructuración del grafo de LangGraph para incluir un ciclo de retroalimentación automática entre ejecución y verificación.
+  - Optimización del System Prompt para incentivar el envío de múltiples llamadas a herramientas en un solo turno (Paralelismo).
+- **DeepResearcher**:
+  - Implementación de un nodo de **Reflexión Crítica** (`reflection_node`) que evalúa la calidad y consistencia de los hallazgos antes de la síntesis final.
+  - Optimización del flujo para permitir un "Fan-Out Search", donde el agente procesa múltiples focos de investigación simultáneamente.
+  - Ajuste del grafo para integrar el nodo de registro de hallazgos (`research_node`) de forma más eficiente tras cada ejecución de herramientas.
+- **General**:
+  - Corrección de errores de firma en los métodos de actualización de la UI (`update_live`) en ambos agentes.
+  - Mejora de la robustez del sistema ante errores de sintaxis inyectados durante el desarrollo.
+
+
+---
+
+## 06-05-2026 Hotfix: Error de Inicialización en ChatLogWidget
+
+### Problema
+Se producía un `TypeError: ScrollableContainer.__init__() got an unexpected keyword argument 'left_padding'` al intentar iniciar la TUI.
+
+### Cambios Implementados
+- **Extracción de Parámetros**: Se modificó el constructor de `ChatLogWidget` para extraer (`pop`) el argumento `left_padding` de los `kwargs` antes de pasar el resto al constructor padre de Textual (`super().__init__`). Esto evita que el motor de Textual reciba parámetros que no reconoce.
+
+### Resultado
+✅ **Arranque Exitoso**: La aplicación ahora inicia correctamente con la configuración de padding personalizado.
+
+---
+
+## 06-05-2026 Refactorización de Prompts: Transición de "Focos" a "Tareas" en DeepResearcher
+
+### Descripción
+Se ha eliminado la terminología de "focos" (research foci) en el agente **KogniDeepResearcher** para alinear su comportamiento con un sistema guiado por listas de tareas (`task_tracker`), mejorando la claridad semántica y la consistencia operativa.
+
+### Cambios Implementados
+- **System Prompt**: Se actualizaron las instrucciones de actualización de estado para referirse a "tareas del plan" en lugar de "focos".
+- **Nodo de Planificación**: Se ajustó la instrucción de generación de plan para solicitar "sub-tareas claras y concisas" eliminando la mención a áreas de enfoque.
+- **Nodo de Investigación (UI)**: Se cambió la etiqueta visual en la terminal de "Tarea actual" en lugar de "Foco actual".
+- **Nodo de Reflexión**: Se actualizó el prompt de autocrítica para que el agente identifique tareas o áreas técnicas que necesiten más profundidad en lugar de "focos".
+- **Contexto de Modelo**: Se estandarizó la inyección de contexto para usar el término "Tarea actual" y se actualizó la "Estrategia de Velocidad" para referirse a tareas pendientes.
+
+### Resultado
+✅ **Mayor Claridad**: El agente ahora opera bajo un modelo mental unificado de tareas, facilitando el seguimiento de su progreso a través del `task_tracker`.
+
+---
+
+## 06-05-2026 Feature: Task Tracker Individual por Agente y Estilo de Tachado
+
+### Solicitud del Usuario
+"quiero quitar el panel de planes de trabajo. en su lugar que aparezca un subpanel vertical en el panel de cada agente... tachando las que se van realizando"
+
+### Cambios Implementados
+
+#### **🎨 UI/UX (TUI)**
+- **Descentralización del Tracker**: Se eliminó el panel global superior. Ahora cada columna de agente (`Coder` y `Researcher`) tiene su propio sub-panel de tareas (`task_tracker_coder` y `task_tracker_researcher`) integrado verticalmente.
+- **Simplificación de Datos**: Se eliminó la columna explícita de "Status" para ganar espacio horizontal.
+- **Visualización de Progreso**: 
+    - Las tareas completadas (`done`) ahora se muestran con estilo de **tachado** (`strike`) y en un color gris oscuro.
+    - Las tareas en progreso se destacan en cian negrita.
+- **Layout de Columna**: Se introdujo la clase `.agent_column` con un layout vertical para organizar el tracker y el log de chat de forma coherente dentro de la rejilla.
+
+#### **🔧 Mejoras Técnicas**
+- **Enrutamiento de Actualizaciones**: El `ParallelPanelsManager` ahora enruta las actualizaciones del plan al widget específico de cada agente basado en su nombre, permitiendo una supervisión más focalizada.
+
+### Resultado
+✅ **Mayor Espacio Útil**: Al eliminar el panel global, los agentes tienen más altura para mostrar sus logs.
+✅ **Contexto Inmediato**: El usuario puede ver el plan de cada agente justo encima de su actividad, haciendo más intuitivo el seguimiento.
+✅ **Claridad Visual**: El tachado permite identificar de un vistazo qué tareas han sido superadas.
+
+---
+
+## 06-05-2026 Fix: Solución Definitiva al Desencaje de Líneas
+
+### Problema
+Persistía el desencaje de líneas en los paneles de herramientas y trackers, manifestándose como bordes rotos o desplazados horizontalmente.
+
+### Cambios Implementados
+
+#### **🎨 Rediseño de Estructura Visual**
+- **Títulos Externos**: Se movieron los títulos con iconos (`📋 Plan`, `🛠️ Tool Output`) fuera de los bordes del cuadro (`Panel`). Esto elimina la ambigüedad en el cálculo del ancho que causaban los caracteres Unicode dentro de la estructura de la caja, garantizando bordes geométricamente perfectos.
+- **Uso de `Group`**: Se agruparon el título externo y el panel en un objeto `Group` para mantener la cohesión visual.
+
+#### **🔧 Estabilización de Datos**
+- **Expansión de Tabuladores**: Se añadió `expandtabs(4)` a todas las salidas de terminal y herramientas para evitar que la terminal y Rich interpreten de forma distinta el ancho de los `\t`.
+- **Margen de Seguridad de Ancho**: Se incrementó el margen de seguridad en `ChatLogWidget` de 4 a 6 celdas, proporcionando espacio suficiente para evitar colisiones accidentales con la barra de desplazamiento vertical.
+
+### Resultado
+✅ **Alineación Garantizada**: Los cuadros ahora mantienen una estructura sólida e ininterrumpida sin importar el contenido o el uso de caracteres especiales.
+✅ **Robustez Multi-terminal**: Los ajustes de tabuladores y márgenes aseguran que la interfaz se vea igual de bien en diferentes emuladores.
+
+### 2026-05-07 - Refuerzo Integral de Seguridad y Privacidad
+
+Se ha implementado un sistema robusto de protección contra la fuga de información sensible (API Keys, tokens, credenciales) en toda la aplicación.
+
+*   **Utilidad de Seguridad Centralizada:** Creado `kogniterm/terminal/security.py` con lógica de enmascaramiento basada en regex para proteger llaves, tokens y credenciales en URLs.
+*   **Blindaje del Chat Log (TUI):** Actualizado `ChatLogWidget` para aplicar enmascaramiento automático a todos los mensajes (usuario, agente, herramientas y streaming), asegurando que ningún secreto se guarde en el historial visual.
+*   **Filtrado de Tokens Técnicos:** Implementada lógica para ignorar tokens de razonamiento (`__THINKING__:`) en el flujo del chat principal, evitando ruido técnico.
+*   **Protección Total de Meta-Comandos:** Modificado `MetaCommandProcessor` para excluir del log CUALQUIER entrada que comience con `%`, previniendo la grabación de comandos mal escritos o con argumentos sensibles.
+*   **Hardening de CLI y UI Base:** Integrado el sistema de enmascaramiento en `TerminalUI` y `CLIHandler`, protegiendo la retroalimentación de configuración y salidas de herramientas incluso en modo no interactivo.
+*   **Sanitización de Salidas de Herramientas:** Las salidas y notificaciones de herramientas ahora se filtran antes de mostrarse, protegiendo llaves que los agentes pudieran encontrar al explorar archivos como `.env`.
+
+---
+
+## 06-05-2026 Feature: Modo Inmersivo (Pantalla Completa) para Agentes Paralelos
+
+### Solicitud del Usuario
+"¿es posible hacer que los paneles sean en pantalla completa y desaparezca todo el resto de la tui en ese momento? me refiero a los paneles de los agentes paralelos"
+
+### Cambios Implementados
+
+#### **🎨 UI/UX (Modo Enfoque)**
+- **Inmersión Total**: Se implementó una lógica de visibilidad exclusiva. Cuando los agentes paralelos se activan, se ocultan automáticamente la cabecera, el historial de chat y la barra de entrada.
+- **Expansión de Pantalla**: El contenedor de agentes paralelos ahora utiliza posicionamiento absoluto y ocupa el **100% de la altura y anchura** de la terminal, maximizando el espacio para el seguimiento de tareas y logs de pensamiento.
+- **Fondo Sólido**: Se añadió un fondo opaco al contenedor para asegurar que no haya rastro visual de los elementos ocultos debajo.
+
+#### **🔧 Restauración Automática**
+- **Regreso a la Normalidad**: Al finalizar la tarea de los agentes, la TUI restaura instantáneamente todos los componentes y devuelve el foco a la barra de entrada de texto, permitiendo continuar la conversación sin interrupciones.
+
+### Resultado
+✅ **Máxima Concentración**: El usuario puede supervisar el trabajo paralelo sin distracciones visuales.
+✅ **Uso Eficiente del Espacio**: Se aprovecha cada celda de la terminal para los agentes, ideal para tareas complejas que generan mucho texto.
+
+---
+
+## 06-05-2026 Hotfix: Sintaxis CSS Incompatible en Textual
+
+### Problema
+Error de parseo de CSS al iniciar la TUI debido al uso de propiedades no soportadas (`top`, `left`, `z-index`).
+
+### Cambios Implementados
+- **Corrección de CSS**: Se eliminaron las propiedades de posicionamiento absoluto web que causaban el error. El modo pantalla completa ahora se gestiona exclusivamente mediante el ocultamiento de componentes adyacentes y el uso de `height: 100%` y `width: 100%`, lo cual es la forma nativa y segura de hacerlo en Textual.
+
+### Resultado
+✅ **Arranque Restaurado**: La aplicación vuelve a funcionar correctamente con el modo inmersivo activo.
+
+---
+
+## 07-05-2026 Mejora del Autocompletado de Archivos (FileCompleter)
+
+### Problema
+El autocompletado al escribir `@` en el prompt de KogniTerm era de baja calidad: usaba una búsqueda simple de subcadena sin priorización, devolvía demasiados resultados desordenados y no mostraba metadatos útiles.
+
+### Cambios Implementados
+
+#### 🔧 Archivo Modificado: `kogniterm/terminal/kogniterm_app.py`
+
+**Método `get_completions` — Sección de autocompletado de archivos (`@`)**
+
+1. **Scoring por relevancia**: Cada coincidencia recibe una puntuación según la calidad del match:
+   - `200` – Coincidencia exacta con el nombre base del archivo
+   - `150` – El nombre base comienza con la query (prefijo)
+   - `100` – La query es subcadena del nombre base
+   - `50`  – La query aparece en cualquier parte del path
+   - Bonus `+10` para directorios (aparecen primero)
+   - Penalización por profundidad (`-depth`) para preferir rutas más cercanas
+
+2. **Navegación por subdirectorio**: Si el usuario escribe `kogniterm/ter`, el filtrado se hace dentro del subdirectorio `kogniterm/`, mostrando solo sus contenidos.
+
+3. **Metadata por tipo de archivo**: Cada sugerencia muestra un ícono/etiqueta según la extensión:
+   - 📁 dir, 🐍 python, 📝 texto, ⚙️ config, 🌐 js/ts, 🖥️ shell, 🎨 web, 📄 archivo
+
+4. **Límite de 30 resultados**: Evita saturar el menú de completado.
+
+5. **Ordenamiento inteligente**: Por score descendente y luego alfabéticamente.
+
+### Resultado
+✅ **Autocompletado preciso**: Al escribir `@app.py` aparecen primero los archivos cuyo nombre base es `app.py`, no cualquier path que contenga esas letras.
+✅ **Navegación por dirs**: `@kogniterm/terminal/` lista solo el contenido de ese directorio.
+✅ **Interfaz más informativa**: Cada sugerencia muestra su tipo de archivo.
+
+---
+
+## 07-05-2026 Mejora de Robustez y Flexibilidad en Edición de Archivos (Fase 2)
+
+**Descripción**: Se han implementado mejoras críticas en `sophisticated_editor_tool` para manejar la fragilidad de las coincidencias de texto exactas, permitiendo que el agente realice ediciones exitosas incluso cuando hay pequeñas variaciones en espacios o sangría.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/skills/bundled/file_operations/scripts/file_editor.py`](kogniterm/skills/bundled/file_operations/scripts/file_editor.py)
+   - **Implementación de `FlexibleMatcher`**: Nueva clase que utiliza regex inteligentes para encontrar bloques de texto ignorando variaciones en espacios horizontales y saltos de línea intermedios.
+   - **Matching Flexible**: Las acciones `replace_block`, `insert_after_match` e `insert_before_match` ahora utilizan el buscador flexible si la coincidencia exacta falla.
+   - **Nueva acción `replace_lines`**: Permite reemplazar un rango de líneas específico. Incluye validación opcional mediante `target_content` para asegurar que se están reemplazando las líneas correctas.
+   - **Mejora en inserciones**: Se ha hecho más inteligente el manejo de saltos de línea en `insert_after_match` para evitar pegar texto pegado al final de una línea sin newline.
+
+2. [`kogniterm/skills/bundled/file_operations/SKILL.md`](kogniterm/skills/bundled/file_operations/SKILL.md)
+   - Documentada la nueva acción `replace_lines`.
+   - Actualizada la descripción de `replace_block` para resaltar su nueva robustez ante variaciones de formato.
+   - Actualizado el consejo de flujo de trabajo.
+
+#### 🎯 Beneficios
+
+✅ **Reducción de Fallos**: El agente ya no fallará sistemáticamente si incluye un espacio de más o de menos en el bloque de código a reemplazar.
+✅ **Ediciones más Limpias**: Se evita que el agente recurra a `full_replacement` (reescribir todo el archivo) ante pequeñas dificultades de coincidencia, ahorrando tokens y tiempo.
+✅ **Control Granular**: Con `replace_lines`, el agente tiene una forma directa y validada de modificar secciones específicas identificadas por línea.
+
+## 07-05-2026 Optimización del Ciclo de Verificación en DeepCoder
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/core/agents/deep_coder.py`](kogniterm/core/agents/deep_coder.py)
+   - **Refactor de `verification_node`**: Se eliminó la detección de archivos mediante expresiones regulares en el contenido del mensaje (que causaba falsos positivos al leer archivos).
+   - **Detección Basada en Herramientas**: Ahora el nodo identifica archivos modificados analizando directamente los argumentos de las herramientas de edición (`advanced_file_editor`, `write_to_file`, etc.) en la llamada anterior del LLM.
+   - **Activación Condicional de TUI**: El panel de "Verificando integridad..." ahora solo se muestra si efectivamente hay archivos modificados para validar.
+   - **Manejo de Errores**: Se añadió un bloque try-except para capturar errores durante la ejecución de `py_compile`.
+
+### Beneficios
+
+✅ **Flujo más Limpio**: El agente ya no entra en modo "Verificación" innecesariamente después de simples lecturas de archivos.
+✅ **Mayor Precisión**: Se garantiza que la verificación automática solo ocurra sobre archivos que el agente ha intentado modificar.
+
+## 07-05-2026 Autonomía de Edición para CodeAgent y DeepCoder
+
+### Cambios Implementados
+
+#### 🔧 Archivo Modificado: [`kogniterm/core/agents/code_agent.py`](kogniterm/core/agents/code_agent.py)
+- **Auto-confirmación de Herramientas**: Se modificó `execute_tool_node` para inyectar automáticamente el parámetro `confirm=True` cuando el agente invoca herramientas de edición de archivos (`advanced_file_editor`, `write_to_file`, etc.).
+- **Impacto**: Esta mejora afecta tanto al `CodeAgent` estándar como al `DeepCoder`, permitiéndoles realizar cambios de código de forma autónoma sin interrumpir el flujo para pedir confirmación manual al usuario.
+
+### Beneficios
+✅ **Mayor Fluidez**: El desarrollo multi-agente es ahora más rápido al no requerir intervención humana constante para aprobar cada edición individual.
+✅ **Consistencia**: Se unifica el comportamiento de autonomía para los agentes especializados en desarrollo.
+
+## 07-05-2026 Inyección de Contexto Robusta para DeepCoder
+
+### Cambios Implementados
+
+#### 🔧 Archivo Modificado: [`kogniterm/core/agents/deep_coder.py`](kogniterm/core/agents/deep_coder.py)
+- **Nuevo Nodo `context_injection_node`**: Se añadió un nodo que se ejecuta al inicio del flujo del agente.
+- **Sincronización Automática**: El nodo asegura que el `WorkspaceContext` esté inicializado, proporcionando la estructura de carpetas actualizada.
+- **Integración RAG**: Utiliza el `VectorDBManager` y el `EmbeddingsService` para realizar una búsqueda semántica basada en la tarea encomendada, inyectando los 5 fragmentos de código más relevantes como contexto inicial.
+- **Mensaje de Sistema Dinámico**: El contexto se inyecta como un `SystemMessage` al principio de la conversación, garantizando que el modelo tenga visibilidad técnica completa antes de realizar su primer análisis.
+
+### Beneficios
+✅ **Precisión**: El agente ya no empieza "a ciegas"; conoce la estructura del proyecto y fragmentos clave desde el primer turno.
+✅ **Robustez**: Se automatiza la obtención de contexto sin depender de que el usuario lo proporcione manualmente.
+
+## 07-05-2026 Estandarización y Robustez en Herramientas de Edición
+
+### Cambios Implementados
+
+#### 🔧 Archivo Modificado: [`kogniterm/skills/bundled/file_operations/scripts/file_editor.py`](kogniterm/skills/bundled/file_operations/scripts/file_editor.py)
+- **Unificación de Herramientas**: Se consolidaron los nombres `advanced_file_editor`, `sophisticated_editor_tool` y `replace_file_content` como alias de una misma función potente.
+- **Esquema JSON Explícito**: Se inyectó un esquema de parámetros detallado que incluye un `enum` para todas las acciones posibles (`insert_line`, `replace_block`, `replace_lines`, etc.).
+- **Descripciones Claras**: Se añadieron descripciones semánticas a cada parámetro para evitar que los agentes confundan `content` con `replacement_content` o `target_content`.
+- **Compatibilidad**: Se asegura que el `SkillManager` registre la herramienta con el nombre esperado por los diversos prompts de los agentes.
+
+### Beneficios
+✅ **Eliminación de Alucinaciones**: Los agentes ya no tienen que "adivinar" los nombres de las acciones o los parámetros; el esquema les indica exactamente qué enviar.
+✅ **Robustez Multi-Agente**: Tanto el `CodeAgent` como el `BashAgent` ahora encuentran la herramienta independientemente del nombre que usen internamente.
+
+## 2026-05-07 - Corrección de errores de importación en skills
+
+- Se crearon los archivos `tool.py` y `SKILL.md` faltantes para las skills `advanced_file_editor` y `file_update`.
+- Se añadió `tool.py` a `file_operations` con las funciones internas `_write_file` y `_delete_file` requeridas por el agente.
+- Se implementaron los métodos `_apply_advanced_update_with_validation` y `_apply_file_update` para resolver el Error Fatal en el hilo del agente.
+- Se aseguraron los esquemas de parámetros y metadatos para el descubrimiento correcto por `SkillManager`.
+
+## 2026-05-07 - Implementación de pantalla completa para paneles paralelos
+
+- **Archivo Modificado:** `kogniterm/terminal/tui/tui_app.py`
+- **Descripción:** Se movió el contenedor `#parallel_agents_container` fuera del `bottom_container` en la composición de la TUI. Esto permite que los paneles de agentes paralelos (como Coder y Researcher) ocupen verdaderamente la pantalla completa cuando se activan, evitando que se vean desencajados o limitados por el tamaño y los márgenes del contenedor inferior.
+
+## 2026-05-08 - Corrección de altura de ChatInput en TUI
+
+**Descripción:** Se ha corregido un error visual en la TUI donde la barra de entrada de texto (`ChatInput`) no regresaba a su altura original (`min-height: 3`) después de enviar un mensaje de varias líneas, dejando un gran espacio vacío en el contenedor.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/terminal/tui/components/status_footer.py`](kogniterm/terminal/tui/components/status_footer.py)
+   - **Modificación en `value.setter`**: Se actualizó el *setter* de la propiedad `value` en `ChatInput`. Al limpiar el valor (asignar una cadena vacía), ahora invoca `self.clear()` (método interno nativo de Textual para vaciar el documento) en lugar de simplemente asignar `self.text = ""`.
+   - **Actualización de Layouts**: Se forzó una actualización del diseño (`refresh(layout=True)`) tanto en el propio widget `ChatInput` como en sus contenedores padre (`#input_container`). Esto garantiza que, cuando el área de texto se vacía y se reduce a una sola línea, los paneles superiores recuperen el espacio en pantalla de manera instantánea.
+
+## 2026-05-08 - Corrección de altura adaptable en paneles paralelos
+
+**Descripción:** Se modificó la TUI para que la altura de los paneles de  sea adaptable al contenido restante, evitando problemas de overflow en el layout.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [](kogniterm/terminal/tui/tui_app.py)
+   - **Modificación de CSS:** Se cambió el atributo  a  en  y en . Esto asegura que los paneles tomen exactamente el espacio sobrante en lugar de forzar un 100% que, sumado a otros elementos, causaba overflow.
+
+## 2026-05-08 - Corrección de altura adaptable en paneles paralelos
+
+**Descripción:** Se modificó la TUI para que la altura de los paneles de `call_agents_parallel` sea adaptable al contenido restante, evitando problemas de overflow en el layout.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - **Modificación de CSS:** Se cambió el atributo `height: 100%;` a `height: 1fr;` en `.agent_column` y en `#parallel_agents_container ParallelAgentPanel`. Esto asegura que los paneles tomen exactamente el espacio sobrante en lugar de forzar un 100% que, sumado a otros elementos, causaba overflow.
+
+## 2026-05-09 - Solución definitiva al bug de altura de ChatInput en TUI
+
+**Descripción:** Se ha implementado un sistema de gestión de altura manual para el componente `ChatInput`, superando un limitante del widget `TextArea` de Textual que impedía que se encogiera automáticamente al borrar texto o limpiar el campo.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [`kogniterm/terminal/tui/components/status_footer.py`](kogniterm/terminal/tui/components/status_footer.py)
+   - **Gestión de Altura Manual**: Se añadió el método `_adjust_height()` que calcula la altura necesaria basándose en `document.line_count` (mínimo 3, máximo 15 líneas).
+   - **Sincronización de Contenedor**: Al cambiar la altura del input, se ajusta proporcionalmente la altura del `#input_container` para asegurar que el espacio se recupere visualmente de inmediato.
+   - **Event Handler `_on_text_area_changed`**: Se integró el ajuste de altura en el evento de cambio de texto, permitiendo que la barra crezca y encoja dinámicamente mientras el usuario escribe, no solo al enviar.
+
+### Beneficios
+✅ **UX Fluida**: La barra de entrada ahora responde correctamente a la eliminación de líneas y al vaciado del campo.
+✅ **Estabilidad Visual**: Se elimina el "bloque gris vacío" que persistía después de enviar mensajes largos.
+
+---
+
+## 09-05-2026 Mejora de Scroll en Panel de Agentes Especializados (call_agent)
+
+**Descripción**: Se ha refactorizado el componente de visualización de agentes especializados para permitir un scroll automático acumulativo, evitando que el texto se limpie en cada paso de la ejecución.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [**kogniterm/terminal/tui/components/agent_stream.py**](kogniterm/terminal/tui/components/agent_stream.py)
+   - Implementación de sistema de **historia de renderables**.
+   - Añadido método `commit()` para fijar el contenido activo (streaming) en la historia permanente del panel.
+   - Refactorización de `_render_all()` para mostrar tanto la historia como el contenido en tiempo real.
+   - Asegurado el auto-scroll al final en cada actualización.
+
+2. [**kogniterm/skills/bundled/call_agent/scripts/tool.py**](kogniterm/skills/bundled/call_agent/scripts/tool.py)
+   - Actualización de `AgentStreamProxy` para soportar el método `commit()`.
+   - Modificación de `stop_live()` para que triggee un commit automático al finalizar un bloque de ejecución.
+   - Integración de `commit()` en notificaciones de herramientas y mensajes directos.
+
+3. [**kogniterm/core/agents/deep_researcher.py**](kogniterm/core/agents/deep_researcher.py) y [**kogniterm/core/agents/deep_coder.py**](kogniterm/core/agents/deep_coder.py)
+   - Inserción de llamadas a `terminal_ui.stop_live()` tras actualizaciones de estado de un solo paso (planning, verification, injection, etc.).
+   - Esto garantiza que cada panel de estado se mantenga visible en el scroll mientras el agente avanza.
+
+#### 🎯 Beneficios
+
+✅ **Visibilidad Completa**: Los usuarios pueden ver todo el rastro de pensamiento y ejecución del agente sin que los pasos anteriores desaparezcan.
+✅ **UX Natural**: Comportamiento similar a una terminal estándar donde el contenido fluye hacia arriba.
+✅ **Auto-Scroll Inteligente**: El panel se mantiene siempre en el contenido más reciente automáticamente.
+
+## 09-05-2026 Corrección de Error de Elevación en la Interfaz TUI (Procesando...)
+
+**Descripción**: Se ha corregido un bug visual en la interfaz de terminal (TUI) donde el indicador "Procesando..." provocaba que toda la interfaz se desplazara hacia arriba de manera excesiva.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [/home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - **Optimización de TerminalPanel**: Se eliminó la altura fija de 30 líneas en el CSS base de `TerminalPanel`, cambiándola por `height: auto` con `min-height: 0`.
+   - **Ajuste de live_display**: Se forzó una altura de 1 línea (`height: 1`) para el `live_display` cuando actúa como indicador de procesamiento (spinner), evitando que ocupe espacio innecesario.
+   - **Modo Interactivo Dinámico**: Se añadió la clase CSS `.interactive` para permitir que el `live_display` crezca dinámicamente hasta 25 líneas solo cuando se utiliza para herramientas interactivas de terminal.
+   - **Alineación Visual**: Se cambió la alineación de `TerminalPanel` de `center` a `left` para mejorar la legibilidad y consistencia con el resto de la interfaz de chat.
+
+#### **🎯 Beneficios**
+
+✅ **Interfaz Estable**: El indicador de carga ya no desplaza el historial de chat ni la barra de entrada hacia arriba.
+✅ **Uso Eficiente del Espacio**: La interfaz solo ocupa el espacio estrictamente necesario según el contenido actual.
+✅ **Mejor UX**: Transición suave entre el estado de procesamiento y la interacción con terminales.
+
+## 09-05-2026 Corrección de scrollbar en el indicador de procesamiento (TUI)
+
+**Descripción**: Se ha corregido un problema donde aparecía una barra de desplazamiento sobre el texto "Procesando...", ocultándolo parcialmente.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [/home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - **Ocultación de Scrollbars**: Se añadió `overflow: hidden` y `scrollbar-size: 0 0` al widget `#live_display` en su modo de spinner.
+   - **Prevención de Recorte**: Asegura que el contenido de 1 sola línea se renderice sin intentar activar scrollbars que invisibilicen el texto.
+
+#### **🎯 Beneficios**
+
+✅ **Legibilidad**: El texto "Procesando..." vuelve a ser completamente visible sin obstrucciones visuales.
+
+## 09-05-2026 Optimización de Robustez en tavily_search y Streaming de Herramientas
+
+**Descripción**: Se ha solucionado un problema donde la herramienta `tavily_search` podía retornar una respuesta vacía ("sin salida"), lo que confundía al agente DeepResearcher.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [/home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/web_tools/scripts/tavily_search.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/web_tools/scripts/tavily_search.py)
+   - **Feedback Inmediato**: Ahora la herramienta emite el encabezado de resultados *antes* de realizar la llamada a la API, asegurando que el agente reciba contenido incluso si la búsqueda tarda o no devuelve resultados.
+   - **Manejo de Resultados Vacíos**: Se añadió un mensaje explícito ("No se encontraron resultados relevantes") en caso de que Tavily no devuelva fuentes, evitando ToolMessages vacíos.
+   - **Logging**: Se integró logging para rastrear la ejecución y posibles fallos de API Key o parámetros.
+
+2. [/home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py)
+   - **Streaming Robusteciddo**: Se cambió el chequeo de tipo `isinstance(result, Generator)` por `inspect.isgenerator(result)` para una detección más fiable de objetos generadores en diferentes entornos de ejecución.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad del Agente**: El DeepResearcher ya no recibirá "sin salida" de forma ambigua, permitiéndole entender mejor cuándo una búsqueda falló o simplemente no tuvo resultados.
+✅ **Mejor UX**: El usuario puede ver en los logs o en la TUI que la búsqueda ha comenzado de forma inmediata.
+
+---
+
+## 09-05-2026 Corrección de Error en ParallelPanelsManager (task_tracker)
+
+**Descripción**: Se ha corregido un error crítico que impedía la inicialización del plan de tareas en los agentes especializados.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [**kogniterm/terminal/tui/tui_app.py**](kogniterm/terminal/tui/tui_app.py)
+   - Corregido typo en `ParallelPanelsManager.update_tracker` donde se intentaba acceder a `self.agent_plans` (inexistente) en lugar de usar el argumento `agent_plans`.
+   - Optimización: Se movió la actualización del tracker general fuera del bucle de agentes para mejorar el rendimiento.
+
+#### 🎯 Beneficios
+
+✅ **Estabilidad**: Se elimina el crash que ocurría al inicio del `planning_node` en los agentes DeepResearcher y DeepCoder.
+✅ **Consistencia**: Los planes de tareas ahora se visualizan correctamente tanto en el modo paralelo como en el modo individual de `call_agent`.
+
+---
+
+## 09-05-2026 Soporte para Animaciones en AgentStreamWidget
+
+**Descripción**: Se ha habilitado la animación de Spinners de Rich dentro de los paneles de agentes especializados.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. [**kogniterm/terminal/tui/components/agent_stream.py**](kogniterm/terminal/tui/components/agent_stream.py)
+   - Añadido un temporizador (`set_interval`) que refresca el widget activo cada 100ms.
+   - Esto permite que los objetos `Spinner` de Rich avancen sus frames y se visualicen animados en la TUI.
+
+#### 🎯 Beneficios
+
+✅ **Feedback Visual**: El usuario ahora puede ver que el agente está trabajando activamente gracias al spinner animado de "Investigando" o "Pensando".
+✅ **Eficiencia**: Solo se refresca el bloque "activo" actual, evitando sobrecarga innecesaria en el historial ya renderizado.
+
+---
+
+## 09-05-2026 Optimización de Agentes Autónomos y Rendimiento de Herramientas
+
+**Descripción**: Se ha realizado una optimización integral del rendimiento de los agentes especializados (DeepResearcher y DeepCoder) para reducir la latencia en la ejecución de herramientas y mejorar la eficiencia del flujo de trabajo paralelo.
+
+### Cambios Implementados
+
+#### 🚀 Optimización de Paralelismo y Capacidad
+1. **Incremento de Workers en `code_agent.py`**: 
+   - Se aumentó el número de hilos simultáneos para la ejecución de herramientas de **5 a 15**. Esto permite que los agentes realicen múltiples operaciones (como leer varios archivos o buscar en internet) de forma verdaderamente paralela sin cuellos de botella artificiales.
+2. **Ampliación del Executor Global en `LLMService`**:
+   - Se incrementó la capacidad del `tool_executor` en `llm_service.py` de **10 a 20** hilos, asegurando que el motor de ejecución pueda escalar con la demanda de los agentes profundos.
+
+#### ⏱️ Reducción de Latencia entre Turnos
+1. **Ajuste de Throttling (Rate Limit)**:
+   - Se modificó el límite de llamadas por minuto (`rate_limit_calls`) en `LLMService` de **5 a 50**. 
+   - **Impacto**: Elimina las pausas forzadas (sleeps) de hasta 60 segundos que ocurrían frecuentemente en tareas complejas de investigación o codificación que requerían más de 5 interacciones con el modelo.
+
+#### 🔬 Mejoras en DeepResearcher (`deep_researcher.py`)
+1. **Corrección de Procesamiento de Hallazgos Paralelos**:
+   - Se rediseñó el `research_node` para que sea capaz de capturar y registrar hallazgos de **TODOS** los mensajes de herramienta generados en un mismo turno, no solo el último.
+   - **Beneficio**: Evita que el agente "pierda" información cuando ejecuta herramientas en paralelo, eliminando la necesidad de repetir tareas y reduciendo el número total de turnos necesarios.
+
+#### 🎨 Refinamiento de la Interfaz (TUI)
+1. **Soporte de Animaciones en Spinners**:
+   - Implementación de un ciclo de refresco activo (100ms) en `AgentStreamWidget` que permite que los spinners de Rich se animen fluidamente, proporcionando feedback visual constante de que el agente está trabajando.
+2. **Mejora del Historial y Scroll**:
+   - Migración a un layout basado en `Vertical` con sistema de `commit()` por pasos, permitiendo un historial de ejecución persistente y un scroll automático fluido que no se limpia en cada paso.
+
+### Beneficios
+✅ **Velocidad Extrema**: Los agentes ahora ejecutan herramientas en paralelo de forma mucho más agresiva.
+✅ **Continuidad**: Se eliminaron los bloqueos por rate-limiting local que causaban pausas inexplicables.
+✅ **Eficiencia en Investigación**: Reducción drástica de turnos redundantes en DeepResearcher al capturar todos los resultados paralelos.
+✅ **Feedback Visual**: Interfaz más viva con spinners animados y scroll natural.
+
+
+---
+
+## 09-05-2026 Refuerzo del Protocolo task_tracker en Agentes Especializados
+
+**Descripción**: Se han actualizado los prompts de sistema de DeepResearcher y DeepCoder para hacer obligatorio y explícito el uso de la herramienta `task_tracker`.
+
+### Cambios Implementados
+
+#### 🤖 Actualización de Prompts de Agente
+1. **DeepResearcher**:
+   - Se añadió una sección de **Protocolo Obligatorio** que indica que el uso de `task_tracker` es crítico para la visibilidad en el panel lateral.
+   - Instrucciones claras para inicializar el plan (`init`), actualizar tareas (`update`) y verificar el estado (`get`) antes de la síntesis final.
+2. **DeepCoder**:
+   - Se actualizó la sección de `task_tracker` enfatizando su importancia para el monitoreo en tiempo real en la TUI.
+   - Instrucciones específicas para marcar pasos como `in-progress` al comenzar y `done` tras la validación técnica.
+
+### Beneficios
+✅ **Visibilidad Total**: Garantiza que el `ParallelPanelsManager` de la TUI reciba las actualizaciones necesarias para mostrar el progreso de cada agente.
+✅ **Estructura de Trabajo**: Obliga a los agentes a seguir un plan estructurado y rastreable.
+✅ **Sincronización**: Mejora la coordinación visual entre los hilos de los agentes y la interfaz de usuario principal.
+
+
+---
+
+## 2026-05-09 Fix en parseo de JSON de planificación del DeepResearcher
+
+**Descripción**: Se corrigió un error de parseo `Extra data: line 16 column 1 (char 2229)` en el nodo `planning_node` del agente `DeepResearcher`. El error ocurría porque el LLM incluía texto adicional después del bloque JSON (por ejemplo, una explicación en prosa), y `json.loads()` fallaba al encontrar ese contenido extra.
+
+### Causa Raíz
+
+El método anterior usaba `re.search(r'(\{.*\})', content, re.DOTALL)` para extraer el JSON, pero este regex greedy capturaba todo el texto entre la primera `{` y la **última** `}` del string. Si el LLM emitía texto posterior, se incluía dentro de la captura, produciendo un JSON inválido.
+
+Alternativamente, si el LLM emitía el JSON limpio pero con texto al final, `json.loads()` lanzaba `Extra data` porque no espera contenido tras el cierre del objeto.
+
+### Cambio Implementado
+
+**Archivo modificado**: `kogniterm/core/agents/deep_researcher.py` — función `planning_node`.
+
+Se reemplazó la extracción por regex con `json.JSONDecoder().raw_decode()`, que extrae **solo el primer objeto JSON válido** comenzando desde la primera `{`, ignorando cualquier texto posterior:
+
+```python
+# Antes (fallaba con "Extra data")
+json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+if json_match:
+    content = json_match.group(1)
+data = json.loads(content)
+
+# Después (robusto a texto posterior)
+start_idx = content.find('{')
+if start_idx != -1:
+    decoder = json.JSONDecoder()
+    data, _ = decoder.raw_decode(content[start_idx:])
+else:
+    data = json.loads(content)
+```
+
+### Beneficios
+
+✅ **Inmunidad a "Extra data"**: `raw_decode()` extrae el JSON y devuelve el resto del string sin procesarlo, eliminando la excepción.
+✅ **Inmunidad a preámbulos**: Buscar el primer `{` descarta texto introductorio como "Aquí tienes el plan:".
+✅ **Fallback preservado**: Si el parseo falla por cualquier otra razón, el sistema extrae tareas de líneas con guión o usa una tarea genérica.
+✅ **Sintaxis verificada**: `python3 -m py_compile` confirmó que el archivo es válido tras el cambio.
+
+
+---
+
+## 09-05-2026 Mejora del Autocompletado en la TUI
+
+### Cambios Implementados
+
+#### 🔧 `kogniterm/terminal/tui/tui_app.py`
+
+1. **Activación de Capas (Layers)**: Se añadió `layers = ("base", "popup")` en `KogniTermTUI` para que el menú de autocompletado se renderice por encima del resto de la interfaz. Sin esto, el popup quedaba oculto detrás de otros widgets.
+
+2. **Soporte para `TextArea` (ChatInput)**: La función `_apply_completion` fue refactorizada para diferenciar entre `Input` y `TextArea`, usando `.text` e interpolación de cursor correcta para cada tipo.
+
+3. **Función de Scoring Inteligente (`_score_file_matches`)**: Se reemplazó el simple filtro `if term in path` por un sistema de puntuación:
+   - **500 pts**: Coincidencia exacta con el nombre del archivo (basename)
+   - **400 pts**: Basename empieza con el query
+   - **300 pts**: Basename contiene el query (subcadena)
+   - **200 pts**: La ruta completa empieza con el query
+   - **100 pts**: La ruta completa contiene el query
+   - Se penalizan rutas muy profundas para priorizar archivos más cercanos al raíz.
+
+4. **Iconos por Tipo de Archivo (`_file_icon`)**: El menú ahora muestra iconos descriptivos por extensión (🐍 `.py`, 🌐 `.js/.ts`, 🎨 `.html/.css`, ⚙️ `.json/.yaml`, 📝 `.md`, 🗄️ `.sql`, etc.).
+
+5. **Unificación del Formato de Matches**: Ambos handlers (`on_input_changed` y `on_text_area_changed`) ahora usan el mismo formato `(display_label, command_text)` para todos los tipos de autocompletado (`@`, `:`, `%`, `/`).
+
+6. **Posicionamiento Mejorado del Popup**: `_reposition_popup` usa la columna real del cursor en `TextArea` en lugar de la longitud total del texto.
+
+#### 🔧 `kogniterm/terminal/tui/components/status_footer.py`
+
+- `KogniTermSuggester._update_files`: Añadida validación de que el workspace exista, manejo de errores `ValueError` al calcular rutas relativas, y aumento del límite de archivos escaneados de 1000 a 2000.
+
+#### 🔧 `kogniterm/core/agents/deep_researcher.py`
+
+- Se eliminó el `HumanMessage` de "ESTRATEGIA DE VELOCIDAD" que se inyectaba en cada turno del bucle. El plan de investigación ahora se pasa como contexto estático en el `SystemMessage`, reduciendo la confusión del modelo y evitando que trate las instrucciones de velocidad como mensajes nuevos del usuario.
+
+---
+
+## 09-05-2026 Optimización de Latencia en Bash Agent y Tool Execution
+
+**Descripción**: Se han implementado múltiples optimizaciones técnicas para reducir la latencia percibida y mejorar la velocidad de ejecución de las herramientas del Bash Agent en KogniTerm.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [**`kogniterm/core/llm_service.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py)
+    -   **Reducción de Polling**: Se redujo el tiempo de sondeo de herramientas (`KOGNITERM_AGENT_POLL_MS`) de **2000ms a 100ms**. Esto permite que el sistema detecte la finalización de una herramienta mucho más rápido.
+    -   **Expansión de Historial**: Se aumentó `max_history_messages` de **10 a 40** y `max_history_chars` de **8000 a 40000**. Esto reduce drásticamente la frecuencia de llamadas costosas al LLM para resumir o truncar el historial.
+    -   **Ajuste de Rate Limit**: Se aumentó `rate_limit_calls` de **50 a 100** llamadas por minuto para evitar pausas artificiales en sesiones de alta actividad.
+
+2.  [**`kogniterm/core/agents/bash_agent.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/bash_agent.py)
+    -   **Mayor Paralelismo**: Se incrementó el número máximo de hilos paralelos para la ejecución de herramientas de **5 a 10**.
+
+3.  [**`kogniterm/core/agents/tool_executor.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/tool_executor.py)
+    -   **Throttling de UI**: Se implementó un mecanismo de **estrangulamiento (throttling)** de 50ms para las actualizaciones de la interfaz de usuario durante la ejecución de comandos. Esto evita que comandos con mucha salida saturen el hilo principal de la TUI, mejorando la fluidez visual.
+    -   **Paralelismo Consistente**: Se aumentó el `max_workers` del pool de hilos de **5 a 10**.
+    -   **Manejo Robusto**: Se corrigieron errores potenciales de sintaxis e importaciones durante la refactorización.
+
+#### **🎯 Beneficios Observados**
+
+✅ **Respuesta Instantánea**: La reducción del polling de 2s a 100ms elimina esperas innecesarias tras terminar un comando.
+✅ **Menor Overhead de Contexto**: El aumento de los límites de historial permite mantener conversaciones más largas sin el retraso de la summarización.
+✅ **Interfaz Fluida**: El throttling evita que la terminal "se congele" o vaya lenta cuando un comando imprime miles de líneas.
+✅ **Ejecución Paralela Eficiente**: Capacidad para manejar más herramientas simultáneamente sin cuellos de botella en el pool de hilos.
+
+---
+
+## 09-05-2026 Toggle de Auto-Aprobación con Shift+Tab
+
+**Descripción**: Se ha implementado la capacidad de activar o desactivar el modo de auto-aprobación de comandos mediante el atajo de teclado **Shift+Tab**. El estado actual se muestra de forma dinámica en la barra inferior de la terminal.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [**`kogniterm/terminal/command_approval_handler.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/command_approval_handler.py)
+    -   Se añadió el atributo `auto_approve` a la clase `CommandApprovalHandler` para que el manejador mantenga su propio estado de aprobación.
+    -   Se modificó el método `handle_command_approval` para utilizar el estado interno (`self.auto_approve`) como valor por defecto si no se proporciona un valor explícito en la llamada.
+
+2.  [**`kogniterm/terminal/kogniterm_app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/kogniterm_app.py)
+    -   Se añadió un nuevo **KeyBinding** (`s-tab`) que conmuta el estado de `auto_approve` en el `command_approval_handler`.
+    -   Se actualizó la **barra inferior (bottom toolbar)** para mostrar el estado de "Auto-Approve" en tiempo real (`[ON]` en verde o `[OFF]` en rojo).
+    -   Se refactorizó el flujo de ejecución para sincronizar el estado inicial y las llamadas al handler con el nuevo sistema de estado centralizado en el handler.
+
+#### **🎯 Beneficios**
+
+✅ **Flexibilidad en Tiempo Real**: El usuario puede cambiar entre ejecución supervisada y automática instantáneamente sin reiniciar la aplicación.
+✅ **Feedback Visual Claro**: La barra inferior proporciona una confirmación visual inmediata del modo activo, evitando ejecuciones automáticas accidentales.
+✅ **Consistencia en Confirmaciones**: El atajo funciona incluso durante los diálogos de confirmación, permitiendo al usuario "soltar" el control para el resto de la sesión de forma rápida.
+
+
+#### **🚀 Mejoras en Gestión de Skills y Ejecución de Python**
+
+1. [**`kogniterm/core/skills/skill_manager.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/skills/skill_manager.py)
+    - Se corrigió un problema donde las skills eran renombradas incorrectamente (ej. `task_tracker` $\to$ `task_tracker_1`) al recargarse.
+    - Se modificó `_get_unique_tool_name` para permitir el override de herramientas si pertenecen a la misma skill, asegurando la estabilidad de los nombres de las herramientas principales.
+
+2. [**`kogniterm/skills/bundled/python_executor/scripts/tool.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/python_executor/scripts/tool.py)
+    - Se eliminó el truncado del código en el objeto de confirmación, enviando ahora el script completo para su revisión.
+
+3. [**`kogniterm/terminal/command_approval_handler.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/command_approval_handler.py)
+    - Se integró la visualización de código Python en el modal de aprobación, utilizando el área de diff para mostrar el código completo antes de la ejecución.
+
+#### **🎯 Beneficios**
+
+✅ **Invocación Fiable**: Se eliminan los errores de "herramienta no encontrada" causados por el renombrado automático de skills.
+✅ **Revisión de Código Completa**: El usuario ahora puede leer el código Python completo en la TUI antes de aprobar su ejecución, mejorando la seguridad y transparencia.
+
+## [2026-05-14] - Implementación de Terminal PTY Interactivo
+
+### **🖥️ Nueva Terminal PTY 100% Interactiva**
+
+Se ha integrado un emulador de terminal real (PTY) dentro de la interfaz de KogniTerm para permitir interacciones completas (teclado, flechas, aplicaciones interactivas).
+
+1. [**`kogniterm/terminal/tui/components/pty_terminal.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/components/pty_terminal.py)
+    - Se creó un nuevo componente basado en `pyte` y `ptyprocess` (vía `textual-terminal` custom patch).
+    - Soporta parseo de secuencias ANSI, movimiento de cursor, colores y eventos de ratón.
+    - Se corrigieron incompatibilidades con versiones recientes de Textual (`DEFAULT_COLORS`).
+
+2. [**`kogniterm/terminal/tui/tui_app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+    - Se integró el widget `PtyTerminal` en el layout principal.
+    - Se añadió el atajo de teclado **`F12`** para alternar la visibilidad de la terminal interactiva.
+    - Se implementó la lógica de inicio automático y enfoque al abrir la terminal.
+    - Se añadió un sistema de diseño premium con bordes esmeralda y fondo optimizado para legibilidad.
+
+#### **🎯 Beneficios**
+
+✅ **Interactividad Total**: El usuario ahora puede ejecutar comandos como `nano`, `fzf` o navegar por menús interactivos directamente desde KogniTerm.
+✅ **Fácil Acceso**: Con solo pulsar `F12`, se despliega una terminal real sin perder el contexto del chat con el asistente.
+✅ **Diseño Integrado**: La terminal respeta la estética Onyx de la aplicación y se ajusta dinámicamente al tamaño de la ventana.
+
+---
+
+## [2026-05-14] - Limpieza de Logs de Inicio
+
+### **🧹 Silencio en la Configuración Inicial**
+
+Se han eliminado los mensajes de log de tipo `print` que se mostraban al inicio de la aplicación indicando la configuración del modelo detectada, con el fin de proporcionar una salida de terminal más limpia.
+
+1. [**`kogniterm/core/llm_service.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py)
+    - Se reemplazaron las llamadas a `print` por `logger.info` para los mensajes de detección de configuración inicial de proveedores (Ollama, Google, OpenRouter).
+    - Se mejoró el mensaje de advertencia de credenciales faltantes utilizando `logger.warning`.
+
+#### **🎯 Beneficios**
+
+✅ **Terminal Limpia**: Menos ruido visual al arrancar la aplicación o inicializar servicios.
+✅ **Mejor Práctica de Logging**: Uso de `logging` estándar en lugar de `print` para mensajes de estado del sistema.
+- **Corrección de CSS**: Se eliminó la propiedad no soportada `font-family` de los estilos de la TUI.
+
+---
+
+## 14-05-2026 Mejora en la visualización del historial con /resume
+
+**Descripción**: Se ha mejorado el comando `/resume` para que muestre el historial completo de la conversación, incluyendo los pensamientos (reasoning) del LLM y las ejecuciones de herramientas, proporcionando una experiencia de reanudación mucho más rica y detallada.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/terminal/meta_command_processor.py`](kogniterm/terminal/meta_command_processor.py)
+   - Se han añadido importaciones necesarias para componentes visuales y manejo de JSON.
+   - Se ha refactorizado completamente el método `_render_history_in_ui` para manejar múltiples tipos de mensajes de LangChain.
+
+#### **📋 Mejoras Específicas en el Renderizado**
+
+1. **Pensamientos del LLM (Reasoning)**:
+   - Ahora se detecta el contenido de razonamiento en los `AIMessage` (campo `reasoning_content` en `additional_kwargs`).
+   - Se renderiza usando el componente `create_thought_bubble`, igual que durante la generación en tiempo real.
+
+2. **Ejecución de Herramientas (Tool Calls)**:
+   - Se visualizan las llamadas a herramientas que el modelo realizó, incluyendo el nombre de la herramienta y sus argumentos.
+   - Se utiliza `write_tool_notification` en TUI para una integración perfecta.
+
+3. **Resultados de Herramientas (Tool Messages)**:
+   - Se renderizan los resultados devueltos por las herramientas.
+   - Se utiliza `create_tool_output_panel` o `create_terminal_output_panel` (para bash) para mostrar la salida de forma estructurada.
+
+4. **Mensajes de Usuario y Agente**:
+   - Se mantiene y mejora el renderizado de los mensajes estándar (`HumanMessage` y `AIMessage`).
+
+#### **🎯 Beneficios**
+
+✅ **Observabilidad**: El usuario puede ver exactamente qué pensó el modelo y qué herramientas ejecutó en sesiones anteriores.
+✅ **Continuidad**: Reanudar una sesión ahora se siente idéntico a haber estado presente durante su generación original.
+✅ **Depuración**: Facilita entender por qué el modelo llegó a ciertas conclusiones al revisar su razonamiento previo.
+✅ **Compatibilidad**: Funciona tanto en la interfaz TUI como en la terminal clásica (CLI).
+
+## 14-05-2026 Integración de Nodo de Aprendizaje Personalizado (BashAgent)
+
+**Descripción**: Se ha implementado un sistema de aprendizaje dinámico en el `BashAgent` que permite al agente adaptarse y personalizarse basándose en la interacción continua con el usuario. El sistema destila conocimientos, preferencias y hechos del proyecto tras cada turno de conversación y los persiste para futuras interacciones.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**`kogniterm/core/agents/bash_agent.py`**](kogniterm/core/agents/bash_agent.py)
+   - **Implementación de `learning_node`**: Nuevo nodo en el grafo que utiliza el LLM para analizar la conversación reciente y extraer aprendizajes clave (preferencias, estilo, hechos del proyecto).
+   - **Actualización de `get_system_message`**: Ahora carga automáticamente las memorias persistidas en `.kogniterm/instructions.md` e inyecta estas preferencias en el mensaje de sistema.
+   - **Refactorización de `should_continue`**: Se ha modificado el flujo del grafo para que siempre pase por el nodo de aprendizaje antes de finalizar un turno de interacción (`END`).
+   - **Integración en el Grafo**: Se añadió el nodo `learning` y las aristas condicionales necesarias en `create_bash_agent`.
+
+#### **📁 Archivos de Persistencia**
+
+1. [**`.kogniterm/instructions.md`**](.kogniterm/instructions.md)
+   - Archivo utilizado para almacenar de forma incremental las memorias y preferencias aprendidas por el agente.
+   - Formato Markdown compatible con la inyección directa en el contexto del LLM.
+
+### **🎯 Beneficios de la Implementación**
+
+✅ **Personalización Continua**: El agente aprende si prefieres ciertas herramientas, tu estilo de código o restricciones específicas del proyecto sin necesidad de configuración manual.
+✅ **Memoria de Proyecto**: Captura hechos estructurales descubiertos durante la investigación, evitando que el agente tenga que "re-descubrir" la misma información.
+✅ **Transparencia**: El usuario recibe feedback visual cuando el agente consolida un nuevo aprendizaje ("🧠 Aprendizaje consolidado...").
+✅ **Baja Latencia**: El proceso de aprendizaje se ejecuta de forma optimizada al final del turno, sin interferir con la generación de la respuesta principal.
+
+### **🔍 Detalles Técnicos**
+
+- El sistema utiliza `litellm.completion` de forma interna en el nodo de aprendizaje para mantener el historial principal limpio.
+- Se implementó una lógica de deduplicación para evitar guardar el mismo aprendizaje múltiples veces.
+- Las memorias aprendidas tienen prioridad alta al ser inyectadas directamente en las instrucciones del sistema.
+
+
+---
+
+## 14-05-2026 Restauración y Mejora de Terminal Interactiva (PTY)
+
+**Descripción**: Se ha implementado un sistema de terminal interactiva (PTY) basado en `pyte` que permite la interacción directa del usuario con procesos bloqueantes (como prompts de sudo o instalaciones interactivas) directamente desde el log de chat de la TUI.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+    *   **Redirección de Teclado**: Implementada lógica en `on_key` para capturar y enviar secuencias ANSI al proceso de shell activo cuando el foco está en un bloque de terminal.
+    *   **Gestión de Foco**: Se habilitó `can_focus = True` en los paneles de terminal para permitir la captura explícita del teclado vía clic o TAB.
+    *   **Prevención de Secuestro de Input**: Eliminado el fallback automático que enviaba input al proceso durante el procesamiento del agente, reemplazándolo por una lógica basada estrictamente en el foco del widget.
+
+2.  [`kogniterm/terminal/tui/components/chat_log.py`](kogniterm/terminal/tui/components/chat_log.py)
+    *   **Detección de Streaming de Terminal**: El método `write_stream` ahora detecta automáticamente si el contenido es un panel de terminal (como el de `execute_command`) y utiliza `ToolOutputWidget` para renderizarlo.
+    *   **Interactividad en Tiempo Real**: Permite que los bloques de terminal que están "vivos" (streaming) reciban foco e interactúen con el usuario antes de que la herramienta finalice.
+
+3.  [`kogniterm/terminal/tui/components/tool_output.py`](kogniterm/terminal/tui/components/tool_output.py)
+    *   **Emulación ANSI Completa**: Integración de `pyte` para manejar secuencias de control de terminal, permitiendo renderizado dinámico de cursores, colores y prompts interactivos.
+    *   **Estética Premium**: Actualización del diseño con bordes dinámicos (verde esmeralda cuando tiene foco) y fondo negro puro para una experiencia de consola auténtica.
+
+#### **🎯 Beneficios**
+
+✅ **Interacción con Sudo**: El usuario ahora puede introducir contraseñas en prompts de sudo que bloqueaban al agente.
+✅ **Control Total**: Posibilidad de enviar Ctrl+C, flechas de dirección y otras teclas especiales a procesos en ejecución.
+✅ **Streaming Inteligente**: Los bloques de terminal se vuelven interactivos desde el primer momento en que aparecen en el log, no solo al finalizar.
+✅ **Estabilidad de UI**: Uso de dimensiones fijas (80x24) para la emulación virtual, evitando bucles de recalculado de layout en Textual.
+
+
+---
+
+## 14-05-2026 Corrección del spinner de procesamiento en la TUI
+
+**Descripción**: Se ha corregido un error visual donde el spinner de "Procesando..." permanecía visible de forma estática incluso después de detenerse o durante el streaming de contenido, dando la impresión de que la aplicación estaba bloqueada.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+   - Se ha modificado el método `_stop_spinner` para ocultar el widget `live_display` cuando la animación se detiene (siempre que no esté en modo terminal interactiva).
+   - Se han limpiado importaciones redundantes dentro de los métodos del spinner para mejorar el rendimiento.
+   - Se ha asegurado que el `live_display` se haga visible explícitamente al iniciar o avanzar el spinner.
+
+#### **🎯 Beneficios**
+
+✅ **Interfaz Limpia**: El mensaje de "Procesando..." desaparece inmediatamente cuando llega contenido real o el agente termina.
+✅ **Feedback Visual Preciso**: Elimina la confusión del usuario sobre si el sistema sigue trabajando o se ha quedado congelado.
+✅ **Mejor Rendimiento**: Reducción de la carga en el hilo principal al optimizar el ciclo de vida del spinner.
+
+---
+
+## 14-05-2026 Corrección del auto-dimensionamiento del input de chat (TUI y Desktop)
+
+**Descripción**: Se han realizado correcciones adicionales para evitar que el campo de entrada de texto aumente su altura de forma innecesaria. Se detectó que en la TUI (Terminal User Interface), el input saltaba de 1 a 5 líneas de altura al empezar a escribir debido a una restricción de altura mínima excesiva. También se refinó la lógica en la versión Desktop.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/components/status_footer.py`](kogniterm/terminal/tui/components/status_footer.py)
+   - Se ha reducido la altura mínima del `ChatInput` de 5 líneas a 1 línea.
+   - Se ajustó el método `_adjust_height` para permitir que el campo sea de una sola línea si el contenido lo permite.
+   - Esto corrige el salto brusco de altura en la "pantalla de inicio" (splash screen) y en el chat principal de la TUI.
+
+2. [`kogniterm-desktop/apps/desktop/src/components/chat/ChatInput.tsx`](kogniterm-desktop/apps/desktop/src/components/chat/ChatInput.tsx)
+   - Se ha refinado la lógica de redimensionamiento usando `0px` como reinicio temporal. Esto fuerza al navegador a recalcular el `scrollHeight` real del contenido, evitando crecimientos "fantasma" que ocurrían con `auto` o `inherit`.
+
+#### **🎯 Beneficios**
+
+✅ **Precisión Visual**: El campo de texto ahora tiene exactamente la altura necesaria para el texto ingresado.
+✅ **Inicio Limpio**: En la TUI, el input comienza ocupando el mínimo espacio posible (1 línea).
+✅ **Consistencia Multi-interfaz**: Se han aplicado mejoras tanto en la versión terminal como en la de escritorio para asegurar una experiencia uniforme.
+
+---
+
+## 14-05-2026 Optimización de la Sincronización de Contexto del Proyecto
+
+**Descripción**: Se ha refactorizado la lógica de inyección de contexto para que la sincronización del proyecto (escaneo de archivos y búsqueda RAG) ocurra exclusivamente en el primer mensaje de una conversación. Esto elimina la latencia innecesaria y los mensajes de estado repetitivos en turnos posteriores.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/agents/bash_agent.py`](kogniterm/core/agents/bash_agent.py)
+   - Se actualizó el nodo `context_injection_node` para verificar si es el primer mensaje del usuario (`len(user_messages) == 1`).
+   - Se mejoró la detección de contexto ya inyectado para incluir variantes de resúmenes generados por el `HistoryManager`.
+   - Se evita mostrar el spinner de "Sincronizando..." si no es estrictamente necesario.
+
+2. [`kogniterm/core/agents/deep_coder.py`](kogniterm/core/agents/deep_coder.py)
+   - Se implementó la misma lógica de protección de inyección única que en el BashAgent.
+   - Antes, el DeepCoder podía inyectar el contexto múltiples veces en la misma sesión si se llamaba repetidamente.
+
+#### **🎯 Beneficios**
+
+✅ **Rendimiento Mejorado**: Turnos posteriores al primero son significativamente más rápidos al evitar escaneos de archivos y búsquedas vectoriales redundantes.
+✅ **Experiencia de Usuario Limpia**: El mensaje "Sincronizando contexto..." solo aparece una vez al inicio del chat.
+✅ **Consistencia de Contexto**: El LLM sigue recibiendo el contexto necesario gracias a la inyección silenciosa en `llm_service.py`, pero sin el overhead del proceso de sincronización completo en el grafo de agentes.
+✅ **Robustez ante Resúmenes**: La detección ahora reconoce correctamente cuando el historial ha sido comprimido, evitando re-sincronizaciones erróneas.
+
+---
+
+## 2026-05-14 Optimización de Rendimiento y Solución de Bloqueos en Terminal TUI
+
+**Descripción**: Se han implementado mejoras críticas en la responsividad de la terminal y se ha solucionado un problema de congelamiento de la interfaz de usuario durante la ejecución de comandos.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  **kogniterm/core/command_executor.py**
+    - Se refactorizó `write_input` para realizar escrituras no bloqueantes en el PTY usando `fcntl` y `os.O_NONBLOCK`. Esto previene que el hilo principal se congele si la tubería (pipe) de entrada está llena.
+
+2.  **kogniterm/terminal/tui/components/tool_output.py**
+    - Se optimizó `update_content` implementando una alimentación incremental al emulador `pyte`.
+    - Se eliminó el re-renderizado costoso vía `console.capture()` cuando se recibe contenido de texto plano.
+    - Se añadió soporte para un flag externo de cursor para sincronización con el timer de parpadeo global.
+
+3.  **kogniterm/terminal/tui/components/chat_log.py**
+    - Se mejoró `write_stream` para soportar un formato de diccionario optimizado, permitiendo el paso de datos crudos de terminal sin renderizado intermedio en Rich.
+
+4.  **kogniterm/terminal/tui/tui_app.py**
+    - Se modificó `update_terminal_output` para enviar diccionarios de datos optimizados al ChatLog, eliminando la creación de paneles Rich complejos (O(N^2) en tiempo) en cada chunk de salida.
+
+#### **🎯 Beneficios**
+
+✅ **Eliminación de Congelamientos**: La UI ya no se bloquea al escribir o recibir mucha salida de terminal.
+✅ **Rendimiento Mejorado**: Reducción drástica del uso de CPU durante el streaming de salida de comandos.
+✅ **Interactividad Fluida**: Mejor sincronización del cursor y manejo de entrada en modos interactivos.
+
+
+---
+
+## 2026-05-14 Solución de Pérdida de Foco y Bloqueo Percibido del Input TUI
+
+**Descripción**: Se corrigió un error donde el campo de entrada de chat (`ChatInput`) perdía el foco o parecía bloqueado después de enviar un mensaje o al finalizar el procesamiento del agente.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  **kogniterm/terminal/tui/tui_app.py**
+    - Se añadió una llamada explícita a `focus()` en el `ChatInput` inmediatamente después de que el usuario envía un mensaje (`on_input_submitted`).
+    - Se implementó la recuperación automática del foco en el input principal al detenerse el spinner de procesamiento (`_stop_spinner`), asegurando que el usuario pueda seguir escribiendo tras una respuesta del agente.
+    - Se añadió el retorno de foco al input tras la resolución de diálogos de confirmación de comandos/skills (`ask_for_approval_sync`).
+
+#### **🎯 Beneficios**
+
+✅ **Interactividad Continua**: Elimina la necesidad de hacer clic manualmente en el input después de cada interacción.
+✅ **UX Fluida**: El cursor regresa automáticamente al campo de texto tras las confirmaciones o al terminar el agente su tarea.
+✅ **Eliminación de "Bloqueos"**: Resuelve la percepción de que la interfaz está congelada cuando en realidad solo había perdido el foco el widget de entrada.
+
+---
+
+## 2026-05-14 Reparación de la Altura Dinámica del ChatInput (Fix "Bloqueo" al Escribir)
+
+**Descripción**: Se corrigió un bug crítico donde el campo de entrada desaparecía o "bloqueaba" al usuario al escribir la primera letra, debido a un cálculo de altura conflictivo entre el CSS y la lógica de Python.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  **kogniterm/terminal/tui/tui_app.py**
+    - Se cambió el `#input_container` a `height: auto` y se ajustó el padding a un valor simétrico (`1 4`).
+    - Se redujo la altura inicial de `ChatInput` de 3 a 1 en el CSS para evitar saltos bruscos.
+
+2.  **kogniterm/terminal/tui/components/status_footer.py**
+    - Se eliminó la lógica que forzaba la altura del padre (`input_container`) manualmente, delegando esta tarea al motor de layout de Textual (`height: auto`).
+    - Se eliminó la llamada a `refresh(layout=True)` en cada pulsación de tecla, lo que previene la pérdida de foco y mejora drásticamente el rendimiento.
+
+#### **🎯 Beneficios**
+
+✅ **Escritura Fluida**: El input ya no desaparece ni cambia de tamaño de forma errática al empezar a escribir.
+✅ **Estabilidad de Foco**: Al no forzar re-layouts constantes, el cursor se mantiene estable.
+✅ **Layout Limpio**: El contenedor se adapta orgánicamente al contenido del mensaje (hasta 20 líneas).
+
+## [2026-05-14] Simplificación del mensaje de sincronización
+
+**Descripción**: Se actualizó el mensaje de carga del agente al iniciar la sincronización del workspace.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. **kogniterm/core/agents/bash_agent.py**
+   - Se simplificó el texto de `"Sincronizando contexto del proyecto..."` a `"Sincronizando contexto..."` para una lectura más rápida y unificada.
+
+## [2026-05-14] Optimización de Sincronización y Ajustes UI
+
+**Descripción**: Se optimizó la lectura del contexto del proyecto y se simplificó la presentación visual del mensaje de carga.
+
+### Cambios Implementados
+
+#### **⚡ Optimización de Rendimiento**
+
+1. **kogniterm/core/context/workspace_context.py**
+   - Se reemplazó `os.listdir` por `os.scandir` en `_get_folder_structure` para reducir significativamente los tiempos de lectura en proyectos con muchos archivos.
+   - Se añadió un límite máximo de profundidad (`max_depth=3`) para evitar recorridos infinitos o innecesarios en árboles de carpetas masivos.
+
+#### **✨ Mejoras en UI (Terminal)**
+
+1. **kogniterm/terminal/tui/tui_app.py**
+   - Se eliminaron el fondo y los bordes del componente `QueueDisplay` (mensajes en cola) para que el texto se integre fluidamente con la interfaz del chat sin parecer un panel o bloque estático aislado.
+
+## [2026-05-14] Refactorización de inicialización de contexto
+
+**Descripción**: Se eliminó el paso automático de sincronización de contexto (`context_injection_node`) del agente principal (`bash_agent.py`) para evitar latencias al inicio del chat.
+
+### Cambios Implementados
+
+#### **✨ Mejoras de Rendimiento / UX**
+
+1. **kogniterm/core/agents/bash_agent.py**
+   - Se eliminó el nodo `inject_context` del `StateGraph`.
+   - Ahora el agente entra directamente a la generación de la respuesta (`call_model`), lo que elimina el mensaje de `Sincronizando contexto...` y hace que la primera interacción sea inmediata.
+   - La inyección del contexto (árbol de carpetas y RAG) ahora solo se realiza explícitamente a través del meta-comando `/init`.
+
+### 2026-05-14
+
+- **Fix**: Reparado el widget de terminal interactiva (`ToolOutputWidget`) en la TUI. Ahora la salida de comandos crudos (PTY) se inyecta directamente al emulador `pyte` evitando ser re-envuelto prematuramente en paneles pre-renderizados, lo que solucionó el problema del panel de terminal vacío. Modificados `tui_app.py` y `chat_log.py` para usar una tupla marcadora `("__TERMINAL__", tool_name, output)`.
+
+### 2026-05-14 (Update)
+
+- **UI/UX**: Solucionado el problema donde el widget de terminal interactiva (`ToolOutputWidget`) no ocupaba todo el ancho del panel. Se añadió la propiedad `width: 100%;` a su CSS interno y se implementó la escucha del evento `on_resize` de Textual para recalcular de forma dinámica las columnas (`ncol`) del emulador de pantalla `pyte`. Ahora, el panel de terminal utiliza el ancho completo disponible y se reajusta correctamente al redimensionar la ventana.
+
+### 2026-05-14 (UI Polish)
+
+- **UI/UX**: Eliminado el doble borde en el componente `ToolOutputWidget` (terminal interactiva) en la TUI. Previamente se dibujaba un borde exterior mediante Textual CSS y otro interior con el objeto `Panel` de Rich, lo cual generaba un pequeño margen y desconexión visual. Ahora el widget delega completamente su borde a Textual CSS (`border: round`) usando su título integrado (`self.border_title`), consiguiendo una apariencia de terminal limpia, compacta y alineada hasta el borde.
+
+### 2026-05-14 (Update 2)
+
+- **UI/UX**: Modificado el comportamiento del componente `ToolOutputWidget` para que el tamaño (altura) se ajuste dinámicamente según el volumen de texto de la salida de terminal. Se aumentó la memoria estática de la pantalla `pyte` de 24 a 1000 líneas para retener los historiales completos de las salidas largas. Además, se introdujo una limpieza automática que recorta las líneas vacías residuales en la parte inferior durante el renderizado, logrando que el `height: auto` del CSS envuelva el contenido exacto de forma precisa, en lugar de pre-reservar siempre un bloque gigante.
+
+### 2026-05-14 (Update 3)
+
+- **UI/UX**: Refinamiento en la apariencia de la terminal interactiva (`ToolOutputWidget`). Se ajustó el CSS para limitar la altura máxima a `max-height: 30` (antes 40), logrando un componente más equilibrado en pantalla. También se eliminó el color amarillo del borde, sustituyéndolo por un gris sobrio por defecto (`#4b5563`) y un verde esmeralda (`#10b981`) para indicar cuando la terminal captura el foco activo.
+
+### 2026-05-14 (Bugfix)
+
+- **Core**: Solucionado el problema de la herramienta autónoma `@skill_factory`. Previamente, aunque la fábrica de skills creaba correctamente los archivos y obligaba al `SkillManager` a refrescar el disco, el servicio de lenguaje principal (`LLMService`) mantenía la caché de las herramientas de `LiteLLM` del ciclo anterior, impidiendo que el agente viera la nueva skill inmediatamente. Se implementó el nuevo método `sync_tools()` en `LLMService` y se enlazó a los handlers de `skill_factory` y `refresh_tools` en `bash_agent.py` y `tool_executor.py` para invalidar y reconstruir los esquemas de inmediato tras cualquier creación en caliente.
+
+### 2026-05-14 (Formatting Bugfix)
+
+- **UI/UX**: Resuelto el problema del "efecto escalera" en la terminal `ToolOutputWidget` donde las líneas no se alineaban a la izquierda. Los procesos pasaban saltos de línea simples (`\n`) y el emulador `pyte` requería explícitamente retornos de carro (`\r\n`) para volver a la columna cero antes de bajar. Se implementó una normalización automática de saltos de línea antes de alimentar al emulador, logrando que el texto se alinee y renderice correctamente.
+
+### 2026-05-14 (English Meta-Commands)
+
+- **UI/UX**: Se han traducido al inglés las opciones y descripciones del menú de ayuda (`/help`) y se unificaron los alias de comandos. Específicamente, `/tema` se eliminó en favor de `/theme` y `/salir` se migró a `/exit` para mantener un estándar consistente en los metacomandos de KogniTerm.
+
+---
+
+## 14-05-2026 Mejora en Skill Factory: Soporte para Alcance Global y Workspace
+
+**Descripción**: Se ha actualizado la herramienta `skill_factory` para permitir la creación de habilidades (skills) con un alcance específico, ya sea global (disponible para todos los proyectos) o de espacio de trabajo (específica para el proyecto actual).
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**
+
+1. [`kogniterm/skills/bundled/skill_factory/scripts/tool.py`](kogniterm/skills/bundled/skill_factory/scripts/tool.py)
+   - Añadido argumento `scope` (default: `"workspace"`) a la función `skill_factory`.
+   - Actualizada la lógica de rutas para soportar:
+     - **Global**: Almacenado en `~/.kogniterm/skills/managed/`.
+     - **Workspace**: Almacenado en el directorio de skills del proyecto local.
+   - Actualizado el `tool_schema` para incluir el parámetro `scope` con descripción y valores permitidos (`enum`).
+   - Mejorada la retroalimentación al usuario indicando el alcance y la ruta de creación.
+
+#### **🎯 Beneficios**
+
+✅ **Flexibilidad**: Los usuarios (y agentes) ahora pueden decidir si una habilidad generada debe persistir a través de diferentes proyectos.
+✅ **Organización**: Mejor separación entre herramientas específicas de un contexto y utilidades generales del sistema.
+✅ **Compatibilidad**: Mantiene el comportamiento por defecto de "workspace" para no romper flujos existentes.
+
+
+---
+
+## 14-05-2026 Unificación de Interfaz en Inglés y Estabilización de TUI
+
+**Descripción**: Se ha completado la localización al inglés de toda la interfaz de comandos meta y se han resuelto problemas de renderizado en la terminal interactiva.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/components/tool_output.py**](kogniterm/terminal/tui/components/tool_output.py)
+   - Implementada normalización de saltos de línea (\n -> \r\n) para el emulador `pyte`.
+   - Solucionado el "efecto escalera" (staircase effect) en la alineación del texto de la terminal.
+
+2. [**kogniterm/terminal/meta_command_processor.py**](kogniterm/terminal/meta_command_processor.py)
+   - **Localización Completa**: Todos los comandos meta, menús de ayuda, diálogos de radiolist y mensajes de error han sido traducidos al inglés.
+   - **Unificación de Comandos**: Se han unificado alias redundantes (ej: /tema -> /theme) y se ha estandarizado el uso del prefijo `/` para todos los comandos.
+   - **Gestión de Instrucciones**: El diálogo de gestión de instrucciones del agente ahora es 100% en inglés.
+   - **Configuración de Modelos y Proveedores**: Todos los flujos de selección de modelos, proveedores y gestión de llaves API han sido localizados.
+   - **Limpieza de Código**: Se han traducido los comentarios internos y docstrings para mantener la consistencia en el codebase.
+
+### **🎯 Beneficios**
+
+✅ **Interfaz Profesional**: Experiencia de usuario coherente y profesional en inglés.
+✅ **Legibilidad de Terminal**: Alineación de texto corregida para una lectura fluida de salidas de comandos.
+✅ **Consistencia**: Unificación de la sintaxis de comandos meta.
+✅ **Mantenibilidad**: Código fuente documentado uniformemente en inglés.
+
+
+## [2026-05-14] - Corrección de Sincronización de Skills (Skill Registry Sync)
+
+**Descripción**: Se ha resuelto el problema de visibilidad de las herramientas recién creadas via `skill_factory`. El agente ahora reconoce y puede utilizar nuevas skills inmediatamente en el mismo ciclo de conversación.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/core/agents/bash_agent.py**](kogniterm/core/agents/bash_agent.py)
+   - Corregida la llamada a `refresh_skills()` añadiendo el parámetro `force=True`. Sin esto, el sistema omitía el escaneo de nuevos archivos si ya existían herramientas cargadas.
+   - Asegurada la llamada a `llm_service.sync_tools()` para invalidar la caché del modelo y regenerar los esquemas de herramientas.
+
+2. [**kogniterm/core/agents/code_agent.py**](kogniterm/core/agents/code_agent.py)
+   - Implementada la misma lógica de refresco automático tras ejecutar `skill_factory` o `refresh_tools`.
+   - Añadido soporte de logging para trazabilidad de la sincronización.
+
+3. [**kogniterm/core/agents/researcher_agent.py**](kogniterm/core/agents/researcher_agent.py)
+   - Implementada la lógica de refresco automático y sincronización de herramientas.
+   - Corregidos errores de lint (argumento `dim` no soportado en `Panel`).
+
+4. [**kogniterm/core/agents/tool_executor.py**](kogniterm/core/agents/tool_executor.py)
+   - Se mantiene la lógica centralizada de refresco con `force=True`, la cual sirve de referencia para la refactorización de agentes.
+
+### **🎯 Beneficios**
+
+✅ **Disponibilidad Inmediata**: Las skills creadas con `skill_factory` están disponibles para su uso en el siguiente turno del agente sin necesidad de reiniciar la sesión.
+✅ **Robustez del Registro**: El uso de `force=True` garantiza que el sistema siempre detecte cambios en el sistema de archivos (nuevas skills en `workspace/` o `managed/`).
+✅ **Consistencia entre Agentes**: Todos los agentes principales (`BashAgent`, `CodeAgent`, `ResearcherAgent`) ahora comparten la misma capacidad de auto-actualización de su arsenal.
+
+## 14-05-2026 Corrección de Autocompletado y Comandos (Desktop)
+
+**Descripción**: Se corrigieron problemas críticos en la interfaz de chat del escritorio que impedían el funcionamiento del autocompletado de comandos y la ejecución de meta-comandos con prefijo `%`.
+
+### Cambios Realizados
+
+#### **🔧 Frontend (React)**
+1.  **`ChatInput.tsx`**:
+    *   **Trigger Robusto**: Se actualizó la lógica de detección de comandos para que funcione en cualquier posición del cursor, no solo al final del texto.
+    *   **Posicionamiento Estable**: Se rediseñó el menú de sugerencias para que aparezca de forma fiable sobre el área de entrada, con un desplazamiento (`offset`) corregido para alinearse con el cursor.
+    *   **Inserción Inteligente**: Al seleccionar un comando, se inserta correctamente en la posición del cursor y se mantiene el foco en el textarea.
+2.  **`useChat.ts`**:
+    *   **Soporte Multi-prefijo**: Se añadió soporte explícito para comandos que comienzan con `%` (ej: `%reset`), asegurando que se traten como comandos de sistema y no como mensajes de chat ordinarios.
+
+#### **⚙️ Backend (Python)**
+1.  **`websocket.py`**:
+    *   **Ampliación de Comandos**: Se añadieron manejadores para comandos adicionales como `%session`, `%keys` y `%provider`.
+    *   **Manejo de Errores**: Se mejoró el feedback cuando se ingresa un comando desconocido, sugiriendo el uso de `%help`.
+2.  **`session_service.py`**:
+    *   **Nuevo Servicio**: Se creó un servicio intermedio para conectar el backend del servidor con el `SessionManager` del núcleo de KogniTerm, permitiendo guardar y cargar sesiones desde la app de escritorio.
+
+#### **🎯 Beneficios**
+✅ **UX Fluida**: El autocompletado ahora responde instantáneamente al escribir `%` o `/`.
+✅ **Consistencia**: Los comandos sugeridos en la UI ahora tienen una implementación funcional en el backend.
+✅ **Estabilidad**: Se eliminaron errores de posicionamiento que hacían invisible el menú de sugerencias.
+
+## 14-05-2026 Refuerzo de Visibilidad del Autocompletado
+
+**Descripción**: Se aplicaron mejoras adicionales para asegurar que el autocompletado sea visible incluso en la pantalla de inicio y bajo condiciones de estilos restrictivos.
+
+### Cambios Realizados
+
+1.  **`ChatInput.tsx`**:
+    *   **Z-Index Elevado**: Se incrementó el `z-index` a `100` para asegurar que el menú de sugerencias esté por encima de cualquier otro componente.
+    *   **Eliminación de Clases Suspectas**: Se eliminaron clases de animación que dependían de plugins externos para evitar que el componente se renderizara con opacidad 0 si el plugin no estaba presente.
+    *   **Posicionamiento de Respaldo**: Si falla el cálculo preciso del cursor, el menú ahora se centra automáticamente sobre el campo de entrada en lugar de ocultarse o aparecer fuera de lugar.
+    *   **Robustez en Medición**: Se añadió un bloque try-catch en el cálculo del cursor para evitar que errores silenciosos detengan el funcionamiento del componente.
+
+#### **🎯 Beneficios**
+✅ **Visibilidad Garantizada**: El menú ahora se muestra con opacidad forzada y visibilidad explícita.
+✅ **Estabilidad**: Mayor tolerancia a errores de layout en diferentes resoluciones o estados de la aplicación.
+
+## 14-05-2026 Mejora de Alineación y Márgenes en la Terminal TUI
+
+**Descripción**: Se han añadido márgenes laterales externos a los componentes de salida de terminal y se han alineado las notificaciones de herramientas para mejorar la estética y legibilidad en la TUI de KogniTerm.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/components/tool_output.py**](kogniterm/terminal/tui/components/tool_output.py)
+   - Se añadió un margen lateral externo (`margin: 0 4 1 4`) al `ToolOutputWidget` para que el borde de la terminal no toque los extremos del contenedor del chat.
+   - Esto alinea visualmente el contenedor de la terminal con el inicio de los mensajes del agente.
+
+2. [**kogniterm/terminal/tui/components/chat_log.py**](kogniterm/terminal/tui/components/chat_log.py)
+   - Se actualizó el padding de las notificaciones de herramientas (`write_tool_notification`) de `(1, 0)` a `(1, 0, 1, 4)`.
+   - Este cambio asegura que el texto "Ejecutando herramienta..." esté perfectamente alineado con los mensajes del agente y el nuevo margen de la terminal.
+
+#### **🎯 Beneficios**
+✅ **Estética Premium**: El contenido ya no se siente "apretado" contra los bordes laterales del chat log.
+✅ **Consistencia Visual**: Todas las salidas (mensajes de agente, notificaciones y terminal) mantienen ahora la misma sangría de 4 unidades en el lado izquierdo.
+✅ **Legibilidad Mejorada**: El espacio adicional facilita la distinción entre diferentes bloques de interacción.
+
+## 14-05-2026 Comando Ejecutado en el Título de la Terminal TUI
+
+**Descripción**: El `ToolOutputWidget` ahora muestra el comando bash exacto que se está ejecutando en el título del borde del widget, en lugar del nombre genérico de la herramienta.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/components/tool_output.py**](kogniterm/terminal/tui/components/tool_output.py)
+   - Se añadió el parámetro `command: str = ""` al constructor `__init__`.
+   - Se actualizó `on_mount` para mostrar `Terminal — $ {comando}` cuando se dispone del comando, o `Terminal: {tool_name}` como fallback.
+   - Los comandos largos (>60 chars) se truncan con `...` para evitar desbordamiento en el título.
+
+2. [**kogniterm/terminal/tui/components/chat_log.py**](kogniterm/terminal/tui/components/chat_log.py)
+   - Se actualizó `write_stream` para soportar tuplas de 4 elementos: `("__TERMINAL__", tool_name, output, command)`.
+   - El 4° elemento (`command`) se extrae y se pasa al `ToolOutputWidget` al instanciarlo.
+
+3. [**kogniterm/terminal/tui/tui_app.py**](kogniterm/terminal/tui/tui_app.py)
+   - `update_terminal_output` en `KogniTermTUI` ahora acepta el kwarg `command` y lo incluye como 4° elemento de la tupla `__TERMINAL__`.
+   - `update_terminal_output` en `TextualTerminalUI` (adaptador) extrae `command` de `**kwargs` y lo propaga.
+
+#### **🎯 Beneficios**
+✅ **Identificación Inmediata**: El usuario puede ver de un vistazo qué comando está corriendo sin leer la salida.
+✅ **Experiencia Premium**: El formato `Terminal — $ comando` es claro, profesional y consistente con interfaces de terminal modernas.
+✅ **Retrocompatibilidad**: Si no se pasa `command`, el título vuelve al formato anterior `Terminal: {tool_name}`.
+- **2026-05-14:** Integración del nuevo parser de herramientas en `llm_service.py` para asegurar que el widget de terminal interactivo se renderice correctamente cuando el modelo usa llamadas estilo Python.
+
+## 15-05-2026 Mejora Dinámica del Encabezado de Terminal
+
+**Descripción**: Se ha mejorado la reactividad y visibilidad del encabezado del widget de terminal en la TUI. Ahora el título se actualiza dinámicamente durante el streaming de salida y utiliza iconos temáticos.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/themes.py**](kogniterm/terminal/themes.py)
+   - Se añadió el icono `TERMINAL` (`🐚`) a la clase `Icons`.
+
+2. [**kogniterm/terminal/tui/components/tool_output.py**](kogniterm/terminal/tui/components/tool_output.py)
+   - Se implementó `_update_title` para centralizar la lógica del encabezado.
+   - Se modificó `update_content` para permitir actualizar el comando y el título dinámicamente.
+   - Se incluyó el icono `Icons.TERMINAL` en el título del borde.
+   - **UI/UX**: Se redujo el ancho del widget al `85%` y se aplicó `margin: 0 auto` para centrarlo visualmente en el chat, mejorando la jerarquía visual.
+
+3. [**kogniterm/terminal/tui/components/chat_log.py**](kogniterm/terminal/tui/components/chat_log.py)
+   - Se actualizó la llamada a `update_content` para pasar el comando actual en cada chunk de streaming, asegurando que el encabezado refleje el comando correcto incluso si el widget ya estaba montado.
+
+4. [**kogniterm/terminal/tui/tui_app.py**](kogniterm/terminal/tui/tui_app.py)
+   - Se mejoró la lógica de fallback en `update_terminal_output` para que, si el nombre de la herramienta es `execute_command` y no hay un comando explícito, se muestre `bash` en lugar del nombre interno de la herramienta.
+
+#### **🎯 Beneficios**
+✅ **Streaming Reactivo**: El encabezado ahora responde a cambios en el comando durante el flujo de ejecución.
+✅ **Identidad Visual**: El uso de iconos hace que el widget de terminal sea más fácil de identificar en el historial del chat.
+✅ **Claridad**: Se eliminan nombres técnicos como "execute_command" del encabezado en favor de términos más familiares como "bash".
+
+---
+
+## 15-05-2026 Scrollbar Angosto en el Chat
+
+**Descripción**: Se habilitó un scrollbar angosto de 1 celda de ancho en el widget del chat log, reemplazando el scrollbar que estaba completamente oculto.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/tui/tui_app.py`
+
+**CSS Actualizado**: Selector `#chat_log`
+
+- **Antes**: `scrollbar-size: 0 0;` (scrollbar invisible)
+- **Después**: `scrollbar-size: 1 1;` (scrollbar angosto de 1 celda)
+
+#### **🎯 Beneficios**
+
+✅ **Orientación Visual**: El usuario puede ver su posición en el historial del chat.
+✅ **Mínima Intrusión**: Con solo 1 celda de ancho, el scrollbar no ocupa espacio visual significativo.
+✅ **Colores Adaptativos**: El scrollbar hereda los colores ya definidos (`GRAY_600`, `PRIMARY`, `PRIMARY_LIGHT`) según el tema activo.
+
+---
+
+## 15-05-2026 Corrección del Tema Matrix — Fondo Negro y Letras Verdes
+
+**Descripción**: Se actualizó la paleta de colores del tema `matrix` en `kogniterm/terminal/themes.py` para reflejar correctamente la estética clásica de la película *The Matrix*: fondo negro puro con texto en verde neón.
+
+### Cambio Implementado
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/themes.py`
+
+- **`GRAY_50` a `GRAY_900`**: Cambiados de tonos verdes (`#f0fdf4` → `#14532d`) a negros casi puros (`#0d0d0d` → `#000000`), para que el fondo de la interfaz sea negro.
+- **`TEXT_PRIMARY`**: Cambiado de `#f0fdf4` (blanco verdoso) a `#00ff41` (verde neón brillante).
+- **`TEXT_SECONDARY`**: Cambiado a `#00cc32`.
+- **`TEXT_MUTED`**: Cambiado a `#009926`.
+- **`TEXT_DIM`**: Cambiado a `#006619`.
+- **`PRIMARY_*`**: Toda la escala de primarios actualizada a variantes de verde neón puro (`#00ff41` → `#008020`).
+- **`SECONDARY`**: Cambiado a `#00ff41` (verde neón principal).
+- **`ACCENT_*`**: Unificados en verde neón para consistencia visual.
+- **`SUCCESS`/`INFO`**: Actualizados a verde neón en lugar de los verdes de Tailwind anteriores.
+- **`WARNING`**: Cambiado a `#ccff00` (amarillo-verde limón) para distinguirse del verde principal.
+
+#### **🎯 Resultado**
+
+El tema Matrix ahora muestra **fondo negro puro** (`#000000`) con **letras verde neón** (`#00ff41`), replicando fielmente el estilo hacker de la película.
+
+---
+
+## 15-05-2026 Corrección del Autocompletado de Comandos en la TUI
+
+**Descripción**: Se resolvió el bug por el que el menú de autocompletado de comandos (`%comando`, `/comando`, `@archivo`, `:contenedor`) no aparecía al escribir en ninguno de los dos inputs del TUI (splash ni chat principal).
+
+### Causa Raíz
+
+El `command_popup` (un `ListView`) se posicionaba mediante `styles.offset`, pero la función `_reposition_popup` intentaba obtener la región de `#input_container` — el contenedor del chat principal — que está **oculto durante la pantalla de inicio (splash)**. Esto hacía que el popup se posicionara en coordenadas incorrectas (fuera de la vista) en la pantalla de inicio.
+
+Adicionalmente, el CSS del `#command_popup` contenía `position: absolute`, que **no es una propiedad TCSS válida** de Textual (era ignorado silenciosamente).
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/tui/tui_app.py`
+
+1. **`_reposition_popup()` reescrito**:
+   - Eliminada la dependencia de `#input_container`.
+   - Ahora usa siempre `input_widget.region` (la región del widget activo), funcionando correctamente tanto en el splash como en el chat.
+   - Posición Y: directamente encima del input activo (`input_region.y - max_height`).
+
+2. **CSS `#command_popup` corregido**:
+   - Eliminado `position: absolute` (propiedad inválida en TCSS).
+   - Ajustado ancho a `44`, max-height a `14`.
+   - Estilo visual mejorado: borde sutil azul, items con color claro y highlight en azul translúcido.
+
+3. **Soporte para trigger `/` añadido**:
+   - Tanto `on_input_changed` como `on_text_area_changed` ahora detectan el prefijo `/` además de `%`.
+   - Lista de comandos `/` incluida: `/help`, `/skills`, `/reset`, `/undo`, `/compress`, `/theme`, `/session`, `/resume`, `/salir`, `/mouse`, `/embeddings`.
+
+4. **Altura del inputbar aumentada**:
+   - `#input_container`: `padding: 1 4 2 4` y `min-height: 3`.
+   - `ChatInput`: `height: auto` y `min-height: 2` para dar más espacio visual al área de texto.
+
+### **🎯 Resultado**
+
+✅ El menú de autocompletado aparece al escribir `%` o `/` en ambos inputs (splash y chat).  
+✅ La función de posicionado es universal y robusta para cualquier widget de input.  
+✅ El inputbar es levemente más alto, mejorando la comodidad de escritura.
+✅ Se expandió la lista de comandos sugeridos para incluir todos los meta-comandos soportados (ej: `/models`, `/provider`, `/reasoning`, `/exit`, `/init`, `/skills`, etc.).
+
+---
+
+## 15-05-2026 Mejora de Paneles Paralelos: Bordes y Persistencia
+
+**Descripción**: Se mejoró la visualización de los paneles paralelos utilizados por el comando `call_agents_parallel`. Ahora cuentan con bordes redondeados, títulos identificativos de cada agente y mantienen el historial de texto entre iteraciones.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**kogniterm/terminal/tui/tui_app.py**](kogniterm/terminal/tui/tui_app.py)
+   - **CSS**: Se añadieron bordes redondeados (`border: round #3b82f6 60%`) y scroll vertical (`overflow-y: scroll`) a los paneles paralelos.
+   - **Widget**: Se aseguró que `TerminalPanel` sea un `Static` con soporte de scroll y centrado de contenido.
+
+2. [**kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py**](kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py)
+   - **Lógica de Persistencia**: Se eliminó el reseteo de `_accumulated_text` en `stop_live`, permitiendo que el texto acumulado se mantenga durante toda la ejecución paralela.
+   - **Identificación**: Se añadieron títulos de borde (`DeepCoder` y `DeepResearcher`) al activar los paneles.
+   - **Acumulación Total**: Se modificaron `update_terminal_output` y `print_tool_notification` para que también acumulen su contenido en el historial del panel, en lugar de intentar llamar a métodos inexistentes en el widget `Static`.
+   - **Auto-scroll**: Se añadió `panel.scroll_end()` después de cada actualización para mantener siempre visible el contenido más reciente.
+
+#### **🎯 Beneficios**
+✅ **Visibilidad Mejorada**: Los bordes y títulos ayudan a distinguir claramente qué agente está trabajando en qué tarea.
+✅ **Historial Completo**: El usuario puede ver todo el proceso (pensamientos, herramientas y salidas) de ambos agentes sin que el texto se limpie en cada paso.
+✅ **Usabilidad**: El auto-scroll garantiza que la información más nueva esté siempre a la vista sin intervención manual.
+
+
+---
+
+## 15-05-2026 Incremento de Límites de Recursión en Agentes
+
+**Descripción**: Se han incrementado los límites de recursión en los agentes especializados (DeepCoder y DeepResearcher) y en el BashAgent para evitar interrupciones prematuras en flujos de trabajo largos y complejos, respondiendo al error de "Recursion limit reached".
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`](/home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py)
+   - Se aumentó el valor por defecto de `RESEARCHER_RECURSION_LIMIT` de **100 a 1000**.
+   - Se actualizó el límite de recursión hardcoded para DeepCoder de **100 a 1000**.
+
+2. [`kogniterm/skills/bundled/call_agent/scripts/tool.py`](/home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/call_agent/scripts/tool.py)
+   - Se aumentó el valor por defecto de `RESEARCHER_RECURSION_LIMIT` de **100 a 1000**.
+
+3. [`kogniterm/terminal/agent_interaction_manager.py`](/home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/agent_interaction_manager.py)
+   - Se aumentó el límite de recursión del BashAgent de **200 a 1000**.
+
+#### **🎯 Beneficios**
+
+✅ **Continuidad en Misiones Largas**: Los agentes ahora pueden realizar hasta 1000 iteraciones (llamadas a herramientas o pasos de pensamiento) sin detenerse por límites de seguridad del grafo.
+✅ **Robustez en Investigación**: El DeepResearcher tiene ahora un margen mucho más amplio para explorar múltiples sub-tareas y realizar síntesis complejas sin riesgo de error por recursión.
+✅ **Consistencia**: Se estandarizó el límite de 1000 en los tres puntos principales de ejecución de agentes del sistema.
+
+---
+
+## 15-05-2026 Historial Continuo (Estilo Chat) en Paneles de Agentes Paralelos
+
+**Descripción**: A petición del usuario, se modificó el comportamiento visual de los paneles de ejecución paralela (DeepCoder y DeepResearcher) en la TUI. En lugar de limpiar y reemplazar el contenido del panel en cada iteración, el texto ahora se va acumulando y subiendo (scrolling) como en una interfaz de chat tradicional, manteniendo el historial visible.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/terminal/tui/tui_app.py`](/home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Se reemplazó el uso de `TerminalPanel` (basado en `Static`) por `ChatLogWidget` (basado en `VerticalScroll`) para las instancias `live_display_coder` y `live_display_researcher`.
+   - Se actualizó el selector CSS de `#parallel_agents_container TerminalPanel` a `#parallel_agents_container ChatLogWidget` para mantener exactamente la misma estética de bordes curvos y estilos previamente configurados.
+
+2. [`kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py`](/home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py)
+   - En el método `stop_live()` de `ParallelPanelUI`, se descomentó la limpieza del buffer interno (`self._accumulated_text = ""`). 
+   - Esta acción delega el manejo del historial persistente al propio `ChatLogWidget`, evitando que se dupliquen los textos en cada nueva iteración del agente.
+
+#### **🎯 Beneficios**
+
+✅ **Mejor Experiencia Visual**: Los paneles ahora se comportan como terminales/chats reales, haciendo scrolldown y acumulando historial.
+✅ **Mantenimiento del Contexto**: El usuario no pierde de vista lo que el agente hizo en pasos anteriores al iniciarse un nuevo nodo.
+✅ **Continuidad Estética**: Se conservó el look-and-feel (round borders, colores, layout) utilizando el robusto sistema base del ChatLog.
+
+---
+
+## 15-05-2026 Unificación Visual del Razonamiento en Agentes Especializados
+
+**Descripción**: Se estandarizó la estética visual de la fase de "pensamiento" de los agentes paralelos (DeepCoder y DeepResearcher) en la TUI, para que compartan la misma apariencia inmersiva que ya utiliza el BashAgent principal (KogniTerm).
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [`kogniterm/core/agents/deep_researcher.py`](/home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/deep_researcher.py)
+   - Se reemplazó el grupo de componentes (Texto + Regla horizontal) por un componente `Panel` cerrado.
+   - El nuevo panel utiliza un fondo explícito (`on ColorPalette.GRAY_900`), bordes `GRAY_700` y un estilo de texto `dim GRAY_500`, logrando el efecto visual de "pensamiento de fondo" característico.
+
+2. [`kogniterm/core/agents/deep_coder.py`](/home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/deep_coder.py)
+   - Se replicó el mismo reemplazo visual en la función `call_deep_coder_node`, usando el `Panel` con estilo `dim` y fondo de TUI oscuro.
+
+#### **🎯 Beneficios**
+
+✅ **Consistencia Estética**: Ahora, sin importar qué agente esté procesando (KogniTerm principal, Coder o Researcher), la fase de razonamiento interno de la IA se muestra con exactamente la misma firma visual (texto atenuado dentro de un recuadro oscuro).
+✅ **Claridad de Interfaz**: Al utilizar la caja atenuada, el razonamiento se distingue perfectamente del resultado final y de las llamadas a herramientas, mejorando la lectura en los paneles recién transformados al estilo chat.
+
+## 15-05-2026 Actualización de atajos de interfaz
+
+**Descripción**: Se actualizaron los atajos mostrados en la pantalla de inicio para usar el prefijo `/` en lugar de `%` para coincidir con la convención actual de comandos.
+
+### Cambios Implementados
+
+#### 🔧 Archivos Modificados
+
+1. `kogniterm/terminal/tui/tui_app.py`
+   - Se modificaron los atajos mostrados: `/models`, `/provider`, `/theme`
+
+## 2026-05-15
+- Corregido error de parsing CSS en `tui_app.py` que impedía el inicio de la aplicación (uso inválido de 'auto' en márgenes de Textual).
+- Restaurado el ancho del `ToolOutputWidget` al 100% y margen 0 para asegurar visibilidad y alineación flush.
+- Refinada la lógica de avance de índice en el parser de herramientas de `llm_service.py`.
+
+---
+
+## 15-05-2026 Autoguardado Inmediato y Persistencia Fiable del Historial
+
+**Descripción**: Se ha implementado un mecanismo de autoguardado inmediato y persistencia atómica para garantizar que ninguna interacción se pierda en caso de cierres inesperados o fallos del sistema.
+
+### Cambios Implementados
+
+#### **🔧 Archivo Modificado**: `kogniterm/core/history_manager.py`
+
+1. **Mejora de `AutoSavingMessageList`**:
+    - Se expandieron los métodos interceptados para incluir todas las mutaciones posibles: `append`, `extend`, `insert`, `clear`, `pop`, `remove`, `__setitem__` (incluyendo slices), `__delitem__`, `__iadd__`, `__imul__`, `sort` y `reverse`.
+    - Cada mutación dispara de forma síncrona el guardado en disco a través del callback `_on_change`.
+
+2. **Persistencia Atómica y Segura en `_save_history`**:
+    - **Escritura Atómica**: Ahora se escribe primero en un archivo temporal (`.tmp`) y luego se renombra (`os.replace`), evitando la corrupción del archivo original si el proceso se interrumpe durante la escritura.
+    - **Sincronización Física (fsync)**: Se añadió `f.flush()` y `os.fsync()` para asegurar que los datos se escriban físicamente en el plato del disco antes de considerar la operación completada.
+    - **Prevención de Bucles**: Se utiliza `suspend_autosave()` para evitar reentradas infinitas durante el proceso de guardado.
+
+3. **Correcciones de Errores**:
+    - Se corrigió un error de sintaxis en el docstring de `_to_litellm_message_for_len_calc`.
+    - Se eliminó una comilla triple huérfana al final del archivo que causaba fallos de parseo.
+
+#### **🎯 Beneficios**
+
+✅ **Persistencia Garantizada**: Cada mensaje añadido o modificado se guarda en disco ANTES de que la función de mutación retorne.
+✅ **Protección contra Corrupción**: El uso de archivos temporales y `os.replace` asegura que el historial siempre sea válido, incluso tras un crash.
+✅ **Sin Latencia Visual**: Dado que las mutaciones principales ocurren en hilos worker (en `bash_agent.py` y `tui_app.py`), el guardado síncrono no bloquea la interfaz de usuario.
+✅ **Integridad de Datos**: El uso de `fsync` garantiza que los datos sobrevivan incluso a fallos de alimentación del sistema.
+
+
+---
+
+## 15-05-2026 Limpieza de Entornos y Robustez en el Parseo de Herramientas
+
+**Descripción**: Se ha realizado un mantenimiento preventivo del repositorio eliminando entornos virtuales redundantes y mejorando la precisión del sistema de extracción de llamadas a herramientas (Tool Calls) para evitar falsos positivos.
+
+### Cambios Implementados
+
+#### **🔧 Mantenimiento de Entorno**
+1. **Eliminación de `venv` Redundante**:
+   - Se eliminó el directorio `venv` (6.8 GB) que contenía instalaciones duplicadas de Python 3.12 y 3.13.
+   - Se mantiene `.venv` (1.6 GB) como el entorno virtual principal y actualizado.
+
+#### **🔧 Archivos Modificados**
+1. [`kogniterm/core/llm_service.py`](kogniterm/core/llm_service.py)
+   - **Validación de Tool Names**: Se ha modificado el método `_parse_tool_calls_from_text` para validar que cualquier nombre de herramienta detectado exista en el `tool_map` registrado o sea un comando explícitamente permitido (`call_agent`, `think`, `execute_command`).
+   - **Hardening de Estrategias**:
+     - **Estrategia A (Patrones explícitos)**: Validación de nombre contra registro.
+     - **Estrategia B (JSON)**: Validación de claves y nombres para evitar que JSONs aleatorios en el texto sean interpretados como herramientas.
+     - **Estrategia C (Legacy/Code-style)**: Validación estricta para evitar que palabras comunes seguidas de paréntesis (ej. "real(", "primero(") sean capturadas.
+
+#### **📊 Análisis de Snapshots (Pendiente de Acción)**
+Se han identificado los siguientes archivos como posibles "snapshots" redundantes que podrían ser eliminados para ahorrar espacio (~170 MB):
+- Terminal Recordings: `kogniterm1.cast`, `kogniterm2.cast`, `kogniterm3.cast`, `kogniterm4.cast`, `kogniterm_demo.cast`.
+- GIFs de demostración: `kogniterm1.gif`, `kogniterm2.gif`.
+- Archivos de estado/cache: `json` (60MB), `vector_db_backup_20251229_153655`.
+
+### **🎯 Beneficios**
+✅ **Ahorro de Espacio**: Recuperados ~6.8 GB al eliminar el venv redundante.
+✅ **Precisión del Agente**: Eliminada la ejecución accidental de herramientas inexistentes basadas en falsos positivos del parser de texto.
+✅ **Estabilidad**: Código de parseo más robusto y menos propenso a errores de secuencia.
+
+---
+
+## 15-05-2026 Corrección de Fallo Crítico en Inicio (Embeddings Provider)
+
+**Descripción**: Se solucionó un problema que impedía el inicio de KogniTerm debido a una dependencia faltante (`sentence-transformers`) que era utilizada como proveedor de embeddings por defecto.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**`kogniterm/core/embeddings_service.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/embeddings_service.py)
+   - Se cambió el proveedor de embeddings por defecto de `sentence_transformers` a `fastembed`.
+   - Fundamentación: `fastembed` sí está incluido en las dependencias de `pyproject.toml`, mientras que `sentence-transformers` no lo está, lo que provocaba un `ImportError` fatal al inicializar el servicio de embeddings.
+
+2. [**`.kogniterm/config.json`**](file:///home/gato/Proyectos/Gemini-Interpreter/.kogniterm/config.json)
+   - Se actualizó la configuración local del proyecto para usar `fastembed` y el modelo `BAAI/bge-small-en-v1.5`.
+   - Fundamentación: La configuración preexistente forzaba el uso de `sentence_transformers`, sobrepasando cualquier valor por defecto en el código y manteniendo el error de inicio.
+
+#### **🎯 Beneficios**
+
+✅ **Estabilidad**: La aplicación ahora inicia correctamente sin errores de dependencias faltantes.
+✅ **Consistencia**: El proveedor de embeddings coincide con las dependencias declaradas en el proyecto.
+✅ **Rendimiento**: `fastembed` ofrece una alternativa ligera y rápida para la generación de embeddings locales.
+
+#### **🔍 Verificación**
+
+- Se utilizó un script de depuración (`scratch/test_init_debug.py`) para validar la inicialización exitosa de `LLMService` y `EmbeddingsService`.
+- Se confirmó el inicio de la interfaz TUI mediante la ejecución del módulo principal.
+
+---
+
+## 15-05-2026 Implementación de Sidebar para Task Tracker
+
+**Descripción**: Se ha implementado un panel lateral (sidebar) en la TUI de KogniTerm para el seguimiento de tareas gestionadas por la herramienta `task_tracker`. El panel aparece automáticamente cuando se inicializan tareas y permite un seguimiento visual constante del progreso.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+    -   **Nueva Estructura de Layout**: Implementación de `main_container` (Horizontal) que separa el chat del sidebar.
+    -   **CSS de Sidebar**: Añadidos estilos para `#sidebar_container` y `#task_tracker_panel`.
+    -   **Integración de Componente**: Importación e instanciación de `TaskTrackerPanelWidget`.
+    -   **Métodos de TUI**:
+        -   `update_task_tracker(agent_plans)`: Actualiza los datos y alterna visibilidad.
+        -   `action_toggle_sidebar()`: Permite alternar manualmente el sidebar (vinculado a `Ctrl+B`).
+    -   **Adapter TUI**: Añadido `update_task_tracker` a `TextualTerminalUI` para permitir que las skills se comuniquen con la interfaz.
+
+2.  [`kogniterm/terminal/tui/components/task_tracker_panel.py`](kogniterm/terminal/tui/components/task_tracker_panel.py)
+    -   **Ajuste Visual**: Eliminado el padding excesivo y cambiado a bordes redondeados (`box.ROUNDED`).
+    -   **Optimización para Sidebar**: El panel ahora ocupa el ancho completo del contenedor lateral.
+
+3.  [`kogniterm/skills/bundled/task_tracker/scripts/tool.py`](kogniterm/skills/bundled/task_tracker/scripts/tool.py)
+    -   **Comunicación con TUI**: Refactorizado `_update_ui` para usar el nuevo método `update_task_tracker` del adaptador TUI en lugar de intentar manipular directamente el DOM de la aplicación.
+
+### **🎯 Beneficios**
+
+✅ **Seguimiento Constante**: El usuario puede ver el plan de trabajo actual sin necesidad de preguntar al agente.
+✅ **Visibilidad Automática**: El sidebar aparece solo cuando hay tareas activas.
+✅ **Control de Usuario**: Atajo `Ctrl+B` para ocultar/mostrar el panel según la necesidad de espacio.
+✅ **Arquitectura Limpia**: Separación clara entre la lógica de la skill y la implementación de la UI mediante el adaptador.
+
+---
+
+
+## [Fecha Actual] - Implementación del Agent-Skills Adapter
+
+**Problemática**:
+KogniTerm necesitaba una forma de cargar y ejecutar skills diseñadas bajo la especificación externa de `agent-skills` para permitir la interoperabilidad con otros frameworks.
+
+**Solicitud**:
+Crear un adaptador que actúe como puente entre el núcleo de KogniTerm y las skills externas.
+
+**Cambios Aplicados**:
+1. **Estructura del Adaptador**: Se creó el directorio `kogniterm/skills/bundled/agent_skills_adapter/`.
+2. **Metadatos**: Implementación de `SKILL.md` para el reconocimiento de la skill por el núcleo.
+3. **Lógica de Ejecución**: Implementación de `scripts/tool.py` con las funciones `list_available_agent_skills`, `load_agent_skill` y `execute_agent_skill`.
+4. **Verificación**: Se realizó una prueba exitosa creando una skill efímera en `/tmp/test_agent_skill`, cargándola y ejecutándola a través del adaptador.
+
+**Fundamentación**:
+El uso de un adaptador permite mantener la integridad del núcleo de KogniTerm mientras se extiende su capacidad de ejecución a estándares externos, facilitando la expansión del ecosistema de herramientas sin modificar el cargador principal de skills.
+
+---
+
+## 15-05-2026 Creación de KogniTerm Server (API Backend)
+
+**Descripción**: Se ha implementado un boceto inicial de servidor backend para KogniTerm utilizando **FastAPI**. Esto permite desacoplar la inteligencia de los agentes de la interfaz de terminal (TUI) y exponerla a través de REST y WebSockets para otros canales.
+
+### Componentes Creados
+
+#### 📁 Archivos Nuevos
+
+1.  [`kogniterm/server/app.py`](kogniterm/server/app.py)
+    -   Servidor FastAPI con soporte para sesiones múltiples.
+    -   Endpoint REST `/chat` para respuestas rápidas.
+    -   Endpoint WebSocket `/ws/chat` para streaming en tiempo real.
+2.  [`kogniterm/server/adapters.py`](kogniterm/server/adapters.py)
+    -   `ServerTerminalUI`: Un adaptador que traduce las salidas visuales de Rich a eventos JSON para la API.
+3.  [`kogniterm/server/test_client.py`](kogniterm/server/test_client.py)
+    -   Cliente de ejemplo para validar la conexión y el streaming.
+4.  [`kogniterm/server/README.md`](kogniterm/server/README.md)
+    -   Documentación técnica del servidor y sus endpoints.
+
+### **🎯 Beneficios**
+
+✅ **Interoperabilidad**: KogniTerm ahora puede integrarse con bots de Slack, Discord, web dashboards o apps móviles.
+✅ **Streaming Remoto**: El soporte de WebSockets permite ver el "pensamiento" y las acciones del agente en tiempo real desde cualquier cliente.
+✅ **Escalabilidad**: Preparado para manejar múltiples sesiones de usuario concurrentes.
+✅ **Independencia de UI**: El Core de KogniTerm queda oficialmente validado como un componente independiente de la terminal.
+
+---
+
+---
+
+## 15-05-2026 Reposicionamiento de Task Tracker Panel
+
+**Descripción**: Se ha cambiado la ubicación del panel de seguimiento de tareas (Task Tracker) de una barra lateral a un panel horizontal situado justo encima de la caja de entrada de texto (input). Esto mejora la visibilidad del plan de trabajo sin reducir el ancho disponible para el chat.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1.  [`kogniterm/terminal/tui/tui_app.py`](kogniterm/terminal/tui/tui_app.py)
+    -   **Rediseño de Layout**: Eliminación del split horizontal (`main_container` / `sidebar_container`).
+    -   **Nueva Ubicación**: El `task_tracker_panel` ahora se renderiza dentro del `bottom_container`, posicionado estratégicamente sobre el input.
+    -   **CSS Actualizado**:
+        -   `#tracker_container`: Ahora es un panel horizontal con ancho del 85% y altura automática.
+        -   `#task_tracker_panel`: Ajustado para mostrarse con un borde sólido y estilo compacto.
+    -   **Lógica de Visibilidad**: Actualizados los métodos `update_task_tracker` y `action_toggle_sidebar` para manejar el nuevo contenedor.
+
+### **🎯 Beneficios**
+
+✅ **Mejor Ergonomía**: El usuario puede ver el progreso de las tareas sin desviar la vista hacia un lateral.
+✅ **Espacio Optimizado**: El log del chat recupera su ancho completo, mejorando la legibilidad de bloques de código largos.
+✅ **Diseño Integrado**: El panel se siente como parte del área de comandos, manteniendo la coherencia visual.
+
+---
+
+---
+
+## 15-05-2026 Fix Visibilidad Texto de Razonamiento en Tema Matrix
+
+**Descripción**: Los valores `GRAY_300`–`GRAY_700` del tema `matrix` eran casi-negros (`#020202`–`#0d0d0d`), haciendo invisible el texto del panel de pensamiento del LLM (que usa `dim GRAY_500` y bordes `GRAY_700`).
+
+### Cambio Implementado
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/themes.py`
+
+| Color | Antes | Ahora | Uso |
+|---|---|---|---|
+| `GRAY_300` | `#060606` | `#1a4d1a` | Texto dim sobre fondo negro |
+| `GRAY_400` | `#040404` | `#1f6b1f` | Texto medio oscuro |
+| `GRAY_500` | `#020202` | `#267a26` | **Texto razonamiento LLM (legible)** |
+| `GRAY_600` | `#111111` | `#2d9e2d` | Bordes visibles |
+| `GRAY_700` | `#0d0d0d` | `#157a15` | Bordes panel razonamiento |
+| `GRAY_800` | `#080808` | `#050d05` | Fondo panel (casi negro con matiz) |
+| `TEXT_DIM` | `#006619` | `#267a26` | Texto atenuado visible sobre negro |
+
+Los fondos (`GRAY_800`, `GRAY_900`) siguen siendo negros o casi negros. Los valores medios ahora son verdes oscuros legibles.
+
+---
+
+## 15-05-2026 Corrección de Crash al Aplicar Tema en el Arranque
+
+**Descripción**: Se corrigió un `NoMatches` fatal que impedía el inicio de KogniTerm cuando el tema guardado no era el predeterminado (e.g. `matrix`).
+
+### Causa
+
+El método `apply_theme` en `tui_app.py` intentaba hacer `query_one("#chat_container")` de forma incondicional, pero ese widget no existe en el layout actual de `compose()` (fue eliminado en una refactorización previa). Esto lanzaba `NoMatches` en `on_mount` antes de que la UI terminara de montarse.
+
+### Cambio Implementado
+
+#### **🔧 Archivo Modificado**: `kogniterm/terminal/tui/tui_app.py` (línea ~1647)
+
+- Se envolvió la query de `#chat_container` en un bloque `try/except`, igual que el resto de queries opcionales del mismo método.
+
+```python
+# Antes (crash):
+chat_container = self.query_one("#chat_container")
+chat_container.styles.background = bg_color
+
+# Después (robusto):
+try:
+    chat_container = self.query_one("#chat_container")
+    chat_container.styles.background = bg_color
+except Exception:
+    pass
+```
+
+### **🎯 Resultado**
+
+✅ KogniTerm arranca correctamente con cualquier tema guardado.  
+✅ Sin regresiones en la aplicación de temas para los widgets existentes.
+
+---
+
+## 15-05-2026 KogniTerm Server — API Backend Persistente Multi-Canal
+
+**Descripción**: Se ha construido y completado el módulo `kogniterm/server/` que expone el motor de KogniTerm como un **servicio backend persistente**, manteniendo el agente "despierto" indefinidamente y disponible desde múltiples canales simultáneos.
+
+### Arquitectura implementada
+
+El servidor sigue un patrón **SessionPool**: una sesión por `session_id` se crea al primer uso y se reutiliza en todos los mensajes posteriores, conservando el historial completo, el estado del grafo LangGraph y el contexto de herramientas en memoria.
+
+### Archivos creados / reemplazados
+
+#### 📁 `kogniterm/server/`
+
+1. **`session_pool.py`** *(nuevo, núcleo del sistema)*
+   - `ServerUI`: adaptador de `TerminalUI` sin pantalla. Captura todos los eventos del agente (`stream`, `tool_start`, `tool_output`, `live_update`, `task_tracker`, `done`, `error`) y los pone en una `asyncio.Queue` thread-safe mediante `call_soon_threadsafe`.
+   - `AgentSession`: sesión individual con `AgentState`, `AgentInteractionManager`, lock de serialización y `interrupt()`.
+   - `SessionPool`: registro global thread-safe. Singleton `pool` exportado.
+
+2. **`app.py`** *(reescrito completo)*
+   - FastAPI app con lifespan que inicializa el `LLMService` una vez al arrancar.
+   - **CORS** habilitado para integraciones web.
+   - Endpoints:
+     - `GET  /health` — estado y sesiones activas
+     - `GET  /sessions` — listar sesiones
+     - `POST /sessions` — crear sesión (ID opcional)
+     - `DELETE /sessions/{id}` — eliminar sesión
+     - `POST /sessions/{id}/interrupt` — interrumpir agente
+     - `POST /chat/{session_id}` — REST síncrono
+     - `GET  /sse/{session_id}?message=...` — Server-Sent Events
+     - `WS   /ws/{session_id}` — WebSocket bidireccional (protocolo JSON documentado)
+   - `run_server()` exportada para lanzar con uvicorn.
+
+3. **`channel_adapters.py`** *(nuevo)*
+   - `ChannelAdapter`: clase base para integrar canales externos.
+   - `CLIAdapter`: CLI interactiva con `interactive_loop()` para pruebas.
+   - `WebhookAdapter`: POST a webhooks externos (n8n, Zapier, Slack incoming webhooks).
+   - `SlackAdapter`: integración con Slack Bolt SDK, acumula chunks y envía mensaje completo.
+
+4. **`__main__.py`** *(nuevo)*
+   - Entry point `main()` para `python -m kogniterm.server` y `kogniterm-server`.
+   - CLI con `--host`, `--port`, `--reload`.
+
+5. **`__init__.py`** *(nuevo)*
+   - Exporta `app` y `create_app`.
+
+6. **`test_client.py`** *(reescrito)*
+   - Cliente de prueba multi-canal: `--mode ws|sse|rest|health`.
+   - Muestra eventos en tiempo real para WebSocket y SSE.
+
+7. **`README.md`** *(reescrito)*
+   - Diagrama de arquitectura ASCII.
+   - Documentación completa de cada canal con ejemplos de código.
+   - Guía para crear adaptadores personalizados (ej. Telegram).
+
+#### 🔧 `pyproject.toml`
+- Añadidas dependencias: `fastapi`, `uvicorn[standard]`, `sse-starlette`.
+- Registrado script CLI: `kogniterm-server = "kogniterm.server.__main__:main"`.
+
+#### 🗑️ Eliminados
+- `kogniterm/server/adapters.py` (reemplazado por `session_pool.py` + `channel_adapters.py`).
+
+### Cómo usar
+
+```bash
+# Arrancar el servidor
+python -m kogniterm.server --port 8765
+
+# Probar con el cliente incluido
+python -m kogniterm.server.test_client --mode ws --message "hola"
+
+# Docs interactivas
+# http://localhost:8765/docs
+```
+
+### Beneficios
+
+✅ **Agente siempre activo**: el historial y contexto se mantienen entre mensajes  
+✅ **Multi-sesión**: múltiples usuarios/canales simultáneos sin interferencia  
+✅ **Multi-canal**: WebSocket (streaming), SSE (unidireccional), REST (síncrono)  
+✅ **Interrupción segura**: `POST /sessions/{id}/interrupt` cancela la ejecución actual  
+✅ **Extensible**: sistema de adaptadores para Slack, Discord, Telegram, webhooks, etc.  
+✅ **Thread-safe**: agente corre en pool de hilos sin bloquear el loop asyncio  
+
+---
+
+## 15-05-2026 Alineación de Mensajes y Elementos de la TUI
+
+**Descripción**: Se han corregido inconsistencias visuales en la alineación de los mensajes del chat, notificaciones de herramientas y paneles de salida con respecto al campo de entrada de texto (input) y el diseño general centrado de la aplicación.
+
+### Cambios Implementados
+
+#### **🔧 Archivos Modificados**
+
+1. [**`kogniterm/terminal/tui/tui_app.py`**](kogniterm/terminal/tui/tui_app.py)
+   - Añadido `align-horizontal: center` al widget `#chat_log` para que se centre correctamente en la pantalla, alineándose con el contenedor de entrada inferior.
+   - Ajustada la configuración de `ToolOutputWidget` para usar un ancho del 85% (consistente con el resto de la UI) y márgenes laterales de 4 columnas (`0 4 1 4`), eliminando el margen excesivo de 10 columnas.
+
+2. [**`kogniterm/terminal/tui/components/chat_log.py`**](kogniterm/terminal/tui/components/chat_log.py)
+   - Modificado el padding interno de los mensajes de usuario (`write_user_message`) de 2 a 3 columnas. Dado que estos mensajes tienen un borde vertical (pipe) de 1 columna a la izquierda, el texto ahora comienza en la columna 4, alineándose perfectamente con los mensajes del agente, las notificaciones de herramientas y el texto del input bar.
+
+3. [**`kogniterm/terminal/tui/components/tool_output.py`**](kogniterm/terminal/tui/components/tool_output.py)
+   - Actualizado el `DEFAULT_CSS` del widget para reflejar los cambios de ancho (85%) y márgenes (0 4 1 4), asegurando consistencia visual incluso si el widget se usa de forma independiente.
+
+#### **🎯 Beneficios**
+
+✅ **Simetría Visual**: Todos los elementos del chat (mensajes de usuario, agente, herramientas) ahora comparten el mismo eje de alineación izquierda.
+✅ **Consistencia con el Input**: El texto de los mensajes coincide exactamente con el inicio del texto en la barra de comandos.
+✅ **Mejor Aprovechamiento del Espacio**: Se eliminaron márgenes inconsistentes que reducían innecesariamente el ancho útil de los paneles de herramientas.
+✅ **Diseño Centrado**: El chat log ahora se comporta como un bloque centrado coherente con el resto de la interfaz "premium".
+
+
+---
+
+## 15-05-2026 KogniTerm Server — Sistema de Configuración de Canales
+
+**Descripción**: Se ha implementado un sistema de configuración dedicado para el servidor que permite gestionar dinámicamente qué canales (Slack, Webhook, CLI, etc.) están activos.
+
+### Mejoras implementadas
+
+1. **`kogniterm/server/config.py`** *(nuevo)*:
+   - Gestor de configuración basado en Pydantic.
+   - Persistencia automática en `.kogniterm/server_config.json`.
+   - Métodos para añadir, eliminar y activar/desactivar canales.
+
+2. **Endpoints de Configuración en `app.py`**:
+   - `GET /config/channels`: Lista todos los canales.
+   - `POST /config/channels`: Añade o actualiza un canal.
+   - `DELETE /config/channels/{name}`: Elimina un canal.
+   - `PATCH /config/channels/{name}/toggle`: Activa/desactiva un canal.
+
+3. **Integración en el Ciclo de Vida**:
+   - El servidor carga la configuración al arrancar.
+   - Los canales habilitados se inicializan automáticamente.
+
+### Ejemplo de Configuración (`server_config.json`)
+
+```json
+{
+    "host": "0.0.0.0",
+    "port": 8765,
+    "channels": [
+        { "name": "slack_dev", "type": "slack", "enabled": true, "params": { "token": "..." } }
+    ]
+}
+```
+
+---
+
+## 20-05-2026 Implementación y Validación del Agent-Skills Adapter
+
+**Descripción**: Se ha implementado un adaptador especializado para permitir la instalación, carga y ejecución de skills que siguen el estándar externo de `agent-skills`, habilitando la interoperabilidad con ecosistemas de skills remotos (como los de Vercel Labs).
+
+### Cambios Implementados
+
+#### 📁 Estructura del Adaptador
+- **Ubicación**: `kogniterm/skills/bundled/agent_skills_adapter/`
+- **Lógica Core**: Implementación de `scripts/tool.py` con un sistema de despacho basado en acciones: `install`, `load`, `execute` y `list`.
+
+#### 🔧 Evolución de la Robustez (Iteraciones de Validación)
+1. **Soporte para Skills de Solo Prompt**: Se detectó que muchas skills externas son puramente instructivas (solo contienen `SKILL.md`). El adaptador fue flexibilizado para que `SKILL.md` sea el único requisito obligatorio, marcando las skills sin `tool.py` como `has_tool: False`.
+2. **Carga Adaptativa**: El sistema ahora distingue entre skills ejecutables (Python) y skills de instrucciones, proporcionando un mensaje informativo en lugar de fallar al intentar ejecutar una skill sin código.
+3. **Instalación Remota**: Implementación de clonado superficial (`shallow clone`) de repositorios de GitHub para extraer skills específicas de forma eficiente.
+
+#### 🧪 Validación Técnica Completada
+- **Prueba de Instalación**: Instalación exitosa de la skill `find-skills` desde el repositorio `vercel-labs/skills`.
+- **Prueba de Carga**: Verificación de detección correcta de metadatos YAML y estado `prompt-only`.
+- **Prueba de Ejecución**: Validación del flujo de error controlado para skills sin herramienta asociada.
+- **Prueba de Listado**: Confirmación de registro correcto en el directorio de skills externas.
+
+### **🎯 Beneficios**
+✅ **Interoperabilidad**: Capacidad de expandir el arsenal de KogniTerm utilizando el estándar global de `agent-skills`.
+✅ **Flexibilidad de Formato**: Soporte nativo tanto para herramientas de código Python como para guías de prompts avanzadas.
+✅ **Extensibilidad**: Permite la instalación dinámica de capacidades remotas sin necesidad de modificar el núcleo del sistema.
+
+---
+
+## 20-05-2026 Implementación y Validación del Agent-Skills Adapter
+
+**Descripción**: Se ha implementado un adaptador especializado para permitir la instalación, carga y ejecución de skills que siguen el estándar externo de `agent-skills`, habilitando la interoperabilidad con ecosistemas de skills remotos (como los de Vercel Labs).
+
+### Cambios Implementados
+
+#### 📁 Estructura del Adaptador
+- **Ubicación**: `kogniterm/skills/bundled/agent_skills_adapter/`
+- **Lógica Core**: Implementación de `scripts/tool.py` con un sistema de despacho basado en acciones: `install`, `load`, `execute` y `list`.
+
+#### 🔧 Evolución de la Robustez (Iteraciones de Validación)
+1. **Soporte para Skills de Solo Prompt**: Se detectó que muchas skills externas son puramente instructivas (solo contienen `SKILL.md`). El adaptador fue flexibilizado para que `SKILL.md` sea el único requisito obligatorio, marcando las skills sin `tool.py` como `has_tool: False`.
+2. **Carga Adaptativa**: El sistema ahora distingue entre skills ejecutables (Python) y skills de instrucciones, proporcionando un mensaje informativo en lugar de fallar al intentar ejecutar una skill sin código.
+3. **Instalación Remota**: Implementación de clonado superficial (`shallow clone`) de repositorios de GitHub para extraer skills específicas de forma eficiente.
+
+#### 🧪 Validación Técnica Completada
+- **Prueba de Instalación**: Instalación exitosa de la skill `find-skills` desde el repositorio `vercel-labs/skills`.
+- **Prueba de Carga**: Verificación de detección correcta de metadatos YAML y estado `prompt-only`.
+- **Prueba de Ejecución**: Validación del flujo de error controlado para skills sin herramienta asociada.
+- **Prueba de Listado**: Confirmación de registro correcto en el directorio de skills externas.
+
+### **🎯 Beneficios**
+✅ **Interoperabilidad**: Capacidad de expandir el arsenal de KogniTerm utilizando el estándar global de `agent-skills`.
+✅ **Flexibilidad de Formato**: Soporte nativo tanto para herramientas de código Python como para guías de prompts avanzadas.
+✅ **Extensibilidad**: Permite la instalación dinámica de capacidades remotas sin necesidad de modificar el núcleo del sistema.
+
+---
+
+## 20-05-2026 Implementación y Validación del Agent-Skills Adapter
+
+**Descripción**: Se ha implementado un adaptador especializado para permitir la instalación, carga y ejecución de skills que siguen el estándar externo de `agent-skills`, habilitando la interoperabilidad con ecosistemas de skills remotos (como los de Vercel Labs).
+
+### Cambios Implementados
+
+#### 📁 Estructura del Adaptador
+- **Ubicación**: `kogniterm/skills/bundled/agent_skills_adapter/`
+- **Lógica Core**: Implementación de `scripts/tool.py` con un sistema de despacho basado en acciones: `install`, `load`, `execute` y `list`.
+
+#### 🔧 Evolución de la Robustez (Iteraciones de Validación)
+1. **Soporte para Skills de Solo Prompt**: Se detectó que muchas skills externas son puramente instructivas (solo contienen `SKILL.md`). El adaptador fue flexibilizado para que `SKILL.md` sea el único requisito obligatorio, marcando las skills sin `tool.py` como `has_tool: False`.
+2. **Carga Adaptativa**: El sistema ahora distingue entre skills ejecutables (Python) y skills de instrucciones, proporcionando un mensaje informativo en lugar de fallar al intentar ejecutar una skill sin código.
+3. **Instalación Remota**: Implementación de clonado superficial (`shallow clone`) de repositorios de GitHub para extraer skills específicas de forma eficiente.
+
+#### 🧪 Validación Técnica Completada
+- **Prueba de Instalación**: Instalación exitosa de la skill `find-skills` desde el repositorio `vercel-labs/skills`.
+- **Prueba de Carga**: Verificación de detección correcta de metadatos YAML y estado `prompt-only`.
+- **Prueba de Ejecución**: Validación del flujo de error controlado para skills sin herramienta asociada.
+- **Prueba de Listado**: Confirmación de registro correcto en el directorio de skills externas.
+
+### **🎯 Beneficios**
+✅ **Interoperabilidad**: Capacidad de expandir el arsenal de KogniTerm utilizando el estándar global de `agent-skills`.
+✅ **Flexibilidad de Formato**: Soporte nativo tanto para herramientas de código Python como para guías de prompts avanzadas.
+✅ **Extensibilidad**: Permite la instalación dinámica de capacidades remotas sin necesidad de modificar el núcleo del sistema.

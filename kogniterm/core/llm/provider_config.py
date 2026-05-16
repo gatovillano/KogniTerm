@@ -83,7 +83,7 @@ class ProviderConfig:
             ollama_local_base = _normalize_ollama_api_base(
                 os.getenv("OLLAMA_API_BASE") or "http://localhost:11434"
             )
-            ollama_cloud_base = "https://ollama.com"
+            ollama_cloud_base = "https://ollama.com/v1"
             ollama_cloud_key = os.getenv("OLLAMA_CLOUD_API_KEY")
             ollama_local_key = os.getenv("OLLAMA_API_KEY")
             explicit_target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
