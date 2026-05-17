@@ -37,7 +37,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
     const fetchSettings = async () => {
         try {
-            const res = await fetch('http://localhost:8001/api/config/llm');
+            const res = await fetch('http://localhost:8765/api/config/llm');
             if (res.ok) {
                 const data = await res.json();
                 setSettings({
@@ -56,7 +56,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         setIsLoading(true);
         setStatus(null);
         try {
-            const res = await fetch('http://localhost:8001/api/config/llm', {
+            const res = await fetch('http://localhost:8765/api/config/llm', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)

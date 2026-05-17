@@ -203,7 +203,8 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                             title=f"{Icons.THINKING} CodeAgent Pensando...",
                             border_style=ColorPalette.PRIMARY,
                             style=f"on {TUI_BG}",
-                            padding=(0, 2),
+                            padding=(0, 4),
+                            expand=True
                         )
 
                         renderables.append(thought_panel)
@@ -212,7 +213,8 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                             Markdown(full_thinking_content),
                             title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} CodeAgent Pensando...[/]",
                             border_style=ColorPalette.PRIMARY_LIGHT,
-                            padding=(0, 1)
+                            padding=(0, 4),
+                            expand=True
                         ))
                 
                 if full_response_content:
@@ -222,9 +224,9 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 
                 if is_tui:
                     group = Group(*renderables)
-                    terminal_ui.update_live(Padding(group, (0, 4)))
+                    terminal_ui.update_live(Padding(group, (0, 0)))
                 else:
-                    final_renderable = Padding(Group(*renderables), (0, 4)) if renderables else spinner
+                    final_renderable = Padding(Group(*renderables), (0, 0)) if renderables else spinner
                     live.update(final_renderable)
 
             for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
@@ -303,7 +305,8 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
             Syntax(args_json, "json", theme="monokai", line_numbers=False),
             title=f"[bold cyan]🛠️ Ejecutando: {tool_name}[/bold cyan]",
             border_style="cyan",
-            padding=(0, 2)
+            padding=(0, 4),
+            expand=True
         ))
     
     if not tool:
@@ -338,7 +341,8 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
                 content_renderable,
                 title=f"[bold green]✅ Resultado de {tool_name}[/bold green]" + (" (truncado)" if is_truncated else ""),
                 border_style="green",
-                padding=(0, 2)
+                padding=(0, 4),
+                expand=True
             ))
         else:
             # En TUI, si estamos en paneles paralelos (proxied), debemos mostrar el resultado

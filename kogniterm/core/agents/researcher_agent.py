@@ -106,9 +106,10 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
                         Markdown(full_thinking_content),
                         title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} ResearcherAgent Pensando...[/]",
                         border_style=ColorPalette.PRIMARY_LIGHT,
-                        padding=(0, 1)
+                        padding=(0, 4),
+                        expand=True
                     )
-                    live.update(Padding(thinking_panel, (0, 4)))
+                    live.update(Padding(thinking_panel, (0, 0)))
                 else:
                     full_response_content += part
                     renderables = []
@@ -117,10 +118,11 @@ def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue:
                             Markdown(full_thinking_content),
                             title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Investigación finalizada[/]",
                             border_style=ColorPalette.GRAY_600,
-                            padding=(0, 1)
+                            padding=(0, 4),
+                            expand=True
                         ))
                     renderables.append(Markdown(full_response_content))
-                    live.update(Padding(Group(*renderables), (0, 4)))
+                    live.update(Padding(Group(*renderables), (0, 0)))
 
     if final_ai_message:
         if not final_ai_message.content and full_response_content:
@@ -142,7 +144,8 @@ def execute_single_tool(tc, llm_service, interrupt_queue):
         Syntax(args_json, "json", theme="monokai", line_numbers=False),
         title=f"[bold cyan]🛠️ Ejecutando: {tool_name}[/bold cyan]",
         border_style="cyan",
-        padding=(0, 2)
+        padding=(0, 4),
+        expand=True
     ))
     
     tool = llm_service.get_tool(tool_name)
@@ -162,7 +165,8 @@ def execute_single_tool(tc, llm_service, interrupt_queue):
             display_output,
             title=f"[bold green]✅ Resultado de {tool_name}[/bold green]",
             border_style="green",
-            padding=(0, 2)
+            padding=(0, 4),
+            expand=True
         ))
         
         # --- Refresco automático de herramientas ---

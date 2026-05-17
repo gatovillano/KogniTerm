@@ -11,7 +11,7 @@ from rich.text import Text
 logger = logging.getLogger(__name__)
 
 from kogniterm.core.llm_service import LLMService
-from kogniterm.core.agents.bash_agent import create_bash_agent, AgentState, get_system_message
+from kogniterm.core.agents.bash_agent import create_bash_agent, create_learning_agent, AgentState, get_system_message
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import Dict, Any, Optional
 import queue # Importar queue
@@ -25,11 +25,13 @@ orchestrating AI agent interactions in the KogniTerm application.
 
 class AgentInteractionManager:
     def __init__(self, llm_service: LLMService, agent_state: AgentState, terminal_ui: TerminalUI, interrupt_queue: queue.Queue, command_approval_handler=None):
+        logger.info(f"AgentInteractionManager init: terminal_ui class={type(terminal_ui)}")
         self.llm_service = llm_service
         self.agent_state = agent_state
         self.terminal_ui = terminal_ui # Guardar la instancia de TerminalUI
         self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
         self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue, command_approval_handler) # Pasar command_approval_handler
+        self.learning_agent_app = create_learning_agent(llm_service, terminal_ui)
         
         # Obtener el SYSTEM_MESSAGE dinámico para este llm_service
         current_system_message = get_system_message(self.llm_service)
@@ -124,6 +126,22 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
                 self.agent_state.tool_call_id_to_confirm = last_ai_message.tool_calls[0]['id']
             else:
                 self.agent_state.tool_call_id_to_confirm = None
+
+        # Grafo de aprendizaje posterior: se ejecuta al final de un turno cuando no hay herramientas pendientes
+        last_msg = self.agent_state.messages[-1] if self.agent_state.messages else None
+        has_tool_calls = isinstance(last_msg, AIMessage) and bool(last_msg.tool_calls)
+        
+        if (hasattr(self, "learning_agent_app") and self.learning_agent_app and 
+            not self.agent_state.command_to_confirm and 
+            not getattr(self.agent_state, 'tool_pending_confirmation', None) and 
+            not self.agent_state.file_update_diff_pending_confirmation and
+            not getattr(self.agent_state, 'tool_code_to_confirm', None) and
+            not has_tool_calls):
+            try:
+                logger.info("Ejecutando el grafo de aprendizaje posterior...")
+                self.learning_agent_app.invoke(self.agent_state)
+            except Exception as e:
+                logger.error(f"Error al ejecutar el grafo de aprendizaje: {e}")
         
         return final_state_dict
 

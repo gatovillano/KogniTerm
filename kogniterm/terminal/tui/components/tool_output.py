@@ -20,6 +20,7 @@ class ToolOutputWidget(Static):
     ToolOutputWidget {
         width: 85%;
         max-width: 180;
+        min-width: 60;
         height: auto;
         min-height: 5;
         max-height: 30;
@@ -30,6 +31,12 @@ class ToolOutputWidget(Static):
         scrollbar-gutter: stable;
         overflow-y: scroll;
         overflow-x: hidden;
+    }
+
+    #chat_log ToolOutputWidget {
+        width: 100%;
+        max-width: 100%;
+        margin: 0 0 1 0;
     }
     
     ToolOutputWidget:focus {
@@ -63,24 +70,28 @@ class ToolOutputWidget(Static):
         else:
             self.border_title = f"{Icons.TERMINAL} Terminal: {self.tool_name}"
 
-    def _sync_pty_size(self):
-        """Sincroniza el ancho del emulador PTY con el ancho actual del widget."""
-        try:
-            widget_width = int(getattr(self.size, "width", 0) or 0)
-        except Exception:
-            widget_width = 0
-
-        if widget_width > 2:
-            self.ncol = max(40, widget_width - 2)
-
-        self._screen.resize(self.nrow, self.ncol)
-
     def on_mount(self):
         self._update_title()
-        # Sincronizar contra el tamaño real del widget al montar.
-        self._sync_pty_size()
+        # Usar dimensiones estables para evitar bucles de layout iniciales
+        self._screen.resize(self.nrow, self.ncol)
         if self.tool_content:
             self.update_content(self.tool_content)
+        # Iniciar parpadeo de cursor real de terminal
+        self.cursor_visible = True
+        self._cursor_timer = self.set_interval(0.5, self._toggle_cursor)
+
+    def on_focus(self) -> None:
+        self.cursor_visible = True
+        self.update(self._render_tool_output())
+
+    def on_blur(self) -> None:
+        self.cursor_visible = False
+        self.update(self._render_tool_output())
+
+    def _toggle_cursor(self):
+        if self.has_focus:
+            self.cursor_visible = not self.cursor_visible
+            self.update(self._render_tool_output())
 
     def on_resize(self, event) -> None:
         """Ajusta el ancho del emulador PTY al tamaño real del widget."""
@@ -102,8 +113,6 @@ class ToolOutputWidget(Static):
         """Actualiza el contenido alimentando el emulador PTY."""
         if command:
             self._update_title(command)
-
-        self._sync_pty_size()
             
         if not data:
             return
@@ -134,35 +143,49 @@ class ToolOutputWidget(Static):
         self.scroll_end(animate=False)
 
     def _render_tool_output(self):
-        from rich.console import Group
+        from rich.style import Style
         from rich.text import Text
         
-        # Renderizar la pantalla de pyte a un objeto Text de Rich
         lines = []
         for y in range(self._screen.lines):
             line_text = Text()
             line = self._screen.buffer[y]
-            style_change_pos = 0
+            
+            current_style = None
+            current_run = ""
             for x in range(self._screen.columns):
                 char = line[x]
-                line_text.append(char.data)
+                style = self._get_rich_style(char)
                 
-                # Manejo de estilos simplificado
-                if x > 0:
-                    prev_char = line[x-1]
-                    if self._char_style_differs(char, prev_char) or x == self._screen.columns - 1:
-                        style = self._get_rich_style(prev_char)
-                        line_text.stylize(style, style_change_pos, x + (1 if x == self._screen.columns - 1 else 0))
-                        style_change_pos = x
+                # Renderizar cursor si el cursor está en esta celda y no está oculto por el software
+                is_cursor = (self._screen.cursor.x == x and self._screen.cursor.y == y and not self._screen.cursor.hidden)
+                if is_cursor:
+                    if self.has_focus:
+                        if self.cursor_visible:
+                            # Combinar estilo existente con reversión
+                            style = style + Style(reverse=True)
+                    else:
+                        # Cursor no enfocado: mostrar un sutil subrayado atenuado
+                        style = style + Style(underline=True, dim=True)
                 
-                # Renderizar cursor si el panel tiene el foco
-                if self.has_focus and self._screen.cursor.x == x and self._screen.cursor.y == y:
-                    line_text.stylize("reverse", x, x + 1)
+                if current_style is None:
+                    current_style = style
+                    current_run = char.data
+                elif style == current_style:
+                    current_run += char.data
+                else:
+                    line_text.append(current_run, style=current_style)
+                    current_style = style
+                    current_run = char.data
+            
+            if current_run:
+                line_text.append(current_run, style=current_style)
             
             lines.append(line_text)
             
-        # Eliminar líneas vacías al final para que el height: auto ajuste al contenido real
-        while lines and not str(lines[-1]).strip():
+        # Eliminar líneas vacías al final, pero NUNCA por encima de la posición actual del cursor
+        min_lines = self._screen.cursor.y + 1
+        while len(lines) > min_lines and not str(lines[-1]).strip():
             lines.pop()
             
         if not lines:
@@ -172,17 +195,36 @@ class ToolOutputWidget(Static):
         
         return display_content
 
-    def _char_style_differs(self, a, b):
-        return (a.fg != b.fg or a.bg != b.bg or a.bold != b.bold or 
-                a.italics != b.italics or a.underscore != b.underscore)
-
     def _get_rich_style(self, char):
         from rich.style import Style
         fg = char.fg if char.fg != 'default' else None
         bg = char.bg if char.bg != 'default' else None
         if fg == 'brown': fg = 'yellow'
         if bg == 'brown': bg = 'yellow'
-        return Style(color=fg, bgcolor=bg, bold=char.bold, italic=char.italics, underline=char.underscore)
+        
+        # Atributos extendidos de pyte / ANSI para una emulación 100% fiel
+        bold = getattr(char, 'bold', False)
+        italic = getattr(char, 'italics', False)
+        underline = getattr(char, 'underscore', False)
+        reverse = getattr(char, 'reverse', False)
+        blink = getattr(char, 'blink', False)
+        dim = getattr(char, 'dim', False)
+        
+        # Intercambiar foreground y background si reverse está activo
+        if reverse:
+            fg, bg = bg, fg
+            if fg is None: fg = 'black'
+            if bg is None: bg = 'white'
+            
+        return Style(
+            color=fg, 
+            bgcolor=bg, 
+            bold=bold, 
+            italic=italic, 
+            underline=underline,
+            blink=blink,
+            dim=dim
+        )
 
     def _is_markdown(self, content: str) -> bool:
         if not content: return False

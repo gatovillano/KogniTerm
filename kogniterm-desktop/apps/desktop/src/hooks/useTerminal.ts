@@ -13,7 +13,7 @@ export function useTerminal() {
         setIsExecuting(true);
 
         try {
-            const response = await fetch('http://localhost:8001/api/execute', {
+            const response = await fetch('http://localhost:8765/api/execute', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

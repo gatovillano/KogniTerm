@@ -20,7 +20,7 @@ export const FileExplorer = ({ workspacePath }: FileExplorerProps) => {
     const loadDirectory = async (path: string) => {
         setLoading(true);
         try {
-            const response = await fetch('http://127.0.0.1:8001/api/files/list', {
+            const response = await fetch('http://127.0.0.1:8765/api/files/list', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

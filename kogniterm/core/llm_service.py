@@ -18,6 +18,9 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 from typing import Union # ¡Nueva importación para Union!
 
+# Importar ConfigManager para gestión centralizada de credenciales
+from kogniterm.terminal.config_manager import ConfigManager
+
 from .multi_provider_manager import get_provider_manager, MultiProviderManager
 from .utils.tool_utils import normalize_tool_parameters_schema
 
@@ -109,19 +112,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 load_dotenv()
 
-# Lógica de fallback para credenciales
-openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+# --- Gestión centralizada de credenciales con ConfigManager ---
+config_manager = ConfigManager()
+
+
 litellm_model = os.getenv("LITELLM_MODEL")
 litellm_api_base = os.getenv("LITELLM_API_BASE")
-
-google_api_key = os.getenv("GOOGLE_API_KEY")
 gemini_model = os.getenv("GEMINI_MODEL")
-
 ollama_api_base = os.getenv("OLLAMA_API_BASE")
 ollama_api_key = os.getenv("OLLAMA_API_KEY")
-ollama_cloud_key = os.getenv("OLLAMA_CLOUD_API_KEY")
 ollama_target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
 
 # Configuración global de LiteLLM para máxima compatibilidad
@@ -164,17 +166,9 @@ if model_to_use.startswith("ollama/"):
         base = ollama_api_base or "http://localhost:11434/v1"
         logger.info(f"🦙 Configuración inicial detectada: Ollama Local ({model_to_use}) en {base}")
 elif model_to_use.startswith("gemini/") or ("gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower()):
-    if google_api_key:
-        logger.info(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
-    elif openrouter_api_key:
-        logger.info(f"🤖 Configuración inicial detectada: OpenRouter/Gemini ({model_to_use})")
+    logger.info(f"🤖 Configuración inicial detectada: Gemini ({model_to_use})")
 else:
-    if openrouter_api_key:
-        logger.info(f"🤖 Configuración inicial detectada: OpenRouter ({model_to_use})")
-    elif google_api_key:
-        logger.info(f"🤖 Configuración inicial detectada: Google AI Studio ({model_to_use})")
-    else:
-        logger.warning("No se encontraron credenciales válidas. Configura OPENROUTER_API_KEY o GOOGLE_API_KEY.")
+    logger.info(f"🤖 Configuración inicial detectada: Proveedor Genérico ({model_to_use})")
 
 from .exceptions import UserConfirmationRequired # Importar la excepción
 import tiktoken # Importar tiktoken
@@ -207,13 +201,32 @@ class LLMService:
         # Modelo para resumen de historial (fallback/summary) - usa el mismo por defecto
         self.summary_model = self.model_name
             
-        # Determinar API Key de forma inteligente según el modelo inicial
+        # Determinar API Key de forma inteligente según el modelo inicial (prioriza config.json)
         if self.model_name.startswith("gemini/"):
-            self.api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            self.api_key = config_manager.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
         elif self.model_name.startswith("openrouter/"):
-            self.api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            self.api_key = config_manager.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("openai/"):
+            self.api_key = config_manager.get_api_key("openai") or os.environ.get("OPENAI_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("anthropic/"):
+            self.api_key = config_manager.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("ollama_cloud/"):
+            self.api_key = config_manager.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY") or os.environ.get("LITELLM_API_KEY")
         else:
-            self.api_key = os.environ.get("LITELLM_API_KEY") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            # Fallback: cualquier key válida
+            self.api_key = (
+                config_manager.get_api_key("openrouter")
+                or config_manager.get_api_key("google")
+                or config_manager.get_api_key("openai")
+                or config_manager.get_api_key("anthropic")
+                or config_manager.get_api_key("ollama_cloud")
+                or os.environ.get("LITELLM_API_KEY")
+                or os.environ.get("OPENROUTER_API_KEY")
+                or os.environ.get("GOOGLE_API_KEY")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("ANTHROPIC_API_KEY")
+                or os.environ.get("OLLAMA_CLOUD_API_KEY")
+            )
 
         self.interrupt_queue = interrupt_queue
         self.stop_generation_flag = False
@@ -848,6 +861,49 @@ class LLMService:
                 # print(f"Advertencia: Error al inicializar la memoria: {e}", file=sys.stderr)
                 pass # No es crítico si falla la inicialización de memoria
 
+    def reload_config(self):
+        """Recarga la configuración (modelo y API key) desde ConfigManager y el entorno."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        
+        # Recargar modelo
+        new_model = cm.get_config("default_model") or os.environ.get("LITELLM_MODEL") or default_model
+        if new_model.startswith("AIza"):
+            logger.warning(f"Se detectó una API Key en LITELLM_MODEL. Corrigiendo a '{default_model}'.")
+            new_model = default_model
+        
+        self.model_name = new_model
+        self.summary_model = self.model_name
+        
+        # Recargar API Key
+        if self.model_name.startswith("gemini/"):
+            self.api_key = cm.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("openrouter/"):
+            self.api_key = cm.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("openai/"):
+            self.api_key = cm.get_api_key("openai") or os.environ.get("OPENAI_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("anthropic/"):
+            self.api_key = cm.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("ollama_cloud/"):
+            self.api_key = cm.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        else:
+            # Fallback
+            self.api_key = (
+                cm.get_api_key("openrouter")
+                or cm.get_api_key("google")
+                or cm.get_api_key("openai")
+                or cm.get_api_key("anthropic")
+                or cm.get_api_key("ollama_cloud")
+                or os.environ.get("LITELLM_API_KEY")
+                or os.environ.get("OPENROUTER_API_KEY")
+                or os.environ.get("GOOGLE_API_KEY")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("ANTHROPIC_API_KEY")
+                or os.environ.get("OLLAMA_CLOUD_API_KEY")
+            )
+        
+        logger.info(f"LLMService: Configuración recargada. Nuevo modelo: {self.model_name}")
+
     def invoke(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True) -> Generator[Union[AIMessage, str], None, None]:
         """
         Invoca al modelo LLM con el historial proporcionado.
@@ -866,16 +922,6 @@ class LLMService:
             save_history=save_history,
             history=messages_to_process
         )
-
-        last_user_text = None
-        for msg in reversed(processed_history):
-            if isinstance(msg, HumanMessage):
-                content = msg.content
-                if isinstance(content, str):
-                    last_user_text = content
-                else:
-                    last_user_text = str(content)
-                break
 
         # 3. Construir mensajes para LiteLLM
         litellm_messages = []
@@ -907,16 +953,6 @@ class LLMService:
             # Solo añadir si no hay ya un mensaje con ese encabezado en el historial procesado
             if not any("## 📁 CONTEXTO DEL PROYECTO" in str(msg.content) for msg in processed_history):
                 system_contents.append(workspace_context_message.content)
-
-        # Añadir contexto progresivo de skills cargadas (estándar Agent Skills / Skills SH)
-        if hasattr(self, 'skill_manager'):
-            try:
-                skill_context_message = self.skill_manager.build_skill_context_message(query=last_user_text)
-            except Exception:
-                skill_context_message = None
-
-            if skill_context_message:
-                system_contents.append(skill_context_message.content)
 
         # Unificar todos los mensajes de sistema al principio (Requerido por muchos proveedores)
         if system_contents:
@@ -1172,6 +1208,12 @@ class LLMService:
             # Usar MultiProviderManager si está habilitado
             if self.use_multi_provider and self.provider_manager:
                 logger.info("🔄 Usando MultiProviderManager con fallback automático")
+                
+                # Inyectar custom_llm_provider si es kilocode
+                extra_args = {}
+                if "kilocode" in self.model_name.lower() or (hasattr(self, 'api_base') and self.api_base and "kilo.ai" in self.api_base):
+                    extra_args["custom_llm_provider"] = "openai"
+
                 response_generator = self.provider_manager.execute_with_fallback(
                     model_name=self.model_name,
                     messages=completion_kwargs["messages"],
@@ -1184,6 +1226,7 @@ class LLMService:
                     max_tokens=completion_kwargs.get("max_tokens", 8192),
                     tools=completion_kwargs.get("tools"),
                     tool_choice=completion_kwargs.get("tool_choice"),
+                    **extra_args
                 )
             else:
                 # Fallback al comportamiento original

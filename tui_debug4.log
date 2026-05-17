@@ -1,0 +1,18 @@
+[KOGNITERM DEBUG] Antes de run_cli()
+[KOGNITERM DEBUG] run_cli() retornó: False
+[KOGNITERM DEBUG] Antes de asyncio.run(_main_async())
+[KOGNITERM DEBUG] Entrando a _main_async()
+[KOGNITERM DEBUG] Después de imports de config_manager y themes
+[KOGNITERM DEBUG] Después de aplicar tema
+[KOGNITERM DEBUG] Antes de inyección de modelo/config
+[KOGNITERM DEBUG] Después de inyección de modelo/config
+[KOGNITERM DEBUG] Después de inyección de reasoning_effort
+[KOGNITERM DEBUG] Después de inyección de API keys
+[KOGNITERM DEBUG] Después de deshabilitar logs
+[KOGNITERM DEBUG] Después de importar get_system_message
+[KOGNITERM DEBUG] Después de instanciar LLMService
+[TUI DEBUG] ChatLogWidget=<class 'kogniterm.terminal.tui.components.chat_log.ChatLogWidget'>
+[TUI DEBUG] ChatInput=<class 'kogniterm.terminal.tui.components.status_footer.ChatInput'>
+[TUI DEBUG] StatusFooter=<class 'kogniterm.terminal.tui.components.status_footer.StatusFooter'>
+[TUI DEBUG] ToolOutputWidget=<class 'kogniterm.terminal.tui.components.tool_output.ToolOutputWidget'>
+[KOGNITERM DEBUG] Saliendo de main()

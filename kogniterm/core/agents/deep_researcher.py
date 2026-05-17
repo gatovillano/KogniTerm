@@ -53,6 +53,8 @@ class DeepResearchState(AgentState):
     iteration_count: int = 0
     max_iterations: int = 5
     current_task: str = ""
+    autonomous_approvals: bool = True  # DeepResearch opera en modo autónomo por defecto
+
 
 # --- Prompts ---
 def get_deep_research_system_prompt(llm_service: LLMService) -> str:
@@ -112,7 +114,7 @@ def planning_node(state: DeepResearchState, llm_service: LLMService, terminal_ui
         from rich.panel import Panel
         from kogniterm.terminal.themes import Icons
         from rich.padding import Padding
-        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Planificando estrategia de investigación...[/bold]", border_style="magenta"), (0, 4)))
+        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Planificando estrategia de investigación...[/bold]", border_style="magenta", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
     last_message = state.messages[-1].content
@@ -216,7 +218,7 @@ def reflection_node(state: DeepResearchState, llm_service: LLMService, terminal_
     """Nodo de pensamiento crítico que evalúa la calidad de los hallazgos."""
     if terminal_ui and hasattr(terminal_ui, "update_live"):
         from rich.padding import Padding
-        terminal_ui.update_live(Padding(Panel(f"{Icons.THINKING} [bold]Reflexionando sobre los hallazgos y buscando inconsistencias...[/bold]", border_style="cyan"), (0, 4)))
+        terminal_ui.update_live(Padding(Panel(f"{Icons.THINKING} [bold]Reflexionando sobre los hallazgos y buscando inconsistencias...[/bold]", border_style="cyan", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
     findings_text = "\n".join([f"- {f['task']}: {f['content'][:200]}..." for f in state.findings])
@@ -246,7 +248,7 @@ def synthesis_node(state: DeepResearchState, llm_service: LLMService, terminal_u
         from rich.panel import Panel
         from kogniterm.terminal.themes import Icons
         from rich.padding import Padding
-        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Sintetizando informe final de investigación...[/bold]", border_style="green"), (0, 4)))
+        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Sintetizando informe final de investigación...[/bold]", border_style="green", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
     all_findings_summary = ""
@@ -283,7 +285,7 @@ def synthesis_node(state: DeepResearchState, llm_service: LLMService, terminal_u
                 if terminal_ui and hasattr(terminal_ui, "update_live"):
                     from rich.panel import Panel
                     from rich.padding import Padding
-                    terminal_ui.update_live(Padding(Panel(Markdown(f"## 🔬 Informe de Síntesis\n\n{full_content}"), border_style="green", title="DeepResearcher"), (0, 4)))
+                    terminal_ui.update_live(Padding(Panel(Markdown(f"## 🔬 Informe de Síntesis\n\n{full_content}"), border_style="green", title="DeepResearcher", padding=(0, 4), expand=True), (0, 0)))
 
     if not (terminal_ui and hasattr(terminal_ui, "update_live")):        
         current_console.print(Padding(Markdown(f"## 🔬 Informe de Investigación\n\n{full_content}"), (1, 4)))
@@ -356,7 +358,7 @@ def call_deep_model_node(state: DeepResearchState, llm_service: LLMService, term
                         title=f"{Icons.THINKING} DeepResearcher Pensando...",
                         border_style=ColorPalette.GRAY_700,
                         style=f"dim {ColorPalette.GRAY_500} on {ColorPalette.GRAY_900}",
-                        padding=(0, 2),
+                        padding=(0, 4),
                         expand=True
                     )
                     renderables.append(thought_panel)
@@ -365,7 +367,8 @@ def call_deep_model_node(state: DeepResearchState, llm_service: LLMService, term
                         Markdown(full_thinking_content),
                         title=f"{Icons.THINKING} [bold {ColorPalette.PRIMARY_LIGHT}]DeepResearcher Razonando...[/]",
                         border_style=ColorPalette.PRIMARY_LIGHT,
-                        padding=(0, 1),
+                        padding=(0, 4),
+                        expand=True
                     ))
             
             if full_response_content:
@@ -373,9 +376,9 @@ def call_deep_model_node(state: DeepResearchState, llm_service: LLMService, term
         
         if renderables:
             if is_tui and terminal_ui and hasattr(terminal_ui, "update_live"):
-                terminal_ui.update_live(Padding(Group(*renderables), (0, 4)))
+                terminal_ui.update_live(Padding(Group(*renderables), (0, 0)))
             elif not is_tui and _live_ref[0] is not None:
-                _live_ref[0].update(Padding(Group(*renderables), (0, 4)))
+                _live_ref[0].update(Padding(Group(*renderables), (0, 0)))
 
     # Usamos una lista mutable para acceder al live desde el closure
     _live_ref = [None]
@@ -439,7 +442,7 @@ def create_deep_researcher(llm_service: LLMService, terminal_ui: Any = None, int
     workflow.add_node("synthesis", functools.partial(synthesis_node, llm_service=llm_service, terminal_ui=terminal_ui))
     
     workflow.add_node("call_model", functools.partial(call_deep_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
-    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
+    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue, autonomous_approvals=True))
 
     # Definir flujo
     workflow.set_entry_point("planning")

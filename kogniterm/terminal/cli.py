@@ -1,3 +1,4 @@
+
 import yaml
 import sys
 import os
@@ -8,7 +9,7 @@ import shutil
 import getpass
 from typing import List, Optional
 
-from kogniterm.terminal.config_manager import ConfigManager
+from kogniterm.terminal.api_client import get_llm_config, set_llm_config
 from kogniterm.utils.logger import setup_logger
 from .security import scrub_secrets, mask_url_credentials
 
@@ -52,7 +53,9 @@ def _prompt_secret(prompt: str, default: Optional[str] = None, input_fn=input, s
     return default or ""
 
 class CLIHandler:
+
     def __init__(self):
+        from kogniterm.terminal.config_manager import ConfigManager
         self.config_manager = ConfigManager()
 
     def handle_config(self, args: List[str]):
@@ -274,8 +277,9 @@ class CLIHandler:
         else:
             print(f"❌ Unknown index command: {command}")
 
+
     def handle_models(self, args: List[str]):
-        """Handles 'models' commands."""
+        """Handles 'models' commands (centralizado vía API)."""
         if len(args) < 1:
             print("Usage: kogniterm models [use|current] ...")
             return
@@ -287,17 +291,25 @@ class CLIHandler:
                 print("Usage: kogniterm models use <model_name>")
                 return
             model_name = args[1]
-            self.config_manager.set_global_config("default_model", model_name)
-            print(f"✅ Default model set to: {model_name}")
-            print("ℹ️  Restart KogniTerm to apply changes.")
+            try:
+                set_llm_config(model_name=model_name)
+                print(f"✅ Default model set to: {model_name}")
+                print("ℹ️  The change is now effective for all interfaces (TUI, Desktop, API, bots).")
+            except Exception as e:
+                print(f"❌ Error updating model via API: {e}")
 
         elif command == 'current':
-            model = self.config_manager.get_config("default_model")
-            if model:
-                print(f"🤖 Current configured model: {model}")
-            else:
-                print("🤖 No default model configured (using system environment variables).")
-        
+            try:
+                config = get_llm_config()
+                model = config.get("model")
+                provider = config.get("provider")
+                if model:
+                    print(f"🤖 Current configured model: {model} (provider: {provider})")
+                else:
+                    print("🤖 No default model configured in backend.")
+            except Exception as e:
+                print(f"❌ Error fetching model config from API: {e}")
+
         else:
             print(f"❌ Unknown models command: {command}")
 
@@ -358,6 +370,16 @@ class CLIHandler:
 
         command = args[0]
 
+        if command == '--help' or command == '-h':
+            print("Usage: kogniterm skills [add|search|list|remove|info] ...")
+            print("\nComandos:")
+            print("  add    - Instala una skill desde un repositorio GitHub")
+            print("  search - Busca skills en el catálogo de skills.sh")
+            print("  list   - Lista las skills externas instaladas")
+            print("  remove - Elimina una skill externa instalada")
+            print("  info   - Muestra información detallada de una skill")
+            return
+
         if command == 'add':
             self._handle_skills_add(args[1:])
         elif command == 'search':
@@ -371,6 +393,15 @@ class CLIHandler:
         else:
             print(f"❌ Unknown skills command: {command}")
 
+        if '--help' in args or '-h' in args:
+            print("Usage: kogniterm skills add <repo_url> [--skill <nombre>]")
+            print("\nInstala una skill desde un repositorio GitHub o skills.sh.")
+            print("\nOpciones:")
+            print("  --skill <nombre>  Nombre específico de la skill a instalar")
+            print("\nEjemplos:")
+            print("  kogniterm skills add https://github.com/user/repo")
+            print("  kogniterm skills add https://github.com/user/repo --skill mi_skill")
+            return
     def _handle_skills_add(self, args: List[str]):
         """Instala una skill desde un repositorio GitHub."""
         repo_url = None
@@ -424,15 +455,22 @@ class CLIHandler:
     def _handle_skills_search(self, args: List[str]):
         """Busca skills en el catálogo de skills.sh."""
         if not args:
-            print("❌ Usage: kogniterm skills search <query>")
-            return
+            if '--help' in args or '-h' in args:
+                print("Usage: kogniterm skills search <query>")
+                print("\nBusca skills en el catálogo de skills.sh.")
+                print("\nArgumentos:")
+                print("  <query>    Término de búsqueda (ej: 'react', 'testing')")
+                print("\nEjemplos:")
+                print("  kogniterm skills search react")
+                print("  kogniterm skills search database")
+                return
 
         query = " ".join(args)
 
         try:
             import sys
             from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
+            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
             from tool import search_skills_catalog
 
             result = search_skills_catalog(query=query, limit=10)
@@ -458,6 +496,12 @@ class CLIHandler:
 
     def _handle_skills_list(self, args: List[str]):
         """Lista las skills externas instaladas."""
+        if '--help' in args or '-h' in args:
+            print("Usage: kogniterm skills list")
+            print("\nLista todas las skills externas instaladas.")
+            print("\nEjemplos:")
+            print("  kogniterm skills list")
+            return
         try:
             import sys
             from pathlib import Path

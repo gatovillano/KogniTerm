@@ -22,7 +22,7 @@ class CodebaseIndexer:
         exclude_dirs_str = self.config.get("codebase_index_exclude_dirs", "node_modules,.git,__pycache__,.kogniterm,venv,.venv,dist,build,target")
         self.exclude_dirs = [d.strip() for d in exclude_dirs_str.split(',') if d.strip()]
 
-        source_roots_str = self.config.get("codebase_index_source_roots", "kogniterm,kogniterm-desktop,kogniterm-android")
+        source_roots_str = self.config.get("codebase_index_source_roots", "")
         self.source_roots = [r.strip() for r in source_roots_str.split(',') if r.strip()]
         
         include_patterns_str = self.config.get("codebase_index_include_patterns", "*.py,*.js,*.ts,*.html,*.css,*.md")

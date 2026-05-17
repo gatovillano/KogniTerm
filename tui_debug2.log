@@ -1,0 +1,6 @@
+[KOGNITERM DEBUG] Antes de run_cli()
+[KOGNITERM DEBUG] run_cli() retornó: False
+[TUI DEBUG] ChatLogWidget=<class 'kogniterm.terminal.tui.components.chat_log.ChatLogWidget'>
+[TUI DEBUG] ChatInput=<class 'kogniterm.terminal.tui.components.status_footer.ChatInput'>
+[TUI DEBUG] StatusFooter=<class 'kogniterm.terminal.tui.components.status_footer.StatusFooter'>
+[TUI DEBUG] ToolOutputWidget=<class 'kogniterm.terminal.tui.components.tool_output.ToolOutputWidget'>

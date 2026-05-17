@@ -119,7 +119,7 @@ def context_injection_node(state: AgentState, llm_service: LLMService, terminal_
     if terminal_ui and hasattr(terminal_ui, "update_live"):
         from rich.padding import Padding
         from rich.panel import Panel
-        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Sincronizando contexto técnico del proyecto...[/bold]", border_style="blue"), (0, 4)))
+        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Sincronizando contexto técnico del proyecto...[/bold]", border_style="blue", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
     # 1. Asegurar que el contexto del workspace esté inicializado (Estructura de carpetas)
@@ -209,7 +209,7 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
     # 2. Notificar en TUI solo si hay archivos para verificar
     if terminal_ui and hasattr(terminal_ui, "update_live"):
         from rich.padding import Padding
-        terminal_ui.update_live(Padding(Panel(f"{Icons.CODE} [bold]Verificando integridad técnica de los cambios...[/bold]", border_style="yellow"), (0, 4)))
+        terminal_ui.update_live(Padding(Panel(f"{Icons.CODE} [bold]Verificando integridad técnica de los cambios...[/bold]", border_style="yellow", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
     verification_results = []
@@ -300,7 +300,7 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
                         title=f"{Icons.THINKING} CodeAgent Pensando...",
                         border_style=ColorPalette.GRAY_700,
                         style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
-                        padding=(0, 2),
+                        padding=(0, 4),
                         expand=True
                     )
                     renderables.append(thought_panel)
@@ -309,7 +309,8 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
                         Markdown(full_thinking_content),
                         title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} CodeAgent Pensando...[/]",
                         border_style=ColorPalette.PRIMARY_LIGHT,
-                        padding=(0, 1)
+                        padding=(0, 4),
+                        expand=True
                     ))
             
             if full_response_content:
@@ -317,9 +318,9 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
 
         if renderables:
             if is_tui and terminal_ui and hasattr(terminal_ui, "update_live"):
-                terminal_ui.update_live(Padding(Group(*renderables), (0, 4)))
+                terminal_ui.update_live(Padding(Group(*renderables), (0, 0)))
             elif not is_tui and _live_ref[0] is not None:
-                _live_ref[0].update(Padding(Group(*renderables), (0, 4)))
+                _live_ref[0].update(Padding(Group(*renderables), (0, 0)))
 
     # Usamos una lista mutable para acceder al live desde el closure
     _live_ref = [None]

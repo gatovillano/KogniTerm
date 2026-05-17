@@ -24,7 +24,7 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, List
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -49,12 +49,51 @@ class MessageRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, description="ID de sesión existente. Si es None, se crea una nueva.")
 
 
+class LLMConfigRequest(BaseModel):
+    model: Optional[str] = Field(default=None, description="Nombre del modelo LLM")
+    api_key: Optional[str] = Field(default=None, description="API Key del proveedor")
+    provider: Optional[str] = Field(default=None, description="Proveedor del modelo")
+
+
 class SessionCreateRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, description="ID personalizado. Si es None, se genera automáticamente.")
 
 
 class InterruptRequest(BaseModel):
     reason: Optional[str] = Field(default="Usuario solicitó interrupción.")
+
+
+class CommandRequest(BaseModel):
+    command: str
+
+
+class CommandResponse(BaseModel):
+    output: str
+    error: str = ""
+    exitCode: int = 0
+
+
+class FileItem(BaseModel):
+    name: str
+    path: str
+    isDirectory: bool
+    size: Optional[int] = None
+
+
+class DirectoryRequest(BaseModel):
+    path: str = "."
+
+
+class DirectoryResponse(BaseModel):
+    items: List[FileItem]
+    currentPath: str
+
+
+class ChatMessageRequest(BaseModel):
+    message: str
+    workspace_id: Optional[str] = None
+    session_id: Optional[str] = None
+    thread_id: Optional[str] = None
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
@@ -66,9 +105,18 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Iniciando KogniTerm Server...")
     loop = asyncio.get_event_loop()
 
-    logger.info("⚙️  Cargando LLMService...")
-    llm_service = LLMService()
-    pool.initialize(llm_service=llm_service, loop=loop)
+    # Cargar LLMService en segundo plano para no colgar ni bloquear el inicio del servidor
+    async def load_llm_service_background():
+        logger.info("⚙️  Cargando LLMService en segundo plano (evitando bloqueos en el arranque)...")
+        try:
+            # Ejecutar el constructor síncrono de LLMService en un hilo del pool para no bloquear el loop principal
+            llm_service = await loop.run_in_executor(None, LLMService)
+            pool.initialize(llm_service=llm_service, loop=loop)
+            logger.info("✅ KogniTerm Server y LLMService listos en segundo plano.")
+        except Exception as e:
+            logger.error(f"❌ Error crítico al inicializar LLMService en segundo plano: {e}")
+
+    asyncio.create_task(load_llm_service_background())
 
     # Inicializar canales externos configurados
     active_tasks = []
@@ -160,16 +208,391 @@ def create_app() -> FastAPI:
         server_config.toggle_channel(name, enabled)
         return {"status": "updated", "channel": name, "enabled": enabled}
 
+    # ── Gestión de Configuración (LLM) ──────────────────────────────────────
+
+    @application.get("/api/models/available", tags=["Configuración"])
+    @application.get("/models/available", tags=["Configuración"])
+    async def get_available_models():
+        """Devuelve la lista de modelos y proveedores disponibles, intentando obtenerlos dinámicamente si hay llaves/servicios configurados."""
+        import httpx
+        from kogniterm.terminal.config_manager import ConfigManager
+        
+        cm = ConfigManager()
+        google_key = cm.get_api_key("google") or os.environ.get("GOOGLE_API_KEY")
+        openai_key = cm.get_api_key("openai") or os.environ.get("OPENAI_API_KEY")
+        openrouter_key = cm.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY")
+        anthropic_key = cm.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY")
+        ollama_base = os.environ.get("OLLAMA_API_BASE") or "http://127.0.0.1:11434"
+
+        # Valores por defecto de respaldo (fallback)
+        google_models = ["gemini/gemini-1.5-flash", "gemini/gemini-1.5-pro", "gemini/gemini-2.0-flash-exp"]
+        openrouter_models = ["openrouter/google/gemini-2.0-flash-exp:free", "openrouter/openai/gpt-4o"]
+        openai_models = ["gpt-4o", "gpt-3.5-turbo"]
+        anthropic_models = ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229"]
+        ollama_models = ["ollama/llama3", "ollama/mistral"]
+        kilocode_models = ["kilocode/kilo/auto", "kilocode/openai/gpt-4o"]
+
+        async def fetch_google():
+            nonlocal google_models
+            if not google_key:
+                return
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}", timeout=2.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        for m in data.get("models", []):
+                            m_name = m.get("name", "")
+                            if m_name.startswith("models/"):
+                                m_name = m_name.replace("models/", "gemini/", 1)
+                            if m_name and ("gemini" in m_name or "text-embedding" in m_name):
+                                fetched.append(m_name)
+                        if fetched:
+                            google_models = fetched
+            except Exception:
+                pass
+
+        async def fetch_openrouter():
+            nonlocal openrouter_models
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get("https://openrouter.ai/api/v1/models", timeout=3.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        for m in data.get("data", []):
+                            m_id = m.get("id")
+                            if m_id:
+                                fetched.append(f"openrouter/{m_id}")
+                        if fetched:
+                            openrouter_models = fetched
+            except Exception:
+                pass
+
+        async def fetch_openai():
+            nonlocal openai_models
+            if not openai_key:
+                return
+            try:
+                async with httpx.AsyncClient() as client:
+                    headers = {"Authorization": f"Bearer {openai_key}"}
+                    resp = await client.get("https://api.openai.com/v1/models", headers=headers, timeout=2.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        for m in data.get("data", []):
+                            m_id = m.get("id")
+                            if m_id and ("gpt" in m_id or "o1" in m_id or "o3" in m_id):
+                                fetched.append(m_id)
+                        if fetched:
+                            openai_models = sorted(fetched)
+            except Exception:
+                pass
+
+        async def fetch_anthropic():
+            nonlocal anthropic_models
+            if not anthropic_key:
+                return
+            try:
+                async with httpx.AsyncClient() as client:
+                    headers = {
+                        "x-api-key": anthropic_key,
+                        "anthropic-version": "2023-06-01"
+                    }
+                    resp = await client.get("https://api.anthropic.com/v1/models", headers=headers, timeout=2.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        for m in data.get("data", []):
+                            m_id = m.get("id")
+                            if m_id:
+                                fetched.append(m_id)
+                        if fetched:
+                            anthropic_models = fetched
+            except Exception:
+                pass
+
+        async def fetch_ollama():
+            nonlocal ollama_models
+            try:
+                base = ollama_base.rstrip("/")
+                if base.endswith("/v1"):
+                    base = base[:-3]
+                if base.endswith("/api"):
+                    base = base[:-4]
+                base = base.rstrip("/")
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(f"{base}/api/tags", timeout=1.5)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        for m in data.get("models", []):
+                            m_name = m.get("name")
+                            if m_name:
+                                if m_name.startswith("ollama/"):
+                                    fetched.append(m_name)
+                                else:
+                                    fetched.append(f"ollama/{m_name}")
+                        if fetched:
+                            ollama_models = fetched
+            except Exception:
+                pass
+
+        async def fetch_kilocode():
+            nonlocal kilocode_models
+            kilocode_key = cm.get_api_key("kilocode") or os.environ.get("KILOCODE_API_KEY")
+            if not kilocode_key:
+                return
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        "https://api.kilo.ai/api/gateway/models",
+                        headers={"Authorization": f"Bearer {kilocode_key}"},
+                        timeout=3.0
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        model_list = data if isinstance(data, list) else data.get('models', data.get('data', []))
+                        for m in model_list:
+                            model_id = m.get('id', m.get('model', ''))
+                            if model_id:
+                                if not model_id.startswith('kilocode/'):
+                                    model_id = f"kilocode/{model_id}"
+                                fetched.append(model_id)
+                        if fetched:
+                            kilocode_models = fetched
+            except Exception:
+                pass
+
+        # Ejecutar todas las consultas en paralelo
+        await asyncio.gather(
+            fetch_google(),
+            fetch_openrouter(),
+            fetch_openai(),
+            fetch_anthropic(),
+            fetch_ollama(),
+            fetch_kilocode(),
+            return_exceptions=True
+        )
+
+        return {
+            "providers": [
+                {"id": "google", "name": "Google AI Studio", "models": google_models},
+                {"id": "openrouter", "name": "OpenRouter", "models": openrouter_models},
+                {"id": "openai", "name": "OpenAI", "models": openai_models},
+                {"id": "anthropic", "name": "Anthropic", "models": anthropic_models},
+                {"id": "ollama", "name": "Ollama Local", "models": ollama_models},
+                {"id": "kilocode", "name": "KiloCode Gateway", "models": kilocode_models}
+            ]
+        }
+
+    @application.get("/api/config/llm", tags=["Configuración"])
+    @application.get("/config/llm", tags=["Configuración"])
+    async def get_llm_config():
+        """Obtiene la configuración actual del LLM (enmascarando keys)."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        
+        model = cm.get_config("default_model") or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash")
+        
+        # Detectar proveedor basado en el modelo
+        provider = "google"
+        model_lower = model.lower()
+        if "openrouter" in model_lower:
+            provider = "openrouter"
+        elif "gpt" in model_lower or "openai" in model_lower:
+            provider = "openai"
+        elif "claude" in model_lower or "anthropic" in model_lower:
+            provider = "anthropic"
+        elif "ollama" in model_lower:
+            provider = "ollama"
+        elif "kilocode" in model_lower:
+            provider = "kilocode"
+            
+        raw_key = cm.get_api_key(provider) or ""
+        masked_key = f"{raw_key[:4]}...{raw_key[-4:]}" if len(raw_key) > 8 else "********"
+        
+        return {
+            "provider": provider,
+            "model": model,
+            "api_key_masked": masked_key,
+            "has_key": bool(raw_key),
+            "reasoning_effort": cm.get_config("reasoning_effort") or "medium"
+        }
+
+    @application.post("/api/config/llm", tags=["Configuración"])
+    @application.post("/config/llm", tags=["Configuración"])
+    async def update_llm_config(req: LLMConfigRequest):
+        """Actualiza el modelo y la API key del LLM en el ConfigManager."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        
+        # Guardar el modelo por defecto si se proporcionó
+        if req.model:
+            cm.set_project_config("default_model", req.model)
+        
+        # Guardar la API key si se proporcionó
+        if req.api_key:
+            # Intentar inferir el proveedor si no viene explícitamente
+            provider = req.provider
+            if not provider:
+                # Mapeo simple basado en el nombre del modelo
+                target_model = req.model or cm.get_config("default_model") or ""
+                model_lower = target_model.lower()
+                if "gemini" in model_lower or "google" in model_lower:
+                    provider = "google"
+                elif "openai" in model_lower or "gpt" in model_lower:
+                    provider = "openai"
+                elif "anthropic" in model_lower or "claude" in model_lower:
+                    provider = "anthropic"
+                elif "openrouter" in model_lower:
+                    provider = "openrouter"
+                elif "ollama" in model_lower:
+                    provider = "ollama_cloud"
+                elif "kilocode" in model_lower:
+                    provider = "kilocode"
+                else:
+                    provider = "litellm" # Fallback genérico
+
+            cm.set_api_key(provider, req.api_key)
+            
+        # Recargar la configuración en el LLMService del pool si ya existe
+        if pool._llm_service:
+            pool._llm_service.reload_config()
+            
+        return {"status": "ok", "model": req.model, "provider": req.provider or "inferred/ignored"}
+
+    # ── Utilidades Desktop (Ejecución y Archivos) ─────────────────────────────
+
+    @application.get("/api/workspace/status", tags=["Desktop"])
+    async def workspace_status():
+        """Obtiene el estado del workspace (indexación, etc)."""
+        try:
+            # Esperar a que el pool y el LLMService estén listos para evitar colisiones en ChromaDB al arranque
+            await pool.wait_until_ready()
+            
+            if pool._llm_service and pool._llm_service.vector_db_manager:
+                indexed = pool._llm_service.vector_db_manager.is_indexed()
+            else:
+                indexed = False
+                
+            return {"indexed": indexed, "path": os.getcwd()}
+        except Exception as e:
+            return {"indexed": False, "error": str(e), "path": os.getcwd()}
+
+    @application.post("/api/workspace/index", tags=["Desktop"])
+    async def trigger_indexing(session_id: Optional[str] = None):
+        """Inicia el proceso de indexación del codebase en segundo plano."""
+        asyncio.create_task(run_indexing_task(session_id))
+        return {"status": "started", "message": "Indexación iniciada en segundo plano."}
+
+    async def run_indexing_task(session_id: Optional[str] = None):
+        """Tarea de fondo para indexar el codebase."""
+        project_path = os.getcwd()
+        try:
+            from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+            from kogniterm.core.context.vector_db_manager import VectorDBManager
+            
+            # Helper para enviar progreso si hay una sesión asociada
+            def progress_callback(current, total, description):
+                if session_id:
+                    s = pool.get(session_id)
+                    if s:
+                        s.ui._push("indexing_progress", {
+                            "current": current,
+                            "total": total,
+                            "description": description,
+                            "percentage": int((current / total) * 100) if total > 0 else 0
+                        })
+
+            indexer = CodebaseIndexer(project_path)
+            chunks = await indexer.index_project(
+                project_path,
+                show_progress=False,
+                progress_callback=progress_callback
+            )
+            
+            if chunks:
+                if pool._llm_service and pool._llm_service.vector_db_manager:
+                    vdb = pool._llm_service.vector_db_manager
+                    vdb.clear_collection()
+                    vdb.add_chunks(chunks)
+                else:
+                    vdb = VectorDBManager(project_path)
+                    vdb.clear_collection()
+                    vdb.add_chunks(chunks)
+                    vdb.close()
+                
+                if session_id:
+                    s = pool.get(session_id)
+                    if s:
+                        s.ui._push("indexing_complete", {"chunks": len(chunks)})
+            else:
+                if session_id:
+                    s = pool.get(session_id)
+                    if s:
+                        s.ui._push("indexing_complete", {"chunks": 0})
+                        
+        except Exception as e:
+            logger.error(f"Error en tarea de indexación: {e}")
+            if session_id:
+                s = pool.get(session_id)
+                if s:
+                    s.ui._push("indexing_error", {"message": str(e)})
+
+    @application.post("/api/execute", response_model=CommandResponse, tags=["Desktop"])
+    async def execute_command(request: CommandRequest):
+        """Ejecuta un comando en el shell y devuelve la salida."""
+        try:
+            process = await asyncio.create_subprocess_shell(
+                request.command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            return CommandResponse(
+                output=stdout.decode('utf-8') if stdout else "",
+                error=stderr.decode('utf-8') if stderr else "",
+                exitCode=process.returncode or 0
+            )
+        except Exception as e:
+            return CommandResponse(output="", error=str(e), exitCode=1)
+
+    @application.post("/api/files/list", response_model=DirectoryResponse, tags=["Desktop"])
+    async def list_directory(request: DirectoryRequest):
+        """Lista el contenido de un directorio."""
+        try:
+            path = os.path.abspath(request.path)
+            items = []
+            for entry in os.scandir(path):
+                if entry.name.startswith('.'):
+                    continue
+                item = FileItem(
+                    name=entry.name,
+                    path=entry.path,
+                    isDirectory=entry.is_dir(),
+                    size=entry.stat().st_size if entry.is_file() else None
+                )
+                items.append(item)
+            items.sort(key=lambda x: (not x.isDirectory, x.name.lower()))
+            return DirectoryResponse(items=items, currentPath=path)
+        except Exception as e:
+            return DirectoryResponse(items=[], currentPath=request.path)
+
     # ── Gestión de sesiones ─────────────────────────────────────────────────────
 
     @application.get("/sessions", tags=["Sesiones"])
     async def list_sessions():
         """Lista todas las sesiones activas con su estado."""
+        await pool.wait_until_ready()
         return {"sessions": pool.list_all()}
 
     @application.post("/sessions", tags=["Sesiones"], status_code=201)
     async def create_session(req: SessionCreateRequest = SessionCreateRequest()):
         """Crea una nueva sesión de agente y la mantiene en memoria."""
+        await pool.wait_until_ready()
         sid = req.session_id or pool.new_session_id()
         session = pool.get_or_create(sid)
         return {"session_id": session.session_id, "created_at": session.created_at.isoformat()}
@@ -177,19 +600,63 @@ def create_app() -> FastAPI:
     @application.delete("/sessions/{session_id}", tags=["Sesiones"])
     async def delete_session(session_id: str):
         """Elimina una sesión y libera su memoria."""
+        await pool.wait_until_ready()
         deleted = pool.delete(session_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Sesión '{session_id}' no encontrada.")
         return {"deleted": session_id}
 
-    @application.post("/sessions/{session_id}/interrupt", tags=["Sesiones"])
-    async def interrupt_session(session_id: str, req: InterruptRequest = InterruptRequest()):
-        """Interrumpe el agente en ejecución para la sesión dada."""
+    @application.post("/api/sessions/{session_id}/close", tags=["Sesiones"])
+    async def close_session(session_id: str):
+        """Notifica que una sesión ha finalizado (ej. TUI cerrada)."""
+        await pool.wait_until_ready()
         session = pool.get(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail=f"Sesión '{session_id}' no encontrada.")
-        session.interrupt()
-        return {"interrupted": session_id, "reason": req.reason}
+        if session:
+            # Forzar guardado final por seguridad
+            if session.session_manager:
+                session.session_manager.save_session(session_id, session.agent_state.messages)
+            logger.info(f"[Server] Sesión {session_id} cerrada correctamente.")
+            return {"status": "closed", "session_id": session_id}
+        return {"status": "not_found", "session_id": session_id}
+
+    @application.post("/api/chat/message", tags=["Chat"])
+    async def chat_message_compat(req: ChatMessageRequest):
+        """Endpoint compatible con la aplicación desktop (simplified chat)."""
+        await pool.wait_until_ready()
+        session_id = req.session_id or "tui-default"
+        session = pool.get_or_create(session_id)
+        
+        if session.is_running:
+            raise HTTPException(status_code=409, detail="El agente ya está procesando.")
+
+        # Recolectar respuesta completa
+        collected: list = []
+        done_event = asyncio.Event()
+
+        async def collector():
+            async for event in session.ui.events():
+                collected.append(event)
+                if event["type"] in ("done", "error"):
+                    done_event.set()
+                    break
+
+        collect_task = asyncio.create_task(collector())
+        await session.send(req.message, pool._executor)
+        done_event.set()
+        await asyncio.sleep(0.1)
+        collect_task.cancel()
+
+        text_chunks = [e["data"] for e in collected if e["type"] == "chunk"]
+        # A veces el data es un dict con content
+        text_content = []
+        for d in text_chunks:
+            if isinstance(d, dict):
+                text_content.append(d.get("content", ""))
+            else:
+                text_content.append(str(d))
+        
+        full_text = "".join(text_content)
+        return {"response": full_text}
 
     # ── Canal REST (síncrono, para integraciones simples) ──────────────────────
 
@@ -199,6 +666,7 @@ def create_app() -> FastAPI:
         Envía un mensaje y espera la respuesta completa (bloqueante).
         Útil para bots/CLI que no soportan streaming.
         """
+        await pool.wait_until_ready()
         session = pool.get_or_create(session_id)
         if session.is_running:
             raise HTTPException(status_code=409, detail="El agente ya está procesando un mensaje en esta sesión.")
@@ -240,6 +708,7 @@ def create_app() -> FastAPI:
         
         Parámetro: ?message=<texto>
         """
+        await pool.wait_until_ready()
         session = pool.get_or_create(session_id)
 
         async def event_generator() -> AsyncIterator[str]:
@@ -265,6 +734,11 @@ def create_app() -> FastAPI:
 
     # ── Canal WebSocket (bidireccional, streaming completo) ───────────────────
 
+    @application.websocket("/ws/chat")
+    async def websocket_chat_compat(websocket: WebSocket):
+        """Alias para /ws/tui-default usado por la app desktop."""
+        await websocket_chat(websocket, "tui-default")
+
     @application.websocket("/ws/{session_id}")
     async def websocket_chat(websocket: WebSocket, session_id: str):
         """
@@ -287,13 +761,30 @@ def create_app() -> FastAPI:
           {"type": "pong",         "data": {},    "ts": "..."}  → respuesta keep-alive
         """
         await websocket.accept()
+        
+        await pool.wait_until_ready()
+        
+        # Reconocer cuando una sesión es nueva o existente
+        is_new = session_id not in pool._sessions
         session = pool.get_or_create(session_id)
-        logger.info(f"[WS] Cliente conectado a sesión {session_id}")
+        
+        logger.info(f"[WS] Cliente conectado a sesión {session_id} ({'NUEVA' if is_new else 'EXISTENTE'})")
 
-        # Enviar estado inicial
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        current_config = {
+            "model": cm.get_config("default_model") or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash"),
+        }
+
+        # Enviar estado inicial con configuración y metadatos de persistencia
         await websocket.send_json({
             "type": "connected",
-            "data": session.to_dict(),
+            "data": {
+                **session.to_dict(),
+                "config": current_config,
+                "is_new": is_new,
+                "persistent": True
+            },
         })
 
         # Tarea A: relay de eventos del agente → cliente WS
@@ -334,6 +825,19 @@ def create_app() -> FastAPI:
                 elif msg_type == "interrupt":
                     session.interrupt()
                     await websocket.send_json({"type": "info", "data": "Interrupción enviada."})
+
+                elif msg_type == "start_indexing":
+                    asyncio.create_task(run_indexing_task(session_id))
+                    await websocket.send_json({"type": "info", "data": "Indexación iniciada."})
+
+                elif msg_type == "approval_response":
+                    request_id = data.get("id")
+                    approved = data.get("approved", False)
+                    if request_id:
+                        session.ui.handle_approval_response(request_id, approved)
+                        await websocket.send_json({"type": "info", "data": f"Aprobación procesada para {request_id}."})
+                    else:
+                        await websocket.send_json({"type": "error", "data": "Falta ID de aprobación."})
 
                 elif msg_type == "ping":
                     await websocket.send_json({"type": "pong", "data": {}})

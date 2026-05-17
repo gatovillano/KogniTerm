@@ -118,8 +118,35 @@ class ProviderConfig:
     fallback_on_error_codes: List[str] = field(default_factory=list)
     
     def get_api_key(self) -> Optional[str]:
-        """Obtiene la API key desde variables de entorno."""
-        return os.getenv(self.api_key_env)
+        """Obtiene la API key desde variables de entorno o ConfigManager."""
+        # 1. Priorizar variable de entorno explícita
+        env_key = os.getenv(self.api_key_env)
+        if env_key:
+            return env_key
+            
+        # 2. Intentar desde ConfigManager
+        try:
+            from kogniterm.terminal.config_manager import ConfigManager
+            cm = ConfigManager()
+            # Mapeo de nombres de proveedores a nombres internos de ConfigManager
+            provider_map = {
+                "google": "google",
+                "openai": "openai",
+                "anthropic": "anthropic",
+                "openrouter": "openrouter",
+                "cohere": "cohere",
+                "kilocode": "kilocode",
+                "ollama_cloud": "ollama_cloud"
+            }
+            cm_name = provider_map.get(self.name, self.name)
+            cm_key = cm.get_api_key(cm_name)
+            if cm_key:
+                return cm_key
+        except Exception:
+            pass
+            
+        # 3. Fallback a LITELLM_API_KEY
+        return os.getenv("LITELLM_API_KEY")
     
     def get_api_base(self) -> Optional[str]:
         """Obtiene la URL base de la API, priorizando la variable de entorno si existe."""
@@ -179,7 +206,7 @@ DEFAULT_PROVIDERS = [
         name="google",
         model_prefix="gemini",
         api_key_env="GOOGLE_API_KEY",
-        priority=80,
+        priority=5,
         fallback_on_error_codes=["429", "503", "500"]
     ),
     ProviderConfig(
@@ -237,7 +264,7 @@ DEFAULT_PROVIDERS = [
         api_key_env="KILOCODE_API_KEY",
         # La URL debe terminar en /v1 para que LiteLLM añada /chat/completions correctamente
         api_base="https://api.kilo.ai/api/gateway/v1",
-        priority=15,
+        priority=999,
         fallback_on_error_codes=["429", "503", "timeout"]
     ),
 ]

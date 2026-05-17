@@ -33,6 +33,28 @@ class SessionManager:
                     except Exception as e:
                         logger.warning(f"Error al leer sesión {filename}: {e}")
 
+        # Buscar autoguardados versionados en el directorio de autosave
+        autosave_dir = os.path.join(self.workspace_dir, "autosave") if "autosave" not in self.workspace_dir else self.workspace_dir
+        # Nota: El AutosaveManager usa self.workspace_dir / "autosave"
+        # Para ser consistentes con la estructura de .kogniterm:
+        kogniterm_autosave_dir = os.path.join(self.workspace_dir, ".kogniterm", "autosave")
+        
+        if os.path.exists(kogniterm_autosave_dir):
+            for root, dirs, files in os.walk(kogniterm_autosave_dir):
+                for filename in files:
+                    if filename.endswith(".json") and filename.startswith("autosave_"):
+                        file_path = os.path.join(root, filename)
+                        name = filename[:-5]
+                        try:
+                            sessions.append(self._build_session_entry(
+                                name=name, 
+                                file_path=file_path, 
+                                source="autosave", 
+                                display_name=f"Autoguardado: {name}"
+                            ))
+                        except Exception as e:
+                            logger.warning(f"Error al leer autoguardado versionado {filename}: {e}")
+
         if os.path.exists(self.history_file_path):
             try:
                 autosave_entry = self._build_session_entry(

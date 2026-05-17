@@ -3,10 +3,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+
 class ConfigManager:
-    """
-    Manages configuration for KogniTerm, handling both global and project-specific settings.
-    Project settings override global settings.
+    """Gestor de configuración para KogniTerm.
+    - Soporta settings globales (~/.kogniterm/config.json) y por workspace (.kogniterm/config.json).
+    - Permite guardar y recuperar credenciales/API keys por provider (multi-workspace, multi-provider).
+    - Las settings del proyecto sobrescriben las globales.
     """
 
     GLOBAL_CONFIG_DIR = Path.home() / ".kogniterm"
@@ -57,13 +59,13 @@ class ConfigManager:
         """
         global_config = self.load_global_config()
         project_config = self.load_project_config()
-        
+
         # Merge configs: project overrides global
         merged_config = {**global_config, **project_config}
-        
+
         if key is None:
             return merged_config
-        
+
         return merged_config.get(key)
 
     def set_global_config(self, key: str, value: Any):
@@ -82,3 +84,24 @@ class ConfigManager:
     def get_all_config(self) -> Dict[str, Any]:
         """Returns the complete merged configuration."""
         return self.get_config()
+
+    def get_api_key(self, provider: str) -> Optional[str]:
+        """
+        Obtiene la API key para un provider (ej: 'google', 'openai', 'anthropic', etc.)
+        Busca primero en config del proyecto, luego en global. Si no existe, retorna None.
+        """
+        key_name = f"api_key_{provider.lower()}"
+        # Merge config: project > global
+        merged = self.get_config()
+        return merged.get(key_name)
+
+    def set_api_key(self, provider: str, key: str, scope: str = "project"):
+        """
+        Guarda la API key para un provider en el config.json (por defecto en el workspace).
+        scope: 'project' o 'global'.
+        """
+        key_name = f"api_key_{provider.lower()}"
+        if scope == "global":
+            self.set_global_config(key_name, key)
+        else:
+            self.set_project_config(key_name, key)

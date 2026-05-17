@@ -194,7 +194,9 @@ class BaseAgentNode:
                     Markdown(s_state["full_thinking"]), 
                     title=f"[{ColorPalette.TEXT_DIM}]Pensando...[/{ColorPalette.TEXT_DIM}]", 
                     border_style=ColorPalette.TEXT_DIM,
-                    style=ColorPalette.TEXT_DIM
+                    style=ColorPalette.TEXT_DIM,
+                    padding=(0, 4),
+                    expand=True
                 ))
             if s_state["full_response"]:
                 renderables.append(Text("")) # Margen inferior respecto al mensaje final
@@ -208,7 +210,7 @@ class BaseAgentNode:
             if s_state["full_thinking"]:
                 terminal_ui.update_live(group)
         elif live:
-            live.update(Padding(group, (0, 4)) if renderables else Text("🤖 Procesando..."))
+            live.update(Padding(group, (0, 0)) if renderables else Text("🤖 Procesando..."))
 
     @staticmethod
     def _finalize_display(s_state, terminal_ui, is_tui):
