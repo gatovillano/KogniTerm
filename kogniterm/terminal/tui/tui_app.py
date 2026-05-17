@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from textual.app import App, ComposeResult
 from textual import work
-from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea, RichLog, ProgressBar
+from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea, RichLog
 from textual.containers import Vertical, Horizontal
 from textual import events
 from langchain_core.messages import HumanMessage
@@ -475,15 +475,13 @@ class KogniTermTUI(App):
         background: #1e1e1e;
         color: white;
         layers: base approval splash popup overlay;
-        align-horizontal: center;
     }
 
     /* ── CHAT MODE (base layer) ─────────────────── */
     #tracker_container {
         height: auto;
-        width: 100%;
-        max-width: 100%;
-        min-width: 0;
+        width: 85%;
+        max-width: 180;
         margin: 0;
         padding: 0;
         display: none; /* Oculto por defecto */
@@ -511,7 +509,15 @@ class KogniTermTUI(App):
     }
 
 
+    #chat_container {
+        height: 1fr;
+        width: 100%;
+        align-horizontal: center;
+        background: transparent;
+    }
+
     #chat_log {
+
         width: 85%;
         max-width: 180;
         min-width: 60;
@@ -522,7 +528,6 @@ class KogniTermTUI(App):
         color: white;
         scrollbar-size: 1 1; /* Scrollbar angosto de 1 celda */
         border: none;
-        align-horizontal: center;
     }
 
 
@@ -539,9 +544,9 @@ class KogniTermTUI(App):
 
     /* Contenedor para paneles paralelos (call_agents_parallel) */
     #parallel_agents_container {
-        width: 100%;
-        max-width: 100%;
-        min-width: 0;
+        width: 85%;
+        max-width: 180;
+        min-width: 60;
         height: auto;
         layout: horizontal;
         align: center bottom;
@@ -553,10 +558,11 @@ class KogniTermTUI(App):
     /* Paneles internos del contenedor paralelo */
     #parallel_agents_container ChatLogWidget {
         width: 1fr;
-        min-width: 20;
-        height: auto;
+        min-width: 40;
+        max-width: 100%;
+        height: 20; /* Altura fija o mínima razonable */
         min-height: 10;
-        max-height: 60;
+        max-height: 40;
         margin: 0 1;
         padding: 0 1;
         border: round #3b82f6 60%;
@@ -696,7 +702,7 @@ class KogniTermTUI(App):
     /* ── BARRA DE PROGRESO DE INDEXACIÓN ────────── */
     #indexing_progress_container {
         dock: bottom;
-        height: 4;
+        height: 2;
         width: 100%;
         background: #11111b;
         border-top: solid #374151;
@@ -707,30 +713,20 @@ class KogniTermTUI(App):
         width: 100%;
         height: 1;
         color: #9ca3af;
-        text-align: left;
+        text-align: center;
         background: transparent;
-        padding: 0 1;
-        margin-top: 1;
-    }
-    #indexing_title {
-        width: 100%;
-        height: 1;
-        color: #3b82f6;
-        text-align: left;
-        background: transparent;
-        padding: 0 1;
     }
     #indexing_bar {
         width: 100%;
         height: 1;
-        margin: 0 1;
+        background: transparent;
     }
 
     #live_display {
-        /* Alinear texto a la izquierda, igual que el input_container */
-        text-align: left;
-        content-align: left middle;
-        padding-left: 2;
+        /* Alinear texto al centro */
+        text-align: center;
+        content-align: center middle;
+        padding-left: 0;
         margin-bottom: 1;
         border: none;
         background: transparent;
@@ -769,6 +765,7 @@ class KogniTermTUI(App):
     ToolOutputWidget {
         width: 85%;
         max-width: 180;
+        min-width: 60;
         height: auto;
         min-height: 5;
         max-height: 30;
@@ -776,6 +773,12 @@ class KogniTermTUI(App):
         margin: 0 4 1 4;
         background: transparent !important;
         display: block;
+    }
+
+    #chat_log ToolOutputWidget {
+        width: 100%;
+        max-width: 100%;
+        margin: 0 0 1 0;
     }
     ChatInput#splash_chat_input {
         width: 1fr;
@@ -806,7 +809,7 @@ class KogniTermTUI(App):
     }
     """
 
-    def __init__(self, llm_service, command_executor, agent_state, workspace_directory=None, **kwargs):
+    def __init__(self, llm_service=None, command_executor=None, agent_state=None, workspace_directory=None, **kwargs):
         super().__init__(**kwargs)
         self.llm_service = llm_service
         self.command_executor = command_executor
@@ -816,9 +819,11 @@ class KogniTermTUI(App):
         self._splash_visible = True  # controla si el splash está activo
         
         # Asignar el terminal_ui después de inicializarlo
-        self.command_executor.terminal_ui = self.tui_ui
-        self.llm_service.terminal_ui = self.tui_ui
-        self.llm_service.interrupt_queue = self.tui_ui.get_interrupt_queue()
+        if self.command_executor:
+            self.command_executor.terminal_ui = self.tui_ui
+        if self.llm_service:
+            self.llm_service.terminal_ui = self.tui_ui
+            self.llm_service.interrupt_queue = self.tui_ui.get_interrupt_queue()
         self.is_processing = False
         self._input_queue = []  # Cola para mensajes cuando el agente está ocupado
         self._is_processing_queue = False
@@ -904,8 +909,9 @@ class KogniTermTUI(App):
         from textual.containers import Vertical
         
         # ── Base layer: chat interface ──────────────────────
-        self.chat_log = ChatLogWidget(id="chat_log")
-        yield self.chat_log
+        with Vertical(id="chat_container"):
+            self.chat_log = ChatLogWidget(id="chat_log")
+            yield self.chat_log
             
         self.approval_container = Vertical(id="approval_container")
         yield self.approval_container
@@ -915,9 +921,7 @@ class KogniTermTUI(App):
         
         # Barra de progreso de indexación (docked bottom, above input)
         with Vertical(id="indexing_progress_container"):
-            yield Static("", id="indexing_title", markup=True)
-            self.indexing_progress_bar = ProgressBar(total=100, id="indexing_bar")
-            yield self.indexing_progress_bar
+            yield Static("", id="indexing_bar", markup=True)
             yield Static("", id="indexing_label", markup=True)
         
         with Vertical(id="bottom_container"):
@@ -1039,9 +1043,8 @@ class KogniTermTUI(App):
         # Mostrar barra de progreso en la parte inferior
         try:
             self.query_one("#indexing_progress_container").display = True
-            self.query_one("#indexing_title").update("[#3b82f6]📦 Indexando workspace...[/#3b82f6]")
-            self.indexing_progress_bar.progress = 0
-            self.query_one("#indexing_label").update("")
+            self.query_one("#indexing_label").update("[#9ca3af]Indexando...[/#9ca3af]")
+            self.query_one("#indexing_bar").update("")
         except Exception:
             pass
         self.run_worker(self._do_indexing)
@@ -1078,27 +1081,24 @@ class KogniTermTUI(App):
     def _show_indexing_progress(self, current: int, total: int, description: str):
         """Update the progress bar at the bottom of the screen."""
         try:
-            pct = (current / total) * 100
-            # Actualizar barra de progreso (escala 0-100)
-            self.indexing_progress_bar.progress = pct
-            # Actualizar etiqueta con información detallada
+            pct = int((current / total) * 100)
             label = self.query_one("#indexing_label")
-            label.update(f"[#9ca3af]{int(pct)}% • {description}[/#9ca3af]")
+            # Barra visual: ■■■■■■░░░░
+            filled = pct // 10
+            empty = 10 - filled
+            bar_text = f"{'[#3b82f6]■[/#3b82f6]' * filled}{'[#374151]░[/#374151]' * empty}"
+            label.update(f"Indexando {bar_text} {pct}%  {description}")
         except Exception:
             pass
 
     def _indexing_complete(self, num_chunks: int):
         """Called on main thread when indexing completes."""
         try:
-            title = self.query_one("#indexing_title")
             label = self.query_one("#indexing_label")
-            self.indexing_progress_bar.progress = 100
             if num_chunks > 0:
-                title.update("[green]✅ Indexación completada[/green]")
-                label.update(f"[#10b981]{num_chunks} chunks indexados exitosamente[/#10b981]")
+                label.update("[green]■■■■■■■■■■ 100%  Indexación completada.[/green]")
             else:
-                title.update("[yellow]⚠️  Indexación completada[/yellow]")
-                label.update("[#f59e0b]No se encontraron archivos relevantes para indexar[/#f59e0b]")
+                label.update("[yellow]Indexación completada: no se encontraron archivos relevantes.[/yellow]")
             # Ocultar después de 3 segundos
             import threading
             def hide():
@@ -1115,10 +1115,8 @@ class KogniTermTUI(App):
     def _indexing_failed(self, error_msg: str):
         """Called on main thread when indexing fails."""
         try:
-            title = self.query_one("#indexing_title")
             label = self.query_one("#indexing_label")
-            title.update("[red]❌ Error en la indexación[/red]")
-            label.update(f"[#ef4444]{error_msg}[/#ef4444]")
+            label.update(f"[red]Error en la indexación: {error_msg}[/red]")
             import threading
             def hide():
                 import time
@@ -1991,7 +1989,7 @@ class KogniTermTUI(App):
 
     async def push_screen_wait(self, screen) -> Any:
         """Helper asíncrono para pushear una pantalla y esperar su resultado."""
-        future = asyncio.get_event_loop().create_future()
+        future = asyncio.get_running_loop().create_future()
         def callback(result: Any) -> None:
             if not future.done():
                 future.set_result(result)

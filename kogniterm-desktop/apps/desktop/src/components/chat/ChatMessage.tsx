@@ -24,7 +24,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                         Resultado de Herramienta
                     </div>
                     <div className="bg-zinc-900/50 border border-zinc-800/50 rounded-xl p-3 font-mono text-[12px] text-zinc-400 overflow-x-auto whitespace-pre-wrap">
-                        {message.content}
+                        {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
                     </div>
                 </div>
             </div>
@@ -57,7 +57,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                             {isReasoningOpen && (
                                 <div className="mt-2 p-3 rounded-xl bg-zinc-900/30 border-l-2 border-indigo-500/30 text-[13px] text-zinc-400 italic leading-relaxed backdrop-blur-sm animate-in fade-in slide-in-from-top-1 markdown-content">
                                     <ReactMarkdown>
-                                        {message.reasoning}
+                                        {typeof message.reasoning === 'string' ? message.reasoning : JSON.stringify(message.reasoning, null, 2)}
                                     </ReactMarkdown>
                                 </div>
                             )}
@@ -114,7 +114,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                     ol: ({ children }) => <ol className="list-decimal ml-5 mb-2 marker:text-indigo-500">{children}</ol>,
                                 }}
                             >
-                                {message.content}
+                                {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
                             </ReactMarkdown>
                         </div>
                     )}

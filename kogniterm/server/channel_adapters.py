@@ -42,6 +42,7 @@ class ChannelAdapter:
 
     async def send_message(self, message: str) -> None:
         """Envía un mensaje al agente y procesa los eventos de respuesta."""
+        await pool.wait_until_ready()
         session = self._get_session()
         # Procesar eventos en background mientras el agente trabaja
         process_task = asyncio.create_task(self._process_events(session))
@@ -102,6 +103,7 @@ class CLIAdapter(ChannelAdapter):
 
     async def interactive_loop(self) -> None:
         """Loop interactivo de CLI que mantiene el agente despierto."""
+        await pool.wait_until_ready()
         print(f"KogniTerm CLI — Sesión: {self.session_id}")
         print("Escribe 'exit' para salir, 'interrupt' para interrumpir.\n")
         loop = asyncio.get_event_loop()
@@ -206,19 +208,41 @@ class SlackAdapter(ChannelAdapter):
 # ── Adaptador Telegram ────────────────────────────────────────────────────────
 
 
+
 class TelegramAdapter(ChannelAdapter):
+    import re
+
+    @staticmethod
+    def _clean_text_for_telegram(text: str) -> str:
+        """
+        Limpia secuencias ANSI, bordes Rich/Textual y espacios innecesarios para Telegram.
+        """
+        if not isinstance(text, str):
+            return str(text)
+        # Quitar secuencias ANSI
+        text = TelegramAdapter.re.sub(r"\x1b\[[0-9;]*m", "", text)
+        # Quitar bordes tipo caja (╭─, │, ╰─, etc.) y líneas vacías largas
+        text = TelegramAdapter.re.sub(r"[\u2500-\u257F]+", "", text)  # Unicode box drawing
+        text = TelegramAdapter.re.sub(r"^\s*[│┃╭╰─]+\s*$", "", text, flags=TelegramAdapter.re.MULTILINE)
+        # Quitar líneas vacías excesivas
+        text = TelegramAdapter.re.sub(r"\n{3,}", "\n\n", text)
+        # Strip general
+        return text.strip()
+
     """
     Adaptador para Telegram usando la librería python-telegram-bot.
     Mantiene la sesión del agente mapeada al chat_id de Telegram.
     """
 
     def __init__(self, token: str, session_id: Optional[str] = None):
+        # session_id aquí solo se usa como fallback, pero cada chat_id tendrá su propio hilo
         super().__init__(session_id)
         self.token = token
         self.app = None
         self._current_chat_id: Optional[int] = None
         self._draft_id: Optional[int] = None
         self._stream_text: str = ""
+        self._chat_sessions: Dict[int, str] = {}  # chat_id -> session_id
 
     async def start(self):
         """Inicia el bot de Telegram en modo non-blocking."""
@@ -252,44 +276,62 @@ class TelegramAdapter(ChannelAdapter):
     async def _handle_message(self, update, context):
         self._current_chat_id = update.effective_chat.id
         user_text = update.message.text
+        import logging
+        logging.getLogger("kogniterm.server.channel_adapters").info(
+            f"Mensaje recibido de Telegram: {user_text} (chat_id={self._current_chat_id})"
+        )
+        # Asignar un session_id único por chat_id
+        chat_id = self._current_chat_id
+        if chat_id not in self._chat_sessions:
+            # Usa el chat_id como session_id (str)
+            self._chat_sessions[chat_id] = f"telegram_{chat_id}"
+        self.session_id = self._chat_sessions[chat_id]
+        # Forzar que el _session se reinicialice para este chat
+        self._session = None
         # Enviar al agente
         await self.send_message(user_text)
 
     async def send_to_channel(self, event: dict) -> None:
+        import logging
+        logging.getLogger("kogniterm.server.channel_adapters").info(
+            f"Evento recibido en send_to_channel: {event}"
+        )
         if not self._current_chat_id or not self.app:
             return
 
         t = event["type"]
         d = event["data"]
 
-        # Solo soportado en chats privados (por ahora)
+        # Separar stream y live_update
         if t == "stream":
-            # Inicializar draft_id si es la primera vez
             if self._draft_id is None:
                 import random
                 self._draft_id = random.randint(1_000_000, 9_999_999)
                 self._stream_text = ""
+            # Acumular chunks sin limpiar para no perder espacios
             self._stream_text += d
-            # Llamar a sendMessageDraft (requiere método manual)
-            await self._send_message_draft(self._current_chat_id, self._draft_id, self._stream_text)
+        elif t == "live_update":
+            # Ignorar live_update para Telegram (evita duplicar "Pensando...")
+            pass
         elif t == "done":
-            # Al finalizar, enviar el mensaje completo y limpiar draft
             if self._stream_text:
-                await self.app.bot.send_message(chat_id=self._current_chat_id, text=self._stream_text)
+                final_text = self._clean_text_for_telegram(self._stream_text)
+                if final_text:
+                    await self.app.bot.send_message(chat_id=self._current_chat_id, text=final_text)
             self._draft_id = None
             self._stream_text = ""
         elif t == "error":
             self._draft_id = None
             self._stream_text = ""
-            await self.app.bot.send_message(chat_id=self._current_chat_id, text=f"❌ Error: {d}")
+            await self.app.bot.send_message(chat_id=self._current_chat_id, text=f"❌ Error: {self._clean_text_for_telegram(d)}")
         elif t == "tool_start":
             await self.app.bot.send_message(
                 chat_id=self._current_chat_id, 
                 text=f"⚙️ `{d.get('tool')}`..."
             )
         elif t == "message":
-            # Enviar mensaje de texto normal
-            await self.app.bot.send_message(chat_id=self._current_chat_id, text=d)
+            # Limpiar el mensaje antes de enviarlo
+            await self.app.bot.send_message(chat_id=self._current_chat_id, text=self._clean_text_for_telegram(d))
 
     async def _send_message_draft(self, chat_id: int, draft_id: int, text: str) -> None:
         """

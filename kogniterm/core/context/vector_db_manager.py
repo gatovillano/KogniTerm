@@ -20,16 +20,7 @@ class VectorDBManager:
             self._init_client()
         except Exception as e:
             logger.warning(f"Initial ChromaDB connection failed: {e}. Attempting to reset database...")
-            try:
-                import shutil
-                if os.path.exists(self.db_path):
-                    shutil.rmtree(self.db_path)
-                self._ensure_db_dir()
-                self._init_client()
-                logger.info("ChromaDB successfully reset and initialized.")
-            except Exception as retry_e:
-                logger.error(f"Failed to recover ChromaDB at {self.db_path}: {retry_e}")
-                raise retry_e
+            self._reset_and_reinit()
 
     @classmethod
     def get_instance(cls) -> "VectorDBManager":
@@ -39,15 +30,32 @@ class VectorDBManager:
             cls._instance = cls(os.getcwd())
         return cls._instance
 
+    @staticmethod
+    def _is_corruption_error(exc: Exception) -> bool:
+        """Returns True if the exception indicates a SQLite database corruption."""
+        msg = str(exc).lower()
+        return "malformed" in msg or "(code: 11)" in msg or "database disk image is malformed" in msg
+
+    def _reset_and_reinit(self):
+        """Wipes the ChromaDB directory and reinitializes a fresh client."""
+        import shutil
+        logger.warning(f"ChromaDB corruption detected. Wiping {self.db_path} and reinitializing...")
+        try:
+            if os.path.exists(self.db_path):
+                shutil.rmtree(self.db_path)
+            self._ensure_db_dir()
+            self._init_client()
+            logger.info("ChromaDB successfully reset and reinitialized.")
+        except Exception as recovery_exc:
+            logger.error(f"Failed to recover ChromaDB at {self.db_path}: {recovery_exc}")
+            raise recovery_exc
+
     def _init_client(self):
-        # print("DEBUG: Creando PersistentClient de ChromaDB (sin telemetría)...")
         self.client = chromadb.PersistentClient(
             path=self.db_path,
             settings=Settings(anonymized_telemetry=False)
         )
-        # print("DEBUG: Obteniendo o creando colección 'codebase_chunks'...")
         self.collection = self.client.get_or_create_collection(name="codebase_chunks")
-        # print("DEBUG: ChromaDB inicializado correctamente.")
 
     def _ensure_db_dir(self):
         if not os.path.exists(self.db_path):
@@ -89,8 +97,20 @@ class VectorDBManager:
                 )
                 logger.info(f"Added {len(batch)} chunks to ChromaDB (Batch {i//batch_size + 1}).")
             except Exception as e:
-                logger.error(f"Error adding chunks to ChromaDB at batch {i//batch_size + 1}: {e}")
-                raise e
+                if self._is_corruption_error(e):
+                    logger.warning(f"Corruption error at batch {i//batch_size + 1}. Resetting DB and retrying...")
+                    self._reset_and_reinit()
+                    # Retry this single batch after reset
+                    self.collection.add(
+                        documents=documents,
+                        embeddings=embeddings,
+                        metadatas=metadatas,
+                        ids=ids
+                    )
+                    logger.info(f"Retry succeeded for batch {i//batch_size + 1} after DB reset.")
+                else:
+                    logger.error(f"Error adding chunks to ChromaDB at batch {i//batch_size + 1}: {e}")
+                    raise e
 
     def search(self, query_embedding: List[float], k: int = 5, file_path_filter: Optional[str] = None, language_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """Searches for similar chunks in the vector database with optional filters."""
@@ -172,7 +192,12 @@ class VectorDBManager:
             self.client.delete_collection("codebase_chunks")
             self.collection = self.client.get_or_create_collection(name="codebase_chunks")
         except Exception as e:
-             logger.error(f"Error clearing collection: {e}")
+            if self._is_corruption_error(e):
+                logger.warning("Corruption error while clearing collection. Resetting DB...")
+                self._reset_and_reinit()
+            else:
+                logger.error(f"Error clearing collection: {e}")
+                raise
 
     def is_indexed(self) -> bool:
         """Checks if the project is already indexed."""

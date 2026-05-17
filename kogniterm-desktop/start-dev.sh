@@ -39,22 +39,22 @@ echo "✅ Dependencias verificadas"
 echo ""
 
 # Iniciar backend en una nueva terminal
-echo "${BLUE}📡 Iniciando backend (FastAPI)...${NC}"
+echo "${BLUE}📡 Iniciando backend (KogniTerm Server)...${NC}"
 if command_exists gnome-terminal; then
-    gnome-terminal -- bash -c "source \$HOME/.cargo/env; cd apps/server && echo '🐍 Backend Python/FastAPI' && python3 dev.py; exec bash"
+    gnome-terminal -- bash -c "source \$HOME/.cargo/env; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash"
 elif command_exists konsole; then
-    konsole -e bash -c "source \$HOME/.cargo/env; cd apps/server && echo '🐍 Backend Python/FastAPI' && python3 dev.py; exec bash" &
+    konsole -e bash -c "source \$HOME/.cargo/env; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
 elif command_exists xterm; then
-    xterm -e "source \$HOME/.cargo/env; cd apps/server && echo '🐍 Backend Python/FastAPI' && python3 dev.py; exec bash" &
+    xterm -e "source \$HOME/.cargo/env; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
 else
     echo "⚠️  No se encontró un emulador de terminal compatible."
-    echo "Por favor, ejecuta manualmente en otra terminal:"
-    echo "  cd apps/server && python3 dev.py"
+    echo "Por favor, ejecuta manualmente en otra terminal (desde la raíz del proyecto):"
+    echo "  python3 -m kogniterm.server --port 8765"
 fi
 
 # Función para esperar a que el backend esté listo
 wait_for_backend() {
-    local url="http://localhost:8001/api/health"
+    local url="http://localhost:8765/health"
     local max_attempts=120
     local attempt=1
 
@@ -95,7 +95,7 @@ echo ""
 echo "${GREEN}✨ KogniTerm Desktop está iniciando...${NC}"
 echo ""
 echo "📝 Notas:"
-echo "  - Backend: http://localhost:8001"
+echo "  - Backend: http://localhost:8765"
 echo "  - Frontend: Se abrirá automáticamente"
 echo "  - Presiona Ctrl+C en cada terminal para detener"
 echo ""

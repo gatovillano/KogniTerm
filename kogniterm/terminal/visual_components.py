@@ -212,11 +212,11 @@ def create_thought_bubble(
         title=f"{icon} {title}",
         border_style=ColorPalette.GRAY_700,
         style=f"dim {ColorPalette.GRAY_500}", # Aplicar estilo dim y gris algo más claro
-        padding=(0, 2),
-        expand=True
+        padding=(0, 4), # Aumentado de 2 a 4 para alinear con el input
+        expand=False
     )
     
-    return Padding(panel, (1, 0))
+    return Padding(panel, (1, 0)) # Margen horizontal eliminado para usar ancho total del track (85%)
 
 
 
@@ -308,7 +308,7 @@ def create_tool_output_panel(tool_name: str, output: str, is_markdown: Optional[
     panel = Panel(
         content,
         box=box.SQUARE,
-        padding=(0, 2), # Padding interno idéntico al panel de pensamiento para alinear texto
+        padding=(0, 4), # Aumentado de 2 a 4 para alinear con el input
         expand=True
     )
     
@@ -317,7 +317,7 @@ def create_tool_output_panel(tool_name: str, output: str, is_markdown: Optional[
     
     # IMPORTANTE: No usar padding lateral aquí si la TUI/CSS ya lo añade.
     # Solo añadimos un margen vertical mínimo para separación.
-    return Padding(Group(title_text, panel), (1, 0))
+    return Padding(Group(title_text, panel), (1, 0)) # Margen horizontal eliminado
 
 
 def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = None, show_cursor: bool = False) -> Padding:
@@ -413,7 +413,7 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = N
     elements.append(Padding(content, (1, 4), style=terminal_style))
     
     # Crear grupo sin panel
-    return Padding(Group(*elements), (1, 0))
+    return Padding(Group(*elements), (1, 0)) # Margen horizontal eliminado
 
  
 

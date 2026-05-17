@@ -64,8 +64,7 @@ def _format_text_with_basic_markdown(text: str) -> Text:
 
     return formatted_text
 
-# --- Importar KogniTermApp ---
-from kogniterm.terminal.kogniterm_app import KogniTermApp
+# --- Importar KogniTermTUI ---
 from kogniterm.terminal.tui.tui_app import KogniTermTUI
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.command_executor import CommandExecutor # Importar CommandExecutor
@@ -106,9 +105,9 @@ import signal
 
 async def _main_async():
     """Función principal asíncrona para iniciar la terminal de KogniTerm."""
+    import sys
     from kogniterm.terminal.config_manager import ConfigManager
     from kogniterm.terminal.themes import set_kogniterm_theme
-    
     # Cargar configuración y aplicar tema guardado antes de iniciar nada
     config_manager = ConfigManager()
     saved_theme = config_manager.get_config("theme")
@@ -118,12 +117,9 @@ async def _main_async():
         except ValueError:
             # Si el tema guardado ya no es válido, se mantiene el default
             pass
-
     auto_approve = '-y' in sys.argv or '--yes' in sys.argv
-    
     # Obtener el directorio de trabajo actual
     workspace_directory = os.getcwd()
-
     # --- INYECCIÓN DE CONFIGURACIÓN DE MODELO ---
     # Leer el modelo configurado por el usuario y establecerlo en las variables de entorno
     # ANTES de importar LLMService, ya que este lee os.environ al nivel de módulo.
@@ -133,14 +129,10 @@ async def _main_async():
         # Esto permite overrides temporales: LITELLM_MODEL=foo kogniterm
         if "LITELLM_MODEL" not in os.environ:
             os.environ["LITELLM_MODEL"] = default_model
-            # print(f"ℹ️  Using configured model: {default_model}")
-
     # --- INYECCIÓN DE ESFUERZO DE RAZONAMIENTO ---
-    # Permite persistir el nivel (low/medium/high) en config y aplicarlo al iniciar.
     saved_reasoning_effort = config_manager.get_config("reasoning_effort")
     if saved_reasoning_effort and "KOGNITERM_REASONING_EFFORT" not in os.environ:
         os.environ["KOGNITERM_REASONING_EFFORT"] = str(saved_reasoning_effort)
-
     # --- INYECCIÓN DE API KEYS ---
     # Mapeo de proveedores a variables de entorno
     api_key_mapping = {
@@ -153,39 +145,31 @@ async def _main_async():
         "ollama_cloud": "OLLAMA_CLOUD_API_KEY",
         "litellm": "LITELLM_API_KEY"
     }
-    
+
     for provider, env_var in api_key_mapping.items():
-        # Solo inyectar si no existe ya en el entorno (prioridad a variables explícitas)
         if env_var not in os.environ:
             saved_key = config_manager.get_config(f"api_key_{provider}")
             if saved_key:
                 os.environ[env_var] = saved_key
-
-    # Disable console logging in TUI mode to prevent logs from disrupting the UI
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.CRITICAL)
-    # Remove all stream handlers from the root logger to ensure no console output
-    for handler in root_logger.handlers[:]:
-        if isinstance(handler, logging.StreamHandler):
-            root_logger.removeHandler(handler)
-
-    from kogniterm.core.agents.bash_agent import get_system_message
-
-    llm_service_instance = LLMService() # Usar el project_context inicializado
-    # Resetear historial para nueva sesión limpia (no continuar la anterior)
-    llm_service_instance.conversation_history = []
-    llm_service_instance.conversation_history.append(get_system_message(llm_service_instance))
-    llm_service_instance._save_history(llm_service_instance.conversation_history)
     
-    command_executor_instance = CommandExecutor() # Inicializar CommandExecutor
-    agent_state_instance = AgentState(messages=llm_service_instance.conversation_history) # Inicializar AgentState
-    agent_state_instance.attach_history_manager(llm_service_instance.history_manager)
-    llm_service_instance.skill_manager.set_agent_state(agent_state_instance) # Vincular estado del agente a las herramientas
-
+    # Disable console logging in TUI mode to prevent logs from disrupting the UI
+    kogniterm_logger = logging.getLogger("kogniterm")
+    kogniterm_logger.setLevel(logging.CRITICAL)
+    for handler in kogniterm_logger.handlers[:]:
+        if isinstance(handler, logging.StreamHandler):
+            kogniterm_logger.removeHandler(handler)
+    kogniterm_logger.propagate = False
+    # --- Centralización: La TUI actúa como cliente ---
+    workspace_directory = os.getcwd()
+    
+    # Iniciar la TUI (KogniTermTUI se conectará al servidor central en on_mount)
+    llm_service = LLMService()
+    command_executor = CommandExecutor()
+    agent_state = AgentState()
     app = KogniTermTUI(
-        llm_service=llm_service_instance,
-        command_executor=command_executor_instance,
-        agent_state=agent_state_instance,
+        llm_service=llm_service,
+        command_executor=command_executor,
+        agent_state=agent_state,
         workspace_directory=workspace_directory
     )
 
@@ -207,6 +191,8 @@ async def _main_async():
     
     try:
         await app.run_async() # Textual App run inside an existing asyncio event loop
+    except Exception as e:
+        logger.error(f"Error fatal en la TUI: {e}")
     finally:
         # Cerrar el servicio LLM y liberar recursos (como ChromaDB)
         if hasattr(app, 'llm_service') and app.llm_service:
@@ -222,14 +208,15 @@ def main():
     """Main entry point for KogniTerm."""
     # Desactivar telemetría de CrewAI
     os.environ["CREWAI_TELEMETRY_OPT_OUT"] = "true"
-    
+
     # Silenciar logs de terceros
     logging.getLogger('litellm').setLevel(logging.CRITICAL)
     logging.getLogger('crewai').setLevel(logging.CRITICAL)
     logging.getLogger('CrewAIEventsBus').setLevel(logging.CRITICAL)
 
     # Si es un comando CLI, ejecutarlo y salir
-    if run_cli():
+    cli_result = run_cli()
+    if cli_result:
         return
 
     # Iniciar la aplicación TUI
@@ -238,6 +225,14 @@ def main():
     except (RuntimeError, KeyboardInterrupt):
         pass
     finally:
+        # Notificar al servidor que la sesión TUI cerró
+        try:
+            import httpx
+            # Usamos un request síncrono para asegurar que se ejecute antes de salir
+            httpx.post("http://127.0.0.1:8765/api/sessions/tui-default/close", timeout=2.0)
+        except Exception as e:
+            logger.warning(f"No se pudo notificar el cierre de sesión al servidor: {e}")
+
         try:
             sys.stdout.flush()
             sys.stderr.flush()

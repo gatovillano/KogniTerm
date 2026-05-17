@@ -11,7 +11,7 @@ export function useChat() {
     useEffect(() => {
         // Initializing WebSocket connection
         // Note: In production you might want to handle reconnection logic
-        const ws = new WebSocket('ws://127.0.0.1:8001/ws/chat');
+        const ws = new WebSocket('ws://127.0.0.1:8765/ws/chat');
         socketRef.current = ws;
 
         ws.onopen = () => {
@@ -150,18 +150,6 @@ export function useChat() {
             return;
         }
 
-        // 2. Comandos de servidor
-        if (trimmed === '/reset' || trimmed === '%reset') {
-            setMessages([]); // Limpiar UI
-            if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-                // Enviar comando al backend
-                socketRef.current.send(JSON.stringify({ type: 'command', message: 'reset' }));
-            } else {
-                setError('No hay conexión para reiniciar la sesión.');
-            }
-            return;
-        }
-
         if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
             setError('No hay conexión con el servidor.');
             return;
@@ -178,6 +166,7 @@ export function useChat() {
         setIsGenerating(true);
         setError(null);
 
+        // Enviar mensaje exclusivamente por WebSocket
         socketRef.current.send(JSON.stringify({ message: content }));
     }, []);
 

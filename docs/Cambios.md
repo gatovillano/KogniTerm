@@ -7558,3 +7558,388 @@ python -m kogniterm.server.test_client --mode ws --message "hola"
 ✅ **Interoperabilidad**: Capacidad de expandir el arsenal de KogniTerm utilizando el estándar global de `agent-skills`.
 ✅ **Flexibilidad de Formato**: Soporte nativo tanto para herramientas de código Python como para guías de prompts avanzadas.
 ✅ **Extensibilidad**: Permite la instalación dinámica de capacidades remotas sin necesidad de modificar el núcleo del sistema.
+
+---
+
+## 17-05-2026 Cliente-Servidor KogniTerm — Aprobación Interactiva de Herramientas y Sincronización de Eventos
+
+**Descripción**: Se ha completado la arquitectura cliente-servidor de KogniTerm mediante la implementación de un sistema de sincronización bidireccional en tiempo real para las solicitudes de aprobación de herramientas (como comandos interactivos de bash o edición de archivos) y la integración de notificaciones de eventos en la TUI.
+
+### Cambios Implementados
+
+#### 📁 Backend (Servidor FastAPI y Gestor de Sesiones)
+1. [**`kogniterm/server/session_pool.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/session_pool.py)
+   - **Gestor de Estados de Aprobación**: Inicialización de colecciones thread-safe (`self._pending_approvals` y `self._pending_approvals_async`) protegidas por un `threading.Lock()` global.
+   - **Espera Síncrona**: Refactorización de `ask_approval_sync()` para generar un ID único por solicitud, emitir el evento `"approval_required"` a través de WebSockets y bloquear el hilo de ejecución del agente utilizando `threading.Event().wait()` hasta recibir una decisión.
+   - **Espera Asíncrona**: Implementación de `ask_approval_async()` empleando `asyncio.Event` sincronizado con el loop del servidor.
+   - **Despachador de Decisiones**: Adición de `handle_approval_response()` que despierta de forma segura hilos de trabajadores síncronos o tareas asíncronas una vez recibida la decisión del cliente.
+
+2. [**`kogniterm/server/app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/app.py)
+   - **Manejo del Protocolo WS**: Adición del tipo de mensaje `"approval_response"` en la ruta `/ws/{session_id}`. Cuando el cliente responde sobre el WebSocket, el servidor lo procesa y notifica al despachador de la sesión para despertar la ejecución.
+   - **Resolución de Lint**: Importación de `List` desde `typing` para solucionar un error estático preexistente en `DirectoryResponse`.
+
+#### 📁 Frontend (Cliente TUI)
+1. [**`kogniterm/terminal/tui/tui_app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - **Detección de Aprobaciones**: Integración de `"approval_required"` dentro de `_handle_ws_event()`. Cuando el servidor solicita confirmación para un comando o diff, el cliente lo recibe en tiempo real.
+   - **Controlador de Aprobación**: Implementación del método asíncrono `_handle_ws_approval()`, que invoca al componente nativo `ask_for_approval_async()` para renderizar el panel interactivo `InlineApprovalWidget` (con colores de tema y diffs) y envía la decisión (`"approval_response"`) de vuelta al canal WebSocket del servidor.
+   - **Sincronización de Indexación**: Modificación de `_handle_ws_event()` para llamar automáticamente a `_handle_server_event(event)`. Esto permite que los eventos de progreso (`"indexing_progress"`), éxito (`"indexing_complete"`) y fallos (`"indexing_error"`) actualicen visualmente la barra de progreso en la UI.
+   - **Robustez**: Corrección de firma en `_handle_server_event()` añadiendo comprobación de tipos para `edata` y protegiendo accesos a campos con valores por defecto seguros.
+
+### **🎯 Beneficios**
+✅ **Interacción Sin Interrupciones**: La ejecución remota de herramientas en el servidor ahora puede solicitar confirmación al usuario en la TUI sin bloquear el canal ni congelar la aplicación.
+✅ **Trazabilidad Visual**: El usuario ve y decide sobre diffs interactivos y comandos bash directamente desde el cliente con la misma estética premium.
+✅ **Actualizaciones en Tiempo Real**: Visualización dinámica de la barra de progreso durante la indexación del codebase.
+✅ **Arquitectura Estable**: Completa la transición del backend a un modelo verdaderamente desacoplado de cliente-servidor.
+
+---
+
+## 17-05-2026 Optimización del Arranque sin Bloqueos y Resolución de Direcciones Locales
+
+**Descripción**: Se han solucionado los congelamientos e inicializaciones lentas en el arranque de KogniTerm al desacoplar la carga síncrona del backend (como descargas de modelos de embeddings y base de datos vectorial ChromaDB) del loop principal de la API del servidor, además de eliminar retardos locales de DNS en las conexiones TUI-servidor.
+
+### Cambios Implementados
+
+#### 📁 Backend (Arranque Asíncrono en Segundo Plano)
+1. [**`kogniterm/server/app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/app.py)
+   - **Lifespan No Bloqueante**: Modificación del arranque (`lifespan`) de FastAPI para instanciar e inicializar `LLMService` de forma asíncrona dentro de una tarea en segundo plano (`asyncio.create_task(...)`) y empleando `loop.run_in_executor(None, LLMService)` para desplazar la inicialización síncrona pesada (carga de embeddings/skills) a un hilo secundario del pool.
+   - **Arranque Instantáneo del Servidor**: Esto permite que el servidor web se levante en menos de un segundo y empiece a escuchar peticiones inmediatamente, sin esperar a que terminen de cargarse las bases de datos o de descargarse modelos desde la red.
+   - **Sincronización en Endpoints**: Inyección de `await pool.wait_until_ready()` en todos los endpoints HTTP y WebSocket principales (`/sessions`, `/ws/{session_id}`, `/chat/{session_id}`, `/sse/{session_id}`, `/api/chat/message`). Si un cliente se conecta mientras el backend sigue inicializándose en segundo plano, la petición esperará de forma no bloqueante a que el servicio esté completamente listo.
+
+2. [**`kogniterm/server/session_pool.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/session_pool.py)
+   - **Mecanismo de Sincronización**: Adición de `self._ready_event` (instancia de `asyncio.Event`) creado dinámicamente y expuesto mediante propiedad para evitar excepciones en tiempo de importación.
+   - **Señal de Listo**: El método `initialize()` ahora activa este evento a través de `loop.call_soon_threadsafe(self.ready_event.set)` una vez terminada la inicialización de `LLMService`.
+   - **Método `wait_until_ready`**: Implementación del método de espera asíncrona `await pool.wait_until_ready()` utilizado por la API.
+
+3. [**`kogniterm/server/channel_adapters.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/channel_adapters.py)
+   - **Consistencia en Adaptadores**: Inyección de `await pool.wait_until_ready()` al inicio de `send_message()` e `interactive_loop()` para asegurar que los canales externos como Telegram o CLI esperen correctamente a la carga completa del backend.
+
+#### 📁 Optimización de Conexión TUI-Servidor (Direcciones Locales IP)
+1. **Evitación de Esperas de DNS**: Reemplazo sistemático de `"localhost:8765"` por la IP explícita `"127.0.0.1:8765"` en todas las conexiones del cliente para evitar que la resolución DNS local (frecuente problema en entornos Linux/IPv6/systemd-resolved) se cuelgue o tarde minutos en responder:
+   - [**`kogniterm/terminal/api_client_tui.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/api_client_tui.py): `API_BASE_URL` configurado con IP cruda.
+   - [**`kogniterm/terminal/tui/tui_app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py): Consulta de estado del espacio de trabajo configurada con IP cruda.
+   - [**`kogniterm/terminal/terminal.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/terminal.py): Petición síncrona de cierre de sesión al salir configurada con IP cruda.
+
+### **🎯 Beneficios**
+✅ **Arranque Instantáneo**: El servidor ya no congela uvicorn durante la inicialización, levantándose de inmediato.
+✅ **TUI Fluida y Sin Bloqueos**: La interfaz TUI cliente inicia inmediatamente y se conecta al servidor sin esperas de DNS local, mostrando progreso o esperando elegantemente si el backend se está cargando.
+✅ **Robustez Ante Descargas Lentas**: Las descargas lentas de modelos de embeddings o la carga pesada de ChromaDB suceden en segundo plano de manera transparente, permitiendo que la API sea funcional desde el primer segundo.
+
+
+## 2026-05-17
+### 🐛 Fixes & TUI
+- Resuelto error `call_from_thread` en la TUI de KogniTerm que ocurría al intentar actualizar la barra de progreso de indexación desde el hilo principal.
+- Refactorizado el uso de `threading.Thread` en `_indexing_complete` y `_indexing_failed` (en `tui_app.py`) reemplazándolos por `self.set_timer(...)` para modificar la UI de manera segura usando Textual.
+
+## 2026-05-17 — Auditoría de arquitectura client-server: limpieza de código obsoleto
+
+### 🔍 Hallazgos del Audit
+
+#### ❌ Código Obsoleto / Redundante
+
+| Archivo | Problema | Estado |
+|---|---|---|
+| `kogniterm/terminal/api_client.py` | Puerto hardcodeado a `8000` (legacy), mientras el servidor corre en `8765` | **CORREGIDO** |
+| `kogniterm/terminal/terminal.py` | Importaba `KogniTermApp` (clase legacy) sin llegar a instanciarla nunca | **CORREGIDO** |
+| `kogniterm/server/session_pool.py` | Bloque `elif msg_lower in ("%undo", "/undo")` duplicado (líneas 278 y 311): el segundo nunca se ejecutaba | **CORREGIDO** |
+| `kogniterm/terminal/kogniterm_app.py` | Clase monolítica `KogniTermApp` (944 líneas, prompt_toolkit) que era el punto de entrada original. Ahora supersedida completamente por `KogniTermTUI` (Textual). **No eliminado** por precaución — contiene `FileCompleter` que aún exporta al `MetaCommandProcessor` | ⚠️ **Candidata a eliminación futura** |
+| `kogniterm/terminal/api_client.py` | Solo usa `requests` síncrono (library pesada), mientras `api_client_tui.py` usa `httpx` async. Las dos coexisten con la misma responsabilidad (llamadas `/config/llm`). `cli.py` depende del sincrónico | Mantener por ahora (CLI lo necesita) |
+
+#### ✅ Activo y Necesario (no eliminar)
+
+| Archivo | Razón |
+|---|---|
+| `kogniterm/terminal/terminal_ui.py` | **Activo**: `ServerUI` extiende de `TerminalUI`. Todos los agentes del core usan `TerminalUI` para I/O. `AgentInteractionManager` la requiere en su firma. |
+| `kogniterm/terminal/visual_components.py` | **Activo**: importado en `terminal_ui.py`, `meta_command_processor.py`, `command_approval_handler.py`, y varios agentes del core. |
+| `kogniterm/terminal/meta_command_processor.py` | **Activo**: referenciado desde `kogniterm_app.py` y la TUI. Usa duck-typing (`hasattr`) sobre `kogniterm_app` por lo que es compatible con cualquier host. |
+
+#### 📋 Gaps / Funcionalidades faltantes identificadas
+
+| Gap | Descripción |
+|---|---|
+| `api_client.py` no usa `/api/config/llm` | Llama a `/config/llm` (sin prefijo `/api/`). El servidor expone ambas rutas con doble decorator, OK. |
+| La TUI no tiene comando `/session` conectado al servidor | `MetaCommandProcessor` gestiona sesiones localmente (vía `session_manager`), pero el servidor tiene su propio pool de sesiones persistentes. No están sincronizados. |
+| `cli.py` línea 73 usa `self.config_manager` sin declararlo | `CLIHandler.__init__` solo tiene `pass`. Los métodos `handle_config`, `handle_keys` llaman `self.config_manager` que no existe → `AttributeError` en runtime para esos comandos. |
+
+### 🔧 Cambios Aplicados
+
+1. **`kogniterm/terminal/api_client.py`** — Corregido `API_BASE_URL` de `localhost:8000` → `localhost:8765`
+2. **`kogniterm/terminal/terminal.py`** — Eliminada importación muerta de `KogniTermApp` (clase legacy de prompt_toolkit)
+3. **`kogniterm/server/session_pool.py`** — Eliminado bloque `elif /undo` duplicado (dead code en línea 311-320)
+
+## 2026-05-17 — Limpieza final y documentación de arquitectura
+
+### 🧹 Cambios Aplicados
+
+1. **`kogniterm/terminal/kogniterm_app.py`** — **ELIMINADO**. Monolito legacy de 944 líneas (prompt_toolkit + `KogniTermApp` + `FileCompleter`). No tenía ningún `import` activo — fue reemplazado completamente por `KogniTermTUI` (Textual).
+
+2. **`kogniterm/terminal/file_completer.py`** — **CREADO**. La clase `FileCompleter` (autocompletado de archivos `@`, comandos `/slash` y contenedores Docker `:`) fue extraída como módulo independiente y limpiado de dependencias de `KogniTermApp`.
+
+3. **`kogniterm/terminal/cli.py`** — **BUG CORREGIDO**. `CLIHandler.__init__` tenía solo `pass`, causando `AttributeError` en runtime al ejecutar `kogniterm config set`, `kogniterm config get`, `kogniterm keys set`, etc. — todos llamaban `self.config_manager` que no existía. Ahora instancia `ConfigManager` correctamente.
+
+4. **`docs/arquitectura-cliente-servidor.md`** — **CREADO**. Documento completo de la arquitectura post-refactorización, incluyendo:
+   - Diagrama comparativo monolítico vs. cliente-servidor
+   - Estructura de carpetas actualizada con anotaciones
+   - Protocolo WebSocket (mensajes cliente↔servidor)
+   - Flujo completo de un mensaje de extremo a extremo
+   - Tabla de todos los endpoints REST
+   - Instrucciones de arranque del sistema
+   - Decisiones de diseño explicadas
+
+
+
+## 2026-05-17 — Reparación de BD ChromaDB corrupta (SQLite error code 11)
+
+### 🐛 Problema
+La base de datos SQLite de ChromaDB en `.kogniterm/vector_db/chroma.sqlite3` quedó corrupta (SQLite error code 11: "database disk image is malformed"), impidiendo cualquier operación de indexación.
+
+### 🔧 Solución
+
+#### Acción inmediata
+- Eliminación del directorio `.kogniterm/vector_db/` para limpiar la BD corrupta. El sistema la recrea automáticamente en el próximo arranque.
+
+#### Cambios en `kogniterm/core/context/vector_db_manager.py`
+1. **`_is_corruption_error(exc)`** *(nuevo método estático)*: Detecta si una excepción corresponde a corrupción de SQLite verificando "malformed", "(code: 11)" o el mensaje literal en el texto del error.
+2. **`_reset_and_reinit()`** *(nuevo método)*: Centraliza la lógica de borrado del directorio de BD y reinicialización de ChromaDB. Extraído del bloque `except` del `__init__` (que quedó simplificado).
+3. **`clear_collection()`**: Ahora distingue entre errores de corrupción (dispara auto-reset) y errores generales (re-lanza la excepción), en lugar de silenciarlos.
+4. **`add_chunks()`**: Ante un error de corrupción en cualquier batch, ejecuta auto-reset + reintento del batch afectado, en lugar de abortar toda la indexación.
+
+### 🎯 Resultado
+El sistema es ahora auto-recuperable ante corrupción de SQLite: detecta el error en caliente, limpia y reinicializa la BD automáticamente, y continúa la operación sin intervención manual.
+
+---
+
+## 17-05-2026 Corrección de Comandos con Modales en la TUI
+
+### 🐛 Problema
+
+Los comandos `/models`, `/provider`, `/theme`, `/keys` y similares no abrían sus modales de selección al ejecutarse desde la TUI del servidor. El input simplemente se enviaba al backend o no ocurría nada visible.
+
+### 🔍 Diagnóstico
+
+Se identificaron dos causas raíz:
+
+1. **`push_screen_wait` usaba `asyncio.get_event_loop()`** (deprecated en Python 3.10+). En el contexto del event loop interno de Textual, `get_event_loop()` puede devolver un loop diferente o no-activo, haciendo que `create_future()` falle silenciosamente o que el `Future` nunca se resuelva. La llamada al modal quedaba pendiente sin resultado.
+
+2. **Doble intercepción de comandos**: `_handle_input_async` volvía a llamar `process_command()` sobre el input, compitiendo con el interceptor previo en `on_chat_input_submitted`. En los casos donde el comando era interceptado desde `_handle_input_async` se perdía el contexto correcto del event loop de Textual para abrir modales.
+
+3. **Mensaje de debug visible**: `on_chat_input_submitted` imprimía `[dim]DEBUG: Comando '...' procesado: ...[/dim]` en el chat en cada entrada del usuario.
+
+### 🔧 Cambios Aplicados
+
+**Archivo**: `kogniterm/terminal/tui/tui_app.py`
+
+- **`push_screen_wait`** — Reemplazado `asyncio.get_event_loop()` por `asyncio.get_running_loop()`, que garantiza obtener el loop activo en el contexto de ejecución actual (el loop de Textual).
+- **`_handle_input_async`** — Eliminada la llamada duplicada a `process_command()`. Los comandos de configuración ya son interceptados en `on_chat_input_submitted` antes de que el input llegue a este método.
+- **`on_chat_input_submitted`** — Eliminado el `write_agent_message` de debug que mostraba el estado interno del procesador de comandos al usuario.
+
+## 17-05-2026 Restauración de Interrupción de Agente (Tecla Escape) en la TUI
+
+### 🐛 Problema
+Tras la migración a la arquitectura cliente-servidor, al presionar la tecla `Escape` mientras el agente estaba procesando, la ejecución de la tarea/herramienta no se interrumpía, a pesar de que la TUI mostraba el mensaje de solicitud.
+
+### 🔍 Diagnóstico
+- Anteriormente, presionar `Escape` en la TUI escribía un boleano `True` en la cola de interrupción local de `terminal_ui` (`self.tui_ui.get_interrupt_queue()`).
+- Al estar desacoplados, el agente se ejecuta en el **servidor central** de FastAPI, por lo que la cola local del cliente TUI es invisible para él.
+- El backend persistente expone soporte para recibir eventos tipo `{ "type": "interrupt" }` a través del WebSocket conectado, los cuales detienen el agente inmediatamente.
+
+### 🔧 Cambios Aplicados
+**Archivo**: `kogniterm/terminal/tui/tui_app.py`
+- Se modificó la captura de la tecla `escape` durante el procesamiento (`self.is_processing`).
+- Ahora se despacha un mensaje WebSocket asíncrono con el payload `{"type": "interrupt"}` usando `self.ws.send(...)` y administrando la tarea en segundo plano mediante `self.run_worker()`.
+- Se mantiene el push a la cola local de `tui_ui` como fallback/compatibilidad.
+- Se actualizó el mensaje a `⏸ Interrumpiendo...` para reflejar mejor el estado.
+
+---
+
+## 17-05-2026 Corrección del Congelamiento de Pantalla al Abrir Modales TUI (/models, /theme)
+
+### 🐛 Problema
+Al ejecutar comandos de configuración locales desde la TUI (como `/models`, `/theme`, `/keys`, `/provider`), la interfaz de usuario se congelaba por completo y los diálogos modales de selección no llegaban a abrirse, obligando al usuario a forzar el cierre de la terminal.
+
+### 🔍 Diagnóstico
+Se identificaron dos causas raíces del interbloqueo (deadlock):
+1. **Bloqueo del Event Loop en el Hilo Principal**: Al procesar e interceptar comandos directamente en el manejador asíncrono `on_chat_input_submitted` (que es llamado y esperado secuencialmente por Textual en el hilo del loop de eventos), la ejecución del manejador quedaba suspendida en la espera (`await`) de la selección del usuario. Dado que Textual requiere que el manejador de eventos termine para procesar redibujados y refrescar la pantalla, se producía un deadlock completo.
+2. **Espera de Refresco en `push_screen_wait`**: El helper `push_screen_wait` posponía la llamada a `push_screen` a después del siguiente refresco del frame usando `call_after_refresh()`. Al estar el event loop bloqueado por la respuesta del manejador, el refresco nunca ocurría y el modal no se mostraba.
+
+### 🔧 Cambios Aplicados
+**Archivos modificados**:
+1. [**`kogniterm/terminal/tui/tui_app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py):
+   - **`on_chat_input_submitted`**: Modificado para interceptar los comandos de configuración locales (`models`, `provider`, `keys`, `theme`, `tema`, `help`), limpiar el campo de entrada inmediatamente y delegar la ejecución a una tarea en segundo plano mediante `self.run_worker(self.command_processor.process_command(user_input))`. Esto permite que el handler del hilo principal retorne de inmediato, manteniendo la TUI totalmente responsiva.
+   - **`push_screen_wait`**: Modificado para empujar la pantalla modal de forma directa e inmediata con `self.push_screen(screen, callback)`, eliminando la dependencia innecesaria y propensa a bloqueos de `call_after_refresh()`.
+   - **`ask_for_approval_async`**: Reemplazado el uso obsoleto de `asyncio.get_event_loop()` por `asyncio.get_running_loop()` para asegurar la compatibilidad y consistencia del loop en segundo plano.
+
+2. [**`tests/unit/test_tui_commands_worker.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/tests/unit/test_tui_commands_worker.py) *(nuevo)*:
+   - Creado un conjunto de pruebas unitarias robustas que verifican:
+     - Que los comandos de configuración locales se ejecutan de manera no bloqueante utilizando `self.run_worker()`.
+     - Que el campo de entrada del widget se limpia inmediatamente tras enviar un comando local.
+     - Que los comandos no locales se envían correctamente al servidor sin interferir con el flujo del backend.
+
+### 🎯 Resultado
+Los menús modales interactivos se abren de manera instantánea y ultra-fluida sin bloquear ni congelar la TUI. La entrada de teclado y toda la interfaz permanecen responsivas en todo momento.
+
+---
+
+## 17-05-2026 Corrección de Parseo e Implementación de Descarga Dinámica de Modelos desde APIs
+
+### 🐛 Problemas
+1. **Error de Parseo en la TUI**: Al abrir el diálogo `/models` para seleccionar el modelo LLM, las opciones se mostraban como diccionarios formateados crudos correspondientes a los proveedores completos (ej. `{'id': 'google', 'name': ...}`) en lugar de mostrar las cadenas de texto individuales de cada modelo disponible. Esto ocurría porque la TUI iteraba sobre `models_dict.items()` asumiendo un formato de diccionario simple, cuando el servidor centralizado realmente devuelve una lista estructurada de objetos bajo la clave `"providers"`.
+2. **Modelos Hardcodeados**: El endpoint `/models/available` de la API de KogniTerm devolvía listas de modelos totalmente estáticas y predefinidas para todos los proveedores (Google, OpenAI, Anthropic, OpenRouter, Ollama), en lugar de descargar el catálogo real de modelos directamente desde las APIs oficiales de cada proveedor en función de las API Keys configuradas por el usuario.
+
+### 🔧 Cambios Aplicados
+
+#### 📁 Frontend (Cliente TUI)
+- [**`kogniterm/terminal/tui/command_processor.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/command_processor.py):
+  - **`_handle_models`**: Se corrigió el algoritmo de parseo para procesar de forma adecuada el JSON jerárquico del servidor central. Ahora itera correctamente sobre el arreglo `providers`, extrae el nombre legible del proveedor (`p.get("name")`), y mapea individualmente cada modelo (`models`) a una tupla `(valor_modelo, etiqueta_de_pantalla)` compatible con el widget de lista de botones de radio (`ask_radiolist_async`).
+
+#### 📁 Backend (Servidor API de KogniTerm)
+- [**`kogniterm/server/app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/app.py):
+  - **`LLMConfigRequest`**: Se migró la clase del modelo Pydantic del ámbito local (nested) de la función `create_app` a un nivel global del módulo. Esto resolvió un problema de diseño en FastAPI/Pydantic que causaba un error de validación `422 Unprocessable Entity` ("Field required: req") al interpretar el parámetro como variable de consulta en lugar de cuerpo JSON en las peticiones `POST /config/llm`.
+  - **`get_available_models`**: Se refactorizó por completo el endpoint `/models/available` (y `/api/models/available`) para realizar consultas HTTP asíncronas y concurrentes a las APIs oficiales de todos los proveedores utilizando `httpx.AsyncClient` y `asyncio.gather(..., return_exceptions=True)`.
+  - **Consultas a APIs Habilitadas**:
+    - **Google AI Studio**: Si hay llave de API, se consulta `generativelanguage.googleapis.com` en tiempo real y se normalizan los modelos al formato `gemini/...`.
+    - **OpenRouter**: Se descarga de forma pública (sin requerir llave) el listado actualizado de modelos desde `openrouter.ai/api/v1/models` y se les asigna el prefijo `openrouter/...`.
+    - **OpenAI**: Si hay llave de API, se consulta `api.openai.com` filtrando para listar únicamente los modelos de la familia `gpt` u `o*`.
+    - **Anthropic**: Si hay llave de API, se consulta `api.anthropic.com` con las cabeceras de versión correspondientes.
+    - **Ollama Local**: Se consulta de manera local el endpoint `/api/tags` de Ollama (utilizando la base de API configurada en `OLLAMA_API_BASE`) para listar únicamente los modelos que el usuario ya ha descargado y tiene instalados en su máquina.
+    - **KiloCode Gateway**: Si está configurada la llave `KILOCODE_API_KEY`, se consulta en tiempo real el endpoint `https://api.kilo.ai/api/gateway/models` y se descargan dinámicamente todos los modelos disponibles agregándoles el prefijo `kilocode/...`.
+  - **Tolerancia a Fallos y Respaldos (Fallback)**: Si una API está inaccesible, el usuario no tiene una API Key configurada para ese proveedor en particular, o se produce un error de red/tiempo de espera (timeout estricto por proveedor de entre 1.5 y 3.0 segundos), el backend captura la excepción y aplica de manera transparente las listas de modelos por defecto estables preestablecidas.
+
+### 🎯 Beneficio
+✅ **Filtro por Proveedor Activo**: La TUI ahora muestra de forma inteligente **únicamente los modelos que corresponden al proveedor configurado en ese momento**, evitando abrumar al usuario con catálogos de otros proveedores que no está utilizando.
+✅ **Soporte de KiloCode**: Se añadió soporte completo para detectar el proveedor de KiloCode (`kilocode`) cuando el modelo configurado es un modelo de KiloCode Gateway.
+✅ **Lista 100% Real y Actualizada**: El usuario ve en la TUI exactamente la lista real de modelos disponibles para usar en sus cuentas de Google Studio, OpenAI, OpenRouter, Anthropic o los modelos descargados localmente en su máquina con Ollama.
+✅ **Interfaz Limpia y Profesional**: Corrección completa del formato de visualización del diálogo de modelos, mostrando etiquetas pulidas y legibles como `[Google AI Studio] gemini/gemini-1.5-flash` de forma individual.
+✅ **Eficiencia y Sin Bloqueos**: La recolección de catálogos se ejecuta de manera asíncrona y paralela en el backend en menos de 1 segundo si las APIs responden con normalidad.
+
+
+
+
+
+## 2026-05-17 14:52:41
+
+### Solución a falla de inicio de TUI
+- Se corrigió un error que impedía iniciar la TUI debido a argumentos faltantes en la instanciación de  tras la refactorización cliente-servidor.
+- Se cambiaron los argumentos ,  y  en  para que sean opcionales (por defecto ) y se añadieron comprobaciones de nulidad antes de usarlos.
+- Se reemplazó el uso de la función obsoleta  por  en  de  para evitar que los modales se congelen o fallen.
+
+
+## 2026-05-17 14:58:04
+
+### Solución a falla de inicio de TUI
+- Se corrigió un error que impedía iniciar la TUI debido a argumentos faltantes en la instanciación de `KogniTermTUI` tras la refactorización cliente-servidor.
+- Se cambiaron los argumentos `llm_service`, `command_executor` y `agent_state` en `tui_app.py` para que sean opcionales (por defecto `None`) y se añadieron comprobaciones de nulidad antes de usarlos.
+- Se reemplazó el uso de la función obsoleta `asyncio.get_event_loop()` por `asyncio.get_running_loop()` en `push_screen_wait` de `tui_app.py` para evitar que los modales se congelen o fallen.
+
+
+## 2026-05-17 15:11:13
+
+### Solución a caída de renderizado en React por objetos anidados
+- Se previno el error `Objects are not valid as a React child` en la aplicación React (`kogniterm-desktop/apps/desktop/src/components/chat/ChatMessage.tsx`).
+- Se introdujo una comprobación de tipo para `message.content` y `message.reasoning`. Si el contenido llega en formato de objeto (como en salidas JSON directas del LLM como `key_themes`), ahora se convierte a un string mediante `JSON.stringify()` antes de ser procesado por `ReactMarkdown`.
+
+
+## 2026-05-17 15:24:16
+
+### Solución a caída de renderizado en React en vista de Análisis de Colecciones
+- Se corrigió el error `Objects are not valid as a React child (found: object with keys {key_themes, description})` en el proyecto externo de Frontend (KognitoAI).
+- En el componente `DocumentCollectionDisplay.tsx`, el campo `summary` proveniente del payload de los análisis (ej. `resumen_semantico` o `collection_summary`) a veces era devuelto por la API como un objeto estructurado en lugar de un string, lo cual causaba un fallo al ser interpolado en el HTML (`{summary}`).
+- Se implementó una lógica de parseo seguro: si el resumen es un objeto, extrae sus propiedades `description` o `resumen`, y de ser necesario, utiliza `JSON.stringify` para asegurar que React reciba únicamente un string.
+
+
+## 2026-05-17 16:20:00
+
+### Alineación de Mensajes de Chat y Pensamiento en la TUI
+- Se corrigió la alineación del panel de mensajes del agente y el pensamiento en la TUI, los cuales estaban alineados a la izquierda en lugar de estar centrados en la pantalla como el inputbar.
+- Se envolvió el widget `ChatLogWidget` en un contenedor `Vertical` con identificador `chat_container` en `tui_app.py`.
+- Se definió el estilo CSS para `#chat_container` con `align-horizontal: center` para centrar el historial de chat (el cual tiene un ancho del 85%) de forma idéntica a como se centra la barra de entrada de texto (`#input_container`).
+- Se removió el borde y el fondo oscuro del panel de estado (`#live_display`) que muestra "Procesando..." en `tui_app.py`, permitiendo que el spinner y el mensaje de espera se integren visualmente de forma limpia y transparente en la interfaz (sin la caja rectangular).
+
+
+## 2026-05-17 16:33:00
+
+### Planificación de la Migración a la Arquitectura Cliente-Servidor
+- Se diseñó y creó el plan de refactorización estratégica para migrar la aplicación TUI monolítica autónoma a una arquitectura desacoplada de Cliente-Servidor.
+- Se guardó el plan detallado paso a paso con diagramas de flujo y blueprints de código en [`docs/plan_migracion_cliente_servidor.md`](file:///home/gato/Proyectos/Gemini-Interpreter/docs/plan_migracion_cliente_servidor.md).
+- El plan establece la división del sistema en una API backend persistente centralizada (con soporte para múltiples frontends como TUI y Telegram) y frontends ligeros que consumen eventos asíncronos en tiempo real mediante WebSockets.
+
+
+## 2026-05-17 16:45:00
+
+### Inclusión del Patrón de Búsqueda y Ruta en Notificaciones de Búsqueda de Archivos
+- Se corrigió la falta de indicación del query o patrón de búsqueda en las notificaciones cuando el agente ejecuta herramientas de búsqueda de archivos.
+- Se modificó la función de utilidad [`get_tool_action_description`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/utils/tool_utils.py#L201-L229) en [`kogniterm/core/utils/tool_utils.py`](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/utils/tool_utils.py) para que busque y devuelva el argumento `pattern` (además de `query` y `search_query`) como el texto de búsqueda de fallback si los anteriores están ausentes.
+- Se implementó una lógica de formateo más descriptiva para las herramientas que buscan en archivos o usan globos (identificadas por tener `"file"` o `"glob"` en su nombre). Ahora, si un archivo o ruta (`path` o `file_path`) está presente, la descripción devuelta es `"Buscando '{query}' en {path}"`, mejorando significativamente la claridad de la acción que realiza el agente.
+
+---
+
+## 17-05-2026 Ajuste de Ancho de la Terminal Interactiva en la TUI
+
+### 🎨 Alineación y Consistencia de Anchos en TUI
+- Se ajustó el ancho y margen del widget de salida de terminal (`ToolOutputWidget`) para que coincida perfectamente con el ancho (`width: 85%`, `max-width: 180`, `min-width: 60`) y márgenes (`margin: 0 4 1 4`) del panel de pensamiento del LLM (`#live_display`) y del historial de chat (`#chat_log`) cuando se muestra de forma independiente.
+- Se implementó una regla CSS anidada `#chat_log ToolOutputWidget` en ambos archivos CSS (`tui_app.py` y `tool_output.py`) para que, cuando el widget de terminal se encuentre empotrado dentro del historial de chat (`#chat_log`), su ancho se expanda al `100%` con márgenes laterales alineados a `0`, logrando que ocupe y se alinee exactamente con los límites laterales del contenedor del chat.
+
+#### 🔧 Archivos Modificados
+1. [**`kogniterm/terminal/tui/tui_app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Modificado el CSS de `ToolOutputWidget` para reflejar el ancho unificado de `85%`, `max-width: 180`, `min-width: 60` y `margin: 0 4 1 4`.
+   - Añadida la regla `#chat_log ToolOutputWidget` para forzar la expansión horizontal simétrica al `100%` en la vista de chat.
+2. [**`kogniterm/terminal/tui/components/tool_output.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/components/tool_output.py)
+   - Actualizado el `DEFAULT_CSS` de la clase `ToolOutputWidget` con los mismos estilos unificados y el selector anidado para consistencia absoluta en el renderizado de la terminal interactiva.
+
+### ⚡ Emulación y Renderizado de Terminal de Alta Fidelidad
+- Se implementó un sistema de agrupación por estilos para optimizar el rendimiento de pintado de caracteres secuenciales con estilos idénticos.
+- Se agregó soporte completo para parpadeo de cursor interactivo en la terminal (`cursor_visible` con intervalo de `0.5s`) cuando el widget tiene el foco principal de la TUI, emulando fielmente un cursor terminal clásico.
+- Se implementó la visualización de cursor atenuado no enfocado (subrayado con `dim` activo) cuando se visualiza la terminal fuera del foco activo.
+- Se amplió la conversión de estilos ANSI para mapear correctamente secuencias de reversión (`reverse`), texto atenuado (`dim`), y texto parpadeante (`blink`) nativas de pseudo-terminales (PTY) hacia estilos de `rich.style.Style`.
+- Se corrigió la truncación visual de la posición del cursor de la terminal mediante la restricción de depuración de líneas vacías finales a nunca superar la posición vertical actual del cursor.
+
+
+---
+
+## 17-05-2026 Implementación de Grafo de Aprendizaje Posterior Decouplado
+
+**Descripción**: Se ha separado el proceso de aprendizaje (análisis de la conversación reciente para guardar preferencias en `instructions.md`) en un nuevo grafo de LangGraph independiente (`create_learning_agent`), el cual se ejecuta de forma posterior e independiente tras la finalización del grafo principal de respuesta al usuario. Esto previene el freeze de la TUI, reduce drásticamente la latencia percibida por el usuario y mejora la robustez del sistema.
+
+### Cambios Implementados
+
+#### 📁 Archivos Modificados
+
+1. [**`kogniterm/core/agents/bash_agent.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/bash_agent.py)
+   - Se removió el nodo de aprendizaje (`learning`) y sus transiciones asociadas del grafo principal `bash_agent_graph`.
+   - Se modificó la lógica condicional del grafo (`should_continue`) para que retorne `END` de forma limpia tras generar la respuesta final al usuario, en lugar de transicionar obligatoriamente a `"learning"`.
+   - Se implementó la nueva función `create_learning_agent` que define, compila y expone un grafo LangGraph dedicado únicamente al aprendizaje y persistencia de preferencias de usuario.
+
+2. [**`kogniterm/terminal/agent_interaction_manager.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/agent_interaction_manager.py)
+   - Se importó la función `create_learning_agent` desde el módulo de agentes bash.
+   - Se inicializó el nuevo motor del grafo de aprendizaje posterior `self.learning_agent_app` en el constructor de `AgentInteractionManager`.
+   - Se actualizó el final del método `invoke_agent` para invocar de forma independiente el grafo de aprendizaje posterior (`self.learning_agent_app.invoke`), asegurando mediante estrictas comprobaciones que esto ocurra solo cuando no hay confirmaciones de herramientas o comandos pendientes de aprobación en el turno actual (fin real del turno del agente).
+
+### 🎯 Beneficios
+✅ **Cero Latencia Percibida**: El usuario recibe la respuesta textual del LLM inmediatamente sin tener que esperar a que se procese la llamada extra de aprendizaje.
+✅ **Previene Freezes de TUI**: Al desligarse de la respuesta y correr de forma fluida dentro del worker thread existente, evita cualquier potencial bloqueo visual o retraso en la renderización de la interfaz.
+✅ **Robustez en Confirmaciones**: Asegura que el aprendizaje se realice exclusivamente cuando el agente ha concluido su flujo de turnos y no mientras espera confirmación del usuario para un comando o edición de archivos.
+✅ **Diseño Arquitectural Limpio**: Fiel al principio de separación de responsabilidades y modularidad en base a grafos especializados de LangGraph.
+
+---
+
+## 17-05-2026 Solución de RuntimeError por Uso Incorrecto de call_from_thread en TUI
+
+**Descripción**: Se solucionó un error fatal de ejecución (`RuntimeError: The 'call_from_thread' method must run in a different thread from the app`) que se producía en la TUI de KogniTerm al intentar enviar un mensaje desde el hilo principal del bucle de eventos.
+
+### Cambios Implementados
+
+#### 📁 Archivo Modificado
+
+1. [**`kogniterm/terminal/tui/tui_app.py`**](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py)
+   - Se diseñó e implementó un nuevo método helper centralizado y thread-safe `_safe_call(self, func, *args, **kwargs)` en la clase [KogniTermTUI](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/tui/tui_app.py#L466-L467). Este método comprueba si la ejecución actual se encuentra en el hilo principal (`threading.current_thread() is threading.main_thread()`). En caso afirmativo, invoca la función directamente; de lo contrario, utiliza de forma segura `self.call_from_thread(func, *args, **kwargs)`.
+   - Se reemplazó la llamada directa a `self.call_from_thread(self._start_spinner)` por `self._safe_call(self._start_spinner)` dentro de `on_input_submitted` (línea 1727), evitando el error fatal en el hilo principal al procesar el mensaje.
+   - Se refactorizaron todos los usos redundantes y potencialmente problemáticos de `call_from_thread` a lo largo del archivo `tui_app.py` para utilizar de forma consistente la nueva función robusta `_safe_call`. Específicamente:
+     - En `write_stream_to_chat` al detener el spinner.
+     - En `process_agent_request` al iniciar el spinner en el worker thread.
+     - En el bloque `finally` de `process_agent_request` al detener el spinner y procesar la cola de entrada.
+     - En los métodos de sincronización de aprobación y entrada (`ask_for_approval_sync` y `ask_for_input_sync`) para montar los modales de manera segura e inteligente.
+
+### 🎯 Beneficios
+
+✅ **Estabilidad Garantizada**: Se elimina por completo el fallo y crash (`RuntimeError`) de la aplicación al presionar Enter en los campos de entrada de chat desde el hilo principal.
+✅ **Robustez del Hilo**: El helper `_safe_call` proporciona un puente unificado y dinámico para que cualquier invocación de UI sea transparente a su contexto de hilo (principal vs worker threads).
+✅ **Consistencia del Código**: Simplificación y limpieza de comprobaciones de hilos manuales en modales de entrada y diálogos de aprobación de la TUI, haciéndola más fácil de mantener.

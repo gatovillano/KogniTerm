@@ -27,19 +27,6 @@ class ChatLogWidget(VerticalScroll):
         super().__init__(**kwargs)
         self._active_message_widget = None
         self.can_focus = True
-        self._animation_timer = None
-
-    def on_mount(self) -> None:
-        """Activa un refresco periódico para animar renderables Rich (ej. spinners)."""
-        self._animation_timer = self.set_interval(0.1, self._refresh_active_widget)
-
-    def _refresh_active_widget(self) -> None:
-        """Refresca el widget activo para que Rich re-renderice animaciones en curso."""
-        if self._active_message_widget is not None:
-            try:
-                self._active_message_widget.refresh()
-            except Exception:
-                pass
 
     def _get_available_width(self):
         """Calcula el ancho disponible real dentro del widget."""
@@ -69,6 +56,10 @@ class ChatLogWidget(VerticalScroll):
         # Si es un simple string, lo envolvemos para padding
         if isinstance(renderable, str):
              renderable = Text(renderable)
+
+        # Centrar el mensaje envolviéndolo en Align.center
+        renderable = Align.center(renderable)
+
         def _mount_msg(r):
             try:
                 widget = MessageWidget(Padding(r, (1, 0)))
@@ -136,7 +127,7 @@ class ChatLogWidget(VerticalScroll):
                 right.styles.flex = 1
                 right.styles.height = "auto"
                 right.styles.background = ColorPalette.GRAY_800
-                right.styles.padding = (1, 3) # Margen interno (padding) aumentado de 2 a 3 para alinear con el input (1 pipe + 3 pad = 4)
+                right.styles.padding = (1, 2) # Margen interno (padding) añadido
 
                 row = Horizontal(left, right, classes="user-message-row")
                 row.styles.height = "auto"

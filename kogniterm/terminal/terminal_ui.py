@@ -30,24 +30,48 @@ class TerminalUI:
     def __init__(self, console: Console | None = None):
         # True when output is a terminal (supports colors/interactive features)
         self.is_tty = sys.stdout.isatty()
-        
+        self.console = console or Console(theme=get_kogniterm_theme())
+        self.prompt_session = PromptSession()
+
         if not self.is_tty:
             # For non-tty (dumb) terminals, disable color and terminal features
-            self.console = console if console else Console(theme=get_kogniterm_theme(), force_terminal=False, no_color=True)
-        else:
-            self.console = console if console else Console(theme=get_kogniterm_theme())
-            
-        self.interrupt_queue = queue.Queue()
-        self.kb = KeyBindings()
-        # Configurar escape_delay=0 para que la tecla Esc se detecte instantáneamente
-        self.prompt_session = PromptSession(key_bindings=self.kb, input_processors=[], erase_when_done=True)
-        # Nota: El retraso de escape se configura globalmente o en el objeto de entrada si es necesario,
-        # pero prompt_toolkit suele responder bien si el binding es directo.
+            pass
 
         # El binding de Escape se maneja ahora centralmente en KogniTermApp para evitar conflictos
         # con el historial y el autocompletado.
 
-    def refresh_theme(self):
+        # Callback de resize para notificar a la aplicación principal
+        self.resize_callback = None
+
+    def handle_resize(self):
+        """Maneja el redimensionamiento de la terminal refrescando la consola."""
+        # Obtener dimensiones actuales de forma explícita usando shutil
+        size = shutil.get_terminal_size()
+        
+        # Actualizar la consola existente si es posible para mantener el estado
+        # Rich detecta automáticamente el ancho si no se especifica, pero aquí lo forzamos
+        # para asegurar consistencia tras la señal SIGWINCH.
+        self.console.width = size.columns
+        self.console.height = size.lines
+        
+        # Opcionalmente, recreamos con el nuevo tamaño si hay problemas de buffers
+        # Pero mantenemos el tema original.
+        self.console = Console(
+            theme=get_kogniterm_theme(),
+            width=size.columns,
+            height=size.lines,
+            force_terminal=True,
+            soft_wrap=True # Habilitar soft_wrap global para evitar desestructurar paneles
+        )
+        
+        # Notificar a la aplicación principal (callback)
+        if self.resize_callback:
+            try:
+                self.resize_callback(size.columns, size.lines)
+            except Exception:
+                pass # No propagar errores del callback
+        
+        # Si hay procesos de streaming activos, esto asegurará que el próximo chunk use el nuevo ancho.    def refresh_theme(self):
         """Recarga el tema de la consola."""
         # Creamos una nueva consola con el tema actualizado
         self.console = Console(theme=get_kogniterm_theme())
@@ -313,14 +337,15 @@ class TerminalUI:
                     icon=Icons.ROBOT,
                     color=ColorPalette.SECONDARY
                 )
-                self.console.print(thought_bubble)
+                self.console.print(Align.center(thought_bubble))
         else:
             # Por defecto, imprimir como Markdown o texto plano
             if message.strip():
                 message = scrub_secrets(message)
                 content = Markdown(message) if not style else message
                 # Aplicar el mismo margen que en el stream (sangría de 4 espacios)
-                self.console.print(Padding(content, (0, 4)) if not style else content)
+                renderable = Padding(content, (0, 4)) if not style else content
+                self.console.print(Align.center(renderable))
 
     def get_interrupt_queue(self) -> queue.Queue:
         return self.interrupt_queue

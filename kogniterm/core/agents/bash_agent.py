@@ -263,8 +263,8 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
     if terminal_ui and hasattr(terminal_ui, "update_live"):
         from kogniterm.terminal.themes import Icons
         from rich.padding import Padding
-        # Añadir Padding (0, 4) para mantener la alineación centrada de la TUI
-        terminal_ui.update_live(Padding(Panel(f"{Icons.CODE} [bold]Verificando sintaxis de archivos modificados...[/bold]", border_style="yellow"), (0, 4)))
+        # Añadir Padding (0, 0) con expand=True y padding interno (0, 4) para mantener la alineación de la TUI
+        terminal_ui.update_live(Padding(Panel(f"{Icons.CODE} [bold]Verificando sintaxis de archivos modificados...[/bold]", border_style="yellow", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
     verification_results = []
@@ -367,7 +367,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
             from rich.padding import Padding
             if isinstance(content, str):
                 content = Markdown(content)
-            return Padding(Panel(content, title=f"[dim]{icon} {title}[/dim]", border_style="dim grey", style="dim grey"), (1, 4))
+            return Padding(Panel(content, title=f"[dim]{icon} {title}[/dim]", border_style="dim grey", style="dim grey", padding=(0, 4), expand=True), (1, 0))
 
 
     # Usar Live para actualizar el contenido en tiempo real
@@ -409,7 +409,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                             title=f"{Icons.THINKING} KogniTerm Pensando...",
                             border_style=ColorPalette.GRAY_700,
                             style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
-                            padding=(0, 2),
+                            padding=(0, 4),
                             expand=True
                         )
 
@@ -427,10 +427,10 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 
                 if is_tui:
                     group = Group(*renderables)
-                    final_renderable = Padding(group, (2, 4, 1, 4))
+                    final_renderable = Padding(group, (2, 0, 1, 0))
                     terminal_ui.update_live(final_renderable)
                 else:
-                    final_renderable = Padding(Group(*renderables), (2, 4, 1, 4)) if renderables else spinner
+                    final_renderable = Padding(Group(*renderables), (2, 0, 1, 0)) if renderables else spinner
                     if not renderables:
                         live.update(spinner)
                     else:
@@ -1114,7 +1114,7 @@ def should_continue(state: AgentState) -> str:
     elif isinstance(last_message, ToolMessage):
         return "call_model"
     else:
-        return "learning"
+        return END
 
 # --- Construcción del Grafo ---
 
@@ -1124,7 +1124,6 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
     bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
     bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue, command_approval_handler=command_approval_handler))
     bash_agent_graph.add_node("verify", functools.partial(verification_node, llm_service=llm_service, terminal_ui=terminal_ui))
-    bash_agent_graph.add_node("learning", functools.partial(learning_node, llm_service=llm_service, terminal_ui=terminal_ui))
 
     bash_agent_graph.set_entry_point("call_model")
 
@@ -1133,7 +1132,6 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
         should_continue,
         {
             "execute_tool": "execute_tool",
-            "learning": "learning",
             END: END
         }
     )
@@ -1144,12 +1142,23 @@ def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrup
         {
             "call_model": "verify",   # pasar por verificación antes de volver al modelo
             "execute_tool": "execute_tool",
-            "learning": "learning",
             END: END
         }
     )
 
     bash_agent_graph.add_edge("verify", "call_model")
-    bash_agent_graph.add_edge("learning", END)
 
     return bash_agent_graph.compile()
+
+
+def create_learning_agent(llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
+    """
+    Crea el grafo de aprendizaje posterior que analiza la sesión y
+    persiste las preferencias del usuario de forma independiente al flujo de respuesta.
+    """
+    learning_graph = StateGraph(AgentState)
+    learning_graph.add_node("learning", functools.partial(learning_node, llm_service=llm_service, terminal_ui=terminal_ui))
+    learning_graph.set_entry_point("learning")
+    learning_graph.add_edge("learning", END)
+    return learning_graph.compile()
+
