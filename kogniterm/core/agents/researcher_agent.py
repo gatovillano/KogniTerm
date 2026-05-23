@@ -23,7 +23,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from kogniterm.terminal.terminal_ui import TerminalUI
+from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
 
 console = Console()
