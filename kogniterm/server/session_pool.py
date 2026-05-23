@@ -25,7 +25,7 @@ from kogniterm.core.agent_state import AgentState
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.session_manager import SessionManager
 from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
-from kogniterm.terminal.terminal_ui import TerminalUI
+from kogniterm.ui.terminal_ui import TerminalUI
 from rich.console import Console
 
 logger = logging.getLogger("kogniterm.server.session_pool")

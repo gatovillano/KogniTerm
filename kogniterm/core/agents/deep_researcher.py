@@ -24,8 +24,8 @@ from rich.padding import Padding
 from rich.text import Text
 
 from kogniterm.core.agent_state import AgentState
-from kogniterm.terminal.themes import ColorPalette, Icons
-from kogniterm.terminal.terminal_ui import TerminalUI
+from kogniterm.ui.themes import ColorPalette, Icons
+from kogniterm.ui.terminal_ui import TerminalUI
 
 console = Console()
 

@@ -21,7 +21,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
-from kogniterm.terminal.terminal_ui import TerminalUI
+from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.exceptions import UserConfirmationRequired
 from ..async_io_manager import get_io_manager

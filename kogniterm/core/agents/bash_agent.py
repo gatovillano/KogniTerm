@@ -18,7 +18,7 @@ import os
 import re
 
 from ..llm_service import LLMService
-from kogniterm.terminal.terminal_ui import TerminalUI
+from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
 from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 from ..async_io_manager import get_io_manager, AsyncTaskResult

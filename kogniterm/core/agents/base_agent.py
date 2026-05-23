@@ -182,7 +182,7 @@ class BaseAgentNode:
     def _update_display(s_state, terminal_ui, is_tui, live):
         renderables = []
         if s_state["full_thinking"]:
-            from kogniterm.terminal.themes import ColorPalette
+            from kogniterm.ui.themes import ColorPalette
             # Render de 'pensamiento' simplificado en TUI para evitar paneles/bordes
             if is_tui:
                 # Usar Text plano con estilo dim para evitar bordes y tablas que rompan el layout
