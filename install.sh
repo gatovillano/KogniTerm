@@ -294,25 +294,25 @@ echo ""
 printf "${GREEN}"
 if [ "$USE_UNICODE" = true ]; then
 cat << "BANNER"
-  ╔═══════════════════════════════════════════════════════════════╗
-  ║                                                               ║
-  ║   ░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█                   ║
-  ║   ░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█                   ║
-  ║   ░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀                   ║
-  ║                                                               ║
-  ║        KogniTerm — Agente Evolutivo de Terminal              ║
-  ║                    Versión 0.5.0                              ║
-  ╚═══════════════════════════════════════════════════════════════╝
+  ╔════════════════════════════════════════════════════════╗
+  ║                                                        ║
+  ║         ░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█           ║
+  ║         ░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█           ║
+  ║         ░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀           ║
+  ║                                                        ║
+  ║        KogniTerm — Agente Evolutivo de Terminal        ║
+  ║                    Versión 0.5.0                       ║
+  ╚════════════════════════════════════════════════════════╝
 BANNER
 else
 cat << "BANNER"
-  +---------------------------------------------------------------+
-  |                                                               |
-  |     K O G N I T E R M                                         |
-  |     Agente Evolutivo de Terminal                              |
-  |     Version 0.5.0                                             |
-  |                                                               |
-  +---------------------------------------------------------------+
+  +-----------------------------------------------------------------+
+  |                                                                 |
+  |     K O G N I T E R M                                           |
+  |     Agente Evolutivo de Terminal                                |
+  |     Version 0.5.0                                               |
+  |                                                                 |
+  +-----------------------------------------------------------------+
 BANNER
 fi
 printf "${RESET}"
@@ -550,8 +550,9 @@ run_with_spinner "Instalando paquetes (puede tomar varios minutos)" pip install 
 
 # Si es instalación Full, avisar sobre playwright
 if [[ "$INSTALL_EXTRAS" == *"[full]"* ]]; then
-    log_info "Configurando Playwright (solo necesario para Full)..."
-    run_with_spinner "Instalando navegadores de Playwright" playwright install chromium
+    log_info "Configurando Playwright (instalando navegadores en background)..."
+    playwright install chromium --with-deps > /dev/null 2>&1 &
+    log_success "Instalación de navegadores iniciada en segundo plano."
 fi
 
 # Mostrar paquetes instalados

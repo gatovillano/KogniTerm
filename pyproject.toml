@@ -86,6 +86,7 @@ Issues = "https://github.com/gatovillano/KogniTerm/issues"
 [project.scripts]
 kogniterm = "kogniterm.terminal.terminal:main"
 kogniterm-server = "kogniterm.server.__main__:main"
+kogniterm-config = "kogniterm_config:config_kogniterm_cli"
 
 [build-system]
 requires = ["setuptools>=61.0"]
