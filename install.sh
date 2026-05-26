@@ -689,7 +689,8 @@ step_header "Creación de enlace simbólico global"
 echo ""
 printf "  ${CYAN}?${RESET}  ¿Deseas crear un enlace simbólico global para 'kogniterm'? (y/N): "
 read -r symlink_confirm
-if [[ $symlink_confirm =~ ^[Yy]$ ]]; then
+
+if [[ "$symlink_confirm" =~ ^[Yy]$ ]]; then
     SYMLINK_PATH="/usr/local/bin/kogniterm"
     if [ -w "$(dirname "$SYMLINK_PATH")" ]; then
         ln -sf "${VENV_DIR}/bin/kogniterm" "$SYMLINK_PATH"
