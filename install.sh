@@ -488,6 +488,12 @@ log_info "Tipo de instalación seleccionado: ${BOLD}${INSTALL_LABEL}${RESET}"
 step_header "Instalar KogniTerm y dependencias"
 
 # Asegurar que estamos en el directorio de instalación para que pip encuentre pyproject.toml
+log_info "Verificando directorio: $INSTALL_DIR"
+if [[ "$INSTALL_DIR" == "$HOME" || "$INSTALL_DIR" == "/" ]]; then
+    log_error "Directorio de instalación inválido: $INSTALL_DIR. No se permite instalar en el HOME o raíz."
+    exit 1
+fi
+
 log_info "Cambiando a directorio: $INSTALL_DIR"
 cd "$INSTALL_DIR" || { log_error "No se pudo cambiar al directorio $INSTALL_DIR"; exit 1; }
 
