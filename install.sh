@@ -487,6 +487,7 @@ get_input() {
 }
 
 printf "  ${CYAN}→${RESET} Opción [1-3] (Default: 2): "
+sleep 0.5
 [[ -t 0 ]] && read -r install_type_choice < /dev/tty || install_type_choice=2
 [ -z "$install_type_choice" ] && install_type_choice=2
 
