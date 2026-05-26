@@ -16,7 +16,6 @@ dependencies = [
     "beautifulsoup4",
     "PyGithub",
     "rich",
-    "matplotlib",
     "google-genai",
     "jupyter_client",
     "loguru",
@@ -24,24 +23,13 @@ dependencies = [
     "gitignore-parser",
     "watchdog",
     "litellm",
-    "playwright",
-    "tavily-python",
     "GitPython",
     "pydantic",
     "pydantic-settings",
-    "chromadb",
     "urllib3<2",
-    "pyautogui",
-    "pywinctl",
-    "opencv-python",
-    "pillow",
-    "python-xlib",
-    "langchain-litellm",
     "nest_asyncio",
     "tiktoken",
     "requests",
-    "crewai",
-    "fastembed",
     "textual",
     "pyte",
     "fastapi",
@@ -62,6 +50,26 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+rag = [
+    "chromadb",
+    "fastembed",
+]
+browser = [
+    "playwright",
+]
+pc-control = [
+    "opencv-python",
+    "pyautogui",
+    "pywinctl",
+    "python-xlib",
+    "pillow",
+]
+vis = [
+    "matplotlib",
+]
+full = [
+    "kogniterm[rag,browser,pc-control,vis]",
+]
 dev = [
     "radon",
     "pylint",

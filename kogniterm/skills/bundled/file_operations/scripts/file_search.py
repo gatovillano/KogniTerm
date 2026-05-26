@@ -69,9 +69,23 @@ def glob_search_tool(pattern: str, path: Optional[str] = None) -> Dict[str, Any]
 
         return {
             "message": message,
+            "pattern": pattern,
+            "path": path,
             "files": found_files,
             "truncated": truncated
         }
 
     except Exception as e:
         return {"error": f"Error al ejecutar la búsqueda de archivos: {e}"}
+
+def get_action_description(pattern: str = "", query: str = "", path: str = "", **kwargs) -> str:
+    """Devuelve una descripción legible de la acción para la TUI."""
+    q = query or pattern or ""
+    if path:
+        return f"Buscando '{q}' en {path}..."
+    return f"Buscando '{q}'..."
+
+# Asignar explícitamente para que el SkillLoader lo detecte
+search_in_file_tool.get_action_description = get_action_description
+glob_search_tool.get_action_description = get_action_description
+
