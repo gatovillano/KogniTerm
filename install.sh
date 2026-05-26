@@ -466,6 +466,10 @@ printf "      ${DIM}Todo lo anterior + Control de PC y Navegación Web. (>1.5GB)
 
 printf "  ${CYAN}→${RESET} Opción [1-3] (Default: 2): "
 read -r install_type_choice
+if [ -z "$install_type_choice" ]; then
+    install_type_choice=2
+    log_info "No se recibió entrada, usando opción por defecto: 2"
+fi
 
 case "$install_type_choice" in
     1)
