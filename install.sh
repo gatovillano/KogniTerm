@@ -478,7 +478,8 @@ get_input() {
     if [ -n "${!var_name}" ]; then
         echo "${!var_name}"
     elif [ "$IS_INTERACTIVE" = true ]; then
-        read -r input
+        # Redirigir entrada a /dev/tty para evitar conflictos con el pipe
+        read -r input < /dev/tty
         echo "${input:-$default_val}"
     else
         echo "$default_val"
@@ -486,7 +487,7 @@ get_input() {
 }
 
 printf "  ${CYAN}→${RESET} Opción [1-3] (Default: 2): "
-[[ -t 0 ]] && read -r install_type_choice || install_type_choice=2
+[[ -t 0 ]] && read -r install_type_choice < /dev/tty || install_type_choice=2
 [ -z "$install_type_choice" ] && install_type_choice=2
 
 case "$install_type_choice" in
