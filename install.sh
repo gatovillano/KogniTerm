@@ -4,6 +4,9 @@
 
 set -e
 
+# Forzar la re-apertura de la entrada estándar desde el TTY para evitar que el pipe consuma la entrada
+exec < /dev/tty
+
 # ─── Colores ──────────────────────────────────────────────────────────────────
 RESET='\033[0m'
 BOLD='\033[1m'
