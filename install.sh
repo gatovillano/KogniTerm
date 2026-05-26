@@ -590,7 +590,7 @@ case "$provider_choice" in
         ;;
     2)
         LLM_PROVIDER_NAME="Groq"
-        LLM_PROVIDER_VAL="openai"
+        LLM_PROVIDER_VAL="openrouter" # Groq suele ser compatible vía OpenAI endpoint
         LLM_ENDPOINT_DEFAULT="https://api.groq.com/openai/v1"
         LLM_MODEL_HINT="llama3-8b-8192, mixtral-8x7b-32768, gemma2-9b-it"
         ;;
@@ -602,21 +602,21 @@ case "$provider_choice" in
         ;;
     4)
         LLM_PROVIDER_NAME="Anthropic"
-        LLM_PROVIDER_VAL="openai"
+        LLM_PROVIDER_VAL="anthropic"
         LLM_ENDPOINT_DEFAULT="https://api.anthropic.com/v1"
-        LLM_MODEL_HINT="claude-opus-4-5, claude-sonnet-4-5, claude-haiku-3-5"
+        LLM_MODEL_HINT="claude-3-5-sonnet-20240620, claude-3-opus-20240229"
         ;;
     5)
         LLM_PROVIDER_NAME="Ollama"
-        LLM_PROVIDER_VAL="openai"
+        LLM_PROVIDER_VAL="ollama"
         LLM_ENDPOINT_DEFAULT="http://localhost:11434/v1"
         LLM_MODEL_HINT="llama3, mistral, codellama, phi3"
         ;;
     6)
-        LLM_PROVIDER_NAME="Personalizado"
-        LLM_PROVIDER_VAL="openai"
+        LLM_PROVIDER_NAME="KiloCode Gateway"
+        LLM_PROVIDER_VAL="kilocode"
         LLM_ENDPOINT_DEFAULT=""
-        LLM_MODEL_HINT="nombre-de-tu-modelo"
+        LLM_MODEL_HINT="kilocode/kilo/auto"
         ;;
     *)
         log_warn "Configuración LLM omitida. Edita manualmente: ${ENV_FILE}"
