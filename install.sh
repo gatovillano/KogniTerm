@@ -233,8 +233,8 @@ run_with_spinner() {
         sleep 0.1
     done
 
-    wait "$pid"
-    local exit_code=$?
+    local exit_code=0
+    wait "$pid" || exit_code=$?
 
     # Limpiar línea
     printf "\r\r"
@@ -245,7 +245,12 @@ run_with_spinner() {
         printf "  ${GREEN}%s${RESET}  %s ${GREEN}(listo)${RESET}\n" "$CHAR_CHECK" "$msg"
     else
         printf "  ${RED}%s${RESET}  %s ${RED}(falló)${RESET}\n" "$CHAR_CROSS" "$msg"
-        log_error "Comando fallido. Revisa el log: $LOG_FILE"
+        echo ""
+        printf "  ${BOLD}${YELLOW}Últimas 10 líneas del log:${RESET}\n"
+        printf "${DIM}"
+        tail -n 10 "$LOG_FILE" | sed 's/^/  │  /'
+        printf "${RESET}\n"
+        log_error "Comando fallido. Revisa el log completo: $LOG_FILE"
         exit 1
     fi
 
@@ -324,6 +329,15 @@ check_command "git" "--version"
 log_detail "Verificando curl"
 check_command "curl" "--version"
 
+log_detail "Verificando compiladores C/C++ (necesarios para RAG y extensiones)"
+if command -v gcc &> /dev/null && command -v g++ &> /dev/null; then
+    GCC_VER=$(gcc --version | head -n1)
+    log_success "Compiladores C/C++ detectados — ${GCC_VER}"
+else
+    log_warn "gcc o g++ no encontrados. La instalación de RAG (ChromaDB) podría fallar."
+    log_detail "Sugerencia: sudo apt install build-essential (en Debian/Ubuntu)"
+fi
+
 log_detail "Buscando intérprete Python (>= ${PYTHON_MIN_VERSION})"
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
@@ -348,6 +362,13 @@ if ! $PYTHON_CMD -m pip --version &>/dev/null; then
 fi
 PIP_VERSION=$($PYTHON_CMD -m pip --version 2>&1 | awk '{print $2}')
 log_detail "pip versión: ${PIP_VERSION}"
+
+# Verificar venv
+if ! $PYTHON_CMD -c "import venv" &>/dev/null; then
+    log_error "El módulo 'venv' no está disponible. En Debian/Ubuntu: sudo apt install python3-venv"
+    exit 1
+fi
+log_detail "Módulo 'venv' verificado"
 
 log_success "Todas las dependencias del sistema están presentes"
 
