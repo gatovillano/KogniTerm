@@ -488,7 +488,8 @@ log_info "Tipo de instalación seleccionado: ${BOLD}${INSTALL_LABEL}${RESET}"
 step_header "Instalar KogniTerm y dependencias"
 
 # Asegurar que estamos en el directorio de instalación para que pip encuentre pyproject.toml
-cd "$INSTALL_DIR"
+log_info "Cambiando a directorio: $INSTALL_DIR"
+cd "$INSTALL_DIR" || { log_error "No se pudo cambiar al directorio $INSTALL_DIR"; exit 1; }
 
 # Actualizar pip primero
 log_info "Actualizando pip a la última versión..."
@@ -503,7 +504,7 @@ log_info "Instalando KogniTerm${INSTALL_EXTRAS} en modo editable..."
 log_cmd "pip install -e .${INSTALL_EXTRAS}"
 
 # Obtener lista de dependencias para mostrar progreso
-DEPS_COUNT=$(grep -c '^\s*"' "${INSTALL_DIR}/pyproject.toml" 2>/dev/null || echo 0)
+DEPS_COUNT=$(grep -c '^\s*"' "pyproject.toml" 2>/dev/null || echo 0)
 log_detail "Instalando versión ${INSTALL_LABEL} (~${DEPS_COUNT} dependencias base)"
 
 run_with_spinner "Instalando paquetes (puede tomar varios minutos)" pip install -e ".${INSTALL_EXTRAS}"
