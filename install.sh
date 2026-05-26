@@ -31,6 +31,41 @@ TOTAL_STEPS=7
 CURRENT_STEP=0
 INSTALL_START=$(date +%s)
 
+# Autodetectar soporte UTF-8
+USE_UNICODE=true
+if [[ "${LC_ALL:-${LC_CTYPE:-${LANG}}}" != *UTF-8* && "${LC_ALL:-${LC_CTYPE:-${LANG}}}" != *utf8* ]]; then
+    USE_UNICODE=false
+fi
+
+# Permitir desactivación explícita
+for arg in "$@"; do
+    if [ "$arg" = "--no-unicode" ] || [ "$arg" = "--ascii" ]; then
+        USE_UNICODE=false
+    fi
+done
+
+if [ "$USE_UNICODE" = true ]; then
+    CHAR_LINE="─"
+    CHAR_DOUBLE_LINE="═"
+    CHAR_PROGRESS_FILLED="█"
+    CHAR_PROGRESS_EMPTY="░"
+    CHAR_BULLET="●"
+    CHAR_CHECK="✔"
+    CHAR_WARN="⚠"
+    CHAR_CROSS="✖"
+    SPIN_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+else
+    CHAR_LINE="-"
+    CHAR_DOUBLE_LINE="="
+    CHAR_PROGRESS_FILLED="#"
+    CHAR_PROGRESS_EMPTY="-"
+    CHAR_BULLET="*"
+    CHAR_CHECK="[OK]"
+    CHAR_WARN="[WARN]"
+    CHAR_CROSS="[FAIL]"
+    SPIN_CHARS='-\|/'
+fi
+
 # ─── Utilidades de UI ─────────────────────────────────────────────────────────
 
 # Ancho de consola (default 70)
@@ -38,15 +73,15 @@ get_cols() { tput cols 2>/dev/null || echo 70; }
 
 print_line() {
     local cols; cols=$(get_cols)
-    printf "${DIM}%*s${RESET}\n" "$cols" "" | tr ' ' '─'
+    printf "${DIM}%*s${RESET}\n" "$cols" "" | tr ' ' "$CHAR_LINE"
 }
 
 print_double_line() {
     local cols; cols=$(get_cols)
-    printf "${CYAN}%*s${RESET}\n" "$cols" "" | tr ' ' '═'
+    printf "${CYAN}%*s${RESET}\n" "$cols" "" | tr ' ' "$CHAR_DOUBLE_LINE"
 }
 
-# Progreso visual [████████░░░░] NN%
+# Progreso visual
 print_progress_bar() {
     local current=$1
     local total=$2
@@ -56,8 +91,8 @@ print_progress_bar() {
     local pct=$(( 100 * current / total ))
 
     printf "  ${CYAN}["
-    printf "${GREEN}%${filled}s" | tr ' ' '█'
-    printf "${DIM}%${empty}s" | tr ' ' '░'
+    printf "${GREEN}%${filled}s" | tr ' ' "$CHAR_PROGRESS_FILLED"
+    printf "${DIM}%${empty}s" | tr ' ' "$CHAR_PROGRESS_EMPTY"
     printf "${CYAN}]${RESET} ${BOLD}%3d%%${RESET}\n" "$pct"
 }
 
@@ -77,7 +112,7 @@ step_header() {
 ts() { date '+%H:%M:%S'; }
 
 log_info() {
-    printf "  ${BLUE}●${RESET}  ${WHITE}%s${RESET}\n" "$1"
+    printf "  ${BLUE}%s${RESET}  ${WHITE}%s${RESET}\n" "$CHAR_BULLET" "$1"
     echo "[$(ts)] INFO  $1" >> "$LOG_FILE"
 }
 
@@ -87,17 +122,17 @@ log_detail() {
 }
 
 log_success() {
-    printf "  ${GREEN}✔${RESET}  ${GREEN}%s${RESET}\n" "$1"
+    printf "  ${GREEN}%s${RESET}  ${GREEN}%s${RESET}\n" "$CHAR_CHECK" "$1"
     echo "[$(ts)] OK    $1" >> "$LOG_FILE"
 }
 
 log_warn() {
-    printf "  ${YELLOW}⚠${RESET}  ${YELLOW}%s${RESET}\n" "$1"
+    printf "  ${YELLOW}%s${RESET}  ${YELLOW}%s${RESET}\n" "$CHAR_WARN" "$1"
     echo "[$(ts)] WARN  $1" >> "$LOG_FILE"
 }
 
 log_error() {
-    printf "  ${RED}✖${RESET}  ${BOLD}${RED}%s${RESET}\n" "$1"
+    printf "  ${RED}%s${RESET}  ${BOLD}${RED}%s${RESET}\n" "$CHAR_CROSS" "$1"
     echo "[$(ts)] ERROR $1" >> "$LOG_FILE"
 }
 
@@ -110,7 +145,7 @@ log_cmd() {
 run_with_spinner() {
     local msg="$1"
     shift
-    local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local spin_len=${#SPIN_CHARS}
     local i=0
     local is_pip=false
 
@@ -132,7 +167,15 @@ run_with_spinner() {
     [ $max_width -lt 15 ] && max_width=15
 
     while kill -0 "$pid" 2>/dev/null; do
-        i=$(( (i + 1) % ${#spin_chars} ))
+        local spin_char
+        if [ "$USE_UNICODE" = true ]; then
+            spin_char="${SPIN_CHARS:$i:1}"
+            i=$(( (i + 1) % spin_len ))
+        else
+            # En ASCII de 1 carácter
+            spin_char="${SPIN_CHARS:$i:1}"
+            i=$(( (i + 1) % spin_len ))
+        fi
         
         if [ "$is_pip" = true ] && [ -f "$LOG_FILE" ]; then
             # Buscar eventos recientes en el archivo de log
@@ -159,10 +202,10 @@ run_with_spinner() {
             fi
 
             # Imprimir spinner con acción detallada
-            printf "\r  ${CYAN}%s${RESET}  %s: ${DIM}%-${max_width}s${RESET}" "${spin_chars:$i:1}" "$msg" "$last_action"
+            printf "\r  ${CYAN}%s${RESET}  %s: ${DIM}%-${max_width}s${RESET}" "$spin_char" "$msg" "$last_action"
         else
             # Spinner genérico simplificado
-            printf "\r  ${CYAN}%s${RESET}  %s..." "${spin_chars:$i:1}" "$msg"
+            printf "\r  ${CYAN}%s${RESET}  %s..." "$spin_char" "$msg"
         fi
         sleep 0.1
     done
@@ -176,9 +219,9 @@ run_with_spinner() {
     printf "\r%-${cols}s\r" ""
 
     if [ $exit_code -eq 0 ]; then
-        printf "  ${GREEN}✔${RESET}  %s ${GREEN}(listo)${RESET}\n" "$msg"
+        printf "  ${GREEN}%s${RESET}  %s ${GREEN}(listo)${RESET}\n" "$CHAR_CHECK" "$msg"
     else
-        printf "  ${RED}✖${RESET}  %s ${RED}(falló)${RESET}\n" "$msg"
+        printf "  ${RED}%s${RESET}  %s ${RED}(falló)${RESET}\n" "$CHAR_CROSS" "$msg"
         log_error "Comando fallido. Revisa el log: $LOG_FILE"
         exit 1
     fi
@@ -218,6 +261,7 @@ elapsed_time() {
 clear
 echo ""
 printf "${GREEN}"
+if [ "$USE_UNICODE" = true ]; then
 cat << "BANNER"
   ╔═══════════════════════════════════════════════════════════════╗
   ║                                                               ║
@@ -229,6 +273,17 @@ cat << "BANNER"
   ║                    Versión 0.5.0                              ║
   ╚═══════════════════════════════════════════════════════════════╝
 BANNER
+else
+cat << "BANNER"
+  +---------------------------------------------------------------+
+  |                                                               |
+  |     K O G N I T E R M                                         |
+  |     Agente Evolutivo de Terminal                              |
+  |     Version 0.5.0                                             |
+  |                                                               |
+  +---------------------------------------------------------------+
+BANNER
+fi
 printf "${RESET}"
 echo ""
 printf "  ${DIM}Instalador interactivo  •  Log: ${LOG_FILE}${RESET}\n"
@@ -558,11 +613,19 @@ fi
 echo ""
 print_double_line
 printf "\n"
-printf "  ${BOLD}${GREEN}✔  ¡KogniTerm instalado exitosamente!${RESET}\n"
+if [ "$USE_UNICODE" = true ]; then
+    printf "  ${BOLD}${GREEN}✔  ¡KogniTerm instalado exitosamente!${RESET}\n"
+else
+    printf "  ${BOLD}${GREEN}[OK] ¡KogniTerm instalado exitosamente!${RESET}\n"
+fi
 printf "\n"
 print_double_line
 
-printf "\n  ${BOLD}${WHITE}📋  Resumen de instalación${RESET}\n\n"
+if [ "$USE_UNICODE" = true ]; then
+    printf "\n  ${BOLD}${WHITE}📋  Resumen de instalación${RESET}\n\n"
+else
+    printf "\n  ${BOLD}${WHITE}Resumen de instalación${RESET}\n\n"
+fi
 printf "  ${DIM}%-22s${RESET}  %s\n"  "Directorio:"     "$INSTALL_DIR"
 printf "  ${DIM}%-22s${RESET}  %s\n"  "Entorno virtual:" "$VENV_DIR"
 printf "  ${DIM}%-22s${RESET}  %s\n"  "Python:"          "$PYTHON_CMD $PYTHON_VERSION"
@@ -572,7 +635,11 @@ printf "  ${DIM}%-22s${RESET}  %s\n"  "Tiempo total:"    "$(elapsed_time)"
 
 printf "\n"
 print_line
-printf "\n  ${BOLD}${WHITE}🚀  Cómo ejecutar KogniTerm${RESET}\n\n"
+if [ "$USE_UNICODE" = true ]; then
+    printf "\n  ${BOLD}${WHITE}🚀  Cómo ejecutar KogniTerm${RESET}\n\n"
+else
+    printf "\n  ${BOLD}${WHITE}Cómo ejecutar KogniTerm${RESET}\n\n"
+fi
 printf "  ${DIM}# Opción A — desde el directorio de instalación:${RESET}\n"
 printf "  ${CYAN}source %s/bin/activate${RESET}\n" "$VENV_DIR"
 printf "  ${CYAN}kogniterm${RESET}\n\n"
