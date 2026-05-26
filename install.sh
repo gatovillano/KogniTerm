@@ -464,9 +464,26 @@ printf "      ${DIM}Lite + Memoria RAG (ChromaDB, FastEmbed). (~500MB).${RESET}\
 printf "  ${CYAN}[3]${RESET} ${BOLD}Full (Completa)${RESET}\n"
 printf "      ${DIM}Todo lo anterior + Control de PC y Navegación Web. (>1.5GB).${RESET}\n\n"
 
+# ─── Configuración por variables de entorno (para instalaciones automatizadas) ───
+# Ejemplo: KT_INSTALL_TYPE=2 KT_PROVIDER=google KT_MODEL=gemini-1.5-flash KT_API_KEY=xxx bash install.sh
+
 # Detectar si hay TTY disponible
 IS_INTERACTIVE=false
 [[ -t 0 ]] && IS_INTERACTIVE=true
+
+# Función para obtener entrada o variable de entorno
+get_input() {
+    local var_name=$1
+    local default_val=$2
+    if [ -n "${!var_name}" ]; then
+        echo "${!var_name}"
+    elif [ "$IS_INTERACTIVE" = true ]; then
+        read -r input
+        echo "${input:-$default_val}"
+    else
+        echo "$default_val"
+    fi
+}
 
 printf "  ${CYAN}→${RESET} Opción [1-3] (Default: 2): "
 [[ -t 0 ]] && read -r install_type_choice || install_type_choice=2
