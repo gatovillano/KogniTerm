@@ -487,6 +487,9 @@ log_info "Tipo de instalación seleccionado: ${BOLD}${INSTALL_LABEL}${RESET}"
 # ─── PASO 6: Instalar paquetes ────────────────────────────────────────────────
 step_header "Instalar KogniTerm y dependencias"
 
+# Asegurar que estamos en el directorio de instalación para que pip encuentre pyproject.toml
+cd "$INSTALL_DIR"
+
 # Actualizar pip primero
 log_info "Actualizando pip a la última versión..."
 log_cmd "pip install --upgrade pip"
