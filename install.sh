@@ -106,32 +106,79 @@ log_cmd() {
     echo "[$(ts)] CMD   \$ $1" >> "$LOG_FILE"
 }
 
-# Spinner animado que envuelve un comando
+# Spinner animado que envuelve un comando y parsea logs en tiempo real para comandos como pip
 run_with_spinner() {
     local msg="$1"
     shift
     local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     local i=0
+    local is_pip=false
+
+    # Detectar si el comando es pip install
+    if [[ "$*" == *"pip install"* ]]; then
+        is_pip=true
+    fi
 
     # Ejecutar el comando en segundo plano redirigiendo output al log
     "$@" >> "$LOG_FILE" 2>&1 &
     local pid=$!
 
-    printf "  ${CYAN}%s${RESET}  %s " "${spin_chars:0:1}" "$msg"
+    # Registrar el inicio en el log
+    echo "[$(ts)] START_CMD: $*" >> "$LOG_FILE"
+
+    local last_action=""
+    local cols; cols=$(get_cols)
+    local max_width=$(( cols - ${#msg} - 12 ))
+    [ $max_width -lt 15 ] && max_width=15
 
     while kill -0 "$pid" 2>/dev/null; do
         i=$(( (i + 1) % ${#spin_chars} ))
-        printf "\r  ${CYAN}%s${RESET}  %s " "${spin_chars:$i:1}" "$msg"
+        
+        if [ "$is_pip" = true ] && [ -f "$LOG_FILE" ]; then
+            # Buscar eventos recientes en el archivo de log
+            local latest_download; latest_download=$(tail -n 30 "$LOG_FILE" 2>/dev/null | grep -iE "Downloading [a-zA-Z0-9_\.-]+" | tail -1 | grep -oE "Downloading [a-zA-Z0-9_\.-]+" | sed 's/Downloading //i' || true)
+            local latest_collect; latest_collect=$(tail -n 30 "$LOG_FILE" 2>/dev/null | grep -iE "Collecting [a-zA-Z0-9_\.-]+" | tail -1 | grep -oE "Collecting [a-zA-Z0-9_\.-]+" | sed 's/Collecting //i' || true)
+            local latest_satisfied; latest_satisfied=$(tail -n 30 "$LOG_FILE" 2>/dev/null | grep -iE "Requirement already satisfied: [a-zA-Z0-9_\.-]+" | tail -1 | grep -oE "Requirement already satisfied: [a-zA-Z0-9_\.-]+" | sed 's/Requirement already satisfied: //i' || true)
+            local installing_pkgs; installing_pkgs=$(tail -n 50 "$LOG_FILE" 2>/dev/null | grep -i "Installing collected packages" || true)
+
+            if [ -n "$installing_pkgs" ]; then
+                last_action="Instalando dependencias en venv..."
+            elif [ -n "$latest_download" ]; then
+                last_action="Descargando $latest_download"
+            elif [ -n "$latest_collect" ]; then
+                last_action="Obteniendo $latest_collect"
+            elif [ -n "$latest_satisfied" ]; then
+                last_action="Listo: $latest_satisfied"
+            else
+                last_action="Procesando árbol de paquetes..."
+            fi
+
+            # Recortar si excede el tamaño máximo
+            if [ ${#last_action} -gt $max_width ]; then
+                last_action="${last_action:0:$(( max_width - 3 ))}..."
+            fi
+
+            # Imprimir spinner con acción detallada
+            printf "\r  ${CYAN}%s${RESET}  %s: ${DIM}%-${max_width}s${RESET}" "${spin_chars:$i:1}" "$msg" "$last_action"
+        else
+            # Spinner genérico simplificado
+            printf "\r  ${CYAN}%s${RESET}  %s..." "${spin_chars:$i:1}" "$msg"
+        fi
         sleep 0.1
     done
 
     wait "$pid"
     local exit_code=$?
 
+    # Limpiar línea
+    printf "\r\r"
+    # Asegurar borrar toda la línea
+    printf "\r%-${cols}s\r" ""
+
     if [ $exit_code -eq 0 ]; then
-        printf "\r  ${GREEN}✔${RESET}  %s ${GREEN}(listo)${RESET}\n" "$msg"
+        printf "  ${GREEN}✔${RESET}  %s ${GREEN}(listo)${RESET}\n" "$msg"
     else
-        printf "\r  ${RED}✖${RESET}  %s ${RED}(falló)${RESET}\n" "$msg"
+        printf "  ${RED}✖${RESET}  %s ${RED}(falló)${RESET}\n" "$msg"
         log_error "Comando fallido. Revisa el log: $LOG_FILE"
         exit 1
     fi
