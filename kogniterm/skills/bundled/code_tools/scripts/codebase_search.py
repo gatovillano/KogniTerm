@@ -139,6 +139,9 @@ def get_action_description(query: str, **kwargs) -> str:
     """Devuelve una descripción legible de la acción que realiza la herramienta."""
     return f"Buscando código relacionado con: '{query}'..."
 
+# Asignar explícitamente
+codebase_search.get_action_description = get_action_description
+
 
 # Schema de parámetros para el LLM
 parameters_schema = {

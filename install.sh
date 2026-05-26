@@ -27,7 +27,7 @@ INSTALL_DIR="${HOME}/.kogniterm"
 VENV_DIR="${INSTALL_DIR}/venv"
 PYTHON_MIN_VERSION="3.9"
 LOG_FILE="/tmp/kogniterm_install_$(date +%s).log"
-TOTAL_STEPS=7
+TOTAL_STEPS=8
 CURRENT_STEP=0
 INSTALL_START=$(date +%s)
 
@@ -53,6 +53,9 @@ if [ "$USE_UNICODE" = true ]; then
     CHAR_CHECK="✔"
     CHAR_WARN="⚠"
     CHAR_CROSS="✖"
+    CHAR_PIPE="│"
+    CHAR_ARROW="->"
+    CHAR_DOT="•"
     SPIN_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 else
     CHAR_LINE="-"
@@ -63,6 +66,9 @@ else
     CHAR_CHECK="[OK]"
     CHAR_WARN="[WARN]"
     CHAR_CROSS="[FAIL]"
+    CHAR_PIPE="|"
+    CHAR_ARROW="->"
+    CHAR_DOT="."
     SPIN_CHARS='-\|/'
 fi
 
@@ -71,14 +77,29 @@ fi
 # Ancho de consola (default 70)
 get_cols() { tput cols 2>/dev/null || echo 70; }
 
+# Repite un carácter N veces correctamente (soporta multibyte UTF-8)
+repeat_char() {
+    local char="$1"
+    local count="$2"
+    local i=0
+    while [ $i -lt "$count" ]; do
+        printf '%s' "$char"
+        i=$(( i + 1 ))
+    done
+}
+
 print_line() {
     local cols; cols=$(get_cols)
-    printf "${DIM}%*s${RESET}\n" "$cols" "" | tr ' ' "$CHAR_LINE"
+    printf "${DIM}"
+    repeat_char "$CHAR_LINE" "$cols"
+    printf "${RESET}\n"
 }
 
 print_double_line() {
     local cols; cols=$(get_cols)
-    printf "${CYAN}%*s${RESET}\n" "$cols" "" | tr ' ' "$CHAR_DOUBLE_LINE"
+    printf "${CYAN}"
+    repeat_char "$CHAR_DOUBLE_LINE" "$cols"
+    printf "${RESET}\n"
 }
 
 # Progreso visual
@@ -91,8 +112,10 @@ print_progress_bar() {
     local pct=$(( 100 * current / total ))
 
     printf "  ${CYAN}["
-    printf "${GREEN}%${filled}s" | tr ' ' "$CHAR_PROGRESS_FILLED"
-    printf "${DIM}%${empty}s" | tr ' ' "$CHAR_PROGRESS_EMPTY"
+    printf "${GREEN}"
+    repeat_char "$CHAR_PROGRESS_FILLED" "$filled"
+    printf "${DIM}"
+    repeat_char "$CHAR_PROGRESS_EMPTY" "$empty"
     printf "${CYAN}]${RESET} ${BOLD}%3d%%${RESET}\n" "$pct"
 }
 
@@ -117,7 +140,7 @@ log_info() {
 }
 
 log_detail() {
-    printf "  ${DIM}│  ➜ %s${RESET}\n" "$1"
+    printf "  ${DIM}%s  -> %s${RESET}\n" "$CHAR_PIPE" "$1"
     echo "[$(ts)] DETAIL $1" >> "$LOG_FILE"
 }
 
@@ -137,7 +160,7 @@ log_error() {
 }
 
 log_cmd() {
-    printf "  ${DIM}│  \$ %s${RESET}\n" "$1"
+    printf "  ${DIM}%s  \$ %s${RESET}\n" "$CHAR_PIPE" "$1"
     echo "[$(ts)] CMD   \$ $1" >> "$LOG_FILE"
 }
 
@@ -286,7 +309,7 @@ BANNER
 fi
 printf "${RESET}"
 echo ""
-printf "  ${DIM}Instalador interactivo  •  Log: ${LOG_FILE}${RESET}\n"
+printf "  ${DIM}Instalador interactivo  %s  Log: ${LOG_FILE}${RESET}\n" "$CHAR_DOT"
 echo ""
 print_double_line
 
@@ -406,7 +429,41 @@ source "${VENV_DIR}/bin/activate"
 log_detail "Python activo: $(which python)"
 log_detail "pip activo:    $(which pip)"
 
-# ─── PASO 5: Instalar paquetes ────────────────────────────────────────────────
+# ─── PASO 5: Elegir tipo de instalación ───────────────────────────────────────
+step_header "Seleccionar tipo de instalación"
+
+printf "\n  ${WHITE}KogniTerm ahora es modular. Elige qué componentes instalar:${RESET}\n\n"
+
+printf "  ${CYAN}[1]${RESET} ${BOLD}Lite (Mínima)${RESET}\n"
+printf "      ${DIM}Solo la terminal y agentes básicos. Muy rápida (~100MB).${RESET}\n\n"
+
+printf "  ${CYAN}[2]${RESET} ${BOLD}Standard (Recomendada)${RESET}\n"
+printf "      ${DIM}Lite + Memoria RAG (ChromaDB, FastEmbed). (~500MB).${RESET}\n\n"
+
+printf "  ${CYAN}[3]${RESET} ${BOLD}Full (Completa)${RESET}\n"
+printf "      ${DIM}Todo lo anterior + Control de PC y Navegación Web. (>1.5GB).${RESET}\n\n"
+
+printf "  ${CYAN}→${RESET} Opción [1-3] (Default: 2): "
+read -r install_type_choice
+
+case "$install_type_choice" in
+    1)
+        INSTALL_EXTRAS=""
+        INSTALL_LABEL="Lite"
+        ;;
+    3)
+        INSTALL_EXTRAS="[full]"
+        INSTALL_LABEL="Full"
+        ;;
+    *)
+        INSTALL_EXTRAS="[rag]"
+        INSTALL_LABEL="Standard"
+        ;;
+esac
+
+log_info "Tipo de instalación seleccionado: ${BOLD}${INSTALL_LABEL}${RESET}"
+
+# ─── PASO 6: Instalar paquetes ────────────────────────────────────────────────
 step_header "Instalar KogniTerm y dependencias"
 
 # Actualizar pip primero
@@ -417,20 +474,21 @@ run_with_spinner "Actualizando pip" pip install --upgrade pip
 PIP_NEW_VERSION=$(pip --version 2>&1 | awk '{print $2}')
 log_detail "pip actualizado a: ${PIP_NEW_VERSION}"
 
-# Instalar KogniTerm
-log_info "Instalando KogniTerm en modo editable..."
-log_cmd "pip install -e ${INSTALL_DIR}"
+# Instalar KogniTerm con extras seleccionados
+log_info "Instalando KogniTerm${INSTALL_EXTRAS} en modo editable..."
+log_cmd "pip install -e .${INSTALL_EXTRAS}"
 
 # Obtener lista de dependencias para mostrar progreso
-DEPS_COUNT=0
-if [ -f "${INSTALL_DIR}/pyproject.toml" ]; then
-    DEPS_COUNT=$(grep -c '^\s*"' "${INSTALL_DIR}/pyproject.toml" 2>/dev/null || echo 0)
-elif [ -f "${INSTALL_DIR}/requirements.txt" ]; then
-    DEPS_COUNT=$(grep -cv '^\s*#\|^\s*$' "${INSTALL_DIR}/requirements.txt" 2>/dev/null || echo 0)
-fi
-[ "$DEPS_COUNT" -gt 0 ] && log_detail "Dependencias declaradas: ~${DEPS_COUNT} paquetes"
+DEPS_COUNT=$(grep -c '^\s*"' "${INSTALL_DIR}/pyproject.toml" 2>/dev/null || echo 0)
+log_detail "Instalando versión ${INSTALL_LABEL} (~${DEPS_COUNT} dependencias base)"
 
-run_with_spinner "Instalando paquetes (puede tomar varios minutos)" pip install -e "$INSTALL_DIR"
+run_with_spinner "Instalando paquetes (puede tomar varios minutos)" pip install -e ".${INSTALL_EXTRAS}"
+
+# Si es instalación Full, avisar sobre playwright
+if [[ "$INSTALL_EXTRAS" == *"[full]"* ]]; then
+    log_info "Configurando Playwright (solo necesario para Full)..."
+    run_with_spinner "Instalando navegadores de Playwright" playwright install chromium
+fi
 
 # Mostrar paquetes instalados
 INSTALLED_PKGS=$(pip list 2>/dev/null | wc -l)
@@ -444,7 +502,7 @@ else
     log_warn "El ejecutable 'kogniterm' no está en el PATH del venv todavía"
 fi
 
-# ─── PASO 6: Configurar proveedor LLM ────────────────────────────────────────
+# ─── PASO 7: Configurar proveedor LLM ────────────────────────────────────────
 step_header "Configurar proveedor de LLM"
 
 # Asegurar que el .env exista

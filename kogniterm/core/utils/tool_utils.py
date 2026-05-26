@@ -220,12 +220,27 @@ def get_tool_action_description(tool: Any, tool_args: Dict[str, Any]) -> str:
         path = tool_args.get('path') or tool_args.get('directory') or '.'
         return f"Listando directorio: {path}"
     elif 'search' in tool_name:
-        query = tool_args.get('query') or tool_args.get('search_query') or tool_args.get('pattern') or ''
-        if 'file' in tool_name or 'glob' in tool_name:
-            path = tool_args.get('path') or tool_args.get('file_path') or ''
-            if path:
+        query = (
+            tool_args.get('query') or 
+            tool_args.get('search_query') or 
+            tool_args.get('pattern') or 
+            tool_args.get('text') or 
+            tool_args.get('target') or
+            tool_args.get('regex_pattern') or
+            tool_args.get('target_content') or
+            ''
+        )
+        path = tool_args.get('path') or tool_args.get('file_path') or tool_args.get('directory') or ''
+        
+        if 'file' in tool_name or 'glob' in tool_name or path:
+            if path and query:
                 return f"Buscando '{query}' en {path}"
-        return f"Buscando: {query}"
+            elif path:
+                return f"Buscando en {path}"
+            elif query:
+                return f"Buscando: {query}"
+        
+        return f"Buscando: {query}" if query else "Buscando..."
     elif 'execute_command' in tool_name:
         cmd = tool_args.get('command') or ''
         if len(cmd) > 40: cmd = cmd[:37] + "..."
