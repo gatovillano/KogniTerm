@@ -469,16 +469,8 @@ IS_INTERACTIVE=false
 [[ -t 0 ]] && IS_INTERACTIVE=true
 
 printf "  ${CYAN}→${RESET} Opción [1-3] (Default: 2): "
-if [ "$IS_INTERACTIVE" = true ]; then
-    read -r install_type_choice
-else
-    install_type_choice=2
-    echo "(automático)"
-fi
-
-if [ -z "$install_type_choice" ]; then
-    install_type_choice=2
-fi
+[[ -t 0 ]] && read -r install_type_choice || install_type_choice=2
+[ -z "$install_type_choice" ] && install_type_choice=2
 
 case "$install_type_choice" in
     1)
