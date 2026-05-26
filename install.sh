@@ -566,34 +566,16 @@ else
     log_warn "El ejecutable 'kogniterm' no está en el PATH del venv todavía"
 fi
 
-# ─── PASO 7: Configurar proveedor LLM ────────────────────────────────────────
-step_header "Configurar proveedor de LLM"
+# ─── PASO 7: Finalización ────────────────────────────────────────────────────
+step_header "Instalación completada"
+log_success "KogniTerm instalado exitosamente."
+printf "\n  ${BOLD}${WHITE}🚀  Siguientes pasos:${RESET}\n\n"
+printf "  ${DIM}1. Configura tu LLM:${RESET}\n"
+printf "     ${CYAN}python3 kogniterm_config.py${RESET}\n\n"
+printf "  ${DIM}2. Inicia KogniTerm:${RESET}\n"
+printf "     ${CYAN}source ${VENV_DIR}/bin/activate && kogniterm${RESET}\n\n"
 
-# Asegurar que el .env exista
-if [ ! -f "$ENV_FILE" ]; then
-    if [ -f "${INSTALL_DIR}/.env.example" ]; then
-        log_warn ".env no encontrado → copiando desde .env.example para inicializar"
-        cp "${INSTALL_DIR}/.env.example" "$ENV_FILE"
-    else
-        touch "$ENV_FILE"
-    fi
-fi
-
-printf "\n  ${WHITE}KogniTerm soporta múltiples proveedores de LLM.${RESET}\n"
-printf "  ${DIM}Los valores se guardarán en: %s${RESET}\n\n" "$ENV_FILE"
-
-# Menú de selección de proveedor
-printf "  ${BOLD}Selecciona el proveedor de LLM:${RESET}\n\n"
-printf "  ${CYAN}[1]${RESET} OpenAI (api.openai.com)\n"
-printf "  ${CYAN}[2]${RESET} Groq  (api.groq.com)\n"
-printf "  ${CYAN}[3]${RESET} Google Gemini\n"
-printf "  ${CYAN}[4]${RESET} Anthropic (Claude)\n"
-printf "  ${CYAN}[5]${RESET} Ollama (local)\n"
-printf "  ${CYAN}[6]${RESET} Otro (compatible con OpenAI)\n"
-printf "  ${CYAN}[0]${RESET} Omitir — configurar manualmente más tarde\n"
-echo ""
-printf "  ${CYAN}→${RESET} Opción [0-6]: "
-read -r provider_choice
+exit 0
 
 configure_env_value() {
     local key="$1"
