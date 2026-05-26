@@ -470,18 +470,24 @@ printf "      ${DIM}Todo lo anterior + Control de PC y Navegación Web. (>1.5GB)
 # ─── Configuración por variables de entorno (para instalaciones automatizadas) ───
 # Ejemplo: KT_INSTALL_TYPE=2 KT_PROVIDER=google KT_MODEL=gemini-1.5-flash KT_API_KEY=xxx bash install.sh
 
-# Detectar si hay TTY disponible
+# Detectar si stdin tiene datos pendientes (posible buffer de pipe)
+# Si hay datos esperando en stdin, asumimos que es el resto del script y no una entrada de usuario
 IS_INTERACTIVE=false
-[[ -t 0 ]] && IS_INTERACTIVE=true
+if [[ -t 0 ]]; then
+    # Verificar si hay entrada esperando sin bloquear
+    read -t 0.1 -n 1 -s _ && HAS_BUFFER=true || HAS_BUFFER=false
+    if [ "$HAS_BUFFER" = false ]; then
+        IS_INTERACTIVE=true
+    fi
+fi
 
-# Función para obtener entrada o variable de entorno
+# Ajustar la función de entrada para ser aún más conservadora
 get_input() {
     local var_name=$1
     local default_val=$2
     if [ -n "${!var_name}" ]; then
         echo "${!var_name}"
     elif [ "$IS_INTERACTIVE" = true ]; then
-        # Redirigir entrada a /dev/tty para evitar conflictos con el pipe
         read -r input < /dev/tty
         echo "${input:-$default_val}"
     else
