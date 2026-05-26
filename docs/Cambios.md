@@ -121,6 +121,7 @@ Este proyecto sigue las convenciones de [Conventional Commits](https://www.conve
 - **`install.sh`**: El arte ASCII del banner del instalador ahora usa el mismo estilo de la TUI (`░█` en lugar de bloques `██`), manteniendo identidad visual consistente entre el instalador y la aplicación.
 - **Experiencia de instalación mejorada**: Se rediseñó por completo la interfaz del terminal para mostrar pasos numerados, barra de progreso interactiva, spinners animados que leen en tiempo real el log de `pip` para detallar qué paquete se está descargando o instalando (evitando la terminal muda) y logs detallados guardados en `/tmp/kogniterm_install_[timestamp].log`.
 - **Configuración de LLM interactiva**: Se agregó un nuevo paso interactivo que solicita al usuario seleccionar el proveedor de LLM (OpenAI, Groq, Google Gemini, Anthropic, Ollama, etc.), ingresar el modelo de preferencia y su API key, configurando automáticamente el archivo `.env` del proyecto.
+- **Compatibilidad UTF-8 / ASCII**: Se agregó detección automática de la locale del sistema. Si la terminal no soporta UTF-8, todos los caracteres especiales del instalador (barra de progreso, iconos, spinner, banner) degradan automáticamente a equivalentes ASCII estándar. También se puede forzar con `--ascii` o `--no-unicode`.
 
 ---
 
