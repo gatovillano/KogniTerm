@@ -12,7 +12,7 @@ A diferencia de otros asistentes, KogniTerm no depende de las capacidades nativa
 El método oficial y recomendado para instalar **KogniTerm** de forma global y mantenerlo actualizado con facilidad es usar su script de instalación interactivo:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh | bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"
 ```
 
 Este script automatizado:
