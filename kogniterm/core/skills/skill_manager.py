@@ -561,8 +561,12 @@ class SkillManager:
         for skill_file in base_dir.rglob('SKILL.md'):
             skill_dir = skill_file.parent
 
-            # Saltar directorios ocultos o de soporte
-            if any(part.startswith('.') or part.startswith('_') for part in skill_dir.parts):
+            # Saltar directorios ocultos o de soporte (relativos al base_dir)
+            try:
+                relative_parts = skill_dir.relative_to(base_dir).parts
+            except ValueError:
+                relative_parts = skill_dir.parts
+            if any(part.startswith('.') or part.startswith('_') for part in relative_parts):
                 continue
             if skill_dir in seen_paths:
                 continue
