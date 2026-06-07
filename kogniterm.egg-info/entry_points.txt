@@ -1,3 +1,2 @@
 [console_scripts]
 kogniterm = kogniterm.terminal.terminal:main
-kogniterm-server = kogniterm.server.__main__:main

@@ -1,764 +1,330 @@
-#!/bin/bash
-# install.sh - Instalador de KogniTerm desde GitHub
-# Uso: curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh | bash
+#!/usr/bin/env bash
 
-set -e
+# ==============================================================================
+#                 KogniTerm - Script de Instalación y Actualización
+# ==============================================================================
 
-# Forzar la re-apertura de la entrada estándar desde el TTY para evitar que el pipe consuma la entrada
-exec < /dev/tty
-
-# ─── Colores ──────────────────────────────────────────────────────────────────
-RESET='\033[0m'
-BOLD='\033[1m'
-DIM='\033[2m'
-
-BLACK='\033[0;30m'
+# Colores y formatos
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
+BOLD='\033[1m'
+DIM='\033[2m'
+RESET='\033[0m'
 
-BG_GREEN='\033[42m'
-BG_BLUE='\033[44m'
+# Directorios de destino
+KOGNITERM_DIR="$HOME/.kogniterm"
+REPO_DIR="$KOGNITERM_DIR/repo"
+VENV_DIR="$KOGNITERM_DIR/venv"
+LOCAL_BIN="$HOME/.local/bin"
+WRAPPER_PATH="$LOCAL_BIN/kogniterm"
+GITHUB_REPO_URL="https://github.com/gatovillano/KogniTerm.git"
 
-# ─── Configuración ────────────────────────────────────────────────────────────
-REPO_URL="https://github.com/gatovillano/KogniTerm.git"
-INSTALL_DIR="${HOME}/.kogniterm"
-VENV_DIR="${INSTALL_DIR}/venv"
-PYTHON_MIN_VERSION="3.9"
-LOG_FILE="/tmp/kogniterm_install_$(date +%s).log"
-TOTAL_STEPS=8
-CURRENT_STEP=0
-INSTALL_START=$(date +%s)
-
-# Autodetectar soporte UTF-8
-USE_UNICODE=true
-if [[ "${LC_ALL:-${LC_CTYPE:-${LANG}}}" != *UTF-8* && "${LC_ALL:-${LC_CTYPE:-${LANG}}}" != *utf8* ]]; then
-    USE_UNICODE=false
-fi
-
-# Permitir desactivación explícita
-for arg in "$@"; do
-    if [ "$arg" = "--no-unicode" ] || [ "$arg" = "--ascii" ]; then
-        USE_UNICODE=false
-    fi
-done
-
-if [ "$USE_UNICODE" = true ]; then
-    CHAR_LINE="─"
-    CHAR_DOUBLE_LINE="═"
-    CHAR_PROGRESS_FILLED="█"
-    CHAR_PROGRESS_EMPTY="░"
-    CHAR_BULLET="●"
-    CHAR_CHECK="✔"
-    CHAR_WARN="⚠"
-    CHAR_CROSS="✖"
-    CHAR_PIPE="│"
-    CHAR_ARROW="->"
-    CHAR_DOT="•"
-    SPIN_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-else
-    CHAR_LINE="-"
-    CHAR_DOUBLE_LINE="="
-    CHAR_PROGRESS_FILLED="#"
-    CHAR_PROGRESS_EMPTY="-"
-    CHAR_BULLET="*"
-    CHAR_CHECK="[OK]"
-    CHAR_WARN="[WARN]"
-    CHAR_CROSS="[FAIL]"
-    CHAR_PIPE="|"
-    CHAR_ARROW="->"
-    CHAR_DOT="."
-    SPIN_CHARS='-\|/'
-fi
-
-# ─── Utilidades de UI ─────────────────────────────────────────────────────────
-
-# Ancho de consola (default 70)
-get_cols() { tput cols 2>/dev/null || echo 70; }
-
-# Repite un carácter N veces correctamente (soporta multibyte UTF-8)
-repeat_char() {
-    local char="$1"
-    local count="$2"
-    local i=0
-    while [ $i -lt "$count" ]; do
-        printf '%s' "$char"
-        i=$(( i + 1 ))
-    done
-}
-
-print_line() {
-    local cols; cols=$(get_cols)
-    printf "${DIM}"
-    repeat_char "$CHAR_LINE" "$cols"
-    printf "${RESET}\n"
-}
-
-print_double_line() {
-    local cols; cols=$(get_cols)
-    printf "${CYAN}"
-    repeat_char "$CHAR_DOUBLE_LINE" "$cols"
-    printf "${RESET}\n"
-}
-
-# Progreso visual
-print_progress_bar() {
-    local current=$1
-    local total=$2
-    local bar_width=30
-    local filled=$(( bar_width * current / total ))
-    local empty=$(( bar_width - filled ))
-    local pct=$(( 100 * current / total ))
-
-    printf "  ${CYAN}["
-    printf "${GREEN}"
-    repeat_char "$CHAR_PROGRESS_FILLED" "$filled"
-    printf "${DIM}"
-    repeat_char "$CHAR_PROGRESS_EMPTY" "$empty"
-    printf "${CYAN}]${RESET} ${BOLD}%3d%%${RESET}\n" "$pct"
-}
-
-# Encabezado de paso
-step_header() {
-    local title="$1"
-    CURRENT_STEP=$(( CURRENT_STEP + 1 ))
-    echo ""
-    print_line
-    printf "  ${BOLD}${CYAN}[%d/%d]${RESET} ${BOLD}${WHITE}%s${RESET}\n" \
-        "$CURRENT_STEP" "$TOTAL_STEPS" "$title"
-    print_progress_bar "$CURRENT_STEP" "$TOTAL_STEPS"
-    print_line
-}
-
-# Logs con timestamp
-ts() { date '+%H:%M:%S'; }
-
-log_info() {
-    printf "  ${BLUE}%s${RESET}  ${WHITE}%s${RESET}\n" "$CHAR_BULLET" "$1"
-    echo "[$(ts)] INFO  $1" >> "$LOG_FILE"
-}
-
-log_detail() {
-    printf "  ${DIM}%s  -> %s${RESET}\n" "$CHAR_PIPE" "$1"
-    echo "[$(ts)] DETAIL $1" >> "$LOG_FILE"
-}
-
-log_success() {
-    printf "  ${GREEN}%s${RESET}  ${GREEN}%s${RESET}\n" "$CHAR_CHECK" "$1"
-    echo "[$(ts)] OK    $1" >> "$LOG_FILE"
-}
-
-log_warn() {
-    printf "  ${YELLOW}%s${RESET}  ${YELLOW}%s${RESET}\n" "$CHAR_WARN" "$1"
-    echo "[$(ts)] WARN  $1" >> "$LOG_FILE"
-}
-
-log_error() {
-    printf "  ${RED}%s${RESET}  ${BOLD}${RED}%s${RESET}\n" "$CHAR_CROSS" "$1"
-    echo "[$(ts)] ERROR $1" >> "$LOG_FILE"
-}
-
-log_cmd() {
-    printf "  ${DIM}%s  \$ %s${RESET}\n" "$CHAR_PIPE" "$1"
-    echo "[$(ts)] CMD   \$ $1" >> "$LOG_FILE"
-}
-
-# Spinner animado que envuelve un comando y parsea logs en tiempo real para comandos como pip
-run_with_spinner() {
-    local msg="$1"
-    shift
-    local spin_len=${#SPIN_CHARS}
-    local i=0
-    local is_pip=false
-
-    # Detectar si el comando es pip install
-    if [[ "$*" == *"pip install"* ]]; then
-        is_pip=true
-    fi
-
-    # Ejecutar el comando en segundo plano redirigiendo output al log
-    "$@" >> "$LOG_FILE" 2>&1 &
-    local pid=$!
-
-    # Registrar el inicio en el log
-    echo "[$(ts)] START_CMD: $*" >> "$LOG_FILE"
-
-    local last_action=""
-    local cols; cols=$(get_cols)
-    local max_width=$(( cols - ${#msg} - 12 ))
-    [ $max_width -lt 15 ] && max_width=15
-
-    while kill -0 "$pid" 2>/dev/null; do
-        local spin_char
-        if [ "$USE_UNICODE" = true ]; then
-            spin_char="${SPIN_CHARS:$i:1}"
-            i=$(( (i + 1) % spin_len ))
-        else
-            # En ASCII de 1 carácter
-            spin_char="${SPIN_CHARS:$i:1}"
-            i=$(( (i + 1) % spin_len ))
-        fi
-        
-        if [ "$is_pip" = true ] && [ -f "$LOG_FILE" ]; then
-            # Buscar eventos recientes en el archivo de log
-            local latest_download; latest_download=$(tail -n 30 "$LOG_FILE" 2>/dev/null | grep -iE "Downloading [a-zA-Z0-9_\.-]+" | tail -1 | grep -oE "Downloading [a-zA-Z0-9_\.-]+" | sed 's/Downloading //i' || true)
-            local latest_collect; latest_collect=$(tail -n 30 "$LOG_FILE" 2>/dev/null | grep -iE "Collecting [a-zA-Z0-9_\.-]+" | tail -1 | grep -oE "Collecting [a-zA-Z0-9_\.-]+" | sed 's/Collecting //i' || true)
-            local latest_satisfied; latest_satisfied=$(tail -n 30 "$LOG_FILE" 2>/dev/null | grep -iE "Requirement already satisfied: [a-zA-Z0-9_\.-]+" | tail -1 | grep -oE "Requirement already satisfied: [a-zA-Z0-9_\.-]+" | sed 's/Requirement already satisfied: //i' || true)
-            local installing_pkgs; installing_pkgs=$(tail -n 50 "$LOG_FILE" 2>/dev/null | grep -i "Installing collected packages" || true)
-
-            if [ -n "$installing_pkgs" ]; then
-                last_action="Instalando dependencias en venv..."
-            elif [ -n "$latest_download" ]; then
-                last_action="Descargando $latest_download"
-            elif [ -n "$latest_collect" ]; then
-                last_action="Obteniendo $latest_collect"
-            elif [ -n "$latest_satisfied" ]; then
-                last_action="Listo: $latest_satisfied"
-            else
-                last_action="Procesando árbol de paquetes..."
-            fi
-
-            # Recortar si excede el tamaño máximo
-            if [ ${#last_action} -gt $max_width ]; then
-                last_action="${last_action:0:$(( max_width - 3 ))}..."
-            fi
-
-            # Imprimir spinner con acción detallada
-            printf "\r  ${CYAN}%s${RESET}  %s: ${DIM}%-${max_width}s${RESET}" "$spin_char" "$msg" "$last_action"
-        else
-            # Spinner genérico simplificado
-            printf "\r  ${CYAN}%s${RESET}  %s..." "$spin_char" "$msg"
-        fi
-        sleep 0.1
-    done
-
-    local exit_code=0
-    wait "$pid" || exit_code=$?
-
-    # Limpiar línea
-    printf "\r\r"
-    # Asegurar borrar toda la línea
-    printf "\r%-${cols}s\r" ""
-
-    if [ $exit_code -eq 0 ]; then
-        printf "  ${GREEN}%s${RESET}  %s ${GREEN}(listo)${RESET}\n" "$CHAR_CHECK" "$msg"
-    else
-        printf "  ${RED}%s${RESET}  %s ${RED}(falló)${RESET}\n" "$CHAR_CROSS" "$msg"
-        echo ""
-        printf "  ${BOLD}${YELLOW}Últimas 10 líneas del log:${RESET}\n"
-        printf "${DIM}"
-        tail -n 10 "$LOG_FILE" | sed 's/^/  │  /'
-        printf "${RESET}\n"
-        log_error "Comando fallido. Revisa el log completo: $LOG_FILE"
-        exit 1
-    fi
-
-    echo "[$(ts)] CMD_DONE exit=$exit_code: $*" >> "$LOG_FILE"
-    return $exit_code
-}
-
-check_command() {
-    local cmd="$1"
-    local version_flag="${2:---version}"
-    if ! command -v "$cmd" &> /dev/null; then
-        log_error "'$cmd' no encontrado. Por favor, instálalo primero."
-        exit 1
-    fi
-    local ver
-    ver=$("$cmd" $version_flag 2>&1 | head -1) || true
-    log_success "$cmd detectado — ${ver}"
-}
-
-check_python_version() {
-    local python_version=$1
-    local required_version="$2"
-    if [ "$(printf '%s\n' "$required_version" "$python_version" | sort -V | head -n1)" != "$required_version" ]; then
-        log_error "Se requiere Python ${required_version}+. Detectado: $python_version"
-        exit 1
-    fi
-}
-
-elapsed_time() {
-    local end; end=$(date +%s)
-    local delta=$(( end - INSTALL_START ))
-    printf '%dm %ds' $(( delta / 60 )) $(( delta % 60 ))
-}
-
-# ─── BANNER ───────────────────────────────────────────────────────────────────
+# Limpiar pantalla y asegurar interactividad desde pipes (ej. curl | bash)
 clear
-echo ""
-printf "${GREEN}"
-if [ "$USE_UNICODE" = true ]; then
-cat << "BANNER"
-  ╔════════════════════════════════════════════════════════╗
-  ║                                                        ║
-  ║         ░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█           ║
-  ║         ░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█           ║
-  ║         ░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀           ║
-  ║                                                        ║
-  ║        KogniTerm — Agente Evolutivo de Terminal        ║
-  ║                    Versión 0.5.0                       ║
-  ╚════════════════════════════════════════════════════════╝
-BANNER
-else
-cat << "BANNER"
-  +-----------------------------------------------------------------+
-  |                                                                 |
-  |     K O G N I T E R M                                           |
-  |     Agente Evolutivo de Terminal                                |
-  |     Version 0.5.0                                               |
-  |                                                                 |
-  +-----------------------------------------------------------------+
-BANNER
-fi
-printf "${RESET}"
-echo ""
-printf "  ${DIM}Instalador interactivo  %s  Log: ${LOG_FILE}${RESET}\n" "$CHAR_DOT"
-echo ""
-print_double_line
+exec < /dev/tty
 
-# ─── PASO 1: Verificar dependencias del sistema ───────────────────────────────
-step_header "Verificando dependencias del sistema"
+print_banner() {
+    echo -e "${CYAN}${BOLD}"
+    echo -e "  ░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█"
+    echo -e "  ░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█"
+    echo -e "  ░▀░▀░▀▀▀░▀▀▀░▀░▀░░▀░░░▀░░▀▀▀░▀░▀░▀░▀"
+    echo -e "   -- Tu Terminal Asistida por IA --  "
+    echo -e "${RESET}"
+}
 
-log_info "Buscando herramientas requeridas..."
+print_banner
 
-log_detail "Verificando git"
-check_command "git" "--version"
-
-log_detail "Verificando curl"
-check_command "curl" "--version"
-
-log_detail "Verificando compiladores C/C++ (necesarios para RAG y extensiones)"
-if command -v gcc &> /dev/null && command -v g++ &> /dev/null; then
-    GCC_VER=$(gcc --version | head -n1)
-    log_success "Compiladores C/C++ detectados — ${GCC_VER}"
-else
-    log_warn "gcc o g++ no encontrados. La instalación de RAG (ChromaDB) podría fallar."
-    log_detail "Sugerencia: sudo apt install build-essential (en Debian/Ubuntu)"
-fi
-
-log_detail "Buscando intérprete Python (>= ${PYTHON_MIN_VERSION})"
-if command -v python3 &> /dev/null; then
-    PYTHON_CMD="python3"
-elif command -v python &> /dev/null; then
-    PYTHON_CMD="python"
-else
-    log_error "Python no encontrado. Instala Python ${PYTHON_MIN_VERSION}+ y vuelve a intentarlo."
-    exit 1
-fi
-
-PYTHON_VERSION=$($PYTHON_CMD -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-check_python_version "$PYTHON_VERSION" "$PYTHON_MIN_VERSION"
-log_detail "Versión de Python: ${PYTHON_VERSION}"
-
-PYTHON_PATH=$(command -v "$PYTHON_CMD")
-log_detail "Ruta del intérprete: ${PYTHON_PATH}"
-
-# Verificar pip
-if ! $PYTHON_CMD -m pip --version &>/dev/null; then
-    log_error "pip no encontrado para ${PYTHON_CMD}. Instala python3-pip."
-    exit 1
-fi
-PIP_VERSION=$($PYTHON_CMD -m pip --version 2>&1 | awk '{print $2}')
-log_detail "pip versión: ${PIP_VERSION}"
-
-# Verificar venv
-if ! $PYTHON_CMD -c "import venv" &>/dev/null; then
-    log_error "El módulo 'venv' no está disponible. En Debian/Ubuntu: sudo apt install python3-venv"
-    exit 1
-fi
-log_detail "Módulo 'venv' verificado"
-
-log_success "Todas las dependencias del sistema están presentes"
-
-# ─── PASO 2: Configurar directorio de instalación ─────────────────────────────
-step_header "Configurar directorio de instalación"
-
-echo ""
-printf "  ${CYAN}Directorio de instalación${RESET} [${BOLD}${INSTALL_DIR}${RESET}]: "
-read -r custom_install_dir
-INSTALL_DIR="${custom_install_dir:-$INSTALL_DIR}"
-VENV_DIR="${INSTALL_DIR}/venv"
-ENV_FILE="${INSTALL_DIR}/.env"
-
-log_info "Directorio seleccionado: ${INSTALL_DIR}"
-
-# Verificar espacio en disco
-AVAILABLE_KB=$(df -k "$(dirname "$INSTALL_DIR")" 2>/dev/null | tail -1 | awk '{print $4}' || echo 0)
-AVAILABLE_MB=$(( AVAILABLE_KB / 1024 ))
-log_detail "Espacio disponible en disco: ${AVAILABLE_MB} MB"
-if [ "$AVAILABLE_MB" -lt 500 ]; then
-    log_warn "Poco espacio disponible (${AVAILABLE_MB} MB). Se recomiendan al menos 500 MB."
-fi
-
-# ─── PASO 3: Clonar o actualizar repositorio ──────────────────────────────────
-step_header "Obtener código fuente"
-
-if [ -d "${INSTALL_DIR}/.git" ]; then
-    log_warn "KogniTerm ya está instalado en ${INSTALL_DIR}"
-
-    CURRENT_COMMIT=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "desconocido")
-    CURRENT_BRANCH=$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    log_detail "Commit actual: ${CURRENT_COMMIT}  •  Rama: ${CURRENT_BRANCH}"
-
-    echo ""
-    printf "  ${YELLOW}⚠${RESET}  ¿Actualizar a la última versión? (y/N): "
-    read -r update_confirm
-    if [[ $update_confirm =~ ^[Yy]$ ]]; then
-        log_info "Actualizando desde origin/${CURRENT_BRANCH}..."
-        log_cmd "git -C ${INSTALL_DIR} pull origin ${CURRENT_BRANCH}"
-        run_with_spinner "Descargando últimos cambios" git -C "$INSTALL_DIR" pull origin "$CURRENT_BRANCH"
-        NEW_COMMIT=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "desconocido")
-        log_detail "Commit actualizado: ${CURRENT_COMMIT} → ${NEW_COMMIT}"
-        log_success "Repositorio actualizado"
-    else
-        log_info "Manteniendo versión existente (${CURRENT_COMMIT})"
-    fi
-else
-    log_info "Clonando repositorio desde GitHub..."
-    log_cmd "git clone ${REPO_URL} ${INSTALL_DIR}"
-    run_with_spinner "Clonando KogniTerm" git clone "$REPO_URL" "$INSTALL_DIR"
-
-    CLONED_COMMIT=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo "desconocido")
-    CLONED_BRANCH=$(git -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    log_detail "Commit clonado: ${CLONED_COMMIT}  •  Rama: ${CLONED_BRANCH}"
-
-    # Contar archivos clonados
-    FILE_COUNT=$(find "$INSTALL_DIR" -type f ! -path '*/.git/*' | wc -l)
-    log_detail "Archivos descargados: ${FILE_COUNT}"
-    log_success "Repositorio clonado correctamente"
-fi
-
-# ─── PASO 4: Crear entorno virtual Python ─────────────────────────────────────
-step_header "Configurar entorno virtual Python"
-
-if [ -d "$VENV_DIR" ]; then
-    log_warn "Entorno virtual ya existe en: ${VENV_DIR}"
-    log_detail "Reutilizando entorno existente"
-else
-    log_info "Creando entorno virtual con ${PYTHON_CMD}..."
-    log_cmd "${PYTHON_CMD} -m venv ${VENV_DIR}"
-    run_with_spinner "Creando entorno virtual" "$PYTHON_CMD" -m venv "$VENV_DIR"
-    log_detail "Ruta del entorno: ${VENV_DIR}"
-    log_success "Entorno virtual creado"
-fi
-
-log_info "Activando entorno virtual..."
-# shellcheck disable=SC1090
-source "${VENV_DIR}/bin/activate"
-log_detail "Python activo: $(which python)"
-log_detail "pip activo:    $(which pip)"
-
-# ─── PASO 5: Elegir tipo de instalación ───────────────────────────────────────
-step_header "Seleccionar tipo de instalación"
-
-printf "\n  ${WHITE}KogniTerm ahora es modular. Elige qué componentes instalar:${RESET}\n\n"
-
-printf "  ${CYAN}[1]${RESET} ${BOLD}Lite (Mínima)${RESET}\n"
-printf "      ${DIM}Solo la terminal y agentes básicos. Muy rápida (~100MB).${RESET}\n\n"
-
-printf "  ${CYAN}[2]${RESET} ${BOLD}Standard (Recomendada)${RESET}\n"
-printf "      ${DIM}Lite + Memoria RAG (ChromaDB, FastEmbed). (~500MB).${RESET}\n\n"
-
-printf "  ${CYAN}[3]${RESET} ${BOLD}Full (Completa)${RESET}\n"
-printf "      ${DIM}Todo lo anterior + Control de PC y Navegación Web. (>1.5GB).${RESET}\n\n"
-
-# ─── Configuración por variables de entorno (para instalaciones automatizadas) ───
-# Ejemplo: KT_INSTALL_TYPE=2 KT_PROVIDER=google KT_MODEL=gemini-1.5-flash KT_API_KEY=xxx bash install.sh
-
-# Detectar si stdin tiene datos pendientes (posible buffer de pipe)
-# Si hay datos esperando en stdin, asumimos que es el resto del script y no una entrada de usuario
-IS_INTERACTIVE=false
-if [[ -t 0 ]]; then
-    # Verificar si hay entrada esperando sin bloquear
-    read -t 0.1 -n 1 -s _ && HAS_BUFFER=true || HAS_BUFFER=false
-    if [ "$HAS_BUFFER" = false ]; then
-        IS_INTERACTIVE=true
-    fi
-fi
-
-# Ajustar la función de entrada para ser aún más conservadora
-get_input() {
-    local var_name=$1
-    local default_val=$2
-    if [ -n "${!var_name}" ]; then
-        echo "${!var_name}"
-    elif [ "$IS_INTERACTIVE" = true ]; then
-        read -r input < /dev/tty
-        echo "${input:-$default_val}"
-    else
-        echo "$default_val"
+# Verificar si git está instalado
+check_git() {
+    if ! command -v git &>/dev/null; then
+        echo -e "${RED}❌ Error: 'git' no está instalado en este sistema.${RESET}"
+        echo -e "Por favor, instala git y vuelve a correr este instalador."
+        exit 1
     fi
 }
 
-printf "  ${CYAN}→${RESET} Opción [1-3] (Default: 2): "
-sleep 0.5
-[[ -t 0 ]] && read -r install_type_choice < /dev/tty || install_type_choice=2
-[ -z "$install_type_choice" ] && install_type_choice=2
+# Verificar dependencias básicas de Python
+check_python() {
+    if ! command -v python3 &>/dev/null; then
+        echo -e "${RED}❌ Error: Python 3 no está instalado en este sistema.${RESET}"
+        exit 1
+    fi
+    PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')
+    echo -e "  ${GREEN}✔${RESET} Python detectado: ${BOLD}v${PYTHON_VERSION}${RESET}"
+}
 
-case "$install_type_choice" in
-    1)
-        INSTALL_EXTRAS=""
-        INSTALL_LABEL="Lite"
-        ;;
-    3)
-        INSTALL_EXTRAS="[full]"
-        INSTALL_LABEL="Full"
-        ;;
-    *)
-        INSTALL_EXTRAS="[rag]"
-        INSTALL_LABEL="Standard"
-        ;;
-esac
+# Asistente de configuración de LLM
+configure_llm() {
+    echo -e "\n${BOLD}${BLUE}--- Configuración de Proveedor de LLM ---${RESET}"
+    echo -e "Selecciona tu proveedor de LLM:"
+    echo -e "  1) OpenRouter (Access to multiple models)"
+    echo -e "  2) Google AI (Gemini nativo)"
+    echo -e "  3) OpenAI (GPT-4, GPT-3.5)"
+    echo -e "  4) Anthropic (Claude)"
+    echo -e "  5) Ollama Local (servidor local)"
+    echo -e "  6) Ollama Cloud (Ollama Models)"
+    echo -e "  7) KiloCode Gateway (Routing inteligente)"
+    read -p "Opción (1-7): " prov_opt
 
-log_info "Tipo de instalación seleccionado: ${BOLD}${INSTALL_LABEL}${RESET}"
+    case "$prov_opt" in
+        1)
+            PROV_KEY="openrouter"
+            DEFAULT_MODEL="openrouter/google/gemini-2.0-flash-exp:free"
+            MODEL_PROMPT="openrouter/google/gemini-2.0-flash-exp:free, openrouter/anthropic/claude-3.5-sonnet"
+            ;;
+        2)
+            PROV_KEY="google"
+            DEFAULT_MODEL="gemini/gemini-1.5-flash"
+            MODEL_PROMPT="gemini/gemini-1.5-flash, gemini/gemini-1.5-pro"
+            ;;
+        3)
+            PROV_KEY="openai"
+            DEFAULT_MODEL="gpt-4o-mini"
+            MODEL_PROMPT="gpt-4o, gpt-4o-mini, gpt-4-turbo"
+            ;;
+        4)
+            PROV_KEY="anthropic"
+            DEFAULT_MODEL="claude-3-5-sonnet-20240620"
+            MODEL_PROMPT="claude-3-5-sonnet-20240620, claude-3-opus-20240229"
+            ;;
+        5)
+            PROV_KEY="ollama"
+            DEFAULT_MODEL="ollama/llama3"
+            MODEL_PROMPT="ollama/llama3, ollama/mistral, ollama/codellama"
+            ;;
+        6)
+            PROV_KEY="ollama_cloud"
+            DEFAULT_MODEL="ollama/llama3"
+            MODEL_PROMPT="ollama/llama3, ollama/mistral"
+            ;;
+        7)
+            PROV_KEY="kilocode"
+            DEFAULT_MODEL="kilocode/kilo/auto"
+            MODEL_PROMPT="kilocode/kilo/auto, kilocode/stepfun/step-3.7-flash:free"
+            ;;
+        *)
+            echo -e "${YELLOW}Opción no válida. Omitiendo configuración de LLM.${RESET}"
+            PROV_KEY=""
+            ;;
+    esac
 
-# ─── PASO 6: Instalar paquetes ────────────────────────────────────────────────
-step_header "Instalar KogniTerm y dependencias"
+    if [ -n "$PROV_KEY" ]; then
+        read -p "Nombre del modelo [default: $DEFAULT_MODEL] (ej: $MODEL_PROMPT): " model_input
+        model_input="${model_input:-$DEFAULT_MODEL}"
 
-# Asegurar que estamos en el directorio de instalación para que pip encuentre pyproject.toml
-log_info "Verificando directorio: $INSTALL_DIR"
-if [[ "$INSTALL_DIR" == "$HOME" || "$INSTALL_DIR" == "/" ]]; then
-    log_error "Directorio de instalación inválido: $INSTALL_DIR. No se permite instalar en el HOME o raíz."
-    exit 1
-fi
+        if [ "$PROV_KEY" = "ollama" ]; then
+            read -p "Introduce la URL de tu servidor Ollama local [default: http://localhost:11434/v1]: " ollama_url
+            ollama_url="${ollama_url:-http://localhost:11434/v1}"
+            
+            echo -e "\n  Guardando configuración de Ollama Local..."
+            "$VENV_DIR/bin/kogniterm" config set ollama_api_base "$ollama_url" &>/dev/null
+            "$VENV_DIR/bin/kogniterm" config set ollama_provider_target "local" &>/dev/null
+        elif [ "$PROV_KEY" = "ollama_cloud" ]; then
+            echo -e "\n  Configurando Ollama Cloud..."
+            "$VENV_DIR/bin/kogniterm" config set ollama_provider_target "cloud" &>/dev/null
+            read -rs -p "Ingresa tu API Key para Ollama Cloud (OLLAMA_CLOUD_API_KEY): " apikey_input
+            echo ""
+            "$VENV_DIR/bin/kogniterm" config set "api_key_ollama_cloud" "$apikey_input" &>/dev/null
+        else
+            read -rs -p "Ingresa tu API Key para $PROV_KEY: " apikey_input
+            echo ""
+            echo -e "\n  Guardando configuración de API Key..."
+            "$VENV_DIR/bin/kogniterm" config set "api_key_$PROV_KEY" "$apikey_input" &>/dev/null
+        fi
 
-log_info "Cambiando a directorio: $INSTALL_DIR"
-cd "$INSTALL_DIR" || { log_error "No se pudo cambiar al directorio $INSTALL_DIR"; exit 1; }
-
-# Actualizar pip primero
-log_info "Actualizando pip a la última versión..."
-log_cmd "pip install --upgrade pip"
-run_with_spinner "Actualizando pip" pip install --upgrade pip
-
-PIP_NEW_VERSION=$(pip --version 2>&1 | awk '{print $2}')
-log_detail "pip actualizado a: ${PIP_NEW_VERSION}"
-
-# Instalar KogniTerm con extras seleccionados
-log_info "Instalando KogniTerm${INSTALL_EXTRAS} en modo editable..."
-log_cmd "pip install -e .${INSTALL_EXTRAS}"
-
-# Obtener lista de dependencias para mostrar progreso
-DEPS_COUNT=$(grep -c '^\s*"' "pyproject.toml" 2>/dev/null || echo 0)
-log_detail "Instalando versión ${INSTALL_LABEL} (~${DEPS_COUNT} dependencias base)"
-
-run_with_spinner "Instalando paquetes (puede tomar varios minutos)" pip install -e ".${INSTALL_EXTRAS}"
-
-# Si es instalación Full, avisar sobre playwright
-if [[ "$INSTALL_EXTRAS" == *"[full]"* ]]; then
-    log_info "Configurando Playwright (instalando navegadores en background)..."
-    playwright install chromium --with-deps > /dev/null 2>&1 &
-    log_success "Instalación de navegadores iniciada en segundo plano."
-fi
-
-# Mostrar paquetes instalados
-INSTALLED_PKGS=$(pip list 2>/dev/null | wc -l)
-log_detail "Paquetes instalados en el entorno: ${INSTALLED_PKGS}"
-
-# Verificar que kogniterm fue instalado
-if command -v kogniterm &>/dev/null; then
-    KT_VERSION=$(kogniterm --version 2>&1 | head -1 || echo "instalado")
-    log_success "kogniterm disponible — ${KT_VERSION}"
-else
-    log_warn "El ejecutable 'kogniterm' no está en el PATH del venv todavía"
-fi
-
-# ─── PASO 7: Finalización ────────────────────────────────────────────────────
-step_header "Instalación completada"
-log_success "KogniTerm instalado exitosamente."
-printf "\n  ${BOLD}${WHITE}🚀  Siguientes pasos:${RESET}\n\n"
-printf "  ${DIM}1. Configura tu LLM:${RESET}\n"
-printf "     ${CYAN}python3 kogniterm_config.py${RESET}\n\n"
-printf "  ${DIM}2. Inicia KogniTerm:${RESET}\n"
-printf "     ${CYAN}source ${VENV_DIR}/bin/activate && kogniterm${RESET}\n\n"
-
-exit 0
-
-configure_env_value() {
-    local key="$1"
-    local value="$2"
-    local file="$3"
-    # Reemplaza la línea si existe (comentada o no), o agrega al final
-    if grep -q "^#*\s*${key}=" "$file" 2>/dev/null; then
-        sed -i "s|^#*\s*${key}=.*|${key}=\"${value}\"|" "$file"
-    else
-        echo "${key}=\"${value}\"" >> "$file"
+        # Guardar modelo por defecto
+        "$VENV_DIR/bin/kogniterm" config set default_model "$model_input" &>/dev/null
+        echo -e "  ${GREEN}✔${RESET} Configuración de LLM guardada en ~/.kogniterm/config.json"
     fi
 }
 
-LLM_CONFIGURED=false
+# Asistente de configuración de Telegram
+configure_telegram() {
+    echo -e "\n${BOLD}${BLUE}--- Configuración de Bot de Telegram ---${RESET}"
+    echo -e "Iniciando el asistente interactivo..."
+    "$VENV_DIR/bin/kogniterm" config telegram setup
+}
 
-case "$provider_choice" in
-    1)
-        LLM_PROVIDER_NAME="OpenAI"
-        LLM_PROVIDER_VAL="openai"
-        LLM_ENDPOINT_DEFAULT="https://api.openai.com/v1"
-        LLM_MODEL_HINT="gpt-4o, gpt-4o-mini, gpt-4-turbo"
-        ;;
-    2)
-        LLM_PROVIDER_NAME="Groq"
-        LLM_PROVIDER_VAL="openrouter" # Groq suele ser compatible vía OpenAI endpoint
-        LLM_ENDPOINT_DEFAULT="https://api.groq.com/openai/v1"
-        LLM_MODEL_HINT="llama3-8b-8192, mixtral-8x7b-32768, gemma2-9b-it"
-        ;;
-    3)
-        LLM_PROVIDER_NAME="Google Gemini"
-        LLM_PROVIDER_VAL="google"
-        LLM_ENDPOINT_DEFAULT=""
-        LLM_MODEL_HINT="gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash"
-        ;;
-    4)
-        LLM_PROVIDER_NAME="Anthropic"
-        LLM_PROVIDER_VAL="anthropic"
-        LLM_ENDPOINT_DEFAULT="https://api.anthropic.com/v1"
-        LLM_MODEL_HINT="claude-3-5-sonnet-20240620, claude-3-opus-20240229"
-        ;;
-    5)
-        LLM_PROVIDER_NAME="Ollama"
-        LLM_PROVIDER_VAL="ollama"
-        LLM_ENDPOINT_DEFAULT="http://localhost:11434/v1"
-        LLM_MODEL_HINT="llama3, mistral, codellama, phi3"
-        ;;
-    6)
-        LLM_PROVIDER_NAME="KiloCode Gateway"
-        LLM_PROVIDER_VAL="kilocode"
-        LLM_ENDPOINT_DEFAULT=""
-        LLM_MODEL_HINT="kilocode/kilo/auto"
-        ;;
-    *)
-        log_warn "Configuración LLM omitida. Edita manualmente: ${ENV_FILE}"
-        LLM_CONFIGURED=skip
-        ;;
-esac
+# Buscar y aplicar actualizaciones vía Git
+update_kogniterm() {
+    echo -e "\n${BOLD}${BLUE}🔄 Buscando actualizaciones en GitHub...${RESET}"
+    check_git
 
-if [ "$LLM_CONFIGURED" != "skip" ]; then
+    if [ ! -d "$REPO_DIR/.git" ]; then
+        echo -e "${RED}❌ Error: No se encontró un repositorio git válido en ${REPO_DIR}.${RESET}"
+        echo -e "Por favor, reinstala KogniTerm."
+        return 1
+    fi
+
+    cd "$REPO_DIR" || exit 1
+
+    # Comprobar cambios locales y guardarlos
+    local stash_created=false
+    if ! git diff-index --quiet HEAD --; then
+        echo -e "  ${YELLOW}⚠️ Se detectaron cambios locales. Guardándolos temporalmente con git stash...${RESET}"
+        git stash
+        stash_created=true
+    fi
+
+    echo -e "  Sincronizando con repositorio remoto..."
+    git pull origin main
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Error al hacer git pull.${RESET}"
+        [ "$stash_created" = true ] && git stash pop
+        return 1
+    fi
+
+    if [ "$stash_created" = true ]; then
+        echo -e "  Restaurando tus cambios locales..."
+        git stash pop
+    fi
+
+    echo -e "  Actualizando entorno virtual..."
+    "$VENV_DIR/bin/pip" install -e .
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Error al reinstalar el paquete.${RESET}"
+        return 1
+    fi
+
+    echo -e "\n${BOLD}${GREEN}========================================================================${RESET}"
+    echo -e "${BOLD}${GREEN}    🎉 ¡KogniTerm ha sido actualizado a la última versión con éxito!${RESET}"
+    echo -e "${BOLD}${GREEN}========================================================================${RESET}\n"
+}
+
+# Instalación limpia desde cero
+install_from_scratch() {
+    check_python
+    check_git
+
+    echo -e "\n${BOLD}${BLUE}[1/4] Preparando directorios...${RESET}"
+    mkdir -p "$KOGNITERM_DIR"
+
+    # Verificar si es desarrollo local
+    local install_source=""
+    if [ -f "pyproject.toml" ] && [ -d "kogniterm" ]; then
+        echo -e "  Se detectó código fuente local en el directorio actual."
+        echo -e "  1) Instalar usando la carpeta local actual: ${BOLD}$PWD${RESET}"
+        echo -e "  2) Clonar el repositorio oficial desde GitHub"
+        read -p "  Selecciona el origen (1 o 2) [default: 1]: " source_opt
+        source_opt="${source_opt:-1}"
+        if [ "$source_opt" = "1" ]; then
+            install_source="$PWD"
+        fi
+    fi
+
+    if [ -z "$install_source" ]; then
+        echo -e "  Clonando repositorio de GitHub en ${REPO_DIR}..."
+        rm -rf "$REPO_DIR"
+        git clone "$GITHUB_REPO_URL" "$REPO_DIR"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Error al clonar el repositorio.${RESET}"
+            exit 1
+        fi
+        install_source="$REPO_DIR"
+    fi
+
+    echo -e "\n${BOLD}${BLUE}[2/4] Creando entorno virtual aislado (venv)...${RESET}"
+    rm -rf "$VENV_DIR"
+    python3 -m venv "$VENV_DIR"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Error al crear el entorno virtual.${RESET}"
+        exit 1
+    fi
+
+    echo -e "  Actualizando pip..."
+    "$VENV_DIR/bin/pip" install --upgrade pip &>/dev/null
+
+    echo -e "\n${BOLD}${BLUE}[3/4] Instalando KogniTerm en modo editable...${RESET}"
+    "$VENV_DIR/bin/pip" install -e "$install_source"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Error al instalar dependencias.${RESET}"
+        exit 1
+    fi
+
+    echo -e "\n${BOLD}${BLUE}[4/4] Creando lanzador global...${RESET}"
+    mkdir -p "$LOCAL_BIN"
+    cat << EOF > "$WRAPPER_PATH"
+#!/usr/bin/env bash
+source "$VENV_DIR/bin/activate"
+exec kogniterm "\$@"
+EOF
+    chmod +x "$WRAPPER_PATH"
+    echo -e "  ${GREEN}✔${RESET} Lanzador global creado en: ${BOLD}${WRAPPER_PATH}${RESET}"
+
+    # Verificar si ~/.local/bin está en el PATH
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        echo -e "  ${YELLOW}⚠️ Advertencia: ${BOLD}~/.local/bin${RESET} no está en tu variable \$PATH.${RESET}"
+        echo -e "  Para ejecutar 'kogniterm' directamente, añade esto a tu ~/.bashrc o ~/.zshrc:"
+        echo -e "  ${CYAN}  export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}"
+    fi
+
+    # Configuración de servicios
+    read -p "¿Deseas configurar un proveedor de LLM ahora? (Y/n): " llm_conf
+    llm_conf="${llm_conf:-y}"
+    if [[ "$llm_conf" =~ ^[Yy]$ ]]; then
+        configure_llm
+    fi
+
+    read -p "¿Deseas configurar el Bot de Telegram ahora? (y/N): " tg_conf
+    tg_conf="${tg_conf:-n}"
+    if [[ "$tg_conf" =~ ^[Yy]$ ]]; then
+        configure_telegram
+    fi
+
+    echo -e "\n${BOLD}${GREEN}========================================================================${RESET}"
+    echo -e "${BOLD}${GREEN}       🎉 ¡KogniTerm ha sido instalado y configurado con éxito!${RESET}"
+    echo -e "${BOLD}${GREEN}========================================================================${RESET}"
+    echo -e "  Ejecuta ${BOLD}kogniterm${RESET} para empezar.\n"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Menú Principal
+# ──────────────────────────────────────────────────────────────────────────────
+if [ -d "$VENV_DIR" ] && { [ -d "$REPO_DIR/.git" ] || [ -f "$REPO_DIR/pyproject.toml" ]; }; then
+    echo -e "${WHITE}${BOLD}KogniTerm ya se encuentra instalado en este sistema.${RESET}"
+    echo -e "¿Qué acción deseas realizar?\n"
+    echo -e "  ${BOLD}1)${RESET} Buscar y aplicar actualizaciones (Git Pull + pip install)"
+    echo -e "  ${BOLD}2)${RESET} Configurar/Cambiar proveedor LLM y API Keys"
+    echo -e "  ${BOLD}3)${RESET} Configurar/Activar Bot de Telegram"
+    echo -e "  ${BOLD}4)${RESET} Reinstalar KogniTerm por completo (Instalación limpia)"
+    echo -e "  ${BOLD}5)${RESET} Salir"
     echo ""
-    log_info "Proveedor seleccionado: ${LLM_PROVIDER_NAME}"
-    echo ""
+    read -p "Selecciona una opción (1-5): " menu_opt
 
-    # Modelo
-    printf "  ${BOLD}Modelo${RESET} ${DIM}(ej: %s)${RESET}\n" "$LLM_MODEL_HINT"
-    printf "  ${CYAN}→${RESET} Nombre del modelo: "
-    read -r llm_model_input
-    if [ -z "$llm_model_input" ]; then
-        llm_model_input="${LLM_MODEL_HINT%%,*}"  # primer ejemplo como fallback
-        log_warn "Sin entrada — usando: ${llm_model_input}"
-    fi
-
-    # API Key
-    echo ""
-    printf "  ${BOLD}API Key${RESET}\n"
-    printf "  ${DIM}(se ocultará al escribir)${RESET}\n"
-    printf "  ${CYAN}→${RESET} Tu API key: "
-    read -rs llm_api_key_input
-    echo ""
-    if [ -z "$llm_api_key_input" ]; then
-        log_warn "API key vacía — recuerda configurarla en ${ENV_FILE}"
-        llm_api_key_input="REEMPLAZA_CON_TU_API_KEY"
-    else
-        log_detail "API key recibida (${#llm_api_key_input} caracteres)"
-    fi
-
-    # Endpoint (solo para compatible OpenAI)
-    if [ "$LLM_PROVIDER_VAL" = "openai" ] && [ -n "$LLM_ENDPOINT_DEFAULT" ]; then
-        echo ""
-        printf "  ${BOLD}Endpoint API${RESET} ${DIM}(Enter para usar: %s)${RESET}\n" "$LLM_ENDPOINT_DEFAULT"
-        printf "  ${CYAN}→${RESET} URL del endpoint: "
-        read -r llm_endpoint_input
-        llm_endpoint_input="${llm_endpoint_input:-$LLM_ENDPOINT_DEFAULT}"
-    fi
-
-    # Escribir en .env
-    log_info "Escribiendo configuración en ${ENV_FILE}..."
-
-    configure_env_value "LLM_PROVIDER" "$LLM_PROVIDER_VAL"       "$ENV_FILE"
-    configure_env_value "LLM_MODEL"    "$llm_model_input"         "$ENV_FILE"
-    configure_env_value "LLM_API_KEY"  "$llm_api_key_input"       "$ENV_FILE"
-
-    if [ "$LLM_PROVIDER_VAL" = "openai" ] && [ -n "$llm_endpoint_input" ]; then
-        configure_env_value "LLM_API_ENDPOINT" "$llm_endpoint_input" "$ENV_FILE"
-    fi
-
-    if [ "$LLM_PROVIDER_VAL" = "google" ]; then
-        configure_env_value "GOOGLE_API_KEY" "$llm_api_key_input" "$ENV_FILE"
-        configure_env_value "GEMINI_MODEL"   "$llm_model_input"   "$ENV_FILE"
-    fi
-
-    log_success "Configuración LLM guardada"
-    log_detail  "Proveedor:  ${LLM_PROVIDER_VAL}"
-    log_detail  "Modelo:     ${llm_model_input}"
-    [ -n "$llm_endpoint_input" ] && log_detail "Endpoint:   ${llm_endpoint_input}"
-fi
-
-# ─── PASO 7: Configuración final y symlink ────────────────────────────────────
-step_header "Creación de enlace simbólico global"
-
-# Symlink global
-echo ""
-printf "  ${CYAN}?${RESET}  ¿Deseas crear un enlace simbólico global para 'kogniterm'? (y/N): "
-read -r symlink_confirm
-
-if [[ "$symlink_confirm" =~ ^[Yy]$ ]]; then
-    SYMLINK_PATH="/usr/local/bin/kogniterm"
-    if [ -w "$(dirname "$SYMLINK_PATH")" ]; then
-        ln -sf "${VENV_DIR}/bin/kogniterm" "$SYMLINK_PATH"
-        log_success "Symlink creado: ${SYMLINK_PATH} → ${VENV_DIR}/bin/kogniterm"
-    else
-        log_warn "Sin permisos de escritura en $(dirname "$SYMLINK_PATH"). Ejecuta manualmente:"
-        printf "  ${DIM}│  sudo ln -sf %s/bin/kogniterm %s${RESET}\n" "$VENV_DIR" "$SYMLINK_PATH"
-    fi
+    case "$menu_opt" in
+        1)
+            update_kogniterm
+            ;;
+        2)
+            configure_llm
+            ;;
+        3)
+            configure_telegram
+            ;;
+        4)
+            echo -e "${YELLOW}⚠️ Advertencia: Esto eliminará el entorno virtual y el repositorio actual.${RESET}"
+            read -p "¿Estás seguro que deseas reinstalar desde cero? (y/N): " confirm_reinstall
+            if [[ "$confirm_reinstall" =~ ^[Yy]$ ]]; then
+                install_from_scratch
+            else
+                echo -e "Reinstalación cancelada."
+            fi
+            ;;
+        5)
+            echo -e "¡Hasta luego!"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Opción inválida.${RESET}"
+            exit 1
+            ;;
+    esac
 else
-    log_info "Symlink omitido"
+    # Primera instalación
+    install_from_scratch
 fi
-
-# ─── RESUMEN FINAL ────────────────────────────────────────────────────────────
-echo ""
-print_double_line
-printf "\n"
-if [ "$USE_UNICODE" = true ]; then
-    printf "  ${BOLD}${GREEN}✔  ¡KogniTerm instalado exitosamente!${RESET}\n"
-else
-    printf "  ${BOLD}${GREEN}[OK] ¡KogniTerm instalado exitosamente!${RESET}\n"
-fi
-printf "\n"
-print_double_line
-
-if [ "$USE_UNICODE" = true ]; then
-    printf "\n  ${BOLD}${WHITE}📋  Resumen de instalación${RESET}\n\n"
-else
-    printf "\n  ${BOLD}${WHITE}Resumen de instalación${RESET}\n\n"
-fi
-printf "  ${DIM}%-22s${RESET}  %s\n"  "Directorio:"     "$INSTALL_DIR"
-printf "  ${DIM}%-22s${RESET}  %s\n"  "Entorno virtual:" "$VENV_DIR"
-printf "  ${DIM}%-22s${RESET}  %s\n"  "Python:"          "$PYTHON_CMD $PYTHON_VERSION"
-printf "  ${DIM}%-22s${RESET}  %s\n"  "Configuración:"   "$ENV_FILE"
-printf "  ${DIM}%-22s${RESET}  %s\n"  "Log de instalación:" "$LOG_FILE"
-printf "  ${DIM}%-22s${RESET}  %s\n"  "Tiempo total:"    "$(elapsed_time)"
-
-printf "\n"
-print_line
-if [ "$USE_UNICODE" = true ]; then
-    printf "\n  ${BOLD}${WHITE}🚀  Cómo ejecutar KogniTerm${RESET}\n\n"
-else
-    printf "\n  ${BOLD}${WHITE}Cómo ejecutar KogniTerm${RESET}\n\n"
-fi
-printf "  ${DIM}# Opción A — desde el directorio de instalación:${RESET}\n"
-printf "  ${CYAN}source %s/bin/activate${RESET}\n" "$VENV_DIR"
-printf "  ${CYAN}kogniterm${RESET}\n\n"
-
-if [[ $symlink_confirm =~ ^[Yy]$ ]]; then
-    printf "  ${DIM}# Opción B — comando global:${RESET}\n"
-    printf "  ${CYAN}kogniterm${RESET}\n\n"
-fi
-
-printf "  ${DIM}# Editar configuración (API keys):${RESET}\n"
-printf "  ${CYAN}nano %s${RESET}\n" "$ENV_FILE"
-
-printf "\n"
-print_double_line
-printf "\n  ${DIM}¿Problemas? Revisa el log detallado:${RESET}\n"
-printf "  ${DIM}cat %s${RESET}\n\n" "$LOG_FILE"

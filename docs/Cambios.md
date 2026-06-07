@@ -131,3 +131,65 @@ Para ver versiones anteriores a 0.4.3, consulta el historial de tags en GitHub:
 ```bash
 git tag --sort=-version:refname
 ```
+
+---
+
+## [0.6.0] - 2026-06-06
+
+### 📦 Release
+- Actualización de versión de `0.5.2` a `0.6.0` en `pyproject.toml`
+- Publicación del paquete en PyPI: https://pypi.org/project/kogniterm/0.6.0/
+- Limpieza de artefactos de build anteriores (`dist/`, `build/`, `kogniterm.egg-info/`)
+- Build generado: `kogniterm-0.6.0-py3-none-any.whl` y `kogniterm-0.6.0.tar.gz`
+
+---
+
+## [0.6.1] - 2026-06-06
+
+### 🐛 Correcciones
+- **Fix crítico**: El programa no iniciaba al instalar desde PyPI por dependencias faltantes
+- Agregado `chromadb` a las dependencias (requerido por `VectorDBManager`)
+- Agregado `google-genai` a las dependencias (requerido por `bash_agent.py`)
+- Publicado en PyPI: https://pypi.org/project/kogniterm/0.6.1/
+
+---
+
+## [0.6.2] - 2026-06-06
+
+### 🐛 Correcciones
+- **Fix**: Agregado `fastembed` a las dependencias (requerido por `EmbeddingsService`)
+- **Fix**: Tema `default` se aplica siempre al iniciar, incluso en instalaciones nuevas sin configuración previa
+- Eliminado `crewai` de las dependencias declaradas (ya no se usa en el proyecto)
+- Publicado en PyPI: https://pypi.org/project/kogniterm/0.6.2/
+
+---
+
+## [0.6.3] - 2026-06-06
+
+### 🐛 Correcciones — Sistema de temas
+- **Fix crítico**: El tema no persistía al seleccionarlo porque `tui_app.py` llamaba a `config_manager.set()` (método inexistente en `ConfigManager`). Corregido a `ConfigManager().set_global_config("theme", theme_name)`.
+- **Fix**: `command_processor.py` (TUI) ahora también persiste el tema al seleccionarlo con `/theme`, no solo lo aplicaba visualmente.
+- El tema `default` ahora se aplica correctamente en instalaciones nuevas sin configuración previa.
+- Publicado en PyPI: https://pypi.org/project/kogniterm/0.6.3/
+
+---
+
+## [0.6.4] - 2026-06-06
+
+### 🐛 Correcciones — Sistema de temas (fix definitivo)
+- **Causa raíz encontrada**: El config local del proyecto (`.kogniterm/config.json`) sobreescribía silenciosamente el config global (`~/.kogniterm/config.json`), por lo que el tema nunca persistía al reiniciar desde un proyecto específico.
+- **Fix**: Al guardar el tema (desde `/theme` en la TUI), ahora se actualiza **tanto el config global como el local del proyecto** (si existe), asegurando consistencia.
+- **Fix**: `apply_theme` ahora acepta `persist=False` para que el `on_mount` no sobreescriba la preferencia guardada al iniciar.
+- Publicado en PyPI: https://pypi.org/project/kogniterm/0.6.4/
+
+---
+
+## [0.6.5] - 2026-06-07
+
+### 📦 Correcciones de Empaquetado (Packaging)
+
+- **Fix crítico (ejecución de tool calls)**: Se corrigió un bug en la distribución de PyPI que impedía la ejecución de tool calls cuando la aplicación era instalada vía `pipx` o `pip` desde el repositorio central.
+  - **Causa**: Los archivos descriptores de las habilidades (`SKILL.md`) no se incluían en el paquete final distribuido en PyPI. Al faltar los archivos `SKILL.md`, `SkillManager` fallaba en cargar las herramientas, por lo que el LLM recibía una lista vacía de herramientas y las peticiones de tool calls fallaban, apareciendo en su lugar como texto plano en el chat.
+  - **Solución**: Se restauró el archivo `MANIFEST.in` y se configuró `include-package-data = true` bajo `[tool.setuptools]` en `pyproject.toml`, forzando a setuptools a incluir de forma recursiva todos los recursos, archivos JSON y archivos descriptores Markdown (`SKILL.md`) de las skills en el build final.
+- **Nuevo Script de Instalación**: Se creó un script `install.sh` desde cero para facilitar la instalación en un entorno virtual aislado (`venv`), crear un acceso directo o alias global (`~/.local/bin/kogniterm`) y guiar al usuario a través del asistente interactivo de configuración (proveedor, modelo, API keys persistidos en el JSON de usuario y el setup del bot de Telegram para el servidor). Además, se añadió la redirección de entrada estándar (`exec < /dev/tty`) haciendo que el script sea compatible con comandos de instalación directa desde la web (ej: `curl -fsSL ... | bash`).
+- **Actualización de Documentación**: Se actualizó el archivo `README.md` estableciendo el script de instalación `curl | bash` como el método de instalación oficial y recomendado para los usuarios, manteniendo las opciones tradicionales de PyPI como alternativas.

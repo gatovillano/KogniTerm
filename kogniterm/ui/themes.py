@@ -16,6 +16,48 @@ from rich.style import Style
 
 _THEMES = {
     "default": {
+        "PRIMARY_LIGHTEST": "#e0f7fa",
+        "PRIMARY_LIGHTER": "#b2ebf2",
+        "PRIMARY_LIGHT": "#80deea",
+        "PRIMARY": "#00bcd4",
+        "PRIMARY_DARK": "#0097a7",
+        "PRIMARY_DARKER": "#006064",
+        "PRIMARY_DARKEST": "#001219",
+        "SECONDARY": "#00838f",
+        "SECONDARY_LIGHT": "#4dd0e1",
+        "SECONDARY_DARK": "#004d40",
+        "ACCENT": "#00e5ff",
+        "ACCENT_PINK": "#ff4081",
+        "ACCENT_BLUE": "#00b0ff",
+        "ACCENT_GREEN": "#00e676",
+        "SUCCESS": "#10b981",
+        "SUCCESS_LIGHT": "#34d399",
+        "WARNING": "#f59e0b",
+        "WARNING_LIGHT": "#fbbf24",
+        "ERROR": "#ef4444",
+        "ERROR_LIGHT": "#f87171",
+        "INFO": "#00b0ff",
+        "INFO_LIGHT": "#40c4ff",
+        "GRAY_50": "#051016",
+        "GRAY_100": "#02080d",
+        "GRAY_200": "#000305",
+        "GRAY_300": "#004d61",
+        "GRAY_400": "#007a99",
+        "GRAY_500": "#00a3cc",
+        "GRAY_600": "#00b4d8",
+        "GRAY_700": "#003542",
+        "GRAY_800": "#040a0f",
+        "GRAY_900": "#000000",
+        "TEXT_PRIMARY": "#ffffff",
+        "TEXT_SECONDARY": "#b2ebf2",
+        "TEXT_MUTED": "#80deea",
+        "TEXT_DIM": "#007a99",
+        "GRADIENT_PRIMARY": [
+            "#ffffff", "#e0f7fa", "#b2ebf2", "#80deea", "#4dd0e1", "#26c6da", "#00bcd4",
+            "#00acc1", "#0097a7", "#00838f", "#006064", "#001219", "#000000"
+        ]
+    },
+    "dark_blue": {
         "PRIMARY_LIGHTEST": "#f9fafb",
         "PRIMARY_LIGHTER": "#f3f4f6",
         "PRIMARY_LIGHT": "#e5e7eb",
@@ -591,6 +633,17 @@ class Gradients:
     
     # Gradiente original con pasos intermedios (tonos de morado y lila)
     PRIMARY = [
+        "#ffffff",
+        "#e0f7fa",
+        "#b2ebf2",
+        "#80deea",
+        "#00bcd4",
+        "#0097a7",
+        "#006064",
+        "#000000",
+    ]
+    
+    DARK_BLUE = [
         "#f3f4f6", # Gray 100
         "#e5e7eb", # Gray 200
         "#d1d5db", # Gray 300
@@ -704,6 +757,7 @@ class Gradients:
         
         mapping = {
             "default": cls.PRIMARY,
+            "dark_blue": cls.DARK_BLUE,
             "light": cls.LIGHT,
             "ocean": cls.OCEAN,
             "matrix": cls.MATRIX,
