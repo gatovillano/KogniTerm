@@ -246,15 +246,27 @@ install_from_scratch() {
         exit 1
     fi
 
-    echo -e "\n${BOLD}${BLUE}[4/4] Creando lanzador global...${RESET}"
+    echo -e "\n${BOLD}${BLUE}[4/4] Creando lanzadores globales...${RESET}"
     mkdir -p "$LOCAL_BIN"
+    
+    # Lanzador para kogniterm
     cat << EOF > "$WRAPPER_PATH"
 #!/usr/bin/env bash
 source "$VENV_DIR/bin/activate"
 exec kogniterm "\$@"
 EOF
     chmod +x "$WRAPPER_PATH"
-    echo -e "  ${GREEN}✔${RESET} Lanzador global creado en: ${BOLD}${WRAPPER_PATH}${RESET}"
+    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm creado en: ${BOLD}${WRAPPER_PATH}${RESET}"
+
+    # Lanzador para kogniterm-server
+    SERVER_WRAPPER_PATH="$LOCAL_BIN/kogniterm-server"
+    cat << EOF > "$SERVER_WRAPPER_PATH"
+#!/usr/bin/env bash
+source "$VENV_DIR/bin/activate"
+exec kogniterm-server "\$@"
+EOF
+    chmod +x "$SERVER_WRAPPER_PATH"
+    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Server creado en: ${BOLD}${SERVER_WRAPPER_PATH}${RESET}"
 
     # Verificar si ~/.local/bin está en el PATH
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
