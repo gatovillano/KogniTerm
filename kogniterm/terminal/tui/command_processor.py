@@ -137,6 +137,11 @@ class TUICommandProcessor:
         
         if selected:
             self.app.apply_theme(selected)
+            from kogniterm.terminal.config_manager import ConfigManager
+            cm = ConfigManager()
+            cm.set_global_config("theme", selected)
+            if cm.PROJECT_CONFIG_FILE.exists():
+                cm.set_project_config("theme", selected)
             self.terminal_ui.print_message(f"✅ Tema actualizado: {selected}", style="green")
 
     async def _handle_help(self):

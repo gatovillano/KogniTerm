@@ -277,9 +277,25 @@ class TextualTerminalUI:
         # Optional panel routing if supported
         command = kwargs.get("command", tool_name)
         self._safe_call(self.app.update_terminal_output, tool_name, output, command=command)
-
     def update_tool_display(self, tool_name: str, output: str, command: str = "", max_lines=None, **kwargs):
-        pass # Add missing stub if it's called
+        """Escribe la salida final de una herramienta en el chat log de la TUI."""
+        if not output or not getattr(self, "app", None):
+            return
+
+        # Default: mostrar las últimas 30 líneas si no se especifica otro límite
+        limit = max_lines if max_lines is not None else 30
+        lines = output.splitlines()
+        if len(lines) > limit:
+            displayed = "\n".join(lines[-limit:])
+        else:
+            displayed = output
+
+        self._safe_call(
+            self.app.chat_log.write_tool_output,
+            displayed,
+            tool_name,
+            language=command or None,
+        )
 
     def update_task_tracker(self, agent_plans: dict):
         """Actualiza el panel de seguimiento de tareas."""
@@ -394,10 +410,6 @@ class TextualTerminalUI:
         )
 
         from rich.text import Text
-        from rich.style import Style
-        import pyte
-        from pyte.screens import Char
-        from rich.padding import Padding
         from kogniterm.terminal.themes import ColorPalette
 
         log = self.app.chat_log
@@ -426,8 +438,7 @@ class TextualTerminalUI:
         combined = "\n".join(padded_lines)
 
         # Escribir el banner como un único Text
-        from rich.text import Text as _Text
-        banner_text_obj = _Text(combined, style=color)
+        banner_text_obj = Text(combined, style=color)
 
         # Escribir línea en blanco superior, luego el banner y otra línea vacía
         log.write("")
@@ -663,16 +674,9 @@ class KogniTermTUI(App):
         padding-left: 2;
     }
 
-    #tool_display, #live_display {
-        display: none;
-        width: 85%;
-        max-width: 180;
-        margin: 0 4 1 4;
-    }
-
     #command_popup {
-        layer: popup;
         width: 44;
+        layer: popup;
         height: auto;
         max-height: 14;
         background: #1e1e2e;
@@ -772,9 +776,11 @@ class KogniTermTUI(App):
         border: solid #4b5563; /* gray */
         margin: 0 4 1 4;
         background: transparent !important;
-        display: block;
     }
 
+    #tool_display {
+        display: none;
+    }
     #chat_log ToolOutputWidget {
         width: 100%;
         max-width: 100%;
@@ -1002,7 +1008,7 @@ class KogniTermTUI(App):
         from kogniterm.terminal.config_manager import ConfigManager
         config_manager = ConfigManager()
         saved_theme = config_manager.get_config("theme") or "default"
-        self.apply_theme(saved_theme)
+        self.apply_theme(saved_theme, persist=False)
         # Actualizar info del modelo en el splash y enfocar el input del splash
         self.call_after_refresh(self._setup_splash)
         
@@ -1646,8 +1652,14 @@ class KogniTermTUI(App):
             
         self.process_agent_request(user_input)
 
-    def apply_theme(self, theme_name: str):
-        """Aplica un tema visual a la aplicación Textual."""
+    def apply_theme(self, theme_name: str, persist: bool = True):
+        """Aplica un tema visual a la aplicación Textual.
+        
+        Args:
+            theme_name: Nombre del tema a aplicar.
+            persist: Si True, guarda el tema en config global. Usar False al
+                     cargar al inicio para no sobreescribir la preferencia guardada.
+        """
         from kogniterm.terminal.themes import ColorPalette, set_kogniterm_theme
         
         # 1. Aplicar tema a nivel de lógica (paleta global)
@@ -1658,7 +1670,6 @@ class KogniTermTUI(App):
         self.dark = (theme_name != "light")
         
         # 3. Aplicar colores a contenedores principales
-        # Si es claro, usamos colores más claros pero manteniendo legibilidad
         bg_color = p.GRAY_900 if self.dark else p.PRIMARY_LIGHTEST
         
         self.screen.styles.background = bg_color
@@ -1674,7 +1685,6 @@ class KogniTermTUI(App):
         log = self.chat_log
         log.styles.background = "transparent"
         log.styles.color = p.TEXT_PRIMARY
-        # Estilo de barra de scroll adaptativo
         log.styles.scrollbar_color = p.GRAY_600
         log.styles.scrollbar_color_hover = p.PRIMARY
         log.styles.scrollbar_color_active = p.PRIMARY_LIGHT
@@ -1684,7 +1694,6 @@ class KogniTermTUI(App):
         self.live_display.styles.background = bg_color
         self.live_display.styles.color = p.TEXT_PRIMARY
 
-        # Panel de terminal: fondo levemente más claro que el fondo principal
         tool_panel_bg = p.GRAY_800 if self.dark else p.GRAY_200
         self.tool_display.styles.background = tool_panel_bg
         self.tool_display.styles.color = p.TEXT_PRIMARY
@@ -1692,7 +1701,6 @@ class KogniTermTUI(App):
         bottom_container = self.query_one("#bottom_container")
         bottom_container.styles.background = bg_color
         
-        # Color dinámico para barras de entrada (más oscuro en light mode)
         input_bg = p.GRAY_800 if self.dark else p.GRAY_200
 
         # 6. Estilizar el INPUT CONTAINER
@@ -1707,15 +1715,14 @@ class KogniTermTUI(App):
         # 7. Estilizar todos los inputs
         for inp in self.query(ChatInput):
             inp.styles.color = p.TEXT_PRIMARY
-            inp.styles.background = "transparent" # Dejar transparente para que se vea el contenedor
+            inp.styles.background = "transparent"
             inp.show_cursor_line = False
             inp.cursor_line_style = ""
             
         # 8. Estilizar STATUS FOOTER
         for sf in self.query(StatusFooter):
-            sf.styles.background = "transparent" # El usuario pidió la barra, y el modelo debajo
+            sf.styles.background = "transparent"
             sf.styles.border = None
-            # Quitar el pipe izquierdo del modelo, solo la barra lo tiene
             sf.styles.border_left = None
             sf.styles.color = p.TEXT_SECONDARY
 
@@ -1731,9 +1738,16 @@ class KogniTermTUI(App):
             except Exception:
                 pass
 
-        # 10. Guardar configuración si existe
-        if hasattr(self, "config_manager"):
-            self.config_manager.set("theme", theme_name)
+        # 10. Persistir solo si el usuario eligió activamente el tema
+        if persist:
+            from kogniterm.terminal.config_manager import ConfigManager
+            cm = ConfigManager()
+            # Guardar en config global
+            cm.set_global_config("theme", theme_name)
+            # Si existe config local del proyecto, actualizarlo también para
+            # evitar que override silenciosamente la preferencia del usuario
+            if cm.PROJECT_CONFIG_FILE.exists():
+                cm.set_project_config("theme", theme_name)
         
         # 11. Forzar refresh
         self.refresh()

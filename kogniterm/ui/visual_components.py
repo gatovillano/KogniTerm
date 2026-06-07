@@ -6,6 +6,7 @@ consistentes y atractivos en la terminal usando Rich.
 """
 
 import re
+import textwrap
 from typing import Optional, List, Union
 from rich.console import Console, Group, RenderableType
 from rich.text import Text
@@ -507,8 +508,8 @@ def create_welcome_banner(
     Returns:
         Group: Grupo de renderables para el banner
     """
-    # Dividir el arte ASCII en líneas
-    lines = ascii_art.strip().split('\n')
+    # Dividir el arte ASCII en líneas, eliminando indentación común
+    lines = textwrap.dedent(ascii_art).strip().split('\n')
     
     banner_lines = []
     

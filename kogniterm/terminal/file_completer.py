@@ -279,14 +279,26 @@ class FileCompleter(Completer):
                 elif basename_query in base_name:
                     score = 100
                 elif basename_query in segment:
-                    score = 50
+                    score = 60
                 else:
-                    continue
+                    # Fuzzy matching: verificar si todos los caracteres de la query aparecen
+                    # consecutivamente en el segmento
+                    target = basename_query
+                    source = base_name
+                    match_idx = 0
+                    for ch in source:
+                        if match_idx < len(target) and ch == target[match_idx]:
+                            match_idx += 1
+                    if match_idx == len(target):
+                        score = 40
+                    else:
+                        continue
 
                 if is_dir:
                     score += 10
                 depth = display_item.count('/')
-                score -= depth
+                # Penalizar menos la profundidad para permitir archivos anidados
+                score -= min(depth, 3) * 2
 
                 ext = os.path.splitext(display_item)[1]
                 if is_dir:
@@ -309,7 +321,7 @@ class FileCompleter(Completer):
                 scored.append((-score, display_item, meta))
 
             scored.sort(key=lambda x: (x[0], x[1]))
-            results = scored[:30]
+            results = scored[:100]  # Aumentado de 30 a 100 resultados
             if len(results) == 1:
                 only = results[0][1]
                 if only == current_input_part or only.rstrip('/') == current_input_part.rstrip('/'):

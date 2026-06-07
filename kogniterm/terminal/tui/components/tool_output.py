@@ -3,17 +3,23 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.syntax import Syntax
 from rich.markdown import Markdown
+from rich.style import Style
 from kogniterm.terminal.themes import ColorPalette, Icons
 from typing import Optional
 import pyte
+import re
 from rich import box
+
+# Estilo vacío (sin formato) compartido para celdas en blanco — evita crear
+# miles de objetos Style por actualización.
+_EMPTY_STYLE = Style.null()
 
 class ToolOutputWidget(Static):
     """
     Widget to display tool output with:
     - Max height of 30 lines.
     - Internal scrolling.
-    - Smart formatting (Markdown vs Code).
+    - Smart formatting (Markdown vs Code vs Terminal).
     """
     
     DEFAULT_CSS = """
@@ -54,9 +60,12 @@ class ToolOutputWidget(Static):
         
         # Virtual terminal state
         self.ncol = 80
-        self.nrow = 1000  # Aumentado para mantener historial extenso
+        self.nrow = 1000  # Historial extenso para comandos con mucha salida
         self._screen = pyte.Screen(self.ncol, self.nrow)
         self._stream = pyte.Stream(self._screen)
+        
+        # Cursor blink state
+        self.cursor_visible = True
 
     def _update_title(self, command: str = None):
         """Actualiza el título del borde del widget."""
@@ -110,7 +119,7 @@ class ToolOutputWidget(Static):
                     pass
 
     def update_content(self, data, command: str = None):
-        """Actualiza el contenido alimentando el emulador PTY."""
+        """Actualiza el contenido alimentando el emulador PTY o mediante smart formatting."""
         if command:
             self._update_title(command)
             
@@ -125,47 +134,102 @@ class ToolOutputWidget(Static):
                 console.print(data)
             data = capture.get()
 
-        # Normalizar saltos de línea para asegurar retorno de carro en el emulador
-        if isinstance(data, str):
-            data = data.replace('\r\n', '\n').replace('\n', '\r\n')
-
         self.tool_content = data
-        
+
+        # --- Smart Formatting ---
+        # Si el texto tiene secuencias ANSI, siempre usar emulador PTY
+        if self._has_ansi(data):
+            renderable = self._render_pyte(data)
+        elif self._is_markdown(data):
+            renderable = Markdown(data)
+        else:
+            lang = self.language or self._detect_language(data)
+            if lang:
+                renderable = Syntax(
+                    data, lang,
+                    theme="monokai",
+                    line_numbers=False,
+                    word_wrap=True,
+                )
+            else:
+                renderable = self._render_pyte(data)
+
+        self.update(renderable)
+        self.scroll_end(animate=False)
+
+    # ─────────────────────────── Helpers ────────────────────────────────────
+
+    def _has_ansi(self, content: str) -> bool:
+        """Devuelve True si el contenido tiene secuencias de escape ANSI/terminal."""
+        return "\x1b" in content or "\r" in content
+
+    def _render_pyte(self, data: str) -> Text:
+        """Alimenta el buffer PTY con *data* y devuelve el renderizable Rich."""
+        # Normalizar saltos de línea para el emulador
+        data = data.replace('\r\n', '\n').replace('\n', '\r\n')
         try:
-            # Reseteamos para manejar el contenido acumulado completo que envía KogniTerm
             self._screen.reset()
             self._stream.feed(data)
         except Exception:
             pass
-            
-        renderable = self._render_tool_output()
-        self.update(renderable)
-        self.scroll_end(animate=False)
+        return self._render_tool_output()
 
-    def _render_tool_output(self):
-        from rich.style import Style
-        from rich.text import Text
+    def _render_tool_output(self) -> Text:
+        """
+        Convierte el buffer PTY actual a un objeto Rich Text.
+
+        Optimización clave: en lugar de iterar las 1 000 líneas del buffer
+        virtual, encontramos el índice de la última fila con contenido real
+        (usando el cursor como cota inferior) y sólo procesamos hasta ahí.
+        """
+        cursor_y = self._screen.cursor.y
+        cursor_x = self._screen.cursor.x
+        cursor_hidden = self._screen.cursor.hidden
+        buffer = self._screen.buffer
+        columns = self._screen.columns
         
+        # Calcular la última línea que debemos renderizar:
+        # buscamos desde cursor_y hacia arriba la última fila no vacía.
+        max_y = cursor_y
+        for y in range(self._screen.lines - 1, cursor_y, -1):
+            row = buffer[y]
+            if any(row[x].data != ' ' for x in range(columns)):
+                max_y = y
+                break
+
         lines = []
-        for y in range(self._screen.lines):
+        for y in range(max_y + 1):
             line_text = Text()
-            line = self._screen.buffer[y]
+            row = buffer[y]
             
-            current_style = None
+            current_style: Optional[Style] = None
             current_run = ""
-            for x in range(self._screen.columns):
-                char = line[x]
-                style = self._get_rich_style(char)
+            
+            for x in range(columns):
+                char = row[x]
                 
-                # Renderizar cursor si el cursor está en esta celda y no está oculto por el software
-                is_cursor = (self._screen.cursor.x == x and self._screen.cursor.y == y and not self._screen.cursor.hidden)
+                # Estilo rápido: celdas por defecto (la gran mayoría)
+                is_default_char = (
+                    char.fg == 'default' and
+                    char.bg == 'default' and
+                    not char.bold and
+                    not char.italics and
+                    not char.underscore and
+                    not char.reverse and
+                    not char.blink
+                )
+                
+                if is_default_char:
+                    style = _EMPTY_STYLE
+                else:
+                    style = self._get_rich_style(char)
+                
+                # Renderizar cursor
+                is_cursor = (x == cursor_x and y == cursor_y and not cursor_hidden)
                 if is_cursor:
-                    if self.has_focus:
-                        if self.cursor_visible:
-                            # Combinar estilo existente con reversión
-                            style = style + Style(reverse=True)
-                    else:
-                        # Cursor no enfocado: mostrar un sutil subrayado atenuado
+                    if self.has_focus and self.cursor_visible:
+                        style = style + Style(reverse=True)
+                    elif not self.has_focus:
                         style = style + Style(underline=True, dim=True)
                 
                 if current_style is None:
@@ -182,34 +246,31 @@ class ToolOutputWidget(Static):
                 line_text.append(current_run, style=current_style)
             
             lines.append(line_text)
-            
-        # Eliminar líneas vacías al final, pero NUNCA por encima de la posición actual del cursor
-        min_lines = self._screen.cursor.y + 1
+        
+        # Eliminar líneas vacías al final, respetando la posición del cursor
+        min_lines = cursor_y + 1
         while len(lines) > min_lines and not str(lines[-1]).strip():
             lines.pop()
             
         if not lines:
             lines = [Text("")]
         
-        display_content = Text("\n").join(lines)
-        
-        return display_content
+        return Text("\n").join(lines)
 
-    def _get_rich_style(self, char):
-        from rich.style import Style
+    def _get_rich_style(self, char) -> Style:
+        """Convierte los atributos de un carácter pyte a un Rich Style."""
         fg = char.fg if char.fg != 'default' else None
         bg = char.bg if char.bg != 'default' else None
+        # pyte usa 'brown' por compatibilidad histórica; Rich lo llama 'yellow'
         if fg == 'brown': fg = 'yellow'
         if bg == 'brown': bg = 'yellow'
         
-        # Atributos extendidos de pyte / ANSI para una emulación 100% fiel
-        bold = getattr(char, 'bold', False)
-        italic = getattr(char, 'italics', False)
-        underline = getattr(char, 'underscore', False)
-        reverse = getattr(char, 'reverse', False)
-        blink = getattr(char, 'blink', False)
-        dim = getattr(char, 'dim', False)
-        
+        bold = char.bold
+        italic = char.italics
+        underline = char.underscore
+        reverse = char.reverse
+        blink = char.blink
+
         # Intercambiar foreground y background si reverse está activo
         if reverse:
             fg, bg = bg, fg
@@ -222,23 +283,23 @@ class ToolOutputWidget(Static):
             bold=bold, 
             italic=italic, 
             underline=underline,
-            blink=blink,
-            dim=dim
+            blink=blink
         )
 
     def _is_markdown(self, content: str) -> bool:
-        if not content: return False
-        # Heuristic: headers, lists, code blocks, links
+        """Heurística para detectar contenido Markdown."""
+        if not content:
+            return False
         markers = [r"^# ", r"^## ", r"^### ", r"^\* ", r"^- ", r"^\d\. ", r"\[.*\]\(.*\)", r"```"]
-        import re
         for m in markers:
             if re.search(m, content, re.MULTILINE):
                 return True
         return False
 
-    def _detect_language(self, content: str) -> str:
-        if not content: return None
-        # Basic heuristics
+    def _detect_language(self, content: str) -> Optional[str]:
+        """Heurística para detectar el lenguaje de programación del contenido."""
+        if not content:
+            return None
         if "import " in content and ("def " in content or "class " in content):
             return "python"
         if "<?php" in content:
@@ -251,12 +312,14 @@ class ToolOutputWidget(Static):
             return "csharp"
         if "#include " in content:
             return "cpp"
-        # Check for JSON
-        if content.startswith("{") and content.endswith("}"):
+        # JSON
+        stripped = content.strip()
+        if (stripped.startswith("{") and stripped.endswith("}")) or \
+           (stripped.startswith("[") and stripped.endswith("]")):
             try:
                 import json
-                json.loads(content)
+                json.loads(stripped)
                 return "json"
-            except:
+            except Exception:
                 pass
         return None
