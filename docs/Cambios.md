@@ -194,3 +194,15 @@ git tag --sort=-version:refname
 - **Nuevo Script de Instalación**: Se creó un script `install.sh` desde cero para facilitar la instalación en un entorno virtual aislado (`venv`), crear los accesos directos o alias globales (`kogniterm` y `kogniterm-server` en `~/.local/bin`) y guiar al usuario a través del asistente interactivo de configuración (proveedor, modelo, API keys persistidos en el JSON de usuario y el setup del bot de Telegram para el servidor). Además, se añadió la redirección de entrada estándar (`exec < /dev/tty`) haciendo que el script sea compatible con comandos de instalación directa desde la web (ej: `bash -c "$(curl ...)"`).
 - **Restauración de kogniterm-server**: Se reincorporó el comando `kogniterm-server = "kogniterm.server.__main__:main"` al listado de scripts en `pyproject.toml` para que sea compilado durante la instalación de pip y se expuso globalmente con su respectivo script lanzador (wrapper), habilitando la funcionalidad del servidor y el Bot de Telegram de forma global.
 - **Actualización de Documentación**: Se actualizó el archivo `README.md` estableciendo el script de instalación `bash -c "$(curl ...)"` como el método de instalación oficial y recomendado para los usuarios, manteniendo las opciones tradicionales de PyPI como alternativas.
+
+---
+
+## [0.6.6] - 2026-06-07
+
+### 🐛 Correcciones — Descubrimiento de Skills y Conflictos de Rutas
+
+- **Fix crítico (carga de skills en instalación global)**: Se corrigió un bug por el cual no se cargaban las skills (cargándose 0 herramientas) cuando KogniTerm era instalado en una ruta global que contuviera carpetas ocultas o de soporte (como `~/.kogniterm/repo`).
+  - **Causa**: `SkillManager` filtraba directorios ocultos haciendo `any(part.startswith('.') or part.startswith('_') for part in skill_dir.parts)`. Al usar `parts` sobre la ruta absoluta, si el directorio base de la aplicación comenzaba con un punto (ej. `.kogniterm`), todas las skills se descartaban silenciosamente.
+  - **Solución**: Se modificó la validación para verificar el nombre de los directorios relativos al directorio de búsqueda (`base_dir` o `clone_dir` en el adaptador de skills), garantizando que las carpetas superiores no afecten al filtro.
+- **Limpieza de procesos y conflictos**: Se identificaron y eliminaron procesos obsoletos colgados en segundo plano procedentes de instalaciones anteriores que mantenían en memoria la versión antigua del software.
+

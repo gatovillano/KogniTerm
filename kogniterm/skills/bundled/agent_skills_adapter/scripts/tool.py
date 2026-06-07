@@ -311,7 +311,11 @@ def install_skill_pack_from_repo(repo_url: str, skill_name: Optional[str] = None
             installed = []
             for skill_file in clone_dir.rglob("SKILL.md"):
                 skill_dir = skill_file.parent
-                if any(part.startswith(".") or part.startswith("_") for part in skill_dir.parts):
+                try:
+                    relative_parts = skill_dir.relative_to(clone_dir).parts
+                except ValueError:
+                    relative_parts = skill_dir.parts
+                if any(part.startswith(".") or part.startswith("_") for part in relative_parts):
                     continue
                 if skill_dir.name in {"scripts", "references", "assets", "resources"}:
                     continue
