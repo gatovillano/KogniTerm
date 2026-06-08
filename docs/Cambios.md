@@ -254,3 +254,33 @@ git tag --sort=-version:refname
     1. Se modificó [provider_config.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm/provider_config.py) para que exporte explícitamente `GEMINI_API_KEY` en `os.environ` cuando el proveedor detectado es Gemini, e inyecte `custom_llm_provider = "gemini"` en los parámetros de completion para forzar la API nativa de Google AI Studio.
     2. Se actualizó [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) en su constructor y en el método `set_model` para exportar de manera consistente `os.environ["GEMINI_API_KEY"]` al inicializar o cambiar el modelo a Gemini, y se añadió el parámetro `custom_llm_provider = "gemini"` en la preparación de parámetros de completion.
     3. Se modificó [multi_provider_manager.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/multi_provider_manager.py) para inyectar `custom_llm_provider = "gemini"` en las llamadas realizadas por el gestor de múltiples proveedores si el modelo es Gemini (evitando el fallback incorrecto a Vertex AI).
+
+---
+
+## [0.6.10] - 2026-06-08
+
+### 💬 Interacción con el Usuario
+
+- **Saludo**: Se respondió al saludo del usuario con el mensaje "Hola Mundo" según lo solicitado.
+
+---
+
+## [0.6.11] - 2026-06-08
+
+### 🚀 Nuevas Características — Integración de Google Antigravity Session Auth
+- **Cliente Antigravity (`AntigravityClient`)**:
+  - Implementación completa de `run_login_flow()` para autenticación interactiva mediante OAuth2 (Consent Screen de Google) usando un servidor HTTP local callback en el puerto `36742`.
+  - Persistencia segura del token de sesión en `~/.gemini/antigravity-cli/antigravity-oauth-token`, compatible con la CLI `agy`.
+  - Renovación y obtención automática del token de acceso (refresh token flow) con endpoints de Google OAuth2.
+  - Resolución dinámica de `Project ID` a través de `v1internal:loadCodeAssist`.
+  - Soporte de invocación para modelos `antigravity/` (con streaming compatible SSE y retorno estructurado de tool calls).
+- **Integración TUI y Meta-Comandos**:
+  - Registro del nuevo meta-comando `/agy-login` en la terminal para iniciar, renovar o cerrar la sesión de Antigravity.
+  - Inclusión del proveedor `Antigravity` en la selección de proveedores de la TUI (`/provider`), con aviso interactivo y redirección al inicio de sesión si no existe una sesión activa.
+  - Soporte para listar dinámicamente modelos específicos de Antigravity (e.g. `gemini-3-flash`, `gemini-3-pro`, `gemini-2.5-flash`, `gemini-2.5-pro`) bajo el comando `/models` cuando el proveedor activo es `antigravity`.
+  - Integración completa de `/agy-login` y `%agy-login` en el sistema de autocompletado y sugerencias del prompt en la terminal (`tui_app.py` y `file_completer.py`).
+- **Enrutamiento en `MultiProviderManager` y `LLMService`**:
+  - Enrutamiento dinámico y directo al cliente `AntigravityClient` en `MultiProviderManager.execute()` cuando se selecciona el proveedor `antigravity`, evitando la dependencia de LiteLLM para tokens dinámicos.
+  - Inicialización sin API Key local requerida en `LLMService` cuando el modelo tiene el prefijo `antigravity/`.
+- **Pruebas de Integración y Regresión**:
+  - Creación de un suite de pruebas completo en `tests/test_antigravity_integration.py` que valida el inicio de sesión, el refresco de tokens, la obtención del Project ID, y la respuesta/streaming del modelo.

@@ -1251,9 +1251,9 @@ class KogniTermTUI(App):
             matches = []
             if trigger in ("%", "/"):
                 if trigger == "%":
-                    commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
+                    commands = ["%help", "%models", "%provider", "%agy-login", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
                 else:
-                    commands = ["/help", "/models", "/provider", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
+                    commands = ["/help", "/models", "/provider", "/agy-login", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
@@ -1340,9 +1340,9 @@ class KogniTermTUI(App):
             matches = []
             if trigger in ("%", "/"):
                 if trigger == "%":
-                    commands = ["%help", "%models", "%provider", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
+                    commands = ["%help", "%models", "%provider", "%agy-login", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
                 else:
-                    commands = ["/help", "/models", "/provider", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
+                    commands = ["/help", "/models", "/provider", "/agy-login", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
