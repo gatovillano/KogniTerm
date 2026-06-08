@@ -292,10 +292,13 @@ git tag --sort=-version:refname
 ## [0.6.12] - 2026-06-08
 
 ### 🐛 Corrección — Tool calls multi-turno en Antigravity (400 Bad Request)
-- **Causa raíz**: El endpoint `v1internal:streamGenerateContent` de Antigravity requiere que cada `functionCall` part en el historial incluya un campo `thoughtSignature` real (obtenido de la respuesta anterior del modelo). Sin él, el segundo turno devuelve `400 INVALID_ARGUMENT`.
-- **Solución**:
-  - El parser de streaming ahora extrae `thoughtSignature` de cada part de `functionCall` recibido del modelo y lo almacena en el `SimpleNamespace` del tool call.
-  - `map_messages` ahora recupera `thought_signature` (tanto de dicts como de `SimpleNamespace`) y lo inyecta en el `functionCall` part al reconstruir el historial del siguiente turno.
-  - El path no-streaming también preserva `thought_signature` en los dicts de tool call.
-  - `args` en `functionCall` se garantiza que siempre sea un dict (nunca un string JSON), evitando el segundo error `INVALID_ARGUMENT`.
+- **Causa raíz real**: El campo `thought_signature` que incluye el API en cada `functionCall` part debe preservarse a lo largo de toda la cadena de serialización para que esté disponible en el segundo turno. El problema no era solo en `antigravity_client.py` sino en `llm_service.py`, que descartaba el campo durante la acumulación del streaming y al crear el `AIMessage`.
+- **Solución (cadena completa)**:
+  1. `AntigravityClient` (streaming): extrae `thoughtSignature` de cada part y lo adjunta al `SimpleNamespace` del tool call.
+  2. `llm_service.py` (acumulación): captura `thought_signature` del `SimpleNamespace` y lo guarda en el dict de acumulación.
+  3. `llm_service.py` (final_tool_calls): propaga `thought_signature` al dict de `final_tool_calls`.
+  4. `llm_service.py` (_message_to_litellm_format): incluye `thought_signature` en el dict serializado del tool call del `AIMessage`.
+  5. `AntigravityClient.map_messages()`: re-inyecta `thoughtSignature` en el `functionCall` part al reconstruir el historial del turno siguiente.
+- **Sin impacto en otros proveedores**: el campo solo aparece cuando fue generado por Antigravity; todos los checks son condicionales.
+
 
