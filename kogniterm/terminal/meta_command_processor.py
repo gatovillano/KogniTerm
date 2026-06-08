@@ -993,14 +993,9 @@ Example: /autosave restore autosave_20250515_141530
                         ("openrouter/openai/gpt-4o", "GPT-4o"),
                     ]
             elif current_provider == "antigravity":
-                target_list = [
-                    ("antigravity/gemini-3-flash", "🤖 Gemini 3 Flash (Antigravity - Fast & Efficient)"),
-                    ("antigravity/gemini-3-pro", "🧠 Gemini 3 Pro (Antigravity - High Intelligence)"),
-                    ("antigravity/gemini-2.5-flash", "⚡ Gemini 2.5 Flash (Antigravity - Responsive)"),
-                    ("antigravity/gemini-2.5-pro", "🔮 Gemini 2.5 Pro (Antigravity - Advanced Reasoning)"),
-                    ("antigravity/gemini-1.5-pro", "🏛️ Gemini 1.5 Pro (Antigravity - Large Context)"),
-                    ("antigravity/gemini-1.5-flash", "💨 Gemini 1.5 Flash (Antigravity - Balanced)"),
-                ]
+                from kogniterm.core.antigravity_client import AntigravityClient
+                self.terminal_ui.print_message("⏳ Cargando lista de modelos desde Google Antigravity...", style="dim")
+                target_list = AntigravityClient.fetch_available_models()
             elif current_provider == "google":
                 target_list = await _fetch_google_models()
                 if not target_list:

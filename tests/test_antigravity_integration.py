@@ -149,3 +149,45 @@ def test_multi_provider_manager_routing(mock_completion):
         assert len(chunks) == 1
         assert chunks[0].choices[0].delta.content == "Chunk"
         mock_completion.assert_called_once()
+
+
+@patch("kogniterm.core.antigravity_client.requests.post")
+def test_antigravity_fetch_available_models_success(mock_post):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "models": [
+            {"modelId": "gemini-3-pro", "displayName": "Gemini 3 Pro"},
+            {"modelId": "gemini-3-flash", "displayName": "Gemini 3 Flash"}
+        ]
+    }
+    mock_post.return_value = mock_response
+
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         
+        models = AntigravityClient.fetch_available_models()
+        
+        # Sorted by display name
+        assert len(models) == 2
+        assert models[0][0] == "antigravity/gemini-3-flash"
+        assert models[0][1] == "🛸 Gemini 3 Flash (gemini-3-flash)"
+        assert models[1][0] == "antigravity/gemini-3-pro"
+        assert models[1][1] == "🛸 Gemini 3 Pro (gemini-3-pro)"
+
+
+@patch("kogniterm.core.antigravity_client.requests.post")
+def test_antigravity_fetch_available_models_fallback(mock_post):
+    # Simulate API failure
+    mock_post.side_effect = Exception("API error")
+
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         
+        models = AntigravityClient.fetch_available_models()
+        
+        # Verify fallback list is returned
+        assert len(models) > 0
+        assert any(m[0] == "antigravity/gemini-3-flash" for m in models)
+        assert any(m[0] == "antigravity/gemini-2.5-pro" for m in models)
+

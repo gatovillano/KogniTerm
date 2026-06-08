@@ -273,14 +273,15 @@ git tag --sort=-version:refname
   - Persistencia segura del token de sesión en `~/.gemini/antigravity-cli/antigravity-oauth-token`, compatible con la CLI `agy`.
   - Renovación y obtención automática del token de acceso (refresh token flow) con endpoints de Google OAuth2.
   - Resolución dinámica de `Project ID` a través de `v1internal:loadCodeAssist`.
+  - Método dinámico `fetch_available_models()` que consulta `v1internal:fetchAvailableModels` para obtener la lista real de modelos disponibles del proyecto en Google Cloud, con fallback integrado a modelos por defecto.
   - Soporte de invocación para modelos `antigravity/` (con streaming compatible SSE y retorno estructurado de tool calls).
 - **Integración TUI y Meta-Comandos**:
   - Registro del nuevo meta-comando `/agy-login` en la terminal para iniciar, renovar o cerrar la sesión de Antigravity.
   - Inclusión del proveedor `Antigravity` en la selección de proveedores de la TUI (`/provider`), con aviso interactivo y redirección al inicio de sesión si no existe una sesión activa.
-  - Soporte para listar dinámicamente modelos específicos de Antigravity (e.g. `gemini-3-flash`, `gemini-3-pro`, `gemini-2.5-flash`, `gemini-2.5-pro`) bajo el comando `/models` cuando el proveedor activo es `antigravity`.
+  - Soporte para listar dinámicamente los modelos de Antigravity mediante llamada a la API real bajo el comando `/models` cuando el proveedor activo es `antigravity`.
   - Integración completa de `/agy-login` y `%agy-login` en el sistema de autocompletado y sugerencias del prompt en la terminal (`tui_app.py` y `file_completer.py`).
 - **Enrutamiento en `MultiProviderManager` y `LLMService`**:
   - Enrutamiento dinámico y directo al cliente `AntigravityClient` en `MultiProviderManager.execute()` cuando se selecciona el proveedor `antigravity`, evitando la dependencia de LiteLLM para tokens dinámicos.
   - Inicialización sin API Key local requerida en `LLMService` cuando el modelo tiene el prefijo `antigravity/`.
 - **Pruebas de Integración y Regresión**:
-  - Creación de un suite de pruebas completo en `tests/test_antigravity_integration.py` que valida el inicio de sesión, el refresco de tokens, la obtención del Project ID, y la respuesta/streaming del modelo.
+  - Creación de un suite de pruebas completo en `tests/test_antigravity_integration.py` que valida el inicio de sesión, el refresco de tokens, la obtención del Project ID, la respuesta/streaming del modelo, y la obtención exitosa/fallback de los modelos disponibles.
