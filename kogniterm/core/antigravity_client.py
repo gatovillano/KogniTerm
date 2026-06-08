@@ -370,6 +370,70 @@ class AntigravityClient:
             }
             return SimpleNamespace(**response_obj)
 
+    @classmethod
+    def fetch_available_models(cls) -> List[tuple]:
+        """
+        Consulta la API de Cloud Code para obtener la lista de modelos disponibles para el proyecto.
+        Retorna una lista de tuplas (model_id, label) adecuada para prompt_toolkit/TUI.
+        """
+        fallback_models = [
+            ("antigravity/gemini-3-flash", "🤖 Gemini 3 Flash (Antigravity - Fast & Efficient)"),
+            ("antigravity/gemini-3-pro", "🧠 Gemini 3 Pro (Antigravity - High Intelligence)"),
+            ("antigravity/gemini-2.5-flash", "⚡ Gemini 2.5 Flash (Antigravity - Responsive)"),
+            ("antigravity/gemini-2.5-pro", "🔮 Gemini 2.5 Pro (Antigravity - Advanced Reasoning)"),
+            ("antigravity/gemini-1.5-pro", "🏛️ Gemini 1.5 Pro (Antigravity - Large Context)"),
+            ("antigravity/gemini-1.5-flash", "💨 Gemini 1.5 Flash (Antigravity - Balanced)"),
+        ]
+        try:
+            token = cls.get_token()
+            project_id = cls.get_project_id()
+        except Exception as e:
+            logger.warning(f"No se pudieron resolver credenciales de Antigravity para listar modelos: {e}")
+            return fallback_models
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/2.0.0 linux/amd64",
+            "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
+            "Client-Metadata": '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}'
+        }
+        body = {
+            "project": project_id
+        }
+        url = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+        
+        try:
+            resp = requests.post(url, headers=headers, json=body, timeout=12)
+            resp.raise_for_status()
+            data = resp.json()
+            models_list = data.get("models", [])
+            
+            models = []
+            for m in models_list:
+                model_id = m.get("modelId")
+                if not model_id:
+                    continue
+                # Asegurar prefijo antigravity/
+                if not model_id.startswith("antigravity/"):
+                    full_id = f"antigravity/{model_id}"
+                else:
+                    full_id = model_id
+                
+                # Nombre descriptivo
+                display_name = m.get("displayName", model_id.split("/")[-1])
+                label = f"🛸 {display_name} ({model_id})"
+                models.append((full_id, label))
+                
+            if models:
+                # Ordenar alfabéticamente
+                models.sort(key=lambda x: x[1])
+                return models
+        except Exception as e:
+            logger.error(f"Error al llamar a fetchAvailableModels: {e}")
+            
+        return fallback_models
+
 
 def run_login_flow(on_status_update=None) -> bool:
     """
