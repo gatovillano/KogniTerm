@@ -625,14 +625,17 @@ class LLMService:
                     tc_name = tc.get("name", "")
                     tc_args = tc.get("args", {})
                     # Asegurarse de que los argumentos sean siempre una cadena JSON válida.
-                    # LiteLLM espera un string para poder convertirlo correctamente entre proveedores (ej. OpenAI -> Gemini).
                     arguments_json = json.dumps(tc_args) if tc_args else "{}"
                     
-                    serialized_tool_calls.append({
+                    serialized_tc = {
                         "id": tc_id,
                         "type": "function",
                         "function": {"name": tc_name, "arguments": arguments_json},
-                    })
+                    }
+                    # Propagar thought_signature para Antigravity
+                    if tc.get("thought_signature"):
+                        serialized_tc["thought_signature"] = tc["thought_signature"]
+                    serialized_tool_calls.append(serialized_tc)
                 
                 if not content or not str(content).strip():
                     msg["content"] = "Ejecutando herramientas..."
@@ -1371,6 +1374,10 @@ class LLMService:
                         elif not tool_calls[idx]["id"]:
                             tool_calls[idx]["id"] = self._generate_short_id()
                         
+                        # Capturar thought_signature (requerido por Antigravity para el segundo turno)
+                        if getattr(tc, 'thought_signature', None):
+                            tool_calls[idx]["thought_signature"] = tc.thought_signature
+                        
                         # Actualizar el nombre de la función
                         if getattr(tc, 'function', None) is not None:
                             if getattr(tc.function, 'name', None) is not None and tc.function.name:
@@ -1491,11 +1498,15 @@ class LLMService:
                         except json.JSONDecodeError:
                             args = {}
                         
-                        final_tool_calls.append({
+                        tc_final = {
                             "id": tc["id"],
                             "name": tc["function"]["name"],
                             "args": args
-                        })
+                        }
+                        # Propagar thought_signature (Antigravity lo requiere en el segundo turno)
+                        if tc.get("thought_signature"):
+                            tc_final["thought_signature"] = tc["thought_signature"]
+                        final_tool_calls.append(tc_final)
                 
                 # 2. Complementar con parseo de texto (siempre, para máxima robustez)
                 # Combinar contenido de respuesta y razonamiento para el parser, así no importa dónde lo escriba el modelo
