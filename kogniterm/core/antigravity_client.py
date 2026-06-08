@@ -149,18 +149,27 @@ class AntigravityClient:
                     for tc in tool_calls:
                         fn = tc.get("function", {})
                         args_str = fn.get("arguments", "{}")
-                        try:
-                            args = json.loads(args_str)
-                        except Exception:
-                            args = {}
-                        parts.append({
+                        # args must be a dict, never a JSON string
+                        if isinstance(args_str, dict):
+                            args = args_str
+                        else:
+                            try:
+                                args = json.loads(args_str)
+                            except Exception:
+                                args = {}
+                        # Recover thought_signature if stored on the tool call object
+                        thought_sig = getattr(tc, "thought_signature", None) or (
+                            tc.get("thought_signature") if isinstance(tc, dict) else None
+                        )
+                        fc_part = {
                             "functionCall": {
-                                "name": fn.get("name"),
+                                "name": fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None),
                                 "args": args,
-                                "id": tc.get("id") or f"call_{uuid.uuid4().hex[:8]}"
-                            },
-                            "thoughtSignature": "skip_thought_signature_validator"
-                        })
+                            }
+                        }
+                        if thought_sig:
+                            fc_part["thoughtSignature"] = thought_sig
+                        parts.append(fc_part)
                 else:
                     parts.append({"text": content})
                 contents.append({
@@ -303,15 +312,20 @@ class AntigravityClient:
                                         text += part["text"]
                                     if "functionCall" in part:
                                         fc = part["functionCall"]
-                                        tool_calls.append(SimpleNamespace(
+                                        # Extract thought_signature from the part (required for tool round-trips)
+                                        thought_sig = part.get("thoughtSignature")
+                                        tc_ns = SimpleNamespace(
                                             index=len(tool_calls),
                                             id=fc.get("id") or f"call_{uuid.uuid4().hex[:8]}",
                                             type="function",
                                             function=SimpleNamespace(
                                                 name=fc.get("name"),
-                                                arguments=json.dumps(fc.get("args"))
+                                                arguments=json.dumps(fc.get("args") or {})
                                             )
-                                        ))
+                                        )
+                                        if thought_sig:
+                                            tc_ns.thought_signature = thought_sig
+                                        tool_calls.append(tc_ns)
                                 
                                 delta = SimpleNamespace()
                                 if text:
@@ -345,14 +359,19 @@ class AntigravityClient:
                     text += part["text"]
                 if "functionCall" in part:
                     fc = part["functionCall"]
-                    tool_calls.append({
+                    tc_dict = {
                         "id": fc.get("id") or f"call_{uuid.uuid4().hex[:8]}",
                         "type": "function",
                         "function": {
                             "name": fc.get("name"),
-                            "arguments": json.dumps(fc.get("args"))
+                            "arguments": json.dumps(fc.get("args") or {})
                         }
-                    })
+                    }
+                    # Preserve thought_signature for next round-trip
+                    thought_sig = part.get("thoughtSignature")
+                    if thought_sig:
+                        tc_dict["thought_signature"] = thought_sig
+                    tool_calls.append(tc_dict)
 
             choice = {
                 "message": {
