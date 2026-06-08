@@ -47,25 +47,28 @@ class ChannelAdapter:
         # Procesar eventos en background mientras el agente trabaja
         process_task = asyncio.create_task(self._process_events(session))
         await session.send(message, pool._executor)
-        # Esperar un poco para que los últimos eventos se procesen
-        await asyncio.sleep(0.2)
-        process_task.cancel()
+        # Esperar a que se terminen de procesar todos los eventos de la cola de respuesta
         try:
-            await process_task
-        except asyncio.CancelledError:
-            pass
+            await asyncio.wait_for(process_task, timeout=10.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"[{self.__class__.__name__}] Timeout esperando eventos finales de la sesión {self.session_id}")
+            process_task.cancel()
+            try:
+                await process_task
+            except asyncio.CancelledError:
+                pass
 
     async def _process_events(self, session: AgentSession) -> None:
         """Lee la cola de eventos y los despacha al canal."""
         async for event in session.ui.events():
             try:
-                await self.send_to_channel(event)
+                await self.send_to_channel(event, session.session_id)
             except Exception as exc:
-                logger.warning(f"[{self.__class__.__name__}] Error enviando evento: {exc}")
+                logger.exception(f"[{self.__class__.__name__}] Error crítico enviando evento al canal: {exc}")
             if event["type"] in ("done", "error"):
                 break
 
-    async def send_to_channel(self, event: dict) -> None:
+    async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         """
         Implementar en subclases: enviar el evento al canal externo.
         `event` tiene la forma: {"type": str, "data": Any, "ts": str}
@@ -84,7 +87,7 @@ class CLIAdapter(ChannelAdapter):
 
     PRINTABLE_TYPES = {"stream", "message", "tool_start", "tool_output", "done", "error"}
 
-    async def send_to_channel(self, event: dict) -> None:
+    async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         t = event["type"]
         d = event["data"]
 
@@ -92,10 +95,12 @@ class CLIAdapter(ChannelAdapter):
             print(d, end="", flush=True)
         elif t == "message":
             print(f"\n[Agente] {d.get('text', '')}")
-        elif t == "tool_start":
-            print(f"\n⚙️  [{d.get('tool')}] {d.get('description', '')}")
-        elif t == "tool_output":
-            print(f"\n📤 {d.get('output', '')}")
+        elif t in ("tool_start", "tool_call"):
+            tool_name = d.get('tool') or d.get('name') or 'herramienta'
+            print(f"\n⚙️  [{tool_name}] {d.get('description', '')}")
+        elif t in ("tool_output", "tool_result"):
+            output_content = d.get('output') or d.get('content') or ''
+            print(f"\n📤 {output_content}")
         elif t == "done":
             print("\n✅ Completado.")
         elif t == "error":
@@ -140,7 +145,7 @@ class WebhookAdapter(ChannelAdapter):
         self.webhook_url = webhook_url
         self.filter_types = filter_types or ["stream", "done", "error", "tool_start"]
 
-    async def send_to_channel(self, event: dict) -> None:
+    async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         if event["type"] not in self.filter_types:
             return
 
@@ -178,7 +183,7 @@ class SlackAdapter(ChannelAdapter):
         self.channel = channel
         self._buffer: list[str] = []  # Acumular chunks de texto
 
-    async def send_to_channel(self, event: dict) -> None:
+    async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         t = event["type"]
         d = event["data"]
 
@@ -197,11 +202,12 @@ class SlackAdapter(ChannelAdapter):
                 await self.slack_app.client.chat_postMessage(
                     channel=self.channel, text=f"❌ Error: {d.get('message', d)}"
                 )
-        elif t == "tool_start":
+        elif t in ("tool_start", "tool_call"):
+            tool_name = d.get('tool') or d.get('name') or 'herramienta'
             if self.slack_app:
                 await self.slack_app.client.chat_postMessage(
                     channel=self.channel,
-                    text=f"⚙️ Ejecutando herramienta: `{d.get('tool')}`"
+                    text=f"⚙️ Ejecutando herramienta: `{tool_name}`"
                 )
 
 
@@ -240,9 +246,9 @@ class TelegramAdapter(ChannelAdapter):
         self.token = token
         self.app = None
         self._current_chat_id: Optional[int] = None
-        self._draft_id: Optional[int] = None
-        self._stream_text: str = ""
         self._chat_sessions: Dict[int, str] = {}  # chat_id -> session_id
+        self._stream_texts: Dict[int, str] = {}   # chat_id -> texto acumulado del stream
+        self._draft_ids: Dict[int, int] = {}      # chat_id -> draft_id
 
     async def start(self):
         """Inicia el bot de Telegram en modo non-blocking."""
@@ -291,65 +297,111 @@ class TelegramAdapter(ChannelAdapter):
         # Enviar al agente
         await self.send_message(user_text)
 
-    async def send_to_channel(self, event: dict) -> None:
+    async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         import logging
-        logging.getLogger("kogniterm.server.channel_adapters").info(
-            f"Evento recibido en send_to_channel: {event}"
+        logger = logging.getLogger("kogniterm.server.channel_adapters")
+        logger.info(
+            f"[TelegramAdapter] Evento recibido en send_to_channel: {event} (session_id={session_id})"
         )
-        if not self._current_chat_id or not self.app:
+        
+        # Determinar el chat_id a partir del session_id si es posible
+        chat_id = None
+        if session_id and session_id.startswith("telegram_"):
+            try:
+                chat_id = int(session_id.split("_")[1])
+            except (IndexError, ValueError):
+                pass
+        
+        if not chat_id:
+            chat_id = self._current_chat_id
+
+        if not chat_id:
+            logger.warning("[TelegramAdapter] No se pudo enviar el evento porque no se determinó el chat_id.")
+            return
+        if not self.app:
+            logger.warning("[TelegramAdapter] No se pudo enviar el evento porque self.app es None.")
             return
 
         t = event["type"]
         d = event["data"]
 
+        # Inicializar estructuras para este chat_id si no existen
+        if chat_id not in self._stream_texts:
+            self._stream_texts[chat_id] = ""
+        if chat_id not in self._draft_ids:
+            self._draft_ids[chat_id] = None
+
         # Separar stream y live_update
         if t == "stream":
-            if self._draft_id is None:
+            if self._draft_ids[chat_id] is None:
                 import random
-                self._draft_id = random.randint(1_000_000, 9_999_999)
-                self._stream_text = ""
+                self._draft_ids[chat_id] = random.randint(1_000_000, 9_999_999)
+                self._stream_texts[chat_id] = ""
+            
             # Acumular chunks sin limpiar para no perder espacios
-            self._stream_text += d
+            self._stream_texts[chat_id] += d
+            
+            # Enviar el borrador en streaming a Telegram
+            await self._send_message_draft(chat_id, self._draft_ids[chat_id], self._stream_texts[chat_id])
+            
         elif t == "live_update":
             # Ignorar live_update para Telegram (evita duplicar "Pensando...")
             pass
         elif t == "done":
-            if self._stream_text:
-                final_text = self._clean_text_for_telegram(self._stream_text)
+            logger.info(f"[TelegramAdapter] Evento 'done' recibido para chat_id {chat_id}. Longitud de stream acumulado: {len(self._stream_texts[chat_id])}")
+            if self._stream_texts[chat_id]:
+                final_text = self._clean_text_for_telegram(self._stream_texts[chat_id])
                 if final_text:
-                    await self.app.bot.send_message(chat_id=self._current_chat_id, text=final_text)
-            self._draft_id = None
-            self._stream_text = ""
+                    logger.info(f"[TelegramAdapter] Enviando texto final a Telegram (chat_id={chat_id}): {final_text[:50]}...")
+                    await self.app.bot.send_message(chat_id=chat_id, text=final_text)
+                else:
+                    logger.info(f"[TelegramAdapter] final_text quedó vacío después de limpiar para chat_id {chat_id}.")
+            else:
+                logger.info(f"[TelegramAdapter] No hay texto de stream acumulado para enviar al chat_id {chat_id}.")
+            self._draft_ids[chat_id] = None
+            self._stream_texts[chat_id] = ""
         elif t == "error":
-            self._draft_id = None
-            self._stream_text = ""
-            await self.app.bot.send_message(chat_id=self._current_chat_id, text=f"❌ Error: {self._clean_text_for_telegram(d)}")
-        elif t == "tool_start":
+            self._draft_ids[chat_id] = None
+            self._stream_texts[chat_id] = ""
+            err_msg = d.get('message', d) if isinstance(d, dict) else d
+            cleaned_err = self._clean_text_for_telegram(err_msg)
+            if cleaned_err:
+                logger.info(f"[TelegramAdapter] Enviando mensaje de error a Telegram (chat_id={chat_id}): {cleaned_err[:50]}...")
+                await self.app.bot.send_message(chat_id=chat_id, text=f"❌ Error: {cleaned_err}")
+        elif t in ("tool_start", "tool_call"):
+            tool_name = d.get('tool') or d.get('name') or 'herramienta'
+            logger.info(f"[TelegramAdapter] Enviando inicio de herramienta a Telegram (chat_id={chat_id}): {tool_name}")
             await self.app.bot.send_message(
-                chat_id=self._current_chat_id, 
-                text=f"⚙️ `{d.get('tool')}`..."
+                chat_id=chat_id, 
+                text=f"⚙️ `{tool_name}`..."
             )
         elif t == "message":
             # Limpiar el mensaje antes de enviarlo
-            await self.app.bot.send_message(chat_id=self._current_chat_id, text=self._clean_text_for_telegram(d))
+            msg_text = d.get('text', d) if isinstance(d, dict) else d
+            cleaned = self._clean_text_for_telegram(msg_text)
+            if cleaned:
+                logger.info(f"[TelegramAdapter] Enviando mensaje de texto a Telegram (chat_id={chat_id}): {cleaned[:50]}...")
+                await self.app.bot.send_message(chat_id=chat_id, text=cleaned)
 
     async def _send_message_draft(self, chat_id: int, draft_id: int, text: str) -> None:
         """
-        Llama al método nativo sendMessageDraft de la API de Telegram usando el bot HTTP API directamente,
-        ya que python-telegram-bot puede no exponerlo aún.
+        Llama al método nativo sendMessageDraft de la API de Telegram usando el bot HTTP API directamente.
+        Se ejecuta de manera segura para evitar que fallas en este endpoint efímero afecten el flujo principal.
         """
         import aiohttp
-        # Obtener el token del bot
-        token = self.token
-        url = f"https://api.telegram.org/bot{token}/sendMessageDraft"
-        payload = {
-            "chat_id": chat_id,
-            "draft_id": draft_id,
-            "text": text,
-        }
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as resp:
-                # No importa el resultado, es efímero
-                await resp.text()
+        try:
+            token = self.token
+            url = f"https://api.telegram.org/bot{token}/sendMessageDraft"
+            payload = {
+                "chat_id": chat_id,
+                "draft_id": draft_id,
+                "text": text,
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=2.0) as resp:
+                    # Solo leemos el texto, no arrojamos excepciones por código de estado HTTP
+                    await resp.text()
+        except Exception as exc:
+            logger.debug(f"[TelegramAdapter] Error al enviar borrador sendMessageDraft: {exc}")
 
     # _flush_buffer ya no es necesario con streaming nativo

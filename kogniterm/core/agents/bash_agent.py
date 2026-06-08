@@ -452,6 +452,8 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                         full_response_content += part
                         text_streamed = True
                         update_live_display()
+                        if terminal_ui and hasattr(terminal_ui, "print_stream") and terminal_ui.__class__.__name__ == "ServerUI":
+                            terminal_ui.print_stream(part)
                 
                 # Verificar interrupción en cada iteración del streaming
                 # Chequeamos tanto la cola como la bandera del servicio
@@ -470,6 +472,8 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
             if final_ai_message_from_llm and not text_streamed and final_ai_message_from_llm.content:
                 full_response_content = final_ai_message_from_llm.content
                 update_live_display()
+                if terminal_ui and hasattr(terminal_ui, "print_stream") and terminal_ui.__class__.__name__ == "ServerUI":
+                    terminal_ui.print_stream(final_ai_message_from_llm.content)
             elif not text_streamed and not full_thinking_content:
                 # Si no hubo nada de nada, al menos actualizar una vez
                 update_live_display()

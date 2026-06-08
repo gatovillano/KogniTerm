@@ -206,3 +206,51 @@ git tag --sort=-version:refname
   - **Solución**: Se modificó la validación para verificar el nombre de los directorios relativos al directorio de búsqueda (`base_dir` o `clone_dir` en el adaptador de skills), garantizando que las carpetas superiores no afecten al filtro.
 - **Limpieza de procesos y conflictos**: Se identificaron y eliminaron procesos obsoletos colgados en segundo plano procedentes de instalaciones anteriores que mantenían en memoria la versión antigua del software.
 
+---
+
+## [0.6.7] - 2026-06-07
+
+### 🐛 Correcciones — Adaptador de Telegram y Gestión de Respuestas
+
+- **Fix crítico (envío de respuestas al bot de Telegram)**: Se corrigió un bug por el cual las respuestas producidas por el agente no llegaban al bot de Telegram cuando el usuario interactuaba.
+  - **Causa**: En `ChannelAdapter.send_message`, la tarea de procesamiento de eventos en segundo plano (`process_task`) se cancelaba de manera agresiva tras esperar solo 200 ms (`asyncio.sleep(0.2)`) desde que finalizaba la invocación del agente. Debido a que las llamadas de red a la API de Telegram tardan comúnmente más de 200 ms, la tarea se cancelaba a mitad de camino (`asyncio.CancelledError`), interrumpiendo el envío de la respuesta.
+  - **Solución**: Se sustituyó el sleep fijo y la cancelación inmediata por una espera asíncrona segura de hasta 10 segundos utilizando `asyncio.wait_for(process_task, timeout=10.0)`, garantizando que la tarea finalice de forma natural tras vaciar la cola de eventos y enviar la respuesta.
+- **Formateo de respuestas y payloads**:
+  - Se corrigió la extracción de texto en eventos de tipo `"message"` y `"error"`. Dado que `ServerUI` emite estos eventos estructurados en diccionarios (ej. `{"text": ...}` y `{"message": ...}`), al pasarse directamente al limpiador se serializaban como strings crudos de Python (ej. `"{'text': '...'}"`). Ahora se extrae el texto de forma segura si el payload es un diccionario.
+- **Soporte de nuevos eventos**:
+  - Se actualizaron los adaptadores `TelegramAdapter`, `SlackAdapter` y `CLIAdapter` para que soporten de forma nativa y retrocompatible los nuevos eventos `"tool_call"` (que reemplaza a `"tool_start"`) y `"tool_result"` (que reemplaza a `"tool_output"`), asegurando que el estado del agente y el inicio/fin de herramientas se reporten de forma consistente.
+- **Mejoras de depuración y logs**:
+  - Se modificó `_process_events` para registrar la traza de excepción completa (`logger.exception`) si ocurre un error enviando eventos al canal.
+  - Se añadieron alertas informativas y preventivas en `TelegramAdapter.send_to_channel` cuando no hay un `chat_id` o no está inicializada la instancia de la aplicación, evitando retornos silenciosos.
+  - Se agregaron validaciones de contenido en el envío de mensajes a Telegram para evitar peticiones fallidas debido a strings de texto vacíos.
+  - Se añadieron logs informativos detallados en el evento `done` de `TelegramAdapter` para indicar si el texto acumulado del stream está vacío, su longitud y si se envía correctamente.
+
+---
+
+## [0.6.8] - 2026-06-07
+
+### 🐛 Correcciones — Streaming Nativo y Concurrencia en Telegram
+
+- **Fix crítico (Respuestas vacías en Telegram / REST)**: Se solucionó el problema por el cual los mensajes procesados en el servidor no enviaban respuesta a Telegram (el texto acumulado quedaba vacío).
+  - **Causa**: El agente (`call_model_node` en [bash_agent.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agents/bash_agent.py#L450)) canalizaba toda la respuesta generada por el LLM a través de `terminal_ui.update_live` para actualizar el display interactivo. Sin embargo, no emitía eventos `"stream"` individuales. Como `TelegramAdapter` y otros servicios síncronos consumen únicamente la cola de `"stream"`, el texto acumulado al final resultaba vacío.
+  - **Solución**: Se modificó `call_model_node` para que si el `terminal_ui` es la interfaz del servidor (`ServerUI`), se emita de manera activa cada fragmento de la respuesta llamando a `terminal_ui.print_stream(part)`.
+- **Implementación de Streaming Nativo en Telegram**:
+  - Se habilitó la nueva función `sendMessageDraft` de la API de bots de Telegram (versión 9.3+).
+  - Ahora el adaptador de Telegram envía de forma incremental los fragmentos de la respuesta del LLM a la interfaz de chat en tiempo real a través del método de borrador efímero (`_send_message_draft`), confirmando la respuesta con `sendMessage` normal solo cuando llega el evento `"done"`.
+- **Corrección de Concurrencia y Seguridad Multiusuario**:
+  - Se eliminó el uso de variables globales mutables de instancia en `TelegramAdapter` (`self._current_chat_id`, `self._stream_text`, `self._draft_id`).
+  - Se modificó la firma de `send_to_channel` en todos los adaptadores (`ChannelAdapter`, `CLIAdapter`, `WebhookAdapter`, `SlackAdapter`, `TelegramAdapter`) para aceptar un `session_id` opcional.
+  - Se estructuró el acumulador de streams (`_stream_texts`) y los IDs de borrador (`_draft_ids`) como diccionarios indexados por el `chat_id` extraído del `session_id`, garantizando que múltiples usuarios chateando concurrentemente con el bot tengan flujos aislados y no mezclen sus respuestas.
+
+---
+
+## [0.6.9] - 2026-06-08
+
+### 🐛 Correcciones — Configuración de Gemini (Google AI Studio)
+
+- **Fix crítico (Vertex_ai_betaException al seleccionar Google AI Studio)**: Se solucionó el error inesperado `litellm.NotFoundError: Vertex_ai_betaException - b'404 page not found'` que ocurría al seleccionar Google AI Studio como proveedor.
+  - **Causa**: LiteLLM requiere que se configure la variable de entorno `GEMINI_API_KEY` para dirigir las llamadas con prefijo `gemini/` a Google AI Studio. Si esta variable no está presente, LiteLLM intenta de manera predeterminada enrutar la llamada a Google Vertex AI. Como la aplicación solo definía `LITELLM_API_KEY` y le pasaba la clave directamente en la invocación sin especificar la API de origen, LiteLLM intentaba instanciar y usar el cliente de Vertex AI, fallando con un error 404 al no tener credenciales ni recursos de GCP configurados.
+  - **Solución**:
+    1. Se modificó [provider_config.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm/provider_config.py) para que exporte explícitamente `GEMINI_API_KEY` en `os.environ` cuando el proveedor detectado es Gemini, e inyecte `custom_llm_provider = "gemini"` en los parámetros de completion para forzar la API nativa de Google AI Studio.
+    2. Se actualizó [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) en su constructor y en el método `set_model` para exportar de manera consistente `os.environ["GEMINI_API_KEY"]` al inicializar o cambiar el modelo a Gemini, y se añadió el parámetro `custom_llm_provider = "gemini"` en la preparación de parámetros de completion.
+    3. Se modificó [multi_provider_manager.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/multi_provider_manager.py) para inyectar `custom_llm_provider = "gemini"` en las llamadas realizadas por el gestor de múltiples proveedores si el modelo es Gemini (evitando el fallback incorrecto a Vertex AI).

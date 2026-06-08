@@ -477,6 +477,11 @@ class MultiProviderManager:
                 completion_kwargs["custom_llm_provider"] = "ollama"
             elif provider.name == "kilocode":
                 completion_kwargs["custom_llm_provider"] = "openai"
+            elif provider.model_prefix == "gemini" or provider.name == "google":
+                completion_kwargs["custom_llm_provider"] = "gemini"
+                key = kwargs.get("api_key") or provider.get_api_key()
+                if key:
+                    os.environ["GEMINI_API_KEY"] = key
             
             if tools:
                 completion_kwargs["tools"] = tools

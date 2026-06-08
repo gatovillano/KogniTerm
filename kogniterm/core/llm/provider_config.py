@@ -72,6 +72,7 @@ class ProviderConfig:
                 self.api_key = google_key
                 os.environ["LITELLM_MODEL"] = model_to_use
                 os.environ["LITELLM_API_KEY"] = google_key
+                os.environ["GEMINI_API_KEY"] = google_key
                 litellm.api_base = None
                 self.api_base = None
                 self.headers = {}
@@ -167,6 +168,11 @@ class ProviderConfig:
             if self.api_key and "ollama.com" in (self.api_base or ""):
                 params["headers"] = {"Authorization": f"Bearer {self.api_key}"}
                 
+        if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower()):
+            params["custom_llm_provider"] = "gemini"
+            if self.api_key:
+                os.environ["GEMINI_API_KEY"] = self.api_key
+
         if "openrouter" in self.model_name.lower():
             if "extra_body" not in params: params["extra_body"] = {}
             params["extra_body"]["reasoning"] = { "type": "enabled" }
