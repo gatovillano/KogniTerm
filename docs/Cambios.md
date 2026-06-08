@@ -273,7 +273,8 @@ git tag --sort=-version:refname
   - Persistencia segura del token de sesión en `~/.gemini/antigravity-cli/antigravity-oauth-token`, compatible con la CLI `agy`.
   - Renovación y obtención automática del token de acceso (refresh token flow) con endpoints de Google OAuth2.
   - Resolución dinámica de `Project ID` a través de `v1internal:loadCodeAssist`.
-  - Método dinámico `fetch_available_models()` que consulta `v1internal:fetchAvailableModels` para obtener la lista real de modelos disponibles del proyecto en Google Cloud, con fallback integrado a modelos por defecto.
+  - Método dinámico `fetch_available_models()` que consulta `v1internal:fetchAvailableModels` para obtener la lista real de modelos disponibles del proyecto en Google Cloud, procesando la estructura de diccionario de modelos devuelta por la API, con fallback integrado a modelos por defecto.
+  - Corregida decodificación de `client_secret` en base64 corrigiendo un carácter faltante en la clave de Google OAuth.
   - Soporte de invocación para modelos `antigravity/` (con streaming compatible SSE y retorno estructurado de tool calls).
 - **Integración TUI y Meta-Comandos**:
   - Registro del nuevo meta-comando `/agy-login` en la terminal para iniciar, renovar o cerrar la sesión de Antigravity.
