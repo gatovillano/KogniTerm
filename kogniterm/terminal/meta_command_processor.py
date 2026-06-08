@@ -440,7 +440,8 @@ Example: /autosave restore autosave_20250515_141530
                 ("/models", "🤖 Change AI Model (Select model from current provider)"),
                 ("/reasoning", "🧠 Reasoning Level (low / medium / high)"),
                 ("/summarymodel", "📝 Change Summary Model (To compress history)"),
-                ("/provider", "🌐 Change LLM Provider (OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud)"),
+                ("/provider", "🌐 Change LLM Provider (OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud, Antigravity)"),
+                ("/agy-login", "🛸 Google Antigravity Login (Session authentication without API Keys)"),
                 ("/keys", "🔑 Manage API Keys (Configure provider keys)"),
                 ("/embeddings", "🧠 Configure Embeddings (Local/FastEmbed, Gemini, OpenAI, etc.)"),
                 ("/reset", "🔄 Reset Conversation (Clear current memory)"),
@@ -465,7 +466,7 @@ Example: /autosave restore autosave_20250515_141530
 
             if selected_command:
                 # Execute direct commands
-                if selected_command in ["/models", "/reasoning", "/summarymodel", "/provider", "/keys", "/reset", "/compress", "/undo", "/mouse", "/exit", "/resume", "/instructions", "/skills"]:
+                if selected_command in ["/models", "/reasoning", "/summarymodel", "/provider", "/keys", "/reset", "/compress", "/undo", "/mouse", "/exit", "/resume", "/instructions", "/skills", "/agy-login"]:
                     # Recursive call to process selected command
                     return await self.process_meta_command(selected_command)
                 
@@ -941,6 +942,8 @@ Example: /autosave restore autosave_20250515_141530
             current_provider = "unknown"
             if current_model.startswith("openrouter/"):
                 current_provider = "openrouter"
+            elif current_model.startswith("antigravity/"):
+                current_provider = "antigravity"
             elif current_model.startswith("gemini/"):
                 current_provider = "google"
             elif current_model.startswith("ollama/"):
@@ -989,6 +992,15 @@ Example: /autosave restore autosave_20250515_141530
                         ("openrouter/anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet"),
                         ("openrouter/openai/gpt-4o", "GPT-4o"),
                     ]
+            elif current_provider == "antigravity":
+                target_list = [
+                    ("antigravity/gemini-3-flash", "🤖 Gemini 3 Flash (Antigravity - Fast & Efficient)"),
+                    ("antigravity/gemini-3-pro", "🧠 Gemini 3 Pro (Antigravity - High Intelligence)"),
+                    ("antigravity/gemini-2.5-flash", "⚡ Gemini 2.5 Flash (Antigravity - Responsive)"),
+                    ("antigravity/gemini-2.5-pro", "🔮 Gemini 2.5 Pro (Antigravity - Advanced Reasoning)"),
+                    ("antigravity/gemini-1.5-pro", "🏛️ Gemini 1.5 Pro (Antigravity - Large Context)"),
+                    ("antigravity/gemini-1.5-flash", "💨 Gemini 1.5 Flash (Antigravity - Balanced)"),
+                ]
             elif current_provider == "google":
                 target_list = await _fetch_google_models()
                 if not target_list:
@@ -1271,6 +1283,7 @@ Example: /autosave restore autosave_20250515_141530
                 ("ollama", "🦙 Ollama Local (servidor local)",),
                 ("ollama_cloud", "☁️  Ollama Cloud (Ollama Models)"),
                 ("kilocode", "⚡ KiloCode Gateway (Routing inteligente)"),
+                ("antigravity", "🛸 Google Antigravity (Dynamic Session OAuth2)"),
             ]
 
             selected_provider = await self._show_radiolist(
@@ -1280,6 +1293,15 @@ Example: /autosave restore autosave_20250515_141530
             )
 
             if selected_provider:
+                if selected_provider == "antigravity":
+                    from kogniterm.core.antigravity_client import AntigravityClient
+                    if not AntigravityClient.is_logged_in():
+                        self.terminal_ui.print_message("⚠️ No hay sesión activa de Antigravity. Iniciando inicio de sesión...", style="yellow")
+                        success = await self._process_agy_login()
+                        if not success:
+                            self.terminal_ui.print_message("❌ Inicio de sesión cancelado o fallido. No se cambió el proveedor.", style="red")
+                            return True
+
                 self.terminal_ui.print_message(f"Changing provider to: {selected_provider.capitalize()}...", style="yellow")
                 # Definir modelo por defecto para cada proveedor
                 default_models = {
@@ -1290,6 +1312,7 @@ Example: /autosave restore autosave_20250515_141530
                     "ollama": "ollama/llama3",
                     "ollama_cloud": "ollama/llama3",
                     "kilocode": "kilocode/kilo/auto",
+                    "antigravity": "antigravity/gemini-3-flash",
                 }
                 new_model = default_models.get(selected_provider)
 
@@ -1354,6 +1377,10 @@ Example: /autosave restore autosave_20250515_141530
                 except Exception as e:
                     self.terminal_ui.print_message(f"❌ Error changing provider: {e}", style="red")
             
+            return True
+
+        if user_input.lower().strip() == '/agy-login':
+            await self._process_agy_login()
             return True
 
         if user_input.lower().strip() == '/keys':
@@ -1904,3 +1931,45 @@ Example: /autosave restore autosave_20250515_141530
                         title="Success",
                         text=f"Modelo local cambiado a: {new_model}\n\nNota: La primera vez que lo uses, se descargará automáticamente."
                     )
+
+    async def _process_agy_login(self) -> bool:
+        """Procesa el flujo de autenticación de Antigravity de forma interactiva en la terminal."""
+        from kogniterm.core.antigravity_client import AntigravityClient, run_login_flow
+        
+        if AntigravityClient.is_logged_in():
+            action = await self._show_radiolist(
+                title="Sesión de Antigravity Activa",
+                text="Ya tienes una sesión activa de Antigravity. ¿Qué deseas hacer?",
+                values=[
+                    ("REAUTH", "🔄 Re-autenticar (Crear nueva sesión)"),
+                    ("LOGOUT", "🗑️ Cerrar sesión (Eliminar credenciales locales)"),
+                    ("CANCEL", "🚫 Cancelar / Mantener sesión actual")
+                ]
+            )
+            if action == "CANCEL" or not action:
+                return True
+            if action == "LOGOUT":
+                token_path = os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token")
+                try:
+                    if os.path.exists(token_path):
+                        os.remove(token_path)
+                    self.terminal_ui.print_message("✅ Sesión cerrada y token eliminado.", style="green")
+                except Exception as e:
+                    self.terminal_ui.print_message(f"❌ Error al eliminar el token: {e}", style="red")
+                return True
+
+        self.terminal_ui.print_message("🛸 Iniciando flujo de autenticación para Google Antigravity...", style="cyan bold")
+        
+        def status_callback(msg):
+            self.terminal_ui.print_message(f"🛸 {msg}", style="cyan")
+
+        import asyncio
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, run_login_flow, status_callback)
+        
+        if success:
+            self.terminal_ui.print_message("✨ ¡Autenticación completada exitosamente!", style="green bold")
+            return True
+        else:
+            self.terminal_ui.print_message("❌ La autenticación de Antigravity falló o fue cancelada.", style="red bold")
+            return False
