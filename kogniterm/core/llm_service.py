@@ -204,6 +204,8 @@ class LLMService:
         # Determinar API Key de forma inteligente según el modelo inicial (prioriza config.json)
         if self.model_name.startswith("gemini/"):
             self.api_key = config_manager.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            if self.api_key:
+                os.environ["GEMINI_API_KEY"] = self.api_key
         elif self.model_name.startswith("openrouter/"):
             self.api_key = config_manager.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
         elif self.model_name.startswith("openai/"):
@@ -790,6 +792,7 @@ class LLMService:
             if key:
                 self.api_key = key
                 os.environ["LITELLM_API_KEY"] = key
+                os.environ["GEMINI_API_KEY"] = key
             
             litellm.api_base = None  # Crucial para que no intente usar OpenRouter
             litellm.headers = {}
@@ -1080,6 +1083,12 @@ class LLMService:
         if hasattr(self, 'headers') and self.headers:
             completion_kwargs["headers"] = self.headers
         
+        # Configuración específica para Gemini (Google AI Studio)
+        if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower()):
+            completion_kwargs["custom_llm_provider"] = "gemini"
+            if self.api_key:
+                os.environ["GEMINI_API_KEY"] = self.api_key
+
         # Configuración específica para OpenRouter/SiliconFlow con campos adicionales
         if "openrouter" in self.model_name.lower():
             # Asegurar formato correcto del modelo

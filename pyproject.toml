@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kogniterm"
-version = "0.6.6"
+version = "0.6.9"
 description = "KogniTerm: An advanced AI-powered terminal"
 dependencies = [
     "python-dotenv",
