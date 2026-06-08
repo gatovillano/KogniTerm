@@ -119,6 +119,15 @@ class ProviderConfig:
     
     def get_api_key(self) -> Optional[str]:
         """Obtiene la API key desde variables de entorno o ConfigManager."""
+        if self.name == "antigravity":
+            try:
+                token_path = os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token")
+                if os.path.exists(token_path):
+                    return "antigravity-session-token"
+            except Exception:
+                pass
+            return None
+
         # 1. Priorizar variable de entorno explícita
         env_key = os.getenv(self.api_key_env)
         if env_key:
@@ -161,6 +170,13 @@ class ProviderConfig:
         if not self.enabled:
             return False
             
+        if self.name == "antigravity":
+            try:
+                token_path = os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token")
+                return os.path.exists(token_path)
+            except Exception:
+                return False
+
         # Soporte para forzar local o cloud mediante OLLAMA_PROVIDER_TARGET
         target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
         if self.name == "ollama_cloud" and target in ["local", "ollama"]:
@@ -194,6 +210,13 @@ class ProviderConfig:
 
 # Configuraciones predefinidas de proveedores
 DEFAULT_PROVIDERS = [
+    ProviderConfig(
+        name="antigravity",
+        model_prefix="antigravity",
+        api_key_env="ANTIGRAVITY_API_KEY",
+        priority=1,
+        fallback_on_error_codes=["429", "503"]
+    ),
     ProviderConfig(
         name="openrouter",
         model_prefix="openrouter",
@@ -518,7 +541,19 @@ class MultiProviderManager:
             
             start_time = time.time()
             logger.debug(f"Completion kwargs: {json.dumps({k: v for k, v in completion_kwargs.items() if k != 'messages'}, indent=2)}")
-            response = completion(**completion_kwargs)
+            
+            if provider.name == "antigravity":
+                from kogniterm.core.antigravity_client import AntigravityClient
+                response = AntigravityClient.completion(
+                    model=completion_kwargs["model"],
+                    messages=completion_kwargs["messages"],
+                    tools=completion_kwargs.get("tools"),
+                    stream=stream,
+                    temperature=completion_kwargs.get("temperature")
+                )
+            else:
+                response = completion(**completion_kwargs)
+                
             latency_ms = (time.time() - start_time) * 1000
             
             with self._lock:

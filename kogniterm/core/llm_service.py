@@ -202,7 +202,9 @@ class LLMService:
         self.summary_model = self.model_name
             
         # Determinar API Key de forma inteligente según el modelo inicial (prioriza config.json)
-        if self.model_name.startswith("gemini/"):
+        if self.model_name.startswith("antigravity/"):
+            self.api_key = "antigravity-session-token"
+        elif self.model_name.startswith("gemini/"):
             self.api_key = config_manager.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
             if self.api_key:
                 os.environ["GEMINI_API_KEY"] = self.api_key
