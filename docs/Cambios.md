@@ -286,3 +286,16 @@ git tag --sort=-version:refname
   - Inicialización sin API Key local requerida en `LLMService` cuando el modelo tiene el prefijo `antigravity/`.
 - **Pruebas de Integración y Regresión**:
   - Creación de un suite de pruebas completo en `tests/test_antigravity_integration.py` que valida el inicio de sesión, el refresco de tokens, la obtención del Project ID, la respuesta/streaming del modelo, y la obtención exitosa/fallback de los modelos disponibles.
+
+---
+
+## [0.6.12] - 2026-06-08
+
+### 🐛 Corrección — Tool calls multi-turno en Antigravity (400 Bad Request)
+- **Causa raíz**: El endpoint `v1internal:streamGenerateContent` de Antigravity requiere que cada `functionCall` part en el historial incluya un campo `thoughtSignature` real (obtenido de la respuesta anterior del modelo). Sin él, el segundo turno devuelve `400 INVALID_ARGUMENT`.
+- **Solución**:
+  - El parser de streaming ahora extrae `thoughtSignature` de cada part de `functionCall` recibido del modelo y lo almacena en el `SimpleNamespace` del tool call.
+  - `map_messages` ahora recupera `thought_signature` (tanto de dicts como de `SimpleNamespace`) y lo inyecta en el `functionCall` part al reconstruir el historial del siguiente turno.
+  - El path no-streaming también preserva `thought_signature` en los dicts de tool call.
+  - `args` en `functionCall` se garantiza que siempre sea un dict (nunca un string JSON), evitando el segundo error `INVALID_ARGUMENT`.
+
