@@ -156,10 +156,10 @@ def test_antigravity_fetch_available_models_success(mock_post):
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {
-        "models": [
-            {"modelId": "gemini-3-pro", "displayName": "Gemini 3 Pro"},
-            {"modelId": "gemini-3-flash", "displayName": "Gemini 3 Flash"}
-        ]
+        "models": {
+            "gemini-3-pro": {"displayName": "Gemini 3 Pro"},
+            "gemini-3-flash": {"displayName": "Gemini 3 Flash"}
+        }
     }
     mock_post.return_value = mock_response
 
