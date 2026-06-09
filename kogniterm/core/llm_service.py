@@ -559,7 +559,13 @@ class LLMService:
                 return AIMessage(content=content, tool_calls=tool_calls, **kwargs)
             return AIMessage(content=content)
         elif role == "tool":
-            return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
+            # Incluir el nombre de la herramienta si está presente, para que map_messages
+            # de Antigravity pueda resolver functionResponse.name sin depender del lookback.
+            return ToolMessage(
+                content=content,
+                tool_call_id=message.get("tool_call_id"),
+                name=message.get("name") or "",
+            )
         elif role == "system":
             return SystemMessage(content=content)
         return HumanMessage(content=content)
