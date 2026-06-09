@@ -345,11 +345,19 @@ class AntigravityClient:
                                 reasoning_text = ""
                                 tool_calls = []
                                 for part in parts:
-                                    if "text" in part:
-                                        if part.get("thought") is True or part.get("thought"):
+                                    is_thought = False
+                                    thought_val = part.get("thought")
+                                    if thought_val:
+                                        is_thought = True
+                                        if isinstance(thought_val, str):
+                                            reasoning_text += thought_val
+                                        elif isinstance(thought_val, dict) and "text" in thought_val:
+                                            reasoning_text += thought_val["text"]
+                                        elif "text" in part:
                                             reasoning_text += part["text"]
-                                        else:
-                                            text += part["text"]
+                                    
+                                    if not is_thought and "text" in part:
+                                        text += part["text"]
                                     if "functionCall" in part:
                                         fc = part["functionCall"]
                                         # Extract thought_signature from the part (required for tool round-trips)
@@ -407,11 +415,19 @@ class AntigravityClient:
             reasoning_text = ""
             tool_calls = []
             for part in parts:
-                if "text" in part:
-                    if part.get("thought") is True or part.get("thought"):
+                is_thought = False
+                thought_val = part.get("thought")
+                if thought_val:
+                    is_thought = True
+                    if isinstance(thought_val, str):
+                        reasoning_text += thought_val
+                    elif isinstance(thought_val, dict) and "text" in thought_val:
+                        reasoning_text += thought_val["text"]
+                    elif "text" in part:
                         reasoning_text += part["text"]
-                    else:
-                        text += part["text"]
+                
+                if not is_thought and "text" in part:
+                    text += part["text"]
                 if "functionCall" in part:
                     fc = part["functionCall"]
                     tc_dict = {

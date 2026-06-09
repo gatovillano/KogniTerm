@@ -292,32 +292,11 @@ git tag --sort=-version:refname
 ## [0.6.12] - 2026-06-08
 
 ### 🐛 Corrección — Tool calls multi-turno en Antigravity (400 Bad Request)
-- **Causa raíz real**: El campo `thought_signature` que incluye el API en cada `functionCall` part debe preservarse a lo largo de toda la cadena de serialización para que esté disponible en el segundo turno. El problema no era solo en `antigravity_client.py` sino en `llm_service.py`, que descartaba el campo durante la acumulación del streaming y al crear el `AIMessage`.
-- **Solución (cadena completa)**:
-  1. `AntigravityClient` (streaming): extrae `thoughtSignature` de cada part y lo adjunta al `SimpleNamespace` del tool call.
-  2. `llm_service.py` (acumulación): captura `thought_signature` del `SimpleNamespace` y lo guarda en el dict de acumulación.
-  3. `llm_service.py` (final_tool_calls): propaga `thought_signature` al dict de `final_tool_calls`.
-  4. `llm_service.py` (_message_to_litellm_format): incluye `thought_signature` en el dict serializado del tool call del `AIMessage`.
-  5. `AntigravityClient.map_messages()`: re-inyecta `thoughtSignature` en el `functionCall` part al reconstruir el historial del turno siguiente.
+- **Causa raíz real**: El campo `thought_signature` que incluye el API en cada `functionCall` part debe preservarse a lo largo de toda la cadena de serialización para que esté disponible en el segundo turno. El problema no era solo en `antigravity_client.py` sino en `llm_service.py`, que descartaba el campo durante la acumulación.
+  - 3. `llm_service.py` (final_tool_calls): propaga `thought_signature` al dict de `final_tool_calls`.
+  - 4. `llm_service.py` (_message_to_litellm_format): incluye `thought_signature` en el dict serializado del tool call del `AIMessage`.
+  - 5. `AntigravityClient.map_messages()`: re-inyecta `thoughtSignature` en el `functionCall` part al reconstruir el historial del turno siguiente.
 - **Sin impacto en otros proveedores**: el campo solo aparece cuando fue generado por Antigravity; todos los checks son condicionales.
-
-
-
----
-
-## [Docs] - 2026-06-09
-
-### 📄 Documentación — README
-
-- Se reemplazó el elemento `<video>` del README por el GIF animado `assets/kogniterm11.gif` para una mejor visualización en GitHub y otros renderizadores Markdown.
-
----
-
-## [Docs] - 2026-06-09
-
-### 🎨 Assets — Banner
-
-- Se reemplazó el banner `image.png` por el nuevo banner pixel-art `assets/kogniterm_banner.png` en el README.
 
 ---
 
@@ -327,12 +306,14 @@ git tag --sort=-version:refname
 - **Causa raíz**:
   1. **Pérdida de `thought_signature` (Gemini - HTTP 400)**: Durante el streaming se extraía `thought_signature` de la lista `tool_calls` para guardarse en `message.additional_kwargs["thought_signatures"]` (evitando errores de validación de LangChain). Sin embargo, al serializar el historial, `_to_litellm_message` solo buscaba `thought_signature` directamente en el diccionario del tool call, perdiendo la firma en el segundo llamado de la API.
   2. **Nombre de herramienta nulo (`name: null` - Gemini - HTTP 400)**: El mensaje de tipo `tool` (respuesta de la herramienta) se serializaba sin el campo `name`. Como resultado, `AntigravityClient.map_messages` enviaba el esquema `functionResponse` con `name: null` al no estar presente, lo cual es un error de formato crítico para la API de Gemini.
-  3. **Visualización del Pensamiento**: La API de Antigravity entrega el razonamiento de los modelos (Gemini 2.5 Pro, Gemini 3, etc.) en partes del stream marcadas con `"thought": true`. Al no discriminar estas partes en `AntigravityClient.completion`, el texto del pensamiento se mezclaba directamente con el texto final en `delta.content`, impidiendo que `llm_service.py` y la TUI identificaran el pensamiento para renderizarlo con su animación y estilo diferenciado.
+  3. **Visualización de Pensamiento Nativo (Gemini)**: La API interna de Google Cloud Code PA/Antigravity entrega el razonamiento de los modelos en partes del stream marcadas con `"thought"`. Esta clave puede presentarse en diversos formatos en las llamadas de red (como un booleano `True` al lado del texto, como un string directo de razonamiento, o como un diccionario `{ "text": ... }`). El parseador original no discriminaba estas estructuras ni las extraía de forma robusta, haciendo que el pensamiento se mezclara con el texto regular o se ignorara en la TUI.
   4. **Falta de ID de herramienta en Claude (HTTP 400)**: Al usar modelos de Claude en Antigravity, el proxy del backend (Vertex AI) traduce el formato de Gemini a Anthropic `/v1/messages`. Anthropic exige de forma obligatoria que cada elemento de tipo `tool_use` (y su posterior respuesta `tool_result`) contenga un campo `id` no vacío. Como `AntigravityClient.map_messages` omitía propagar el campo `id` en `functionCall` y `functionResponse`, el proxy fallaba al generar la petición de Anthropic, lanzando un error `messages.1.content.0.tool_use.id: Field required`.
+  5. **Visualización de Pensamiento Manual (Claude/OpenAI)**: Para modelos sin razonamiento nativo (como Claude 3.5 Sonnet), el sistema les instruye a estructurar su razonamiento usando bloques `<thinking>...</thinking>` o `<thought>...</thought>`. Sin embargo, `llm_service.py` solo buscaba etiquetas `<thought>`, omitiendo por completo las etiquetas `<thinking>`, lo cual hacía que el pensamiento de Claude no se filtrara como `__THINKING__:` y se imprimiera directamente en la respuesta final sin formato especial.
 - **Solución**:
   - Se modificó `_to_litellm_message` en [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) para recuperar `thought_signature` de `message.additional_kwargs["thought_signatures"]` (usando el ID del tool call) y propagar el campo `name` en el mensaje de tipo `tool` si se encuentra disponible.
   - Se implementó un fallback de resolución hacia atrás en `AntigravityClient.map_messages` en [antigravity_client.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/antigravity_client.py) para que, si el mensaje `tool` carece de `name`, busque en los mensajes de tipo `assistant` anteriores el tool call con el `id` correspondiente y resuelva el nombre original de la herramienta.
-  - Se actualizó `AntigravityClient.completion` en [antigravity_client.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/antigravity_client.py) (tanto en modo stream como síncrono) para identificar las partes de la respuesta que contienen `"thought": true`, separándolas y exponiéndolas bajo `delta.reasoning_content` (o `message.reasoning_content`), permitiendo que el backend de KogniTerm y la TUI muestren el pensamiento en su panel especial en tiempo real.
+  - Se actualizó `AntigravityClient.completion` en [antigravity_client.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/antigravity_client.py) (tanto en modo stream como síncrono) para soportar múltiples formatos de la estructura `"thought"` (booleanos, strings o diccionarios), abstrayendo el razonamiento bajo `delta.reasoning_content` (o `message.reasoning_content`) de forma consistente.
   - Se modificó `AntigravityClient.map_messages` en [antigravity_client.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/antigravity_client.py) para propagar el `id` de la llamada a la herramienta tanto dentro de la estructura `functionCall` (del mensaje `assistant`) como en `functionResponse` (del mensaje `tool`), asegurando que la traducción del backend de Google para modelos de Anthropic Claude mantenga la consistencia de IDs y evite el error 400.
+  - Se añadió la normalización de etiquetas en el procesador de streams de [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) reemplazando `<thinking>` por `<thought>` y `</thinking>` por `</thought>` de forma consistente para que el detector manual de CoT capture el pensamiento de Claude y otros modelos sin soporte de razonamiento nativo.
   - Se corrigió el caso de prueba `test_thought_signature_propagation` en [test_antigravity_integration.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/test_antigravity_integration.py) para inicializar correctamente `LLMService` y llamar al método serializador real `_to_litellm_message`.
   - Se actualizó y validó el script de verificación automatizado en el directorio `scratch` que comprueba de forma integrada los cuatro fallos y resoluciones.
