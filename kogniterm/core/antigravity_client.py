@@ -161,12 +161,15 @@ class AntigravityClient:
                         thought_sig = getattr(tc, "thought_signature", None) or (
                             tc.get("thought_signature") if isinstance(tc, dict) else None
                         )
+                        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
                         fc_part = {
                             "functionCall": {
                                 "name": fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None),
                                 "args": args,
                             }
                         }
+                        if tc_id:
+                            fc_part["functionCall"]["id"] = tc_id
                         if thought_sig:
                             fc_part["thoughtSignature"] = thought_sig
                         parts.append(fc_part)
@@ -212,7 +215,8 @@ class AntigravityClient:
                     "parts": [{
                         "functionResponse": {
                             "name": name,
-                            "response": resp_obj
+                            "response": resp_obj,
+                            "id": tool_call_id
                         }
                     }]
                 })
@@ -338,10 +342,14 @@ class AntigravityClient:
                                 finish_reason = candidate.get("finishReason")
                                 
                                 text = ""
+                                reasoning_text = ""
                                 tool_calls = []
                                 for part in parts:
                                     if "text" in part:
-                                        text += part["text"]
+                                        if part.get("thought") is True or part.get("thought"):
+                                            reasoning_text += part["text"]
+                                        else:
+                                            text += part["text"]
                                     if "functionCall" in part:
                                         fc = part["functionCall"]
                                         # Extract thought_signature from the part (required for tool round-trips)
@@ -362,6 +370,8 @@ class AntigravityClient:
                                 delta = SimpleNamespace()
                                 if text:
                                     delta.content = text
+                                if reasoning_text:
+                                    delta.reasoning_content = reasoning_text
                                 if tool_calls:
                                     delta.tool_calls = tool_calls
 
@@ -394,10 +404,14 @@ class AntigravityClient:
             finish_reason = candidate.get("finishReason")
 
             text = ""
+            reasoning_text = ""
             tool_calls = []
             for part in parts:
                 if "text" in part:
-                    text += part["text"]
+                    if part.get("thought") is True or part.get("thought"):
+                        reasoning_text += part["text"]
+                    else:
+                        text += part["text"]
                 if "functionCall" in part:
                     fc = part["functionCall"]
                     tc_dict = {
@@ -417,10 +431,12 @@ class AntigravityClient:
             choice = {
                 "message": {
                     "role": "assistant",
-                    "content": text
+                    "content": text if text else None
                 },
                 "finish_reason": finish_reason
             }
+            if reasoning_text:
+                choice["message"]["reasoning_content"] = reasoning_text
             if tool_calls:
                 choice["message"]["tool_calls"] = tool_calls
 
