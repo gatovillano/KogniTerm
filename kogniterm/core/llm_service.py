@@ -668,7 +668,13 @@ class LLMService:
                 content = "Operación completada (sin salida)."
             
             tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
-            return {"role": "tool", "content": content, "tool_call_id": tc_id}
+            
+            # Propagar el nombre de la herramienta si está presente
+            name = getattr(message, 'name', None)
+            tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
+            if name:
+                tool_msg["name"] = name
+            return tool_msg
         elif isinstance(message, SystemMessage):
             content = message.content
             if not isinstance(content, str):
