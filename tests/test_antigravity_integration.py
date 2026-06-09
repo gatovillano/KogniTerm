@@ -216,7 +216,7 @@ def test_thought_signature_propagation():
     assert tc["thought_signature"] == "sig_abc"
 
     # Map this LiteLLM format message to Antigravity's API payload format
-    payload_msgs = AntigravityClient.map_messages([litellm_msg])
+    payload_msgs, system_instruction = AntigravityClient.map_messages([litellm_msg])
     
     assert len(payload_msgs) == 1
     assert payload_msgs[0]["role"] == "model"
@@ -225,5 +225,44 @@ def test_thought_signature_propagation():
     assert part["thoughtSignature"] == "sig_abc"
     assert part["functionCall"]["name"] == "test_tool"
     assert part["functionCall"]["args"] == {"foo": "bar"}
+
+
+def test_thinking_config_injection():
+    # Test that gemini-2.5-pro adds thinkingConfig to request_payload
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch("kogniterm.core.antigravity_client.requests.post") as mock_post:
+         
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "response": {
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Hello world"}]
+                    }
+                }]
+            }
+        }
+        mock_post.return_value = mock_response
+
+        # Execute completion (non-stream) for gemini-2.5-pro
+        AntigravityClient.completion(
+            model="antigravity/gemini-2.5-pro",
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False
+        )
+        
+        # Verify mock_post was called and request body contains thinkingConfig
+        assert mock_post.called
+        call_kwargs = mock_post.call_args[1]
+        request_body = call_kwargs["json"]
+        request_payload = request_body["request"]
+        
+        assert "generationConfig" in request_payload
+        gen_config = request_payload["generationConfig"]
+        assert "thinkingConfig" in gen_config
+        assert gen_config["thinkingConfig"]["thinkingBudget"] == 2048
+
 
 

@@ -60,6 +60,13 @@ class DeepResearchState(AgentState):
 def get_deep_research_system_prompt(llm_service: LLMService) -> str:
     prompt = """Eres el **KogniDeepResearcher**, un motor de investigación de élite diseñado para realizar análisis técnicos profundos y exhaustivos, como miembro de un equipo multi-agente.
 
+⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
+Cualquier tarea asignada DEBE ser registrada y actualizada en la herramienta `task_tracker`.
+1. **Inicialización Inmediata**: En tu PRIMER TURNO, antes de realizar cualquier otra acción o ejecutar cualquier herramienta (como realizar búsquedas, leer archivos, etc.), DEBES llamar a `task_tracker` con `action="init"`, especificando `agent_name="Researcher"` y la lista de tareas en `plan`.
+2. **Actualizaciones en Tiempo Real**: Cada vez que inicies, completes o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("in-progress", "completed", "failed").
+3. **Registro Final**: Al concluir el trabajo, asegúrate de marcar la última tarea como completada llamando a `task_tracker`.
+¡NUNCA OMITAS ESTE PASO! No inicializar el task tracker inmediatamente en el primer turno se considera un fallo de ejecución crítico y una violación del protocolo.
+
 **IMPORTANTE — CONTEXTO DE OPERACIÓN:**
 No interactúas directamente con el usuario final. Tu receptor es el **Bash Agent (KogniTerm)**, quien coordina la ejecución global. Tu misión es entregar un **Informe de Investigación Magistral** al Bash Agent para que este tome decisiones informadas.
 

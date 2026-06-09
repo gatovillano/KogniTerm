@@ -437,10 +437,11 @@ def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any
                 task_message = (
                     f"{task_coder}\n\n"
                     "---\n"
-                    "📌 **INSTRUCCION OBLIGATORIA**: Tu PRIMERA acción debe ser inicializar el "
-                    "task_tracker con tu plan descompuesto:\n"
-                    "  task_tracker(action=\"init\", plan=[\"paso 1\", \"paso 2\", ...])\n"
-                    "Luego marca cada paso con 'in-progress' al iniciarlo y 'done' al terminarlo."
+                    "⚠️⚠️⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️⚠️⚠️\n"
+                    "Tu PRIMERÍSIMA acción en el primer turno DEBE ser inicializar el "
+                    "task_tracker con tu plan de ejecución descompuesto:\n"
+                    "  task_tracker(action=\"init\", agent_name=\"Coder\", plan=[\"paso 1\", \"paso 2\", ...])\n"
+                    "Luego, a medida que avanzas, marca cada paso como 'in-progress' y luego como 'done' al completarlo. No hacerlo es considerado un fallo crítico."
                 )
                 initial_state = {
                     "messages": [_HumanMessage(content=task_message)],
@@ -467,10 +468,11 @@ def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any
                 task_message = (
                     f"{task_researcher}\n\n"
                     "---\n"
-                    "📌 **INSTRUCCION OBLIGATORIA**: Tu PRIMERA acción debe ser inicializar el "
+                    "⚠️⚠️⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️⚠️⚠️\n"
+                    "Tu PRIMERÍSIMA acción en el primer turno DEBE ser inicializar el "
                     "task_tracker con tu plan de investigación descompuesto en sub-preguntas:\n"
-                    "  task_tracker(action=\"init\", plan=[\"sub-pregunta 1\", \"sub-pregunta 2\", ..., \"Síntesis final\"])\n"
-                    "Luego marca cada sub-pregunta con 'in-progress' al iniciarla y 'done' al obtener respuesta."
+                    "  task_tracker(action=\"init\", agent_name=\"Researcher\", plan=[\"sub-pregunta 1\", \"sub-pregunta 2\", ..., \"Síntesis final\"])\n"
+                    "Luego, a medida que avanzas, marca cada sub-pregunta como 'in-progress' y luego como 'done' al completarla. No hacerlo es considerado un fallo crítico."
                 )
                 initial_state = {
                     "messages": [_HumanMessage(content=task_message)],
