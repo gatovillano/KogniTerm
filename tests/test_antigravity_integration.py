@@ -191,3 +191,39 @@ def test_antigravity_fetch_available_models_fallback(mock_post):
         assert any(m[0] == "antigravity/gemini-3-flash" for m in models)
         assert any(m[0] == "antigravity/gemini-2.5-pro" for m in models)
 
+
+def test_thought_signature_propagation():
+    from langchain_core.messages import AIMessage
+    from kogniterm.core.llm_service import LLMService
+
+    # Create AIMessage with thought_signatures in additional_kwargs
+    ai_msg = AIMessage(
+        content="Testing",
+        tool_calls=[{"id": "call_123", "name": "test_tool", "args": {"foo": "bar"}}],
+        additional_kwargs={"thought_signatures": {"call_123": "sig_abc"}}
+    )
+
+    # Convert to LiteLLM format
+    service = LLMService()
+    service.set_model("antigravity/gemini-2.5-flash")
+    litellm_msg = service._to_litellm_message(ai_msg)
+
+    # Verify that thought_signature is in the serialized tool call
+    assert litellm_msg["role"] == "assistant"
+    assert len(litellm_msg["tool_calls"]) == 1
+    tc = litellm_msg["tool_calls"][0]
+    assert tc["id"] == "call_123"
+    assert tc["thought_signature"] == "sig_abc"
+
+    # Map this LiteLLM format message to Antigravity's API payload format
+    payload_msgs = AntigravityClient.map_messages([litellm_msg])
+    
+    assert len(payload_msgs) == 1
+    assert payload_msgs[0]["role"] == "model"
+    part = payload_msgs[0]["parts"][0]
+    assert "functionCall" in part
+    assert part["thoughtSignature"] == "sig_abc"
+    assert part["functionCall"]["name"] == "test_tool"
+    assert part["functionCall"]["args"] == {"foo": "bar"}
+
+

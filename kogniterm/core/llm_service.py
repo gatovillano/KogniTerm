@@ -536,6 +536,7 @@ class LLMService:
             tool_calls_data = message.get("tool_calls")
             if tool_calls_data:
                 tool_calls = []
+                thought_signatures = {}
                 for tc in tool_calls_data:
                     function_data = tc.get("function")
                     if function_data:
@@ -543,12 +544,19 @@ class LLMService:
                         if isinstance(args, str):
                             try: args = json.loads(args)
                             except: args = {}
+                        tc_id = tc.get("id") or self._generate_short_id()
                         tool_calls.append({
-                            "id": tc.get("id", self._generate_short_id()),
+                            "id": tc_id,
                             "name": function_data.get("name", ""),
                             "args": args
                         })
-                return AIMessage(content=content, tool_calls=tool_calls)
+                        tsig = tc.get("thought_signature") or tc.get("thoughtSignature")
+                        if tsig:
+                            thought_signatures[tc_id] = tsig
+                kwargs = {}
+                if thought_signatures:
+                    kwargs["additional_kwargs"] = {"thought_signatures": thought_signatures}
+                return AIMessage(content=content, tool_calls=tool_calls, **kwargs)
             return AIMessage(content=content)
         elif role == "tool":
             return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
@@ -633,8 +641,15 @@ class LLMService:
                         "function": {"name": tc_name, "arguments": arguments_json},
                     }
                     # Propagar thought_signature para Antigravity
-                    if tc.get("thought_signature"):
-                        serialized_tc["thought_signature"] = tc["thought_signature"]
+                    thought_sig = tc.get("thought_signature")
+                    if not thought_sig and isinstance(message, AIMessage):
+                        thought_sigs = message.additional_kwargs.get("thought_signatures", {})
+                        if isinstance(thought_sigs, dict):
+                            # Se busca por el ID original del tool call
+                            thought_sig = thought_sigs.get(tc.get("id"))
+                    
+                    if thought_sig:
+                        serialized_tc["thought_signature"] = thought_sig
                     serialized_tool_calls.append(serialized_tc)
                 
                 if not content or not str(content).strip():
@@ -1542,10 +1557,23 @@ class LLMService:
                     if not full_response_content or not full_response_content.strip():
                         full_response_content = "Ejecutando herramientas..."
                     
+                    # Extraer thought_signature de final_tool_calls para evitar errores de validación de LangChain
+                    thought_signatures = {}
+                    for tc in final_tool_calls:
+                        tsig = tc.pop("thought_signature", None)
+                        if tsig:
+                            thought_signatures[tc["id"]] = tsig
+                    
+                    additional_kwargs = {}
+                    if full_reasoning_content:
+                        additional_kwargs["reasoning_content"] = full_reasoning_content
+                    if thought_signatures:
+                        additional_kwargs["thought_signatures"] = thought_signatures
+
                     yield AIMessage(
                         content=full_response_content, 
                         tool_calls=final_tool_calls,
-                        additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                        additional_kwargs=additional_kwargs
                     )
                 else:
                     if not full_response_content.strip():

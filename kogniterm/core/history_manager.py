@@ -249,7 +249,12 @@ class HistoryManager:
                 elif item['type'] == 'ai':
                     tool_calls = item.get('tool_calls', [])
                     reasoning = item.get('reasoning_content') or item.get('reasoning')
-                    additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
+                    thought_sigs = item.get('thought_signatures')
+                    additional_kwargs = {}
+                    if reasoning:
+                        additional_kwargs["reasoning_content"] = reasoning
+                    if thought_sigs:
+                        additional_kwargs["thought_signatures"] = thought_sigs
                     if tool_calls:
                         formatted_tool_calls = []
                         for tc in tool_calls:
@@ -353,11 +358,15 @@ class HistoryManager:
                         }
                         if reasoning:
                             entry['reasoning_content'] = reasoning
+                        if getattr(message, 'additional_kwargs', None) and 'thought_signatures' in message.additional_kwargs:
+                            entry['thought_signatures'] = message.additional_kwargs['thought_signatures']
                         serializable_history.append(entry)
                     else:
                         entry = {'type': 'ai', 'content': message.content}
                         if reasoning:
                             entry['reasoning_content'] = reasoning
+                        if getattr(message, 'additional_kwargs', None) and 'thought_signatures' in message.additional_kwargs:
+                            entry['thought_signatures'] = message.additional_kwargs['thought_signatures']
                         serializable_history.append(entry)
                 elif isinstance(message, ToolMessage):
                     serializable_history.append({

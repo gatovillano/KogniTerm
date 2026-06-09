@@ -104,7 +104,15 @@ class SessionManager:
             if item_type == 'human':
                 messages.append(HumanMessage(content=item.get('content', '')))
             elif item_type == 'ai':
-                messages.append(AIMessage(content=item.get('content', ''), tool_calls=item.get('tool_calls', [])))
+                thought_sigs = item.get('thought_signatures')
+                additional_kwargs = {}
+                if thought_sigs:
+                    additional_kwargs["thought_signatures"] = thought_sigs
+                messages.append(AIMessage(
+                    content=item.get('content', ''),
+                    tool_calls=item.get('tool_calls', []),
+                    additional_kwargs=additional_kwargs if additional_kwargs else None
+                ))
             elif item_type == 'tool':
                 messages.append(ToolMessage(content=item.get('content', ''), tool_call_id=item.get('tool_call_id', '')))
             elif item_type == 'system':
