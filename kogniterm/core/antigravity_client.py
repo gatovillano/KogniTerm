@@ -192,6 +192,15 @@ class AntigravityClient:
                             if name:
                                 break
                 
+                # CRÍTICO: Gemini rechaza functionResponse con name=null (HTTP 400).
+                # Si aún no tenemos nombre, usamos el tool_call_id como último recurso.
+                if not name:
+                    name = tool_call_id or "unknown_tool"
+                    logger.warning(
+                        f"ToolMessage sin nombre de herramienta resuelto. "
+                        f"Usando fallback '{name}' para evitar 400 Bad Request de Gemini."
+                    )
+                
                 try:
                     resp_obj = json.loads(content)
                     if not isinstance(resp_obj, dict):
