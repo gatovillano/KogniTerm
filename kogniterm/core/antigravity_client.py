@@ -314,6 +314,15 @@ class AntigravityClient:
         if stream:
             url = f"{endpoint}/v1internal:streamGenerateContent?alt=sse"
             resp = requests.post(url, headers=headers, json=body, stream=True, timeout=120)
+            if resp.status_code >= 400:
+                error_detail = resp.text
+                try:
+                    err_json = resp.json()
+                    error_detail = err_json.get("error", {}).get("message", resp.text)
+                except Exception:
+                    pass
+                logger.error(f"Error en API de Antigravity ({resp.status_code}): {error_detail}")
+                raise requests.HTTPError(f"API Error ({resp.status_code}): {error_detail}", response=resp)
             resp.raise_for_status()
 
             def generator():
@@ -368,6 +377,15 @@ class AntigravityClient:
         else:
             url = f"{endpoint}/v1internal:generateContent"
             resp = requests.post(url, headers=headers, json=body, timeout=120)
+            if resp.status_code >= 400:
+                error_detail = resp.text
+                try:
+                    err_json = resp.json()
+                    error_detail = err_json.get("error", {}).get("message", resp.text)
+                except Exception:
+                    pass
+                logger.error(f"Error en API de Antigravity ({resp.status_code}): {error_detail}")
+                raise requests.HTTPError(f"API Error ({resp.status_code}): {error_detail}", response=resp)
             resp.raise_for_status()
             res_data = resp.json()
 
