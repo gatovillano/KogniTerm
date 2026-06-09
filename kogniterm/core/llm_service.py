@@ -1340,6 +1340,8 @@ class LLMService:
                 content_delta = getattr(delta, 'content', None)
                 if content_delta is not None:
                     chunk_str = str(content_delta)
+                    # Normalizar etiquetas de pensamiento (soportar tanto thought como thinking)
+                    chunk_str = chunk_str.replace("<thinking>", "<thought>").replace("</thinking>", "</thought>")
                     
                     # Detección de pensamiento manual (etiquetas <thought> o prefijo THINKING:)
                     # Si estamos dentro de un bloque de pensamiento manual
