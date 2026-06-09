@@ -265,4 +265,29 @@ def test_thinking_config_injection():
         assert gen_config["thinkingConfig"]["thinkingBudget"] == 2048
 
 
+def test_agent_dynamic_prompts():
+    from kogniterm.core.llm_service import LLMService
+    from kogniterm.core.agents.code_agent import get_system_message as get_code_system
+    from kogniterm.core.agents.researcher_agent import get_system_message as get_researcher_system
+    
+    service = LLMService()
+    
+    # 1. Non-thinking model case
+    service.set_model("antigravity/gemini-3-flash")
+    code_msg = get_code_system(service)
+    researcher_msg = get_researcher_system(service)
+    
+    assert "<thought>" in code_msg.content
+    assert "<thought>" in researcher_msg.content
+    
+    # 2. Thinking model case
+    service.set_model("antigravity/gemini-2.5-pro")
+    code_msg_thinking = get_code_system(service)
+    researcher_msg_thinking = get_researcher_system(service)
+    
+    assert "<thought>" not in code_msg_thinking.content
+    assert "<thought>" not in researcher_msg_thinking.content
+
+
+
 

@@ -341,7 +341,11 @@ class LLMService:
             "o1-", "o3-", 
             "thinking", "reasoner"
         ]
-        return any(kw in model_lower for kw in thinking_keywords)
+        if any(kw in model_lower for kw in thinking_keywords):
+            return True
+        if "antigravity" in model_lower:
+            return "pro" in model_lower or "thinking" in model_lower
+        return False
 
     @property
     def conversation_history(self):
