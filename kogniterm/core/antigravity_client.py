@@ -301,8 +301,25 @@ class AntigravityClient:
             request_payload["systemInstruction"] = system_instruction
         if gemini_tools:
             request_payload["tools"] = gemini_tools
+        
+        generation_config = {}
         if temperature is not None:
-            request_payload["generationConfig"] = {"temperature": temperature}
+            generation_config["temperature"] = temperature
+            
+        model_lower = model.lower()
+        if "gemini-2.5-pro" in model_lower or "gemini-3-pro" in model_lower or "thinking" in model_lower:
+            budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")
+            try:
+                budget = int(budget_str) if budget_str else 2048
+            except ValueError:
+                budget = 2048
+            generation_config["thinkingConfig"] = {
+                "thinkingBudget": budget
+            }
+            logger.info(f"Enabling thinkingConfig with budget {budget} for antigravity model {model}")
+
+        if generation_config:
+            request_payload["generationConfig"] = generation_config
 
         body = {
             "project": project_id,
