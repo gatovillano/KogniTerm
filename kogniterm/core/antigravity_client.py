@@ -178,6 +178,20 @@ class AntigravityClient:
                 })
             elif role == "tool":
                 name = msg.get("name")
+                tool_call_id = msg.get("tool_call_id")
+                
+                # Fallback: si el nombre no está presente, buscar en los tool_calls anteriores del historial
+                if not name and tool_call_id:
+                    for prev_msg in openai_messages:
+                        if prev_msg.get("role") == "assistant" and prev_msg.get("tool_calls"):
+                            for tc in prev_msg["tool_calls"]:
+                                if tc.get("id") == tool_call_id:
+                                    fn = tc.get("function", {})
+                                    name = fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None)
+                                    break
+                            if name:
+                                break
+                
                 try:
                     resp_obj = json.loads(content)
                     if not isinstance(resp_obj, dict):
