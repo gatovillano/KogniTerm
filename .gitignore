@@ -12,6 +12,7 @@ __pycache__/
 npm-debug.log*
 yarn-debug.log*
 .pnpm-debug.log*
+nohup.out
 
 # Node / JS
 node_modules/
@@ -37,3 +38,23 @@ PyPI-Recovery-Codes-*.txt
 kogniterm2.cast
 kogniterm3.cast
 kogniterm4.cast
+
+# Build artifacts
+kogniterm.egg-info/
+.temp_build/
+*.egg-info/
+
+# Archivos temporales
+*.swp
+*.swo
+*~
+image-1.png
+
+# Auth local
+.antigravitycli/
+
+# Scripts de investigación / scratch
+scratch/
+
+# GIFs sueltos fuera de assets/
+kogniterm/*.gif

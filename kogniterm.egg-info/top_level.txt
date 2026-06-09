@@ -1,3 +1,0 @@
-kogniterm
-kogniterm-android
-kogniterm-desktop

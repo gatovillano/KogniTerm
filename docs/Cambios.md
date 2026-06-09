@@ -302,3 +302,29 @@ git tag --sort=-version:refname
 - **Sin impacto en otros proveedores**: el campo solo aparece cuando fue generado por Antigravity; todos los checks son condicionales.
 
 
+
+---
+
+## [Docs] - 2026-06-09
+
+### 📄 Documentación — README
+
+- Se reemplazó el elemento `<video>` del README por el GIF animado `assets/kogniterm11.gif` para una mejor visualización en GitHub y otros renderizadores Markdown.
+
+---
+
+## [Docs] - 2026-06-09
+
+### 🎨 Assets — Banner
+
+- Se reemplazó el banner `image.png` por el nuevo banner pixel-art `assets/kogniterm_banner.png` en el README.
+
+---
+
+## [0.6.13] - 2026-06-09
+
+### 🐛 Corrección — Persistencia de thought_signature en segundo llamado de Antigravity (HTTP 400)
+- **Causa raíz**: Aunque se implementó la extracción de `thought_signature` en `llm_service.py` durante el streaming, esta se extraía de la lista `tool_calls` del `AIMessage` para almacenarse en `message.additional_kwargs["thought_signatures"]` (con el fin de evitar errores de validación de LangChain). Sin embargo, al reconstruir los mensajes para el segundo turno, el serializador `_to_litellm_message` solo buscaba `thought_signature` directamente en el diccionario del tool call (`tc.get("thought_signature")`), donde ya no existía. Esto provocaba que no se enviara el `thoughtSignature` requerido por la API de Antigravity en el historial del segundo turno, resultando en un error HTTP 400 Bad Request.
+- **Solución**:
+  - Se actualizó el método `_to_litellm_message` en [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) para que, en caso de no encontrar `thought_signature` directamente en el diccionario del tool call, intente recuperarlo de `message.additional_kwargs["thought_signatures"]` usando el ID del tool call.
+  - Se corrigió el caso de prueba `test_thought_signature_propagation` en [test_antigravity_integration.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/test_antigravity_integration.py) para que use la API real `_to_litellm_message` en lugar del método obsoleto/inexistente `_message_to_litellm_format` e inicialice correctamente `LLMService`.
