@@ -121,7 +121,15 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
     
     # Solo añadir la instrucción de pensar si el modelo NO es de razonamiento nativo
     if not llm_service.is_thinking_model():
-        base_content += "\nRecuerda: ¡PIENSA ANTES DE ACTUAR!\n"
+        base_content += """
+\nRecuerda: ¡PIENSA ANTES DE ACTUAR!
+Como este modelo no tiene razonamiento nativo, DEBES encerrar todo tu proceso de pensamiento e investigación técnica dentro de etiquetas `<thought>...</thought>` antes de escribir cualquier respuesta o ejecutar cualquier herramienta.
+Ejemplo:
+<thought>
+Estoy analizando la petición del usuario y decido usar tal herramienta...
+</thought>
+[Aquí tu respuesta final o llamada a herramienta]
+"""
 
     # PROTOCOLO OBLIGATORIO DE SEGUIMIENTO DE TAREAS (task_tracker)
     base_content += """

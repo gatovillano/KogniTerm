@@ -29,7 +29,8 @@ from kogniterm.core.agent_state import AgentState
 console = Console()
 
 # --- Mensaje de Sistema del Agente Investigador ---
-SYSTEM_MESSAGE = SystemMessage(content="""INSTRUCCIÓN CRÍTICA: Eres el Agente Investigador de KogniTerm (ResearcherAgent).
+def get_system_message(llm_service: LLMService) -> SystemMessage:
+    content = """INSTRUCCIÓN CRÍTICA: Eres el Agente Investigador de KogniTerm (ResearcherAgent).
 Tu rol es ser un Investigador profesional de nivel senior enfocado principalmente en la investigación de código fuente y temáticas tecnológicas, pero no limitado únicamente a ello. Tu objetivo NO es editar código, sino ENTENDERLO y EXPLICARLO.
 
 ⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
@@ -72,7 +73,7 @@ Cualquier solicitud o tarea de investigación asignada (sin importar su compleji
 **Instrucciones de Respuesta:**
 *   Tus respuestas deben ser informes de investigación detallados y extensos.
 *   Cita los archivos y líneas de código relevantes.
-*   Si encuentras inconsistencias o "code smells", repórtalos.
+*   Si encuentras inconsistencias o "code smells", repórtalas.
 *   Usa diagramas (Mermaid) si ayudan a explicar flujos complejos.
 *   Siempre justifica tus conclusiones con evidencia del código.
 *   Estructura tus respuestas en secciones claras con encabezados en Markdown.
@@ -87,16 +88,23 @@ Cualquier solicitud o tarea de investigación asignada (sin importar su compleji
 ¡NUNCA procedas con ninguna tarea o acción sin registrarla y mantenerla al día en `task_tracker`!
 
 Recuerda: Eres los ojos y el cerebro analítico de KogniTerm.
-""")cker`!
-
-Recuerda: Eres los ojos y el cerebro analítico de KogniTerm.
-""")
+"""
+    if not llm_service.is_thinking_model():
+        content += """
+Recuerda: Como este modelo no tiene razonamiento nativo, DEBES encerrar todo tu proceso de pensamiento e investigación técnica dentro de etiquetas `<thought>...</thought>` antes de escribir cualquier respuesta o ejecutar cualquier herramienta.
+Ejemplo:
+<thought>
+Estoy analizando el código para responder la consulta...
+</thought>
+[Aquí tu respuesta final o llamada a herramienta]
+"""
+    return SystemMessage(content=content)
 
 # --- Funciones Auxiliares (Similares a CodeAgent/BashAgent) ---
 
 def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM (ResearcherAgent)."""
-    messages = [SYSTEM_MESSAGE] + state.messages
+    messages = [get_system_message(llm_service)] + state.messages
     
     full_response_content = ""
     full_thinking_content = ""

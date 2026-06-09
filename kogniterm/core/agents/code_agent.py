@@ -30,7 +30,8 @@ from ..utils.tool_utils import get_tool_action_description, tool_requires_conten
 console = Console()
 
 # --- Mensaje de Sistema del Agente de Código ---
-SYSTEM_MESSAGE = SystemMessage(content="""INSTRUCCIÓN CRÍTICA: Eres el Agente de Código de KogniTerm (CodeAgent).
+def get_system_message(llm_service: LLMService) -> SystemMessage:
+    content = """INSTRUCCIÓN CRÍTICA: Eres el Agente de Código de KogniTerm (CodeAgent).
 Tu rol es ser un Desarrollador Senior y Arquitecto de Software experto en Python, JavaScript/TypeScript y diseño de sistemas.
 
 ⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
@@ -73,7 +74,17 @@ Cualquier solicitud o tarea asignada (sin importar su complejidad) DEBE ser regi
 ¡NUNCA procedas con ninguna tarea o acción sin registrarla y mantenerla al día en `task_tracker`!
 
 Recuerda: Eres el guardián de la calidad del código.
-""")
+"""
+    if not llm_service.is_thinking_model():
+        content += """
+Recuerda: Como este modelo no tiene razonamiento nativo, DEBES encerrar todo tu proceso de pensamiento e investigación de código dentro de etiquetas `<thought>...</thought>` antes de escribir cualquier respuesta o ejecutar cualquier herramienta.
+Ejemplo:
+<thought>
+Estoy planeando la modificación del archivo...
+</thought>
+[Aquí tu respuesta final o llamada a herramienta]
+"""
+    return SystemMessage(content=content)
 
 # --- Funciones Auxiliares (Reutilizadas/Adaptadas de bash_agent) ---
 
@@ -172,7 +183,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
             state.clear_tool_call_history()
             return {"messages": state.messages, "critical_loop_detected": True}
 
-    messages = [SYSTEM_MESSAGE] + state.messages
+    messages = [get_system_message(llm_service)] + state.messages
     
     full_response_content = ""
     full_thinking_content = ""

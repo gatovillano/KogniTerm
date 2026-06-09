@@ -307,7 +307,13 @@ class AntigravityClient:
             generation_config["temperature"] = temperature
             
         model_lower = model.lower()
-        if "gemini-2.5-pro" in model_lower or "gemini-3-pro" in model_lower or "thinking" in model_lower:
+        supports_thinking = (
+            ("gemini" in model_lower and "pro" in model_lower) or
+            "thinking" in model_lower or
+            "reasoner" in model_lower or
+            "reasoning" in model_lower
+        )
+        if supports_thinking:
             budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")
             try:
                 budget = int(budget_str) if budget_str else 2048
