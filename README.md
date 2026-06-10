@@ -2,7 +2,7 @@
 
 ![KogniTerm Banner](assets/kogniterm_banner.png)
 
-![KogniTerm Demo](assets/kogniterm11.gif)
+![KogniTerm Demo](assets/kogniterm1.gif)
 
 **KogniTerm** es un agente evolutivo de terminal de última generación. Transforma tu línea de comandos en un entorno de desarrollo colaborativo donde **Agentes de IA Especializados** trabajan contigo para razonar, investigar, codificar y ejecutar tareas complejas.
 
