@@ -333,4 +333,16 @@ git tag --sort=-version:refname
   - **Instrucciones de Agentes Paralelos**: Se actualizó [tool.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/call_agents_parallel/scripts/tool.py) para que los mensajes de inicio enviados a los agentes en modo paralelo incluyan una advertencia ineludible y obligatoria sobre el uso de la herramienta `task_tracker` desde su primer turno.
   - **Pruebas Unitarias**: Se corrigió el desempaquetado de `map_messages` en el test existente de [test_antigravity_integration.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/test_antigravity_integration.py) y se añadieron nuevas pruebas unitarias (`test_thinking_config_injection` y `test_agent_dynamic_prompts`) para validar la inyección de `thinkingConfig` en el payload y el comportamiento dinámico de los prompts según el tipo de modelo seleccionado.
 
+---
+
+## [0.6.15] - 2026-06-09
+
+### 🐛 Corrección y Soporte — Mapeo de gemini-3.1-pro-high y Habilitación de Razonamiento en Antigravity
+- **Cambios**:
+  - **Mapeo del Modelo**: Se resolvió el error `400 Invalid Argument` al usar `gemini-3.1-pro-high` mapeándolo de forma transparente y compatible a `gemini-pro-agent` en [antigravity_client.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/antigravity_client.py), ya que la API de Google Antigravity requiere este identificador y rechaza la cadena cruda de alta capacidad.
+  - **Activación y Visualización de Pensamientos (CoT)**: Dado que el proxy de la API de Google Antigravity oculta/elimina los pensamientos nativos en la respuesta final de streaming (sólo enviando firmas binarias `thoughtSignature` internas), se desactivó `thinkingConfig` y `supports_thinking` para modelos del proveedor `antigravity` en [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) y [antigravity_client.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/antigravity_client.py). Esto fuerza al sistema prompt a exigir a los modelos de Antigravity generar un razonamiento manual (envolviéndolo en etiquetas XML `<thought>...</thought>`), garantizando que la TUI intercepte, parsee y visualice en vivo los pensamientos del agente.
+  - **Secuencia de Mensajes y Alternancia de Turnos (HTTP 400)**: Se corrigió el error `API Error (400): Please ensure that function call turn comes immediately after a user turn or after a function response turn.` que ocurría al ejecutar herramientas con modelos de Antigravity. Se introdujo una bifurcación en [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) para omitir la lógica compleja de filtrado/remoción de tool_calls (pensada para OpenRouter/Baidu) cuando se utiliza el proveedor `antigravity`. Esto asegura que los mensajes se transmitan 1:1, manteniendo la alternancia estricta de turnos exigida por la API de Google Gemini.
+  - **Pruebas de Integración**: Se actualizaron las pruebas unitarias y de integración correspondientes en [test_antigravity_integration.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/test_antigravity_integration.py) para que sean consistentes con el CoT manual forzado en todos los modelos de Antigravity.
+
+
 

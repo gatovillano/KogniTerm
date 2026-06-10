@@ -336,6 +336,12 @@ class LLMService:
     def is_thinking_model(self) -> bool:
         """ Detecta si el modelo actual tiene capacidades de razonamiento nativo. """
         model_lower = self.model_name.lower()
+        # Desactivamos razonamiento nativo en los modelos de antigravity
+        # para forzar el uso de CoT manual (etiquetas XML) ya que el proxy
+        # de Google Antigravity oculta/elimina los pensamientos nativos en la respuesta.
+        if "antigravity" in model_lower:
+            return False
+
         thinking_keywords = [
             "deepseek-reasoner", "deepseek-r1", 
             "o1-", "o3-", 
@@ -343,8 +349,6 @@ class LLMService:
         ]
         if any(kw in model_lower for kw in thinking_keywords):
             return True
-        if "antigravity" in model_lower:
-            return "pro" in model_lower or "thinking" in model_lower
         return False
 
     @property
@@ -1019,63 +1023,76 @@ class LLMService:
 
         # Validar secuencia para Mistral/OpenRouter
         # Regla: assistant(tool_calls) -> tool(s) -> assistant/user
-        for i, msg in enumerate(raw_conv_messages):
-            role = msg["role"]
-            
-            if role == "user":
-                # Evitar duplicados consecutivos
-                if msg["content"] != last_user_content:
-                    litellm_messages.append(msg)
-                    last_user_content = msg["content"]
-            elif role == "assistant":
-                if msg.get("tool_calls"):
-                    # Validar secuencia estricta: assistant(tool_calls) debe tener ToolMessage(s)
-                    # con IDs que coincidan antes del siguiente user/assistant.
-                    responded_tool_ids = set()
-                    for j in range(i + 1, len(raw_conv_messages)):
-                        next_msg = raw_conv_messages[j]
-                        if next_msg["role"] == "tool":
-                            next_tool_id = next_msg.get("tool_call_id")
-                            if next_tool_id:
-                                responded_tool_ids.add(next_tool_id)
-                            continue
-                        if next_msg["role"] in ["user", "assistant"]:
-                            break
-
-                    original_tool_calls = msg.get("tool_calls", [])
-                    valid_tool_calls = [
-                        tc for tc in original_tool_calls
-                        if tc.get("id") and tc.get("id") in responded_tool_ids
-                    ]
-
-                    # Si no hay respuestas válidas y no es el último, permitir continuar sin tool_calls.
-                    # Esto evita errores de formato en proveedores estrictos (ej. Baidu via OpenRouter).
-                    if valid_tool_calls:
-                        msg_copy = msg.copy()
-                        msg_copy["tool_calls"] = valid_tool_calls
-                        for tc in valid_tool_calls:
-                            known_tool_call_ids.add(tc["id"])
-                        litellm_messages.append(msg_copy)
-                    elif i < len(raw_conv_messages) - 1:
-                        msg_copy = msg.copy()
-                        msg_copy.pop("tool_calls", None)
-                        if msg_copy.get("content"):
-                            litellm_messages.append(msg_copy)
-                    else:
-                        # Último mensaje con tool_calls pendientes: remover tool_calls para evitar 400.
-                        msg_copy = msg.copy()
-                        msg_copy.pop("tool_calls", None)
-                        if msg_copy.get("content"):
-                            litellm_messages.append(msg_copy)
+        if "antigravity" in self.model_name.lower():
+            # Para Antigravity, mantener la secuencia original 1:1 sin alterar ni remover tool_calls o tool messages
+            # para evitar violar las restricciones estrictas de alternancia de turnos de la API de Gemini.
+            for msg in raw_conv_messages:
+                role = msg["role"]
+                if role == "user":
+                    if msg["content"] != last_user_content:
+                        litellm_messages.append(msg)
+                        last_user_content = msg["content"]
                 else:
                     litellm_messages.append(msg)
-                last_user_content = None
-            elif role == "tool":
-                # Solo añadir si el ID es conocido (evitar huérfanos)
-                tool_id = msg.get("tool_call_id")
-                if tool_id and tool_id in known_tool_call_ids:
-                    litellm_messages.append(msg)
-                last_user_content = None
+                    last_user_content = None
+        else:
+            for i, msg in enumerate(raw_conv_messages):
+                role = msg["role"]
+                
+                if role == "user":
+                    # Evitar duplicados consecutivos
+                    if msg["content"] != last_user_content:
+                        litellm_messages.append(msg)
+                        last_user_content = msg["content"]
+                elif role == "assistant":
+                    if msg.get("tool_calls"):
+                        # Validar secuencia estricta: assistant(tool_calls) debe tener ToolMessage(s)
+                        # con IDs que coincidan antes del siguiente user/assistant.
+                        responded_tool_ids = set()
+                        for j in range(i + 1, len(raw_conv_messages)):
+                            next_msg = raw_conv_messages[j]
+                            if next_msg["role"] == "tool":
+                                next_tool_id = next_msg.get("tool_call_id")
+                                if next_tool_id:
+                                    responded_tool_ids.add(next_tool_id)
+                                continue
+                            if next_msg["role"] in ["user", "assistant"]:
+                                break
+
+                        original_tool_calls = msg.get("tool_calls", [])
+                        valid_tool_calls = [
+                            tc for tc in original_tool_calls
+                            if tc.get("id") and tc.get("id") in responded_tool_ids
+                        ]
+
+                        # Si no hay respuestas válidas y no es el último, permitir continuar sin tool_calls.
+                        # Esto evita errores de formato en proveedores estrictos (ej. Baidu via OpenRouter).
+                        if valid_tool_calls:
+                            msg_copy = msg.copy()
+                            msg_copy["tool_calls"] = valid_tool_calls
+                            for tc in valid_tool_calls:
+                                known_tool_call_ids.add(tc["id"])
+                            litellm_messages.append(msg_copy)
+                        elif i < len(raw_conv_messages) - 1:
+                            msg_copy = msg.copy()
+                            msg_copy.pop("tool_calls", None)
+                            if msg_copy.get("content"):
+                                litellm_messages.append(msg_copy)
+                        else:
+                            # Último mensaje con tool_calls pendientes: remover tool_calls para evitar 400.
+                            msg_copy = msg.copy()
+                            msg_copy.pop("tool_calls", None)
+                            if msg_copy.get("content"):
+                                litellm_messages.append(msg_copy)
+                    else:
+                        litellm_messages.append(msg)
+                    last_user_content = None
+                elif role == "tool":
+                    # Solo añadir si el ID es conocido (evitar huérfanos)
+                    tool_id = msg.get("tool_call_id")
+                    if tool_id and tool_id in known_tool_call_ids:
+                        litellm_messages.append(msg)
+                    last_user_content = None
 
         # 4. Manejo de Rate Limit
         current_time = time.time()
