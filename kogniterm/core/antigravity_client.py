@@ -279,10 +279,34 @@ class AntigravityClient:
         if "/" in model:
             model = model.split("/")[-1]
 
+        # Mapeo transparente para evitar el error 400 Bad Request en la API de Google Antigravity
+        if model == "gemini-3.1-pro-high":
+            model = "gemini-pro-agent"
+
         token = cls.get_token()
         project_id = cls.get_project_id()
 
         contents, system_instruction = cls.map_messages(messages)
+        
+        # Log the sequence of roles and parts in contents for diagnosis
+        try:
+            seq_debug = []
+            for idx, msg in enumerate(contents):
+                part_types = []
+                for p in msg.get("parts", []):
+                    if "text" in p:
+                        part_types.append(f"text({repr(p['text'][:25])})")
+                    elif "functionCall" in p:
+                        part_types.append(f"functionCall({p['functionCall'].get('name')})")
+                    elif "functionResponse" in p:
+                        part_types.append(f"functionResponse({p['functionResponse'].get('name')})")
+                    else:
+                        part_types.append(str(list(p.keys())))
+                seq_debug.append(f"  {idx}: role={msg.get('role')} parts={part_types}")
+            logger.info("Antigravity Request Contents Sequence:\n" + "\n".join(seq_debug))
+        except Exception as e:
+            logger.error(f"Error logging sequence: {e}")
+
         gemini_tools = cls.map_tools(tools)
 
         headers = {
@@ -306,13 +330,11 @@ class AntigravityClient:
         if temperature is not None:
             generation_config["temperature"] = temperature
             
-        model_lower = model.lower()
-        supports_thinking = (
-            ("gemini" in model_lower and "pro" in model_lower) or
-            "thinking" in model_lower or
-            "reasoner" in model_lower or
-            "reasoning" in model_lower
-        )
+        # Desactivamos supports_thinking en antigravity porque el proxy
+        # de Google no devuelve el razonamiento en claro (sólo thoughtSignature),
+        # impidiendo que el usuario visualice sus pensamientos. Al desactivarlo,
+        # KogniTerm fuerza el CoT manual con etiquetas XML (<thought>...</thought>).
+        supports_thinking = False
         if supports_thinking:
             budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")
             try:

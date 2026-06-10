@@ -228,7 +228,7 @@ def test_thought_signature_propagation():
 
 
 def test_thinking_config_injection():
-    # Test that gemini-2.5-pro adds thinkingConfig to request_payload
+    # Test that gemini-2.5-pro does NOT add thinkingConfig to request_payload because we disabled it to force manual CoT
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
          patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
          patch("kogniterm.core.antigravity_client.requests.post") as mock_post:
@@ -253,16 +253,15 @@ def test_thinking_config_injection():
             stream=False
         )
         
-        # Verify mock_post was called and request body contains thinkingConfig
+        # Verify mock_post was called and request body does NOT contain thinkingConfig
         assert mock_post.called
         call_kwargs = mock_post.call_args[1]
         request_body = call_kwargs["json"]
         request_payload = request_body["request"]
         
-        assert "generationConfig" in request_payload
-        gen_config = request_payload["generationConfig"]
-        assert "thinkingConfig" in gen_config
-        assert gen_config["thinkingConfig"]["thinkingBudget"] == 2048
+        # thinkingConfig should be absent because supports_thinking was set to False
+        if "generationConfig" in request_payload:
+            assert "thinkingConfig" not in request_payload["generationConfig"]
 
 
 def test_agent_dynamic_prompts():
@@ -272,7 +271,7 @@ def test_agent_dynamic_prompts():
     
     service = LLMService()
     
-    # 1. Non-thinking model case
+    # Antigravity models should have "<thought>" manually prompted since we force manual CoT on them
     service.set_model("antigravity/gemini-3-flash")
     code_msg = get_code_system(service)
     researcher_msg = get_researcher_system(service)
@@ -280,13 +279,13 @@ def test_agent_dynamic_prompts():
     assert "<thought>" in code_msg.content
     assert "<thought>" in researcher_msg.content
     
-    # 2. Thinking model case
+    # Even gemini-2.5-pro (an Antigravity model) should have "<thought>" manually prompted now
     service.set_model("antigravity/gemini-2.5-pro")
     code_msg_thinking = get_code_system(service)
     researcher_msg_thinking = get_researcher_system(service)
     
-    assert "<thought>" not in code_msg_thinking.content
-    assert "<thought>" not in researcher_msg_thinking.content
+    assert "<thought>" in code_msg_thinking.content
+    assert "<thought>" in researcher_msg_thinking.content
 
 
 
