@@ -416,6 +416,41 @@ class SkillLoader:
                         tools.append(attr)
                         seen_objects.add(id(attr))
 
+                        # 5. Asegurar método invoke para compatibilidad con LangChain
+                        if not hasattr(attr, 'invoke'):
+                            # Crear un wrapper para que funcione como una herramienta de LangChain
+                            def create_invoke(func):
+                                def invoke(input_data=None, config=None, **kwargs):
+                                    # Manejar diferentes formas de pasar argumentos
+                                    if isinstance(input_data, dict):
+                                        return func(**input_data)
+                                    return func(**kwargs)
+                                return invoke
+                            attr.invoke = create_invoke(attr)
+
+                        # 6. Detectar parámetros de inyección de dependencias
+                        try:
+                            import inspect
+                            sig = inspect.signature(attr)
+                            known_injection_params = {
+                                'llm_service', 'terminal_ui', 'interrupt_queue',
+                                'approval_handler', 'agent_state', 'command_executor',
+                                'history_manager', 'session_manager'
+                            }
+                            injection_params = {}
+                            for param_name, param in sig.parameters.items():
+                                if param_name in known_injection_params:
+                                    injection_params[param_name] = True
+                            if injection_params:
+                                attr._kogniterm_injection_params = injection_params
+                                logger.debug(f"Parámetros de inyección detectados en {attr.name}: {list(injection_params.keys())}")
+                        except Exception as e:
+                            logger.debug(f"No se pudieron detectar parámetros de inyección en {attr_name}: {e}")
+
+                        tools.append(attr)
+                        seen_objects.add(id(attr))
+
+
         return tools
 
     def _build_dynamic_module_name(self, skill_name: str, module_stem: str) -> str:

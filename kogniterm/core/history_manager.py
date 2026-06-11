@@ -14,12 +14,16 @@ from kogniterm.core.autosave_manager import AutosaveManager
 
 
 class AutoSavingMessageList(list):
-    """Lista que persiste automáticamente el historial tras cada mutación."""
+    """Lista que persiste automáticamente el historial tras cada mutación con debounce."""
 
-    def __init__(self, iterable=None, on_change=None):
+    def __init__(self, iterable=None, on_change=None, debounce_seconds=1.0):
         super().__init__(iterable or [])
         self._on_change = on_change
         self._autosave_suspended = 0
+        self._debounce_seconds = debounce_seconds
+        self._debounce_timer = None
+        self._debounce_lock = threading.RLock()
+        self._pending = False
 
     def set_on_change(self, callback):
         self._on_change = callback
@@ -31,61 +35,116 @@ class AutoSavingMessageList(list):
             yield self
         finally:
             self._autosave_suspended = max(0, self._autosave_suspended - 1)
+            if self._autosave_suspended == 0 and self._pending:
+                self._schedule_save()
 
-    def _notify_change(self):
-        if self._on_change and self._autosave_suspended == 0:
-            self._on_change(self)
+    def _schedule_save(self):
+        """Programa un guardado con debounce. Cancela el timer anterior si existe."""
+        if self._autosave_suspended != 0:
+            self._pending = True
+            return
+        if not self._on_change:
+            return
+
+        with self._debounce_lock:
+            self._pending = True
+            if self._debounce_timer is not None:
+                self._debounce_timer.cancel()
+            self._debounce_timer = threading.Timer(
+                self._debounce_seconds,
+                self._flush
+            )
+            self._debounce_timer.daemon = True
+            self._debounce_timer.start()
+
+    def _flush(self):
+        """Fuerza la notificación inmediata al callback sin bloquear el lock durante la ejecución."""
+        callback = None
+        items_copy = None
+        
+        with self._debounce_lock:
+            self._debounce_timer = None
+            if self._pending and self._on_change and self._autosave_suspended == 0:
+                self._pending = False
+                callback = self._on_change
+                items_copy = list(self)  # Copia defensiva mientras se tiene el lock
+                
+        # Ejecutar el callback FUERA del lock para evitar deadlocks
+        if callback and items_copy is not None:
+            try:
+                callback(items_copy)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    f"Error en callback de historial: {e}", exc_info=True
+                )
+
+    def force_flush(self):
+        """Fuerza guardado inmediato. Útil al cerrar sesión o antes de operaciones críticas."""
+        with self._debounce_lock:
+            if self._debounce_timer is not None:
+                self._debounce_timer.cancel()
+                self._debounce_timer = None
+        self._flush()
+
+    def cancel_pending(self):
+        """Cancela cualquier guardado pendiente sin ejecutarlo."""
+        with self._debounce_lock:
+            if self._debounce_timer is not None:
+                self._debounce_timer.cancel()
+                self._debounce_timer = None
+            self._pending = False
 
     def append(self, item):
         super().append(item)
-        self._notify_change()
+        self._schedule_save()
 
     def extend(self, items):
         super().extend(items)
-        self._notify_change()
+        self._schedule_save()
 
     def insert(self, index, item):
         super().insert(index, item)
-        self._notify_change()
+        self._schedule_save()
 
     def clear(self):
         super().clear()
-        self._notify_change()
+        self._schedule_save()
 
     def pop(self, index=-1):
         value = super().pop(index)
-        self._notify_change()
+        self._schedule_save()
         return value
 
     def remove(self, value):
         super().remove(value)
-        self._notify_change()
+        self._schedule_save()
 
     def __setitem__(self, index, value):
         super().__setitem__(index, value)
-        self._notify_change()
+        self._schedule_save()
 
     def __delitem__(self, index):
         super().__delitem__(index)
-        self._notify_change()
+        self._schedule_save()
 
     def __iadd__(self, other):
         result = super().__iadd__(other)
-        self._notify_change()
+        self._schedule_save()
         return result
 
     def __imul__(self, value):
         result = super().__imul__(value)
-        self._notify_change()
+        self._schedule_save()
         return result
 
     def sort(self, *args, **kwargs):
         super().sort(*args, **kwargs)
-        self._notify_change()
+        self._schedule_save()
 
     def reverse(self):
         super().reverse()
-        self._notify_change()
+        self._schedule_save()
 
 class HistoryManager:
     """
