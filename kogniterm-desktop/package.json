@@ -17,6 +17,6 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
-    "turbo": "^2.3.3"
+    "turbo": "^2.9.14"
   }
 }
