@@ -1307,6 +1307,29 @@ class LLMService:
             last_finish_reason = None
             continuation_attempts = 0
             
+            # Variables para detección acumulativa de CoT manual (etiquetas <thought>)
+            stream_buffer = ""
+            processed_index = 0
+            in_manual_thought = False
+            
+            def get_safe_yield_index(text: str) -> int:
+                tags = ["<thought>", "<thinking>"]
+                for tag in tags:
+                    for i in range(1, len(tag)):
+                        prefix = tag[:i]
+                        if text.endswith(prefix):
+                            return len(text) - len(prefix)
+                return len(text)
+
+            def get_safe_thinking_yield_index(text: str) -> int:
+                tags = ["</thought>", "</thinking>"]
+                for tag in tags:
+                    for i in range(1, len(tag)):
+                        prefix = tag[:i]
+                        if text.endswith(prefix):
+                            return len(text) - len(prefix)
+                return len(text)
+
             for chunk in response_generator:
                 current_time = time.time()
                 
@@ -1361,52 +1384,67 @@ class LLMService:
                 content_delta = getattr(delta, 'content', None)
                 if content_delta is not None:
                     chunk_str = str(content_delta)
-                    # Normalizar etiquetas de pensamiento (soportar tanto thought como thinking)
-                    chunk_str = chunk_str.replace("<thinking>", "<thought>").replace("</thinking>", "</thought>")
+                    # Acumular en el buffer
+                    stream_buffer += chunk_str
+                    # Normalizar etiquetas
+                    stream_buffer = stream_buffer.replace("<thinking>", "<thought>").replace("</thinking>", "</thought>")
                     
-                    # Detección de pensamiento manual (etiquetas <thought> o prefijo THINKING:)
-                    # Si estamos dentro de un bloque de pensamiento manual
-                    if getattr(self, '_in_manual_thought', False):
-                        if "</thought>" in chunk_str:
-                            parts = chunk_str.split("</thought>", 1)
-                            full_reasoning_content += parts[0]
-                            yield f"__THINKING__:{parts[0]}"
-                            self._in_manual_thought = False
-                            logger.info(f"🧠 Fin de pensamiento manual detectado: {parts[0][:20]}...")
-                            if parts[1]:
-                                full_response_content += parts[1]
-                                yield parts[1]
-                        else:
-                            full_reasoning_content += chunk_str
-                            yield f"__THINKING__:{chunk_str}"
-                    elif "<thought>" in chunk_str:
-                        self._in_manual_thought = True
-                        logger.info("🧠 Inicio de pensamiento manual detectado (<thought>)")
-                        parts = chunk_str.split("<thought>", 1)
-                        if parts[0]:
-                            full_response_content += parts[0]
-                            yield parts[0]
-                        if parts[1]:
-                            if "</thought>" in parts[1]:
-                                thought_parts = parts[1].split("</thought>", 1)
-                                full_reasoning_content += thought_parts[0]
-                                yield f"__THINKING__:{thought_parts[0]}"
-                                self._in_manual_thought = False
-                                if thought_parts[1]:
-                                    full_response_content += thought_parts[1]
-                                    yield thought_parts[1]
+                    # Bucle para procesar el buffer de forma acumulativa
+                    while processed_index < len(stream_buffer):
+                        remaining_text = stream_buffer[processed_index:]
+                        
+                        if not in_manual_thought:
+                            # Caso A: Fuera del bloque de pensamiento
+                            # Buscar etiqueta de inicio
+                            tag_idx = remaining_text.find("<thought>")
+                            if tag_idx == -1:
+                                # No hay etiqueta de inicio completa en lo que queda.
+                                # Verificar si el final del buffer contiene un prefijo parcial de la etiqueta
+                                safe_len = get_safe_yield_index(remaining_text)
+                                if safe_len > 0:
+                                    text_to_yield = remaining_text[:safe_len]
+                                    full_response_content += text_to_yield
+                                    yield text_to_yield
+                                    processed_index += safe_len
+                                else:
+                                    # Esperar al siguiente chunk (todo lo que queda es un prefijo parcial)
+                                    break
                             else:
-                                full_reasoning_content += parts[1]
-                                yield f"__THINKING__:{parts[1]}"
-                    elif chunk_str.strip().startswith("THINKING:") and not full_response_content:
-                        # Detección rudimentaria de prefijo manual al inicio de la respuesta
-                        logger.info("🧠 Inicio de pensamiento manual detectado (THINKING:)")
-                        full_reasoning_content += chunk_str
-                        yield f"__THINKING__:{chunk_str}"
-                        self._in_manual_thought = True # Tratar el resto como pensamiento hasta un doble salto de línea
-                    else:
-                        full_response_content += chunk_str
-                        yield chunk_str
+                                # Etiqueta de inicio encontrada
+                                text_before = remaining_text[:tag_idx]
+                                if text_before:
+                                    full_response_content += text_before
+                                    yield text_before
+                                
+                                processed_index += tag_idx + len("<thought>")
+                                in_manual_thought = True
+                                logger.info("🧠 Inicio de pensamiento manual detectado (<thought>)")
+                        else:
+                            # Caso B: Dentro del bloque de pensamiento
+                            # Buscar etiqueta de cierre
+                            close_idx = remaining_text.find("</thought>")
+                            if close_idx == -1:
+                                # No hay etiqueta de cierre completa.
+                                # Verificar si el final contiene un prefijo parcial del cierre
+                                safe_len = get_safe_thinking_yield_index(remaining_text)
+                                if safe_len > 0:
+                                    thought_to_yield = remaining_text[:safe_len]
+                                    full_reasoning_content += thought_to_yield
+                                    yield f"__THINKING__:{thought_to_yield}"
+                                    processed_index += safe_len
+                                else:
+                                    # Esperar al siguiente chunk (todo lo que queda es un prefijo parcial de cierre)
+                                    break
+                            else:
+                                # Etiqueta de cierre encontrada
+                                thought_before = remaining_text[:close_idx]
+                                if thought_before:
+                                    full_reasoning_content += thought_before
+                                    yield f"__THINKING__:{thought_before}"
+                                
+                                processed_index += close_idx + len("</thought>")
+                                in_manual_thought = False
+                                logger.info("🧠 Fin de pensamiento manual detectado (</thought>)")
                 
                 tool_calls_from_delta = getattr(delta, 'tool_calls', None)
                 if tool_calls_from_delta is not None:
@@ -1962,35 +2000,82 @@ class LLMService:
         if not history_source:
             return ""
         
-        # 1. Convertir el historial a un formato de texto plano para evitar errores de secuencia de herramientas
-        history_text = []
+        # 1. Separar resúmenes anteriores de los mensajes recientes a resumir
+        previous_summaries = []
+        recent_messages_text = []
+        
         for msg in history_source:
+            content = msg.content or ""
+            # Si es un SystemMessage con algún resumen anterior, lo extraemos para consolidación
+            if isinstance(msg, SystemMessage) and ("Resumen de la conversación" in content or "Resumen forzado" in content):
+                # Extraer el contenido limpio del resumen
+                clean_content = content
+                if content.startswith("Resumen de la conversación anterior:"):
+                    clean_content = content[len("Resumen de la conversación anterior:"):].strip()
+                elif content.startswith("Resumen forzado de la conversación:"):
+                    clean_content = content[len("Resumen forzado de la conversación:"):].strip()
+                previous_summaries.append(clean_content)
+                continue
+                
             role = "Sistema" if isinstance(msg, SystemMessage) else "Usuario" if isinstance(msg, HumanMessage) else "Asistente" if isinstance(msg, AIMessage) else "Herramienta"
-            content = msg.content
+            
+            # Truncar localmente el contenido de mensajes individuales extremadamente largos (ej. outputs gigantes de herramientas)
+            # para evitar que desplacen a otros mensajes del historial de resumen.
+            max_msg_content_len = 5000
+            if len(content) > max_msg_content_len:
+                content = content[:2500] + f"\n\n... [Contenido largo de {len(content)} caracteres truncado para el proceso de resumen] ...\n\n" + content[-2500:]
             
             # Si es un mensaje de asistente con llamadas a herramientas, incluirlas en el texto
             if isinstance(msg, AIMessage) and msg.tool_calls:
                 tool_info = []
                 for tc in msg.tool_calls:
-                    tool_info.append(f"[Llamada a herramienta: {tc['name']}({tc['args']})]")
+                    try:
+                        args_str = json.dumps(tc.get('args', {}), ensure_ascii=False)
+                    except Exception:
+                        args_str = str(tc.get('args', {}))
+                    tool_info.append(f"[Llamada a herramienta: {tc.get('name', '')}({args_str})]")
                 content = f"{content}\n" + "\n".join(tool_info)
             
             # Si es una respuesta de herramienta, indicar qué herramienta fue
             if isinstance(msg, ToolMessage):
                 role = f"Respuesta de Herramienta ({msg.tool_call_id})"
             
-            history_text.append(f"### {role}:\n{content}")
+            recent_messages_text.append(f"### {role}:\n{content}")
 
-        flat_history = "\n\n".join(history_text)
+        flat_history = "\n\n".join(recent_messages_text)
         
-        # Prevenir errores de contexto excedido (HTTP 400) en modelos pequeños gratuitos
-        max_history_chars = 12000
+        # Prevenir errores de contexto excedido en el modelo de resumen.
+        # Aumentamos a 100,000 chars ya que los modelos modernos tienen contextos grandes y
+        # así evitamos perder mensajes intermedios en conversaciones largas.
+        max_history_chars = 100000
         if len(flat_history) > max_history_chars:
-            flat_history = "... [Contenido antiguo truncado para resumen] ...\n\n" + flat_history[-max_history_chars:]
+            flat_history = "... [Mensajes intermedios antiguos truncados para resumen] ...\n\n" + flat_history[-max_history_chars:]
+
+        merged_previous_summary = "\n\n---\n\n".join(previous_summaries) if previous_summaries else ""
 
         # 2. Crear un único mensaje de usuario con todo el historial y las instrucciones
-        summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior que permita retomar el hilo sin perder contexto.
-        
+        if merged_previous_summary:
+            summarize_prompt = f"""Genera un nuevo resumen consolidado, EXTENSO y DETALLADO de toda la conversación anterior, integrando el resumen del pasado lejano con los nuevos eventos recientes.
+            
+RESUMEN DE LA CONVERSACIÓN ANTERIOR (PASADO LEJANO):
+{merged_previous_summary}
+
+NUEVOS EVENTOS RECIENTES A INCORPORAR:
+{flat_history}
+
+INSTRUCCIONES PARA EL NUEVO RESUMEN CONSOLIDADO:
+- **Mantener y expandir:** Integra la información del 'RESUMEN DE LA CONVERSACIÓN ANTERIOR' con los 'NUEVOS EVENTOS RECIENTES'. NO pierdas datos clave del pasado lejano (objetivos iniciales, decisiones tomadas, estado del proyecto, etc.).
+- **Estado actual:** ¿En qué punto nos encontramos ahora al final de estos nuevos eventos?
+- **Decisiones consolidadas:** Lista todas las decisiones importantes tomadas desde el inicio de la conversación hasta ahora.
+- **Tareas pendientes:** ¿Qué acciones están en progreso o planeadas para el futuro?
+- **Errores y soluciones:** Problemas relevantes encontrados y cómo se resolvieron.
+- **Contexto esencial:** Datos críticos de todo el transcurso de la sesión que el asistente necesita para continuar.
+
+IMPORTANTE: El resumen resultante debe ser sumamente completo y autónomo. Un nuevo asistente debe poder leer este único resumen y continuar trabajando perfectamente como si hubiera estado presente desde el inicio de la sesión.
+Limita el resumen consolidado a 5000 caracteres. Sé exhaustivo en los puntos clave pero conciso en los detalles menores."""
+        else:
+            summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior que permita retomar el hilo sin perder contexto.
+            
 CONTEXTO DE LA CONVERSACIÓN:
 {flat_history}
 
@@ -2003,7 +2088,7 @@ INSTRUCCIONES PARA EL RESUMEN:
 - **Hilo de la conversación:** El flujo lógico de la discusión para no perder la continuidad.
 
 IMPORTANTE: El resumen debe ser lo suficientemente detallado para que un asistente pueda retomar la conversación exactamente donde se dejó, sin hacer preguntas innecesarias sobre el pasado reciente.
-Limita el resumen a 4000 caracteres. Sé exhaustivo en los puntos clave pero conciso en los detalles menores."""
+Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero conciso en los detalles menores."""
 
         litellm_messages_for_summary = [{"role": "user", "content": summarize_prompt}]
         

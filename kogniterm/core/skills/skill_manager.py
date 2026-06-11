@@ -301,6 +301,18 @@ class SkillLoader:
                     is_tool = False
                     reason = ""
                     
+                    # Funciones que claramente NO son herramientas (helpers, descripción, etc.)
+                    excluded_names = (
+                        'get_action_description', 'get_description', 'description',
+                        'validate', 'sanitize', 'format_output', 'format_input'
+                    )
+                    if attr_name in excluded_names:
+                        continue
+                    
+                    # Si ya encontramos una herramienta que coincide con el nombre del módulo, no agregar más
+                    if tools and module_name_attr and attr_name != module_name_attr:
+                        continue
+                    
                     # Caso A: El nombre de la función coincide con 'name' del módulo
                     if module_name_attr and attr_name == module_name_attr:
                         is_tool = True
@@ -317,7 +329,7 @@ class SkillLoader:
                     elif attr_name == skill_name:
                         is_tool = True
                         reason = "match_skill_name"
-                    # Caso E: tool.py y no tenemos nada aún
+                    # Caso E: tool.py y no tenemos nada aún (solo la primera función útil)
                     elif script_file.name == 'tool.py' and not tools and not attr_name.endswith('_sync'):
                         is_tool = True
                         reason = "tool_py_default"
