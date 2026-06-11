@@ -1023,8 +1023,8 @@ class LLMService:
 
         # Validar secuencia para Mistral/OpenRouter
         # Regla: assistant(tool_calls) -> tool(s) -> assistant/user
-        if "antigravity" in self.model_name.lower():
-            # Para Antigravity, mantener la secuencia original 1:1 sin alterar ni remover tool_calls o tool messages
+        if "antigravity" in self.model_name.lower() or "gemini" in self.model_name.lower():
+            # Para Antigravity y Gemini, mantener la secuencia original 1:1 sin alterar ni remover tool_calls o tool messages
             # para evitar violar las restricciones estrictas de alternancia de turnos de la API de Gemini.
             for msg in raw_conv_messages:
                 role = msg["role"]

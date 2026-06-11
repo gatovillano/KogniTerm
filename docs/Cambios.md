@@ -366,3 +366,21 @@ git tag --sort=-version:refname
     - Se agregaron los métodos `stop_live` y `update_live` a `DummyTerminalUI` en [test_conversation_history_retention.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/unit/test_conversation_history_retention.py).
     - Se modificó `test_explicit_command_denial_does_not_execute_safe_command` para que use un comando no seguro (`rm -rf /`) y mockee `ask_approval_sync` de forma que devuelva `False` (emulando la denegación del usuario).
     - Se eliminó la prueba obsoleta `test_summary_snapshot_keeps_recent_removed_context` que invocaba a un método inactivo (`_build_summary_snapshot`).
+
+---
+
+## [0.6.17] - 2026-06-11
+
+### 🐛 Corrección — Visualización del Pensamiento (CoT) y Comportamiento Errático en Streaming
+- **Causa raíz**: 
+  - **Fuga de pensamiento por fragmentación de tokens**: El sistema de detección de Chain of Thought (CoT) manual analizaba cada chunk recibido del stream de forma aislada. Si el tag `<thought>` o `</thought>` venía dividido en múltiples chunks del stream debido a la tokenización del modelo (por ejemplo, `"<"` y `"thought>"` en chunks contiguos), la verificación de subcadena `"<thought>" in chunk_str` fallaba por completo.
+  - **Consecuencias**: Las etiquetas se filtraban y se imprimían directamente al usuario como texto normal en la respuesta del agente. Esto no solo impedía capturar el pensamiento en la burbuja TUI de KogniTerm, sino que además causaba respuestas erráticas y desestructuradas al confundirse el modelo por las directivas de formato de etiquetas no completadas.
+- **Solución**:
+  - **Buffer Acumulativo de Stream**: Se implementó una lógica de parseo basada en una ventana deslizante de acumulación (`stream_buffer` y `processed_index`) en el generador de `invoke` en [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py).
+  - **Detección de Etiquetas Parciales**: Se introdujeron las funciones auxiliares `get_safe_yield_index` y `get_safe_thinking_yield_index` que detectan si el final de un fragmento de stream contiene un prefijo parcial de la etiqueta XML (como `"<"` o `"</th"`). Si es así, se pausa temporalmente la entrega (yield) de ese fragmento hasta que llegue el resto en el siguiente chunk y se complete la etiqueta.
+  - **Aseguramiento de Pruebas**: Se creó una nueva prueba unitaria automatizada en [test_cot_stream_parser.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/test_cot_stream_parser.py) que simula el streaming de respuestas con tags XML fragmentados arbitrariamente y verifica la correcta captura del pensamiento y la total remoción de las etiquetas en el texto del mensaje final.
+  - **Alternancia Estricta de Turnos en Gemini (HTTP 400)**:
+    - **Causa raíz**: La API de Google Gemini (ya sea invocada nativamente en Google AI Studio mediante LiteLLM o mediante el proxy de Antigravity) exige una alternancia de turnos sumamente estricta y falla con un error `400 Bad Request` si la secuencia de mensajes es alterada (ej. si se remueven tool calls sin responder o se insertan mensajes de sistema intermedios). Anteriormente, la bifurcación que conservaba la secuencia original 1:1 de los mensajes del asistente y de herramientas solo se activaba si el nombre del modelo contenía `"antigravity"`. Al utilizar un modelo directo de Gemini (como `google/gemini-2.5-flash` o `gemini-1.5-flash`), la lógica por defecto de Mistral/Baidu alteraba la cola de mensajes y disparaba el error 400.
+    - **Solución**: Se amplió la condición en [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) para que aplique el bypass de secuencia estricta 1:1 a cualquier modelo cuyo nombre contenga `"gemini"`, garantizando la compatibilidad total de llamadas a herramientas tanto en Antigravity como en Google AI Studio.
+
+
