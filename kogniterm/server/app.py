@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import os
+import shlex
 import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional, List
@@ -544,10 +545,17 @@ def create_app() -> FastAPI:
 
     @application.post("/api/execute", response_model=CommandResponse, tags=["Desktop"])
     async def execute_command(request: CommandRequest):
-        """Ejecuta un comando en el shell y devuelve la salida."""
+        """Ejecuta un comando y devuelve la salida."""
         try:
-            process = await asyncio.create_subprocess_shell(
-                request.command,
+            if not request.command or not request.command.strip():
+                return CommandResponse(output="", error="Empty command", exitCode=1)
+
+            args = shlex.split(request.command, posix=True)
+            if not args:
+                return CommandResponse(output="", error="Empty command", exitCode=1)
+
+            process = await asyncio.create_subprocess_exec(
+                *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
