@@ -1,0 +1,19 @@
+{
+  "session_id": "7bc1685a-4eb0-42d5-a202-84b888a4a1e1",
+  "timestamp": "2026-06-10T02:02:40.867880",
+  "description": "Mutación automática del historial",
+  "message_count": 1,
+  "messages": [
+    {
+      "type": "human",
+      "data": {
+        "content": "Mensaje usuario 0",
+        "additional_kwargs": {},
+        "response_metadata": {},
+        "type": "human",
+        "name": null,
+        "id": null
+      }
+    }
+  ]
+}
