@@ -58,3 +58,31 @@ scratch/
 
 # GIFs sueltos fuera de assets/
 kogniterm/*.gif
+
+# Datos de programas adicionales
+.stfolder
+.pytest_cache/
+.ruff_cache/
+.agent/
+.kilocode/
+.kilo/
+.aider.tags.cache.v4
+.claude/
+
+# Datos de KogniTerm en subdirectorios
+kogniterm-desktop/.kogniterm/
+kogniterm/.kogniterm/
+
+# Carpetas de herramientas en subdirectorios
+kogniterm-desktop/.github/
+kogniterm/agent-browser/.claude-plugin/
+kogniterm/agent-browser/.husky/
+scratch/opencode-google-antigravity-auth/.git/
+kogniterm/agent-browser/.git/
+
+# Skills y datos de KiloCode/Kilocode
+.kilocode/skills/
+.kilo/
+
+# CI/CD en subdirectorios
+kogniterm-desktop/.github/
