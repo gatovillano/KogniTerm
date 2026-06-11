@@ -152,7 +152,3 @@ Consulta la carpeta `docs/` para detalles sobre:
 *Desarrollado por Gatovillano*
 ---
 
-## 💙 Apoya el Proyecto
-Si encuentras útil este proyecto, considera hacer una donación para apoyar su desarrollo continuo. 
-
-[![Donar con PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate?hosted_button_id=TU_ID_DE_BOTÓN)
