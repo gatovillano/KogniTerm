@@ -112,12 +112,28 @@ class CommandExecutor:
         except:
             pass
 
-        # Transformar python3 -c "..." a archivo temporal para evitar problemas con comillas en PTY
+        # Transformar comandos multilinea a ejecución desde archivo temporal usando source
+        # para evitar problemas de eco, PS2 (>) y ruptura de sintaxis en PTY (ej. heredocs, comentarios)
         original_command = command
-        command, was_transformed, temp_path = _transform_python3_dash_c(command)
+        stripped_command = command.strip()
+        is_multiline = "\n" in stripped_command
         
-        if was_transformed:
-            yield f"[KogniTerm] Transformando python3 -c a archivo temporal: {temp_path}\n"
+        was_transformed = False
+        temp_path = None
+        
+        if is_multiline:
+            fd, temp_path = tempfile.mkstemp(suffix='.sh', prefix='kogniterm_run_')
+            os.close(fd)
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                f.write(command)
+            command = f"source {temp_path}"
+            was_transformed = True
+            yield f"[KogniTerm] Ejecutando comando multilínea desde archivo temporal: {temp_path}\n"
+        else:
+            command, was_transformed, temp_path = _transform_python3_dash_c(command)
+            if was_transformed:
+                yield f"[KogniTerm] Transformando python3 -c a archivo temporal: {temp_path}\n"
+
 
         # Enviar el comando al shell persistente.
         # El tamaño ya se ajusta con ioctl(TIOCSWINSZ), por lo que no inyectamos

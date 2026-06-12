@@ -892,10 +892,12 @@ class KogniTermTUI(App):
         self._last_terminal_tool_name = ""
         self._last_terminal_output = ""
         self._completion_input = None  # Input widget para autocompletado
+        self._tool_panel_explicitly_shown = False
 
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
         ("ctrl+b", "toggle_sidebar", "Toggle Sidebar"),
+        ("ctrl+o", "toggle_tool_panel", "Toggle Tool Panel"),
     ]
 
     def _build_splash_title(self) -> str:
@@ -2184,7 +2186,10 @@ class KogniTermTUI(App):
 
         # Pasamos el output crudo con una tupla marcadora para que ChatLogWidget instancie el ToolOutputWidget
         # Tupla de 4 elementos: (__TERMINAL__, tool_name, output, display_command)
-        self.update_live_display(("__TERMINAL__", tool_name, output, display_command))
+        if getattr(self, "_tool_panel_explicitly_shown", False):
+            self.update_live_display(("__TERMINAL__", tool_name, output, display_command), panel_id="tool_display")
+        else:
+            self.update_live_display(("__TERMINAL__", tool_name, output, display_command))
 
     def update_task_tracker(self, agent_plans: dict):
         """Actualiza los datos del task tracker y muestra el panel si hay tareas."""
@@ -2203,6 +2208,31 @@ class KogniTermTUI(App):
         tracker = self.query_one("#tracker_container")
         tracker.display = not tracker.display
 
+    def action_toggle_tool_panel(self):
+        """Alterna la visibilidad del panel de herramientas (tool_display) manualmente."""
+        self._tool_panel_explicitly_shown = not getattr(self, "_tool_panel_explicitly_shown", False)
+        self.tool_display.display = self._tool_panel_explicitly_shown
+        
+        if self.tool_display.display:
+            # Si se acaba de mostrar y tenemos salida de herramienta anterior guardada,
+            # la cargamos en el panel de herramientas para que no esté vacío.
+            if self._last_terminal_output:
+                tool_name = self._last_terminal_tool_name or "Terminal"
+                command = "bash" if tool_name == "execute_command" else tool_name
+                if hasattr(self.tool_display, "update_content"):
+                    self.tool_display.update_content(self._last_terminal_output, command=command)
+                else:
+                    self.tool_display.update(self._last_terminal_output)
+            # Enfocar el panel si es visible para permitir scrolling con teclado
+            self.tool_display.focus()
+        else:
+            # Si se oculta, devolver el foco a la entrada de chat
+            try:
+                chat_input = self.query_one("#chat_input", ChatInput)
+                chat_input.focus()
+            except Exception:
+                pass
+
     def hide_live_display(self):
         """Finaliza el streaming en el chat log."""
         # Asegurar que el spinner se detenga
@@ -2210,7 +2240,8 @@ class KogniTermTUI(App):
         
         # Ocultar paneles dedicados si estaban visibles
         try:
-            self.tool_display.display = False
+            if not getattr(self, "_tool_panel_explicitly_shown", False):
+                self.tool_display.display = False
             self.live_display.display = False
         except Exception:
             pass
