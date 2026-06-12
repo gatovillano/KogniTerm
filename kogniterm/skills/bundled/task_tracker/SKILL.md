@@ -15,48 +15,82 @@ sandbox_required: false
 
 # Instrucciones para el LLM
 
-Esta skill permite gestionar una lista de tareas dinámica para mantener el foco en misiones complejas.
+## ⚠️ REGLAS OBLIGATORIAS (incumplirlas causa fallos)
 
-## Herramientas disponibles:
+1. **SIEMPRE** inicializa el plan en el PRIMER turno de una tarea compleja, antes de cualquier otra acción.
+2. **SIEMPRE** usa el mismo `agent_name` dentro de una misma sesión de trabajo.
+3. **SIEMPRE** marca `in-progress` la tarea actual antes de ejecutar la acción principal.
+4. **SIEMPRE** marca `done` la tarea inmediatamente después de completarla.
+5. **SIEMPRE** consulta el estado con `get` si pierdes el hilo de qué tarea sigue.
 
-### task_tracker
+## Formato de llamada
 
-Permite inicializar un plan, actualizar el estado de las tareas y obtener el resumen del progreso.
-
-**Parámetros:**
-- `action` (string, requerido): Acción a realizar: 'init', 'update', 'get'.
-- `plan` (array de strings, opcional): Lista de tareas para inicializar (solo para 'init').
-- `task_index` (integer, opcional): Índice de la tarea a actualizar (0-indexed, solo para 'update').
-- `status` (string, opcional): Nuevo estado de la tarea: 'pending', 'in-progress', 'done' (solo para 'update').
-
-**Ejemplos:**
-
-1. Inicializar plan:
 ```json
 {
-  "action": "init",
-  "plan": ["Investigar bug", "Implementar fix", "Validar con tests"]
+  "tool": "task_tracker",
+  "args": {
+    "action": "init|update|get|show",
+    "agent_name": "NombreAgente",
+    "plan": ["tarea1", "tarea2"],
+    "task_index": 0,
+    "status": "pending|in-progress|done"
+  }
 }
 ```
 
-2. Marcar tarea en progreso:
+## Acciones permitidas
+
+### init
+- **Requerido**: `agent_name`, `plan`
+- **Efecto**: Crea/reinicia el plan de tareas para el agente
+- **Ejemplo**:
 ```json
-{
-  "action": "update",
-  "task_index": 0,
-  "status": "in-progress"
-}
+{"action": "init", "agent_name": "BashAgent", "plan": ["Analizar logs", "Generar reporte"]}
 ```
 
-3. Obtener estado:
+### update
+- **Requerido**: `action`, `agent_name`, `task_index`, `status`
+- **Efecto**: Actualiza el estado de una tarea específica
+- **Ejemplo**:
 ```json
-{
-  "action": "get"
-}
+{"action": "update", "agent_name": "BashAgent", "task_index": 0, "status": "in-progress"}
 ```
 
-## Uso recomendado:
+### get
+- **Requerido**: `action`, `agent_name`
+- **Efecto**: Muestra el estado actual del plan
+- **Ejemplo**:
+```json
+{"action": "get", "agent_name": "BashAgent"}
+```
 
-1. **SIEMPRE** inicializa un plan al comienzo de una tarea compleja.
-2. Actualiza el estado a `in-progress` al empezar una tarea y a `done` al terminarla.
-3. Consulta el estado periódicamente para no perder el contexto.
+### show
+- **Requerido**: `action`, `agent_name`
+- **Efecto**: Fuerza la actualización del panel visual
+- **Ejemplo**:
+```json
+{"action": "show", "agent_name": "BashAgent"}
+```
+
+## Valores válidos
+
+- **action**: `init`, `update`, `get`, `show`
+- **status**: `pending`, `in-progress`, `done`
+- **task_index**: entero >= 0 (0-indexed)
+
+## Errores comunes a evitar
+
+1. ❌ Olvidar `agent_name` en la llamada
+2. ❌ Usar `task_index` fuera de rango
+3. ❌ No actualizar el estado después de `init`
+4. ❌ Mezclar agentes con diferentes `agent_name`
+5. ❌ Usar `show` sin antes haber hecho `init`
+
+## Flujo recomendado
+
+1. `init` con lista de tareas
+2. Por cada tarea:
+   - `update` a `in-progress` antes de empezar
+   - Ejecutar la acción
+   - `update` a `done` al terminar
+3. `get` para verificar estado final
