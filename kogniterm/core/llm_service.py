@@ -165,7 +165,7 @@ if model_to_use.startswith("ollama/"):
     else:
         base = ollama_api_base or "http://localhost:11434/v1"
         logger.info(f"🦙 Configuración inicial detectada: Ollama Local ({model_to_use}) en {base}")
-elif model_to_use.startswith("gemini/") or ("gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower()):
+elif model_to_use.startswith("gemini/") or ("gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower() and not "antigravity" in model_to_use.lower()):
     logger.info(f"🤖 Configuración inicial detectada: Gemini ({model_to_use})")
 else:
     logger.info(f"🤖 Configuración inicial detectada: Proveedor Genérico ({model_to_use})")
@@ -1142,7 +1142,7 @@ class LLMService:
             completion_kwargs["headers"] = self.headers
         
         # Configuración específica para Gemini (Google AI Studio)
-        if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower()):
+        if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower() and "antigravity" not in self.model_name.lower()):
             completion_kwargs["custom_llm_provider"] = "gemini"
             if self.api_key:
                 os.environ["GEMINI_API_KEY"] = self.api_key

@@ -603,7 +603,14 @@ class MultiProviderManager:
         for provider in chain:
             try:
                 # Pasar explícitamente el proveedor actual
-                return self.execute(*args, force_provider=provider, **kwargs)
+                # Si el proveedor actual es un fallback (distinto del proveedor ideal determinado para el modelo),
+                # no propagamos api_key, api_base o headers del llamador para que el proveedor resuelva sus propias credenciales
+                current_kwargs = kwargs.copy()
+                if provider != ideal_provider:
+                    current_kwargs.pop("api_key", None)
+                    current_kwargs.pop("api_base", None)
+                    current_kwargs.pop("headers", None)
+                return self.execute(*args, force_provider=provider, **current_kwargs)
             except Exception as e:
                 error_msg = str(e).lower()
                 should_fallback = False
