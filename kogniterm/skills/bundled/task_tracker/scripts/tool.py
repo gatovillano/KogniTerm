@@ -12,12 +12,19 @@ logger = logging.getLogger(__name__)
 _agent_plans: Dict[str, List[Dict[str, Any]]] = {}
 _llm_service: Any = None  # Será inyectado por el SkillLoader
 
+STATUS_PENDING = "pending"
+STATUS_IN_PROGRESS = "in-progress"
+STATUS_DONE = "done"
+
+VALID_STATUSES = {STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_DONE}
+
+
 def _update_ui():
     """Actualiza el panel lateral de tareas en la TUI."""
     global _agent_plans, _llm_service
     if not _llm_service:
         return
-        
+
     try:
         # Usar el adaptador de TUI para actualizar el panel de tareas
         if hasattr(_llm_service, 'terminal_ui') and _llm_service.terminal_ui:
@@ -27,55 +34,81 @@ def _update_ui():
     except Exception as e:
         logger.debug(f"Error actualizando UI de tareas: {e}")
 
+
+def _normalize_agent_name(agent_name: str) -> str:
+    """Normaliza el nombre del agente para evitar inconsistencias."""
+    return agent_name.strip().lower().replace(" ", "_")
+
+
 def _init_tasks(agent_name: str, plan: List[str]) -> str:
     """Inicializa la lista de tareas para un agente."""
     global _agent_plans
-    _agent_plans[agent_name] = [{"task": t, "status": "pending"} for t in plan]
+    normalized_name = _normalize_agent_name(agent_name)
+    _agent_plans[normalized_name] = [{"task": t, "status": STATUS_PENDING} for t in plan]
     _update_ui()
-    return f"Plan de {len(_agent_plans[agent_name])} tareas inicializado para {agent_name}."
+    return f"✅ Plan de {len(_agent_plans[normalized_name])} tareas inicializado para '{normalized_name}'."
+
 
 def _update_task(agent_name: str, task_index: int, status: str) -> str:
     """Marca una tarea como completada o en curso para un agente."""
     global _agent_plans
-    if agent_name in _agent_plans:
-        tasks = _agent_plans[agent_name]
-        if 0 <= task_index < len(tasks):
-            tasks[task_index]["status"] = status
-            _update_ui()
-            return f"Tarea {task_index} de {agent_name} marcada como {status}."
-    return f"Error: agente '{agent_name}' no encontrado o índice inválido."
+    normalized_name = _normalize_agent_name(agent_name)
+
+    if status not in VALID_STATUSES:
+        return f"❌ Error: estado '{status}' no válido. Usa: {', '.join(sorted(VALID_STATUSES))}"
+
+    if normalized_name not in _agent_plans:
+        return f"❌ Error: agente '{agent_name}' no encontrado. Inicializa un plan primero con action='init'."
+
+    tasks = _agent_plans[normalized_name]
+    if not isinstance(task_index, int) or task_index < 0 or task_index >= len(tasks):
+        return f"❌ Error: índice {task_index} fuera de rango. El plan tiene {len(tasks)} tareas (0-{len(tasks)-1})."
+
+    old_status = tasks[task_index]["status"]
+    tasks[task_index]["status"] = status
+    _update_ui()
+
+    if old_status == status:
+        return f"ℹ️ Tarea {task_index} de '{normalized_name}' ya estaba en estado '{status}'."
+    return f"✅ Tarea {task_index} de '{normalized_name}' actualizada: '{old_status}' → '{status}'."
+
 
 def _get_status(agent_name: str = None) -> str:
     """Devuelve el estado actual de todas las tareas (o de un agente)."""
     global _agent_plans
     if not _agent_plans:
-        return "No hay tareas inicializadas."
-    
-    if agent_name and agent_name in _agent_plans:
-        tasks = _agent_plans[agent_name]
+        return "📋 No hay tareas inicializadas."
+
+    if agent_name:
+        normalized_name = _normalize_agent_name(agent_name)
+        if normalized_name not in _agent_plans:
+            return f"❌ Error: agente '{agent_name}' no encontrado."
+        tasks = _agent_plans[normalized_name]
         summary = "\n".join([f"{i}. [{t['status'].upper()}] {t['task']}" for i, t in enumerate(tasks)])
-        return f"Estado del Plan de {agent_name}:\n{summary}"
-    
+        return f"📋 Estado del Plan de '{normalized_name}':\n{summary}"
+
     # Resumen general
     all_summary = []
     for agent, tasks in _agent_plans.items():
         summary = "\n".join([f"  {i}. [{t['status'].upper()}] {t['task']}" for i, t in enumerate(tasks)])
         all_summary.append(f"Agente: {agent}\n{summary}")
-    
-    return "Estado de todos los Planes:\n" + "\n\n".join(all_summary)
+
+    return "📋 Estado de todos los Planes:\n" + "\n\n".join(all_summary)
+
 
 def _show_task_tracker_panel():
     """Muestra el panel de tareas en la TUI."""
     global _agent_plans, _llm_service
     if not _llm_service:
         return
-        
+
     try:
         tui = _llm_service.terminal_ui
         if tui and hasattr(tui, 'update_task_tracker'):
             tui.update_task_tracker(_agent_plans)
     except Exception as e:
         logger.debug(f"Error mostrando panel: {e}")
+
 
 tool_schema = {
     "name": "task_tracker",
@@ -90,7 +123,7 @@ tool_schema = {
             },
             "agent_name": {
                 "type": "string",
-                "description": "Nombre identificador del agente (ej. 'Researcher', 'Coder')."
+                "description": "Nombre identificador del agente (ej. 'BashAgent', 'Researcher', 'Coder')."
             },
             "plan": {
                 "type": "array",
@@ -99,35 +132,43 @@ tool_schema = {
             },
             "task_index": {
                 "type": "integer",
-                "description": "Índice de la tarea para 'update'."
+                "description": "Índice de la tarea para 'update' (0-indexed)."
             },
             "status": {
                 "type": "string",
-                "description": "Nuevo estado (ej. 'done', 'in-progress')."
+                "description": f"Nuevo estado: {', '.join(sorted(VALID_STATUSES))}."
             }
         },
         "required": ["action", "agent_name"]
     }
 }
 
+
 def task_tracker(action: str, agent_name: str, plan: List[str] = None, task_index: int = None, status: str = None) -> str:
     """
     Gestiona planes de trabajo especializados para cada agente.
     """
     if action == "init":
-        result = _init_tasks(agent_name, plan or [])
+        if not plan:
+            return "❌ Error: 'plan' es requerido para action='init'. Proporciona una lista de tareas."
+        result = _init_tasks(agent_name, plan)
         # Mostrar el panel después de inicializar
         _show_task_tracker_panel()
         return result
     elif action == "update":
+        if task_index is None:
+            return "❌ Error: 'task_index' es requerido para action='update'."
+        if status is None:
+            return "❌ Error: 'status' es requerido para action='update'."
         result = _update_task(agent_name, task_index, status)
         return result
     elif action == "get":
         return _get_status(agent_name)
     elif action == "show":
         _show_task_tracker_panel()
-        return "Panel de tareas mostrado."
-    return "Acción no reconocida."
+        return "🖥️ Panel de tareas actualizado."
+    return f"❌ Error: acción '{action}' no reconocida. Usa: init, update, get, show."
+
 
 # Para inyección de dependencias por parte del SkillLoader
 def set_llm_service(llm_service: Any):

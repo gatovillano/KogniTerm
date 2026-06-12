@@ -6,9 +6,11 @@ Provee funcionalidad para ejecutar comandos bash y obtener su salida.
 """
 
 import os
+import re
 import shlex
 import subprocess
 import selectors
+import tempfile
 import time
 from typing import Optional, Generator, Any
 
@@ -16,6 +18,39 @@ from typing import Optional, Generator, Any
 # Metadata de la herramienta
 name = "execute_command"
 description = "Ejecuta un comando bash y devuelve su salida en tiempo real."
+
+
+def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
+    """
+    Transforma comandos python3 -c "..." a ejecución desde archivo temporal.
+    
+    Returns:
+        (comando_transformado, fue_transformado, ruta_temp)
+    """
+    # Patrón: python3 -c "código" (con comillas dobles opcionalmente escapadas)
+    # Captura el comando python3 inicial y el código entre comillas
+    pattern = r'^(python3(?:\s+[^&|;]*?))\s+-c\s+"((?:[^"\\]|\\.)*)"(.*)$'
+    match = re.match(pattern, command.strip(), re.DOTALL)
+    
+    if not match:
+        return command, False, None
+    
+    prefix = match.group(1)  # python3 ... (hasta -c)
+    code = match.group(2)    # código entre comillas
+    suffix = match.group(3)  # resto del comando (si hay)
+    
+    # Crear archivo temporal
+    fd, temp_path = tempfile.mkstemp(suffix='.py', prefix='kogniterm_py_')
+    os.close(fd)
+    
+    # Escribir código al archivo
+    with open(temp_path, 'w', encoding='utf-8') as f:
+        f.write(code)
+    
+    # Construir comando transformado: python3 ... /tmp/...py [suffix]
+    transformed = f"{prefix} {temp_path}{suffix}"
+    
+    return transformed, True, temp_path
 
 
 def execute_command(
@@ -64,6 +99,13 @@ def execute_command(
         except Exception as e:
             yield f"Error al cambiar de directorio: {e}\n"
             return
+
+    # Transformar python3 -c "..." a archivo temporal para evitar problemas con comillas en PTY
+    original_command = command
+    command, was_transformed, temp_path = _transform_python3_dash_c(command)
+    
+    if was_transformed:
+        yield f"[KogniTerm] Transformando python3 -c a archivo temporal: {temp_path}\n"
 
     # Ejecutar comando con PTY para permitir streaming, colores e interactividad real
     import pty
@@ -136,6 +178,13 @@ def execute_command(
             os.close(master_fd)
         except:
             pass
+        
+        # Limpiar archivo temporal si fue creado
+        if was_transformed and temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
         
     except Exception as e:
         yield f"Error al ejecutar comando con PTY: {str(e)}\n"

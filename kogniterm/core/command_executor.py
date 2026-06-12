@@ -1,4 +1,6 @@
 import os
+import re
+import tempfile
 import pty
 import select
 import subprocess
@@ -13,6 +15,40 @@ from typing import Optional, Generator, Any
 from .config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
+    """
+    Transforma comandos python3 -c "..." a ejecución desde archivo temporal.
+    
+    Returns:
+        (comando_transformado, fue_transformado, ruta_temp)
+    """
+    # Patrón: python3 -c "código" (con comillas dobles opcionalmente escapadas)
+    # Captura el comando python3 inicial y el código entre comillas
+    pattern = r'^(python3(?:\s+[^&|;]*?))\s+-c\s+"((?:[^"\\]|\\.)*)"(.*)$'
+    match = re.match(pattern, command.strip(), re.DOTALL)
+    
+    if not match:
+        return command, False, None
+    
+    prefix = match.group(1)  # python3 ... (hasta -c)
+    code = match.group(2)    # código entre comillas
+    suffix = match.group(3)  # resto del comando (si hay)
+    
+    # Crear archivo temporal
+    fd, temp_path = tempfile.mkstemp(suffix='.py', prefix='kogniterm_py_')
+    os.close(fd)
+    
+    # Escribir código al archivo
+    with open(temp_path, 'w', encoding='utf-8') as f:
+        f.write(code)
+    
+    # Construir comando transformado: python3 ... /tmp/...py [suffix]
+    transformed = f"{prefix} {temp_path}{suffix}"
+    
+    return transformed, True, temp_path
+
 
 class CommandExecutor:
     def __init__(self) -> None:
@@ -75,6 +111,13 @@ class CommandExecutor:
                     break
         except:
             pass
+
+        # Transformar python3 -c "..." a archivo temporal para evitar problemas con comillas en PTY
+        original_command = command
+        command, was_transformed, temp_path = _transform_python3_dash_c(command)
+        
+        if was_transformed:
+            yield f"[KogniTerm] Transformando python3 -c a archivo temporal: {temp_path}\n"
 
         # Enviar el comando al shell persistente.
         # El tamaño ya se ajusta con ioctl(TIOCSWINSZ), por lo que no inyectamos
@@ -200,6 +243,12 @@ class CommandExecutor:
 
         finally:
             self.process = None
+            # Limpiar archivo temporal si fue creado
+            if was_transformed and temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
 
     def _start_persistent_session(self, cwd=None):
         """Inicia un shell persistente en un PTY."""
