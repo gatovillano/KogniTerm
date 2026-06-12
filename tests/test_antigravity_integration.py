@@ -403,6 +403,42 @@ def test_antigravity_normalize_contents():
     assert normalized[4]["parts"][0]["functionResponse"]["name"] == "tool_ok"
 
 
+def test_antigravity_normalize_contents_mismatched_ids_fallback():
+    raw_payload_contents = [
+        {
+            "role": "user",
+            "parts": [{"text": "Hello"}]
+        },
+        # Model turn with functionCall having NO ID
+        {
+            "role": "model",
+            "parts": [
+                {"functionCall": {"name": "file_operations", "args": {"action": "list"}}}
+            ]
+        },
+        # User turn with functionResponse having ID "call_123"
+        {
+            "role": "user",
+            "parts": [
+                {"functionResponse": {"name": "file_operations", "response": {"files": []}, "id": "call_123"}}
+            ]
+        }
+    ]
+    
+    normalized = AntigravityClient._normalize_contents(raw_payload_contents)
+    
+    # Expected: should match by name "file_operations" and preserve both turns
+    assert len(normalized) == 3
+    assert normalized[1]["role"] == "model"
+    assert len(normalized[1]["parts"]) == 1
+    assert normalized[1]["parts"][0]["functionCall"]["name"] == "file_operations"
+    
+    assert normalized[2]["role"] == "user"
+    assert len(normalized[2]["parts"]) == 1
+    assert normalized[2]["parts"][0]["functionResponse"]["name"] == "file_operations"
+
+
+
 
 
 

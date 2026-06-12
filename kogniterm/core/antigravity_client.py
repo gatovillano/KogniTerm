@@ -288,7 +288,7 @@ class AntigravityClient:
                         next_parts = next_turn["parts"]
                         fresponses = [p for p in next_parts if "functionResponse" in p]
                         
-                        # Mapear respuestas por ID o por nombre
+                        # Mapear respuestas por ID y por nombre
                         responded_calls = {}
                         for resp in fresponses:
                             fr = resp["functionResponse"]
@@ -296,7 +296,7 @@ class AntigravityClient:
                             resp_name = fr.get("name")
                             if resp_id:
                                 responded_calls[str(resp_id)] = resp
-                            elif resp_name:
+                            if resp_name:
                                 responded_calls[str(resp_name)] = resp
                         
                         valid_parts = []
