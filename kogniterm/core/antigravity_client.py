@@ -210,16 +210,23 @@ class AntigravityClient:
                         resp_obj = {"result": content}
                 except Exception:
                     resp_obj = {"result": content}
-                contents.append({
-                    "role": "user",
-                    "parts": [{
-                        "functionResponse": {
-                            "name": name,
-                            "response": resp_obj,
-                            "id": tool_call_id
-                        }
-                    }]
-                })
+                
+                fn_resp = {
+                    "functionResponse": {
+                        "name": name,
+                        "response": resp_obj,
+                        "id": tool_call_id
+                    }
+                }
+                
+                # Agrupar múltiples functionResponse en un mismo turno "user" para evitar 400 (turnos no alternados)
+                if contents and contents[-1]["role"] == "user" and any("functionResponse" in p for p in contents[-1]["parts"]):
+                    contents[-1]["parts"].append(fn_resp)
+                else:
+                    contents.append({
+                        "role": "user",
+                        "parts": [fn_resp]
+                    })
                 
         return contents, system_instruction
 

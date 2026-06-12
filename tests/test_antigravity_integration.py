@@ -288,5 +288,50 @@ def test_agent_dynamic_prompts():
     assert "<thought>" in researcher_msg_thinking.content
 
 
+def test_antigravity_consecutive_tool_responses_grouping():
+    messages = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "tool_calls": [
+            {"id": "call_1", "function": {"name": "tool_A", "arguments": "{}"}},
+            {"id": "call_2", "function": {"name": "tool_B", "arguments": "{}"}}
+        ]},
+        {"role": "tool", "tool_call_id": "call_1", "name": "tool_A", "content": "res_A"},
+        {"role": "tool", "tool_call_id": "call_2", "name": "tool_B", "content": "res_B"}
+    ]
+    
+    contents, system_instruction = AntigravityClient.map_messages(messages)
+    
+    # We expect 3 turns in contents:
+    # 1. role="user", text="Hello"
+    # 2. role="model", parts=[functionCall tool_A, functionCall tool_B]
+    # 3. role="user", parts=[functionResponse tool_A, functionResponse tool_B] (GROUPED!)
+    assert len(contents) == 3
+    
+    assert contents[0]["role"] == "user"
+    assert contents[0]["parts"][0]["text"] == "Hello"
+    
+    assert contents[1]["role"] == "model"
+    assert len(contents[1]["parts"]) == 2
+    assert "functionCall" in contents[1]["parts"][0]
+    assert "functionCall" in contents[1]["parts"][1]
+    
+    assert contents[2]["role"] == "user"
+    assert len(contents[2]["parts"]) == 2
+    
+    part1 = contents[2]["parts"][0]
+    part2 = contents[2]["parts"][1]
+    assert "functionResponse" in part1
+    assert "functionResponse" in part2
+    
+    assert part1["functionResponse"]["name"] == "tool_A"
+    assert part1["functionResponse"]["response"] == {"result": "res_A"}
+    assert part1["functionResponse"]["id"] == "call_1"
+    
+    assert part2["functionResponse"]["name"] == "tool_B"
+    assert part2["functionResponse"]["response"] == {"result": "res_B"}
+    assert part2["functionResponse"]["id"] == "call_2"
+
+
+
 
 
