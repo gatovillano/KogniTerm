@@ -271,16 +271,23 @@ def test_agent_dynamic_prompts():
     
     service = LLMService()
     
-    # Antigravity models should have "<thought>" manually prompted since we force manual CoT on them
+    # Gemini Antigravity models should NOT have "<thought>" manually prompted
     service.set_model("antigravity/gemini-3-flash")
     code_msg = get_code_system(service)
     researcher_msg = get_researcher_system(service)
     
-    assert "<thought>" in code_msg.content
-    assert "<thought>" in researcher_msg.content
+    assert "<thought>" not in code_msg.content
+    assert "<thought>" not in researcher_msg.content
     
-    # Even gemini-2.5-pro (an Antigravity model) should have "<thought>" manually prompted now
     service.set_model("antigravity/gemini-2.5-pro")
+    code_msg_gemini_pro = get_code_system(service)
+    researcher_msg_gemini_pro = get_researcher_system(service)
+    
+    assert "<thought>" not in code_msg_gemini_pro.content
+    assert "<thought>" not in researcher_msg_gemini_pro.content
+
+    # Non-Gemini Antigravity models should still have "<thought>" manually prompted
+    service.set_model("antigravity/claude-3-5-sonnet")
     code_msg_thinking = get_code_system(service)
     researcher_msg_thinking = get_researcher_system(service)
     

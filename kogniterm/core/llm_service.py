@@ -336,6 +336,11 @@ class LLMService:
     def is_thinking_model(self) -> bool:
         """ Detecta si el modelo actual tiene capacidades de razonamiento nativo. """
         model_lower = self.model_name.lower()
+        # Evitar el CoT manual (<thought>) en Gemini, ya que Gemini funciona de forma
+        # errática con herramientas si se le obliga a escribir explicaciones de pensamiento.
+        if "gemini" in model_lower:
+            return True
+            
         # Desactivamos razonamiento nativo en los modelos de antigravity
         # para forzar el uso de CoT manual (etiquetas XML) ya que el proxy
         # de Google Antigravity oculta/elimina los pensamientos nativos en la respuesta.
