@@ -552,6 +552,13 @@ class AntigravityClient:
                     error_detail = err_json.get("error", {}).get("message", resp.text)
                 except Exception:
                     pass
+                try:
+                    debug_file = os.path.expanduser("~/.kogniterm/logs/antigravity_debug.log")
+                    with open(debug_file, "a", encoding="utf-8") as df:
+                        df.write(f"Response Status: {resp.status_code}\n")
+                        df.write(f"Response Error Body: {resp.text}\n")
+                except Exception:
+                    pass
                 logger.error(f"Error en API de Antigravity ({resp.status_code}): {error_detail}")
                 raise requests.HTTPError(f"API Error ({resp.status_code}): {error_detail}", response=resp)
             resp.raise_for_status()
@@ -627,6 +634,13 @@ class AntigravityClient:
                 try:
                     err_json = resp.json()
                     error_detail = err_json.get("error", {}).get("message", resp.text)
+                except Exception:
+                    pass
+                try:
+                    debug_file = os.path.expanduser("~/.kogniterm/logs/antigravity_debug.log")
+                    with open(debug_file, "a", encoding="utf-8") as df:
+                        df.write(f"Response Status: {resp.status_code}\n")
+                        df.write(f"Response Error Body: {resp.text}\n")
                 except Exception:
                     pass
                 logger.error(f"Error en API de Antigravity ({resp.status_code}): {error_detail}")
