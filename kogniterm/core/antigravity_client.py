@@ -228,7 +228,158 @@ class AntigravityClient:
                         "parts": [fn_resp]
                     })
                 
+        contents = AntigravityClient._normalize_contents(contents)
         return contents, system_instruction
+
+    @staticmethod
+    def _normalize_contents(contents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Normaliza y limpia la secuencia de mensajes para cumplir estrictamente con las reglas
+        de Gemini API:
+        1. Elimina partes de texto vacías o turnos sin contenido.
+        2. Agrupa turnos consecutivos del mismo rol ("user" o "model").
+        3. Alinea llamadas a herramientas ("functionCall") con sus respuestas ("functionResponse").
+           Cualquier "functionCall" sin una respuesta coincidente es eliminada para evitar HTTP 400.
+        4. Asegura la alternancia estricta de roles y que comience con "user".
+        """
+        # 1. Limpieza inicial de partes vacías
+        cleaned = []
+        for turn in contents:
+            parts = turn.get("parts", [])
+            filtered_parts = []
+            for p in parts:
+                if "text" in p:
+                    text_val = p.get("text")
+                    if text_val is None or (isinstance(text_val, str) and not text_val.strip()):
+                        continue
+                filtered_parts.append(p)
+            if filtered_parts:
+                cleaned.append({
+                    "role": turn["role"],
+                    "parts": filtered_parts
+                })
+
+        if not cleaned:
+            return []
+
+        # 2. Agrupar turnos consecutivos del mismo rol
+        merged = []
+        for turn in cleaned:
+            if merged and merged[-1]["role"] == turn["role"]:
+                merged[-1]["parts"].extend(turn["parts"])
+            else:
+                merged.append(turn)
+
+        # 3. Alinear functionCalls con functionResponses
+        final_contents = []
+        i = 0
+        n = len(merged)
+        while i < n:
+            turn = merged[i]
+            role = turn["role"]
+            parts = turn["parts"]
+            
+            if role == "model":
+                fcalls = [p for p in parts if "functionCall" in p]
+                if fcalls:
+                    # El siguiente turno debe ser "user" y contener las respuestas
+                    next_turn = merged[i + 1] if i + 1 < n else None
+                    if next_turn and next_turn["role"] == "user":
+                        next_parts = next_turn["parts"]
+                        fresponses = [p for p in next_parts if "functionResponse" in p]
+                        
+                        # Mapear respuestas por ID o por nombre
+                        responded_calls = {}
+                        for resp in fresponses:
+                            fr = resp["functionResponse"]
+                            resp_id = fr.get("id")
+                            resp_name = fr.get("name")
+                            if resp_id:
+                                responded_calls[str(resp_id)] = resp
+                            elif resp_name:
+                                responded_calls[str(resp_name)] = resp
+                        
+                        valid_parts = []
+                        valid_fcall_keys = set()
+                        
+                        for p in parts:
+                            if "functionCall" in p:
+                                fc = p["functionCall"]
+                                fc_id = fc.get("id")
+                                fc_name = fc.get("name")
+                                
+                                matched_resp = None
+                                if fc_id and str(fc_id) in responded_calls:
+                                    matched_resp = responded_calls[str(fc_id)]
+                                    valid_fcall_keys.add(str(fc_id))
+                                elif fc_name and str(fc_name) in responded_calls:
+                                    matched_resp = responded_calls[str(fc_name)]
+                                    valid_fcall_keys.add(str(fc_name))
+                                    
+                                if matched_resp:
+                                    valid_parts.append(p)
+                            else:
+                                valid_parts.append(p)
+                                
+                        if not valid_parts:
+                            valid_parts.append({"text": "Procesando..."})
+                            
+                        turn["parts"] = valid_parts
+                        final_contents.append(turn)
+                        
+                        # Filtrar el siguiente turno "user" para dejar solo las respuestas válidas
+                        next_valid_parts = []
+                        for p in next_parts:
+                            if "functionResponse" in p:
+                                fr = p["functionResponse"]
+                                fr_id = fr.get("id")
+                                fr_name = fr.get("name")
+                                if (fr_id and str(fr_id) in valid_fcall_keys) or (fr_name and str(fr_name) in valid_fcall_keys):
+                                    next_valid_parts.append(p)
+                            else:
+                                next_valid_parts.append(p)
+                                
+                        if next_valid_parts:
+                            next_turn["parts"] = next_valid_parts
+                            # Actualizar en merged para procesar en la siguiente iteración
+                            merged[i + 1] = next_turn
+                        else:
+                            # Quitar el siguiente turno si quedó vacío
+                            merged.pop(i + 1)
+                            n = len(merged)
+                    else:
+                        # Si es el último turno de la secuencia, lo conservamos intacto (útil para pruebas y mapeos unitarios)
+                        if i == n - 1:
+                            final_contents.append(turn)
+                        else:
+                            # Sin respuestas en el medio: eliminar llamadas a función del modelo
+                            valid_parts = [p for p in parts if "functionCall" not in p]
+                            if not valid_parts:
+                                valid_parts.append({"text": "Procesando..."})
+                            turn["parts"] = valid_parts
+                            final_contents.append(turn)
+                else:
+                    final_contents.append(turn)
+            else:
+                final_contents.append(turn)
+            i += 1
+
+        # 4. Asegurar alternancia estricta post-procesamiento
+        alternated = []
+        for turn in final_contents:
+            if alternated and alternated[-1]["role"] == turn["role"]:
+                alternated[-1]["parts"].extend(turn["parts"])
+            else:
+                alternated.append(turn)
+                
+        # 5. Asegurar que comience con "user" (Gemini requiere comenzar con "user" en historial de conversación real)
+        if len(alternated) > 1 and alternated[0]["role"] == "model":
+            alternated.insert(0, {
+                "role": "user",
+                "parts": [{"text": "Hola"}]
+            })
+            
+        return alternated
 
     @staticmethod
     def map_tools(openai_tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:

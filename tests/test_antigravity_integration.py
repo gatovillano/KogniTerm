@@ -332,6 +332,78 @@ def test_antigravity_consecutive_tool_responses_grouping():
     assert part2["functionResponse"]["id"] == "call_2"
 
 
+def test_antigravity_normalize_contents():
+    # Test case 1: Start with model, consecutive same roles, and orphan tool call (cancelled)
+    raw_payload_contents = [
+        # Starts with model (should insert a user turn at beginning)
+        {
+            "role": "model",
+            "parts": [{"text": "Hello assistant"}]
+        },
+        # Consecutive model turn
+        {
+            "role": "model",
+            "parts": [{"text": "Another model message"}]
+        },
+        # User turn
+        {
+            "role": "user",
+            "parts": [{"text": "User msg"}]
+        },
+        # Model turn with two functionCalls: one is answered in next turn, one is not (cancelled)
+        {
+            "role": "model",
+            "parts": [
+                {"functionCall": {"name": "tool_ok", "id": "call_ok"}},
+                {"functionCall": {"name": "tool_cancel", "id": "call_cancel"}},
+                {"text": "Thinking..."}
+            ]
+        },
+        # User turn with only tool_ok response
+        {
+            "role": "user",
+            "parts": [
+                {"functionResponse": {"name": "tool_ok", "response": {"ok": True}, "id": "call_ok"}}
+            ]
+        }
+    ]
+    
+    normalized = AntigravityClient._normalize_contents(raw_payload_contents)
+    
+    # Expected:
+    # 0. role="user", text="Hola" (inserted because it started with model)
+    # 1. role="model", parts=[text="Hello assistant", text="Another model message"] (consecutive merged)
+    # 2. role="user", parts=[text="User msg"]
+    # 3. role="model", parts=[functionCall tool_ok, text="Thinking..."] (tool_cancel removed because not answered)
+    # 4. role="user", parts=[functionResponse tool_ok]
+    
+    assert len(normalized) == 5
+    
+    assert normalized[0]["role"] == "user"
+    assert normalized[0]["parts"][0]["text"] == "Hola"
+    
+    assert normalized[1]["role"] == "model"
+    assert len(normalized[1]["parts"]) == 2
+    assert normalized[1]["parts"][0]["text"] == "Hello assistant"
+    assert normalized[1]["parts"][1]["text"] == "Another model message"
+    
+    assert normalized[2]["role"] == "user"
+    assert normalized[2]["parts"][0]["text"] == "User msg"
+    
+    assert normalized[3]["role"] == "model"
+    # only tool_ok functionCall and text "Thinking..." should remain
+    assert len(normalized[3]["parts"]) == 2
+    assert "functionCall" in normalized[3]["parts"][0]
+    assert normalized[3]["parts"][0]["functionCall"]["name"] == "tool_ok"
+    assert "text" in normalized[3]["parts"][1]
+    
+    assert normalized[4]["role"] == "user"
+    assert len(normalized[4]["parts"]) == 1
+    assert "functionResponse" in normalized[4]["parts"][0]
+    assert normalized[4]["parts"][0]["functionResponse"]["name"] == "tool_ok"
+
+
+
 
 
 
