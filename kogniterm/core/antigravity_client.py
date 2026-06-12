@@ -446,6 +446,30 @@ class AntigravityClient:
 
         contents, system_instruction = cls.map_messages(messages)
         
+        # Log the raw sequence to a separate debug file for diagnostics
+        try:
+            from datetime import datetime
+            log_dir = os.path.expanduser("~/.kogniterm/logs")
+            os.makedirs(log_dir, exist_ok=True)
+            debug_file = os.path.join(log_dir, "antigravity_debug.log")
+            with open(debug_file, "a", encoding="utf-8") as df:
+                df.write(f"\n--- REQUEST {datetime.now().isoformat()} ---\n")
+                df.write(f"Model: {model}\n")
+                df.write("Contents:\n")
+                for idx, msg in enumerate(contents):
+                    df.write(f"  {idx}: role={msg.get('role')}\n")
+                    for p in msg.get("parts", []):
+                        if "text" in p:
+                            df.write(f"    text: {repr(p['text'])}\n")
+                        elif "functionCall" in p:
+                            df.write(f"    functionCall: {json.dumps(p['functionCall'])}\n")
+                        elif "functionResponse" in p:
+                            df.write(f"    functionResponse: {json.dumps(p['functionResponse'])}\n")
+                        else:
+                            df.write(f"    other: {json.dumps(p)}\n")
+        except Exception as e:
+            logger.error(f"Error logging raw debug: {e}")
+            
         # Log the sequence of roles and parts in contents for diagnosis
         try:
             seq_debug = []
