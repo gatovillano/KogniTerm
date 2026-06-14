@@ -175,7 +175,7 @@ class CommandExecutor:
                     yield "\n\n⚠️  Comando interrumpido por el usuario.\n"
                     break
 
-                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.05)
+                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.02)
 
                 if master_fd in readable_fds:
                     try:
@@ -211,18 +211,6 @@ class CommandExecutor:
                                 # Hay divergencia en el eco rápido, dejar pasar para no truncar datos genuinos
                                 self._echo_filtered = True
 
-                        # Post-procesado: eliminar cualquier línea que contenga el eco del comando ejecutado
-                        # Esto cubre casos donde el filtro de eco no lo eliminó completamente
-                        def remove_command_echo(text, cmd_echo):
-                            lines = text.splitlines(keepends=True)
-                            filtered = [l for l in lines if cmd_echo.strip() not in l.strip()]
-                            return ''.join(filtered)
-
-                        # El eco esperado puede tener saltos de línea, pero normalmente es la primera línea
-                        # Usamos solo la parte del comando (sin stty ni marker) para mayor robustez
-                        command_only = command.strip()
-                        if command_only:
-                            search_buffer = remove_command_echo(search_buffer, command_only)
 
                         # Si el marcador de fin aparece completo, hemos terminado
                         if marker_to_hide in search_buffer:
@@ -255,9 +243,10 @@ class CommandExecutor:
                 
                 # Yield lo que queda en el buffer si no hay datos nuevos y no parece inicio de marcador
                 if search_buffer and master_fd not in readable_fds:
-                    # Siempre que no estemos en proceso de purga de eco...
                     if getattr(self, '_echo_filtered', True) and not marker_to_hide.startswith(search_buffer):
-                        yield search_buffer
+                        clean_remaining = search_buffer.replace('\r\n', '\n')
+                        if clean_remaining:
+                            yield clean_remaining
                         search_buffer = ""
 
                 if self._input_pipe_read in readable_fds:
