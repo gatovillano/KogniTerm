@@ -794,6 +794,26 @@ class SkillManager:
         """
         import subprocess
         import sys
+        
+        # Mapeo de paquetes pip comunes a sus nombres de importación reales en Python
+        import_name_map = {
+            "beautifulsoup4": "bs4",
+            "tavily-python": "tavily",
+            "tavily_python": "tavily",
+            "PyGithub": "github",
+            "pygithub": "github",
+            "langchain-community": "langchain_community",
+            "langchain_community": "langchain_community",
+            "langchain-core": "langchain_core",
+            "langchain_core": "langchain_core",
+            "opencv-python": "cv2",
+            "opencv_python": "cv2",
+            "pillow": "PIL",
+            "pyyaml": "yaml",
+            "jupyter-client": "jupyter_client",
+            "jupyter_client": "jupyter_client",
+        }
+        
         for dep in dependencies:
             package_name = dep
             for op in ['==', '>=', '<=', '>', '<']:
@@ -801,17 +821,29 @@ class SkillManager:
                     package_name = dep.split(op)[0]
                     break
             
-            package_name = package_name.strip().replace('-', '_')
-            try:
-                importlib.import_module(package_name)
-            except ImportError:
+            package_name = package_name.strip()
+            # Probar el nombre tal cual, con guion bajo, o mapeado
+            lookup_names = [package_name, package_name.replace('-', '_')]
+            mapped = import_name_map.get(package_name) or import_name_map.get(package_name.replace('-', '_'))
+            if mapped:
+                lookup_names.insert(0, mapped)
+                
+            imported = False
+            for name in lookup_names:
+                try:
+                    importlib.import_module(name)
+                    imported = True
+                    break
+                except ImportError:
+                    continue
+                    
+            if not imported:
                 logger.info(f"Instalando dependencia faltante para skill: {dep}...")
                 try:
                     subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
                     logger.info(f"✅ Dependencia '{dep}' instalada exitosamente.")
                 except Exception as e:
                     logger.error(f"❌ Error al instalar dependencia '{dep}': {e}")
-            # Si es stdlib (ej. "subprocess"), no hacer nada
 
     def unload_skill(self, skill_name: str):
         """Descarga una skill (útil para recargar o desinstalar)."""
