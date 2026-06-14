@@ -118,11 +118,14 @@ def planning_node(state: DeepResearchState, llm_service: LLMService, terminal_ui
     
     # Notificación inmediata en TUI
     if terminal_ui and hasattr(terminal_ui, "update_live"):
-        from rich.panel import Panel
-        from kogniterm.terminal.themes import Icons
-        from rich.padding import Padding
-        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Planificando estrategia de investigación...[/bold]", border_style="magenta", padding=(0, 4), expand=True), (0, 0)))
-        terminal_ui.stop_live()
+        is_tui = hasattr(terminal_ui, 'app') and terminal_ui.app is not None
+        if is_tui:
+            terminal_ui.update_live(("__SPINNER__", "Planificando estrategia de investigación..."))
+        else:
+            from rich.panel import Panel
+            from kogniterm.terminal.themes import Icons
+            from rich.padding import Padding
+            terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Planificando estrategia de investigación...[/bold]", border_style="magenta", padding=(0, 4), expand=True), (0, 0)))
 
     last_message = state.messages[-1].content
     
@@ -224,9 +227,14 @@ def research_node(state: DeepResearchState, llm_service: LLMService, terminal_ui
 def reflection_node(state: DeepResearchState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
     """Nodo de pensamiento crítico que evalúa la calidad de los hallazgos."""
     if terminal_ui and hasattr(terminal_ui, "update_live"):
-        from rich.padding import Padding
-        terminal_ui.update_live(Padding(Panel(f"{Icons.THINKING} [bold]Reflexionando sobre los hallazgos y buscando inconsistencias...[/bold]", border_style="cyan", padding=(0, 4), expand=True), (0, 0)))
-        terminal_ui.stop_live()
+        is_tui = hasattr(terminal_ui, 'app') and terminal_ui.app is not None
+        if is_tui:
+            terminal_ui.update_live(("__SPINNER__", "Reflexionando sobre los hallazgos y buscando inconsistencias..."))
+        else:
+            from rich.panel import Panel
+            from kogniterm.terminal.themes import Icons
+            from rich.padding import Padding
+            terminal_ui.update_live(Padding(Panel(f"{Icons.THINKING} [bold]Reflexionando sobre los hallazgos y buscando inconsistencias...[/bold]", border_style="cyan", padding=(0, 4), expand=True), (0, 0)))
 
     findings_text = "\n".join([f"- {f['task']}: {f['content'][:200]}..." for f in state.findings])
     
@@ -252,11 +260,14 @@ def synthesis_node(state: DeepResearchState, llm_service: LLMService, terminal_u
     
     # Notificación inmediata en TUI
     if terminal_ui and hasattr(terminal_ui, "update_live"):
-        from rich.panel import Panel
-        from kogniterm.terminal.themes import Icons
-        from rich.padding import Padding
-        terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Sintetizando informe final de investigación...[/bold]", border_style="green", padding=(0, 4), expand=True), (0, 0)))
-        terminal_ui.stop_live()
+        is_tui = hasattr(terminal_ui, 'app') and terminal_ui.app is not None
+        if is_tui:
+            terminal_ui.update_live(("__SPINNER__", "Sintetizando informe final de investigación..."))
+        else:
+            from rich.panel import Panel
+            from kogniterm.terminal.themes import Icons
+            from rich.padding import Padding
+            terminal_ui.update_live(Padding(Panel(f"{Icons.RESEARCH} [bold]Sintetizando informe final de investigación...[/bold]", border_style="green", padding=(0, 4), expand=True), (0, 0)))
 
     all_findings_summary = ""
     for idx, finding in enumerate(state.findings):
@@ -351,10 +362,11 @@ def call_deep_model_node(state: DeepResearchState, llm_service: LLMService, term
         renderables = []
         
         if initial:
-            from kogniterm.terminal.visual_components import create_animated_spinner
             if is_tui:
-                renderables.append(create_animated_spinner("DeepResearcher Investigando...", "dots"))
+                if terminal_ui and hasattr(terminal_ui, "update_live"):
+                    terminal_ui.update_live(("__SPINNER__", "DeepResearcher Investigando..."))
             else:
+                from kogniterm.terminal.visual_components import create_animated_spinner
                 renderables.append(create_animated_spinner("DeepResearcher Investigando...", "dots"))
         else:
             if full_thinking_content:

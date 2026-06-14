@@ -18,6 +18,24 @@ class MessageWidget(Static):
         super().__init__(renderable, **kwargs)
         self.can_focus = False
 
+class AnimatedSpinnerWidget(Static):
+    """Widget que representa un spinner animado en el chat log."""
+    def __init__(self, text: str = "Procesando", **kwargs):
+        super().__init__(**kwargs)
+        self.text = text
+        self.frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.frame_idx = 0
+        self.can_focus = False
+
+    def on_mount(self) -> None:
+        self.set_interval(0.1, self.tick)
+
+    def tick(self) -> None:
+        self.frame_idx = (self.frame_idx + 1) % len(self.frames)
+        frame = self.frames[self.frame_idx]
+        from rich.text import Text
+        self.update(Text(f" {frame} {self.text}", style="bold cyan"))
+
 class ChatLogWidget(VerticalScroll):
     """
     Widget para mostrar el historial del chat usando un contenedor vertical
@@ -193,10 +211,16 @@ class ChatLogWidget(VerticalScroll):
             
         renderable = content
         is_terminal = False
+        is_spinner = False
         tool_name = "Terminal"
         
+        # Detectar si recibimos la tupla especial de spinner especial ("__SPINNER__", text)
+        if isinstance(content, tuple) and len(content) == 2 and content[0] == "__SPINNER__":
+            is_spinner = True
+            renderable = content[1]
+            terminal_command = ""
         # Detectar si recibimos la tupla especial ("__TERMINAL__", tool_name, output) o ("__TERMINAL__", tool_name, output, command)
-        if isinstance(content, tuple) and len(content) >= 3 and content[0] == "__TERMINAL__":
+        elif isinstance(content, tuple) and len(content) >= 3 and content[0] == "__TERMINAL__":
             is_terminal = True
             tool_name = content[1]
             renderable = content[2]
@@ -236,10 +260,19 @@ class ChatLogWidget(VerticalScroll):
                 renderable = content
             terminal_command = tool_name  # para el caso no-terminal, coincide con tool_name
 
-        def _mount_or_update(r, terminal_flag, t_name, t_command=""):
+        def _mount_or_update(r, terminal_flag, spinner_flag, t_name, t_command=""):
             try:
+                if spinner_flag:
+                    if self._active_message_widget is None or not isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                        if self._active_message_widget:
+                            self._active_message_widget.remove()
+                        self._active_message_widget = AnimatedSpinnerWidget(r)
+                        self.mount(self._active_message_widget)
+                    else:
+                        if self._active_message_widget.text != r:
+                            self._active_message_widget.text = r
                 # Si es terminal, forzar el uso de ToolOutputWidget para interactividad
-                if terminal_flag:
+                elif terminal_flag:
                     if self._active_message_widget is None or not isinstance(self._active_message_widget, ToolOutputWidget):
                         # Reemplazar widget si cambió de tipo
                         if self._active_message_widget:
@@ -251,7 +284,9 @@ class ChatLogWidget(VerticalScroll):
                     # ToolOutputWidget.update_content maneja la lógica de pyte
                     self._active_message_widget.update_content(r, command=t_command)
                 else:
-                    if self._active_message_widget is None:
+                    if self._active_message_widget is None or isinstance(self._active_message_widget, ToolOutputWidget) or isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                        if self._active_message_widget:
+                            self._active_message_widget.remove()
                         self._active_message_widget = MessageWidget(r)
                         self.mount(self._active_message_widget)
                     else:
@@ -263,12 +298,12 @@ class ChatLogWidget(VerticalScroll):
 
         try:
             if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
-                self.app.call_from_thread(_mount_or_update, renderable, is_terminal, tool_name, terminal_command)
+                self.app.call_from_thread(_mount_or_update, renderable, is_terminal, is_spinner, tool_name, terminal_command)
                 return
         except Exception:
             pass
 
-        _mount_or_update(renderable, is_terminal, tool_name, terminal_command)
+        _mount_or_update(renderable, is_terminal, is_spinner, tool_name, terminal_command)
 
     def stop_stream(self):
         """Finaliza el streaming actual."""
