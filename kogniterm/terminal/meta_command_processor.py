@@ -121,15 +121,80 @@ class MetaCommandProcessor:
         if user_input.lower().strip().startswith('/init'):
             command_parts = user_input.strip().split(' ', 1)
             files_to_include = None
-            if len(command_parts) > 1:
-                files_to_include = [f.strip() for f in command_parts[1].split(',')]
+            force = False
             
-            self.terminal_ui.print_message("Initializing workspace context... This may take a moment. ⏳", style="yellow")
+            if len(command_parts) > 1:
+                args_str = command_parts[1].strip()
+                if args_str.startswith('-f') or args_str.startswith('--force'):
+                    force = True
+                    remaining = args_str.split(' ', 1)
+                    if len(remaining) > 1:
+                        args_str = remaining[1].strip()
+                    else:
+                        args_str = ""
+                
+                if args_str:
+                    files_to_include = [f.strip() for f in args_str.split(',') if f.strip()]
+            
+            self.terminal_ui.print_message("Initializing workspace context... ⏳", style="yellow")
+            
+            # 1. Investigar localmente y crear/actualizar llm_context.md
+            from kogniterm.core.context.project_memory_builder import ProjectMemoryBuilder
+            workspace_directory = os.getcwd()
+            builder = ProjectMemoryBuilder(workspace_directory)
+            context_path = os.path.join(workspace_directory, ".kogniterm", "llm_context.md")
+            
+            should_write = True
+            if os.path.exists(context_path) and not force:
+                self.terminal_ui.print_message("ℹ️  .kogniterm/llm_context.md already exists. Skipping memory rebuild (use '/init -f' to overwrite).", style="yellow")
+                should_write = False
+                
+            if should_write:
+                self.terminal_ui.print_message("📝 Performing local investigation to build contextual memory...", style="yellow")
+                try:
+                    content = builder.build_markdown(llm_service=self.llm_service)
+                    builder.write_memory_file(content)
+                    self.terminal_ui.print_message("✅ Project memory created/updated at .kogniterm/llm_context.md", style="green")
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️  Error building contextual memory: {e}", style="red")
+            
+            # 2. Ejecutar indexación de la base de código para RAG
+            self.terminal_ui.print_message("🔍 Indexing repository into Vector DB for code search...", style="yellow")
+            from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+            from kogniterm.core.context.vector_db_manager import VectorDBManager
+            
+            vector_db = None
+            try:
+                indexer = CodebaseIndexer(workspace_directory)
+                vector_db = VectorDBManager(workspace_directory)
+                
+                def cb(current, total, desc):
+                    step = max(1, total // 5)
+                    if current == 1 or current == total or current % step == 0:
+                        self.terminal_ui.print_message(f"  [{current}/{total}] {desc}...", style="cyan")
+
+                chunks = await indexer.index_project(workspace_directory, show_progress=False, progress_callback=cb)
+                
+                if chunks:
+                    self.terminal_ui.print_message(f"✅ Generated {len(chunks)} code chunks. Storing in Vector DB...", style="cyan")
+                    vector_db.clear_collection()
+                    vector_db.add_chunks(chunks)
+                    self.terminal_ui.print_message("✨ Vector DB indexing complete!", style="green")
+                else:
+                    self.terminal_ui.print_message("⚠️  No chunks generated for vector database indexing.", style="yellow")
+            except Exception as e:
+                self.terminal_ui.print_message(f"❌ Error during codebase indexing: {e}", style="red")
+            finally:
+                if vector_db:
+                    vector_db.close()
+            
+            # 3. Inicializar el contexto de trabajo en memoria
             try:
                 self.llm_service.initialize_workspace_context(files_to_include=files_to_include)
                 self.terminal_ui.print_message("Workspace context initialized successfully. ✨", style="green")
             except Exception as e:
                 self.terminal_ui.print_message(f"Error initializing workspace context: {e} ❌", style="red")
+                
             return True
             
         if user_input.lower().strip().startswith('/mouse'):

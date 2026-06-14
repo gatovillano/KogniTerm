@@ -156,6 +156,20 @@ class WorkspaceContext:
         context_parts = []
         context_parts.append("## 📁 CONTEXTO DEL PROYECTO\n")
         context_parts.append(f"Directorio de trabajo actual: {self.root_dir}\n")
+        
+        # Cargar memoria contextual (llm_context.md) si existe
+        llm_context_path = os.path.join(self.root_dir, ".kogniterm", "llm_context.md")
+        if os.path.exists(llm_context_path):
+            try:
+                with open(llm_context_path, 'r', encoding='utf-8') as f:
+                    memory_content = f.read()
+                if memory_content.strip():
+                    context_parts.append("### 🧠 Memoria Contextual del Proyecto (.kogniterm/llm_context.md)")
+                    context_parts.append(memory_content.strip())
+                    context_parts.append("\n" + "="*40 + "\n")
+            except Exception:
+                pass
+
         context_parts.append("Aquí está la estructura de carpetas del proyecto:\n")
         context_parts.append(folder_structure)
         context_parts.append("\n")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Any
 import os
 import tomllib
 
@@ -14,13 +14,22 @@ class ProjectMemoryBuilder:
     def __init__(self, root_dir: str):
         self.root_dir = Path(root_dir)
 
-    def build_markdown(self) -> str:
+    def build_markdown(self, llm_service: Optional[Any] = None) -> str:
+        # 1. Si hay un servicio LLM disponible, intentar realizar investigación automática
+        if llm_service:
+            ai_memory = self.investigate_with_llm(llm_service)
+            if ai_memory:
+                return ai_memory
+
+        # 2. Si hay instrucciones existentes de copilot/etc, usarlas
         existing_instructions = self._read_text(
             self.root_dir / ".github" / "copilot-instructions.md",
             max_chars=50000,
         )
         if existing_instructions.strip():
             return self._normalize_existing_instructions(existing_instructions)
+            
+        # 3. Fallback a la generación heurística estructurada
         return self._build_fallback_markdown()
 
     def write_memory_file(
@@ -31,6 +40,74 @@ class ProjectMemoryBuilder:
         full_path = kogniterm_dir / Path(file_path).name
         full_path.write_text(content.strip() + "\n", encoding="utf-8")
         return full_path
+
+    def investigate_with_llm(self, llm_service: Any) -> Optional[str]:
+        """Realiza una investigación local utilizando el LLM configurado para resumir el proyecto."""
+        # Leer el README principal
+        readme_content = self._read_text(self.root_dir / "README.md", max_chars=4000)
+        
+        # Obtener estructura de archivos básica
+        from kogniterm.core.context.workspace_context import WorkspaceContext
+        try:
+            wctx = WorkspaceContext(str(self.root_dir))
+            folder_structure = wctx._get_folder_structure(str(self.root_dir), indent=0, max_depth=2)
+        except Exception:
+            folder_structure = "(No se pudo obtener la estructura de archivos)"
+
+        # Construir prompt para la investigación local
+        prompt = (
+            "Eres un experto en ingeniería de software e investigación de código local.\n"
+            "Analiza la siguiente información de este repositorio y genera una Memoria Contextual del Proyecto en formato Markdown.\n"
+            "Esta memoria servirá para que otros agentes de IA entiendan instantáneamente la estructura, tecnologías y convenciones del proyecto.\n\n"
+            "CRITICAL: Escribe la respuesta DIRECTAMENTE. NO utilices herramientas, no llames funciones, no pidas aclaraciones, no escribas explicaciones introductorias ni de planificación. Genera el Markdown final inmediatamente.\n\n"
+            f"Estructura básica de directorios:\n```\n{folder_structure}\n```\n\n"
+        )
+        if readme_content:
+            prompt += f"Contenido del README.md:\n```\n{readme_content}\n```\n\n"
+            
+        prompt += (
+            "Por favor, genera un documento Markdown estructurado con las siguientes secciones exactas:\n"
+            "1. # Memoria Contextual del Proyecto: Qué es el proyecto, su propósito principal y su alcance.\n"
+            "2. ## Arquitectura y Módulos Clave: Explicación concisa de los directorios importantes, flujo de ejecución y responsabilidades.\n"
+            "3. ## Comandos del Proyecto: Comandos comunes en bloques de código bash (instalación, ejecución, pruebas, linting, etc.).\n"
+            "4. ## Convenciones y Reglas de Desarrollo: Decisiones de diseño, estilos, patrones obligatorios y pautas del código.\n\n"
+            "Sé preciso, estructurado y técnico. Escribe tu respuesta en español."
+        )
+        
+        from langchain_core.messages import HumanMessage, AIMessage
+        try:
+            # Invocar al LLM de forma sincrónica con include_tools=False para evitar tool calling
+            generator = llm_service.invoke(
+                history=[HumanMessage(content=prompt)],
+                save_history=False,
+                include_tools=False
+            )
+            response_content = ""
+            for chunk in generator:
+                if isinstance(chunk, AIMessage):
+                    response_content += chunk.content
+                elif isinstance(chunk, str):
+                    response_content += chunk
+            
+            if response_content.strip():
+                # Limpiar marcadores de pensamiento/razonamiento
+                import re
+                cleaned_content = response_content.strip()
+                cleaned_content = re.sub(r'<thought>.*?</thought>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+                cleaned_content = re.sub(r'<thinking>.*?</thinking>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+                cleaned_content = cleaned_content.replace('__THINKING__:', '')
+                cleaned_content = cleaned_content.replace('__THINKING__', '')
+                cleaned_content = cleaned_content.strip()
+
+                if cleaned_content:
+                    header = "<!-- Generado por KogniTerm Local Investigator -->\n"
+                    if cleaned_content.startswith("# Memoria Contextual") or cleaned_content.startswith("<!--"):
+                        return cleaned_content
+                    return header + cleaned_content
+        except Exception:
+            # Fallback silencioso a la generación heurística
+            pass
+        return None
 
     def _normalize_existing_instructions(self, content: str) -> str:
         lines = content.strip().splitlines()
@@ -95,6 +172,12 @@ class ProjectMemoryBuilder:
                         "python -m pytest tests/test_basic.py::test_logger_setup"
                     )
 
+        # Buscar comandos genéricos npm/yarn si es node
+        if (self.root_dir / "package.json").exists():
+            lines.append("npm install")
+            lines.append("npm start")
+            lines.append("npm test")
+
         lint_note = self._infer_lint_note()
         if lint_note:
             lines.append(lint_note)
@@ -124,14 +207,15 @@ class ProjectMemoryBuilder:
     def _build_architecture_section(self) -> List[str]:
         bullets: List[str] = []
 
+        # 1. Casos específicos de KogniTerm para conservar la lógica del repo original
         if (self.root_dir / "kogniterm" / "terminal" / "terminal.py").exists():
             bullets.append(
-                "- `kogniterm/terminal/terminal.py` is the real entrypoint. It chooses between CLI commands in `terminal/cli.py`, Rich-only `--cli`, and the default Textual TUI."
+                "- `kogniterm/terminal/terminal.py`: Punto de entrada real de KogniTerm. Elige entre CLI en `terminal/cli.py` y la TUI."
             )
 
         if (self.root_dir / "kogniterm" / "core" / "llm_service.py").exists():
             bullets.append(
-                "- `kogniterm/core/llm_service.py` is the runtime orchestrator: provider/model selection, fallback routing, tool wiring, workspace context, vector DB access, and conversation history all meet there."
+                "- `kogniterm/core/llm_service.py`: Cerebro del sistema (modelos, proveedores, RAG y gestión de historial)."
             )
 
         if all(
@@ -139,66 +223,73 @@ class ProjectMemoryBuilder:
             for part in ("agent_state.py", "message_manager.py", "history_manager.py")
         ):
             bullets.append(
-                "- Conversation state is split intentionally: `AgentState` carries runtime flags, `MessageManager` handles rewind/sync semantics, and `HistoryManager` persists the LangChain message history."
+                "- `kogniterm/core/`: División de responsabilidades entre `AgentState` (flags), `MessageManager` (mensajes) y `HistoryManager` (persistencia)."
             )
 
-        if (self.root_dir / "kogniterm" / "core" / "command_executor.py").exists():
-            bullets.append(
-                "- Shell execution uses `kogniterm/core/command_executor.py`, which keeps a persistent PTY-backed bash session instead of spawning a fresh shell for every command."
-            )
+        # 2. Análisis genérico de directorios para cualquier proyecto
+        main_dirs = ["src", "app", "lib", "core", "api", "components", "frontend", "backend", "tests"]
+        found_dirs = []
+        for d in main_dirs:
+            if (self.root_dir / d).exists() and (self.root_dir / d).is_dir():
+                found_dirs.append(d)
 
-        if (self.root_dir / "kogniterm" / "core" / "context" / "codebase_indexer.py").exists():
-            bullets.append(
-                "- Repo understanding lives under `kogniterm/core/context/`: the indexer scans files, respects ignore rules, chunks code, and persists embeddings in `.kogniterm/vector_db`."
-            )
+        if found_dirs:
+            bullets.append(f"- Estructura modular detectada: {', '.join([f'`{d}/`' for d in found_dirs])}.")
+            for d in found_dirs:
+                try:
+                    subdirs = [sub.name for sub in (self.root_dir / d).iterdir() if sub.is_dir() and not sub.name.startswith('.')][:4]
+                    if subdirs:
+                        bullets.append(f"  - `{d}/` contiene componentes como: {', '.join([f'`{sd}`' for sd in subdirs])}.")
+                except Exception:
+                    pass
 
-        if (self.root_dir / "kogniterm" / "core" / "skills" / "skill_manager.py").exists():
-            bullets.append(
-                "- Skills are discovered dynamically from `kogniterm/skills/bundled`, `~/.kogniterm/skills/managed`, and `kogniterm/skills/workspace`."
-            )
+        # 3. Intentar extraer descripción breve de README.md
+        readme = self._read_text(self.root_dir / "README.md", max_chars=4000)
+        if readme:
+            lines = [l.strip() for l in readme.splitlines() if l.strip()]
+            desc_lines = []
+            for i, line in enumerate(lines):
+                if line.startswith("# ") and i + 1 < len(lines):
+                    idx = i + 1
+                    while idx < len(lines) and not lines[idx].startswith("#") and len(desc_lines) < 2:
+                        desc_lines.append(lines[idx])
+                        idx += 1
+                    break
+            if desc_lines:
+                bullets.insert(0, f"- **Propósito del Proyecto:** {' '.join(desc_lines)}")
 
         if not bullets:
-            bullets.append("- Review the repo docs and the top-level package modules first; this repository does not expose its architecture from a single file.")
+            bullets.append("- Revisa la documentación general del repositorio; no se identificaron módulos estándar.")
 
         return bullets
 
     def _build_conventions_section(self) -> List[str]:
         bullets: List[str] = []
+        
         main_py = self._read_text(self.root_dir / "kogniterm" / "main.py", max_chars=1000)
         if "ya no es el punto de entrada principal" in main_py:
             bullets.append(
-                "- Do not route new startup behavior through `kogniterm/main.py`; it is kept only as an obsolete stub."
+                "- No rutes nuevo comportamiento de inicio por `kogniterm/main.py` (obsoleto)."
             )
 
-        if (self.root_dir / "kogniterm" / "terminal" / "config_manager.py").exists():
-            bullets.append(
-                "- Configuration is layered: `~/.kogniterm/config.json` is global and `.kogniterm/config.json` in the workspace overrides it."
-            )
+        # 1. Detectar tipo de lenguaje/proyecto
+        if (self.root_dir / "package.json").exists():
+            bullets.append("- Proyecto Node.js/JavaScript: sigue las convenciones de npm/yarn/pnpm y estilos ESLint/Prettier.")
+        if (self.root_dir / "pyproject.toml").exists() or (self.root_dir / "requirements.txt").exists():
+            bullets.append("- Proyecto Python: sigue las convenciones PEP 8 y entornos virtuales aislados.")
+        if (self.root_dir / "Cargo.toml").exists():
+            bullets.append("- Proyecto Rust: estructurado alrededor de Cargo.")
 
-        if (self.root_dir / "kogniterm" / "core" / "skills" / "skill_manager.py").exists():
-            bullets.append(
-                "- Skills follow the open `SKILL.md` folder format: `SKILL.md` is required, while `scripts/`, `references/`, `assets/`, and `resources/` are optional depending on whether the skill is prompt-only or executable."
-            )
+        # 2. Idioma predominante
+        readme = self._read_text(self.root_dir / "README.md", max_chars=10000)
+        if any(token in readme for token in (" es ", " tu ", " asistente ", "proyecto", "código")):
+            bullets.append("- Se prefiere escribir comentarios, commits y documentación en español.")
+        else:
+            bullets.append("- Comments, commits and documentation are written primarily in English.")
 
-        terminal_py = self._read_text(
-            self.root_dir / "kogniterm" / "terminal" / "terminal.py",
-            max_chars=6000,
-        )
-        if "lazy dependency loading" in terminal_py or "Heavy imports moved inside functions" in terminal_py:
-            bullets.append(
-                "- Startup code favors lazy imports to keep launch time down; preserve that pattern when adding new integrations."
-            )
-
+        # 3. Estado local
         if (self.root_dir / ".kogniterm").exists() or (self.root_dir / "kogniterm").exists():
-            bullets.append(
-                "- Project-local runtime state lives under `.kogniterm/` in the workspace, including history, logs, sessions, vector DB data, and memory files."
-            )
-
-        readme = self._read_text(self.root_dir / "README.md", max_chars=12000)
-        if any(token in readme for token in (" es ", " tu ", " asistente ", "terminal inteligente")):
-            bullets.append(
-                "- Much of the documentation and user-facing text is in Spanish; match the language already used in the file you are editing."
-            )
+            bullets.append("- El estado local y la base vectorial residen bajo la carpeta `.kogniterm/` del espacio de trabajo.")
 
         return bullets
 

@@ -13,18 +13,31 @@ name = "memory_init"
 description = "Inicializa la memoria contextual del proyecto creando un archivo 'llm_context.md' si no existe."
 
 
+_llm_service = None
+
+
+def set_llm_service(llm_service):
+    global _llm_service
+    _llm_service = llm_service
+
+
 def memory_init(
-    file_path: str = "llm_context.md"
+    file_path: str = "llm_context.md",
+    llm_service = None
 ) -> str:
     """
     Inicializa la memoria contextual del proyecto.
 
     Args:
         file_path: Ruta del archivo de memoria (default: "llm_context.md")
+        llm_service: Servicio LLM inyectado (opcional)
 
     Returns:
         str: Mensaje de éxito o error
     """
+    global _llm_service
+    active_llm = llm_service or _llm_service
+    
     base_dir = os.getcwd()
     kogniterm_dir = os.path.join(base_dir, ".kogniterm")
     os.makedirs(kogniterm_dir, exist_ok=True)
@@ -37,9 +50,13 @@ def memory_init(
         return f"La memoria '{base_file_name}' ya existe en el directorio actual. No se requiere inicialización."
 
     try:
+        from kogniterm.core.context.project_memory_builder import ProjectMemoryBuilder
+        builder = ProjectMemoryBuilder(base_dir)
+        content = builder.build_markdown(llm_service=active_llm)
+        
         with open(full_path, 'w', encoding='utf-8') as f:
-            f.write("# Memoria Contextual del Proyecto\n\n")
-        return f"Memoria '{base_file_name}' inicializada exitosamente."
+            f.write(content)
+        return f"Memoria '{base_file_name}' inicializada exitosamente con investigación local."
     except PermissionError:
         return f"Error de Permisos: No se tienen los permisos necesarios para inicializar el archivo de memoria '{base_file_name}'. Asegúrate de que la aplicación tenga los permisos de escritura adecuados."
     except Exception as e:
