@@ -504,7 +504,7 @@ class CLIHandler:
             # Usar el adaptador de agent_skills existente
             import sys
             from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
+            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
             from tool import install_skill_pack_from_repo
 
             result = install_skill_pack_from_repo(
@@ -578,7 +578,7 @@ class CLIHandler:
         try:
             import sys
             from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
+            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
             from tool import list_available_external_skills
 
             result = list_available_external_skills()
@@ -616,7 +616,7 @@ class CLIHandler:
 
         # Buscar la skill en el directorio external/
         from pathlib import Path
-        external_skills_dir = Path(__file__).parent.parent.parent / "skills" / "external"
+        external_skills_dir = Path(__file__).parent.parent / "skills" / "external"
 
         # Buscar directorio que coincida
         skill_dirs = list(external_skills_dir.glob(f"*{skill_name}*"))
@@ -644,8 +644,8 @@ class CLIHandler:
         # Buscar en todas las ubicaciones
         from pathlib import Path
         search_paths = [
-            Path(__file__).parent.parent.parent / "skills" / "bundled",
-            Path(__file__).parent.parent.parent / "skills" / "external",
+            Path(__file__).parent.parent / "skills" / "bundled",
+            Path(__file__).parent.parent / "skills" / "external",
             Path.home() / ".kogniterm" / "skills",
         ]
 
