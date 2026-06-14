@@ -94,7 +94,7 @@ def load_some_data_tool(key):
         
         # Simular que pip install se ejecuta correctamente
         with patch("subprocess.check_call") as mock_pip, \
-             patch("importlib.import_module", side_effect=[ImportError, MagicMock()]):
+             patch("importlib.import_module", side_effect=ImportError):
             
             # Primera llamada falla import, por lo que llama a pip, segunda llamada simula import exitoso posterior
             manager._validate_dependencies(["unsupported-fake-library"])
