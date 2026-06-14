@@ -35,54 +35,80 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 EXTERNAL_SKILLS_ROOT = PROJECT_ROOT / "kogniterm" / "skills" / "external"
 SKILLS_SH_API = "https://skills.sh/api/v1"
 
-# Esquema de parámetros para esta skill
-parameters_schema = {
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "description": "Acción a realizar: 'search', 'install', 'install_repo', 'load', 'execute', 'list'"
+# Mapa de esquemas de parámetros para las herramientas de este módulo
+tool_schemas = {
+    "main": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "Acción a realizar: 'search', 'install', 'install_repo', 'load', 'execute', 'list'"
+            },
+            "query": {
+                "type": "string",
+                "description": "Consulta libre para buscar skills relevantes en skills.sh"
+            },
+            "skill_id": {
+                "type": "string",
+                "description": "ID estable de skills.sh (ej: 'vercel-labs/skills/find-skills')"
+            },
+            "install_url": {
+                "type": "string",
+                "description": "URL de instalación de skills.sh o GitHub (según fuente)"
+            },
+            "repo_url": {
+                "type": "string",
+                "description": "URL del repositorio GitHub que contiene una colección de skills"
+            },
+            "skill_name": {
+                "type": "string",
+                "description": "Nombre de una skill concreta dentro de un repo (opcional)"
+            },
+            "agent_skill_path": {
+                "type": "string",
+                "description": "Ruta local al directorio de la skill a cargar o ejecutar"
+            },
+            "parameters": {
+                "type": "object",
+                "description": "Parámetros para pasar a la skill cargada"
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Cantidad máxima de resultados a devolver al buscar",
+                "default": 10
+            },
+            "auto_install": {
+                "type": "boolean",
+                "description": "Si es true, instala automáticamente la mejor coincidencia de la búsqueda",
+                "default": False
+            }
         },
-        "query": {
-            "type": "string",
-            "description": "Consulta libre para buscar skills relevantes en skills.sh"
-        },
-        "skill_id": {
-            "type": "string",
-            "description": "ID estable de skills.sh (ej: 'vercel-labs/skills/find-skills')"
-        },
-        "install_url": {
-            "type": "string",
-            "description": "URL de instalación de skills.sh o GitHub (según fuente)"
-        },
-        "repo_url": {
-            "type": "string",
-            "description": "URL del repositorio GitHub que contiene una colección de skills"
-        },
-        "skill_name": {
-            "type": "string",
-            "description": "Nombre de una skill concreta dentro de un repo (opcional)"
-        },
-        "agent_skill_path": {
-            "type": "string",
-            "description": "Ruta local al directorio de la skill a cargar o ejecutar"
-        },
-        "parameters": {
-            "type": "object",
-            "description": "Parámetros para pasar a la skill cargada"
-        },
-        "limit": {
-            "type": "integer",
-            "description": "Cantidad máxima de resultados a devolver al buscar",
-            "default": 10
-        },
-        "auto_install": {
-            "type": "boolean",
-            "description": "Si es true, instala automáticamente la mejor coincidencia de la búsqueda",
-            "default": False
-        }
+        "required": ["action"]
     },
-    "required": ["action"]
+    "load_agent_skill": {
+        "type": "object",
+        "properties": {
+            "skill_path": {
+                "type": "string",
+                "description": "Ruta local al directorio de la skill a cargar"
+            }
+        },
+        "required": ["skill_path"]
+    },
+    "execute_agent_skill": {
+        "type": "object",
+        "properties": {
+            "skill_path": {
+                "type": "string",
+                "description": "Ruta local al directorio de la skill a ejecutar"
+            },
+            "parameters": {
+                "type": "object",
+                "description": "Parámetros para pasar a la función main de la skill"
+            }
+        },
+        "required": ["skill_path", "parameters"]
+    }
 }
 
 
