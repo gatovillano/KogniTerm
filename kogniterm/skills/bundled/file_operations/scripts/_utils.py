@@ -11,7 +11,10 @@ def matches_ignore(item_name: str, is_dir: bool = False) -> bool:
     return False
 
 def clean_path(path: str) -> str:
-    """Limpia la ruta de caracteres innecesarios."""
+    """Limpia la ruta de caracteres innecesarios y la convierte a absoluta si es relativa."""
     if not path:
         return ""
-    return path.strip().replace('@', '')
+    cleaned = path.strip().replace('@', '')
+    if not os.path.isabs(cleaned):
+        cleaned = os.path.abspath(cleaned)
+    return cleaned

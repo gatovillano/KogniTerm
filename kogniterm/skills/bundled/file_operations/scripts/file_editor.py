@@ -4,11 +4,7 @@ import re
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 
-def clean_path(path: str) -> str:
-    """Limpia la ruta de caracteres innecesarios."""
-    if not path:
-        return ""
-    return path.strip().replace('@', '')
+from ._utils import clean_path
 
 
 # Intentar importar RaceConditionGuard del core
@@ -320,7 +316,7 @@ replace_file_content.agent_state = None
 common_editor_schema = {
     "type": "object",
     "properties": {
-        "path": {"type": "string", "description": "Ruta absoluta del archivo a editar."},
+        "path": {"type": "string", "description": "Ruta del archivo a editar (puede ser absoluta o relativa al directorio de trabajo)."},
         "action": {
             "type": "string", 
             "description": "Estrategia de edición a utilizar.",
