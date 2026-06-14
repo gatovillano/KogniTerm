@@ -19,22 +19,36 @@ logger = logging.getLogger(__name__)
 
 def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
     """
-    Transforma comandos python3 -c "..." a ejecución desde archivo temporal.
+    Transforma comandos python -c "..." o python -c '...' (con cualquier ruta de python)
+    a ejecución desde un archivo temporal.
     
     Returns:
         (comando_transformado, fue_transformado, ruta_temp)
     """
-    # Patrón: python3 -c "código" (con comillas dobles opcionalmente escapadas)
-    # Captura el comando python3 inicial y el código entre comillas
-    pattern = r'^(python3(?:\s+[^&|;]*?))\s+-c\s+"((?:[^"\\]|\\.)*)"(.*)$'
-    match = re.match(pattern, command.strip(), re.DOTALL)
+    cmd_stripped = command.strip()
     
+    # 1. Intentar con comillas dobles
+    pattern_double = r'^([^\s&|;]*python[0-9.]*(?:\s+[^&|;]*?)*)\s+-c\s+"((?:[^"\\]|\\.)*)"(.*)$'
+    match = re.match(pattern_double, cmd_stripped, re.DOTALL)
+    
+    # 2. Si no coincide, intentar con comillas simples
+    if not match:
+        pattern_single = r"^([^\s&|;]*python[0-9.]*(?:\s+[^&|;]*?)*)\s+-c\s+'((?:[^'\\]|\\.)*)'(.*)$"
+        match = re.match(pattern_single, cmd_stripped, re.DOTALL)
+        
     if not match:
         return command, False, None
-    
-    prefix = match.group(1)  # python3 ... (hasta -c)
+        
+    prefix = match.group(1)  # python ... (hasta -c)
     code = match.group(2)    # código entre comillas
     suffix = match.group(3)  # resto del comando (si hay)
+    
+    # Des-escapar las comillas correspondientes del código capturado para guardarlo en un archivo .py real
+    is_double_quotes = cmd_stripped[match.start(2) - 1] == '"'
+    if is_double_quotes:
+        code = code.replace('\\"', '"').replace('\\\\', '\\')
+    else:
+        code = code.replace("\\'", "'").replace('\\\\', '\\')
     
     # Crear archivo temporal
     fd, temp_path = tempfile.mkstemp(suffix='.py', prefix='kogniterm_py_')
@@ -44,7 +58,7 @@ def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
     with open(temp_path, 'w', encoding='utf-8') as f:
         f.write(code)
     
-    # Construir comando transformado: python3 ... /tmp/...py [suffix]
+    # Construir comando transformado: python ... /tmp/...py [suffix]
     transformed = f"{prefix} {temp_path}{suffix}"
     
     return transformed, True, temp_path
@@ -112,16 +126,15 @@ class CommandExecutor:
         except:
             pass
 
-        # Transformar comandos multilinea a ejecución desde archivo temporal usando source
-        # para evitar problemas de eco, PS2 (>) y ruptura de sintaxis en PTY (ej. heredocs, comentarios)
+        # Transformar comandos python -c "..." (multilínea o no, de cualquier venv/ruta)
+        # a ejecución desde archivo temporal para evitar problemas de eco, PS2 (>) y PTY
+        command, was_transformed, temp_path = _transform_python3_dash_c(command)
+        
         original_command = command
         stripped_command = command.strip()
         is_multiline = "\n" in stripped_command
         
-        was_transformed = False
-        temp_path = None
-        
-        if is_multiline:
+        if not was_transformed and is_multiline:
             fd, temp_path = tempfile.mkstemp(suffix='.sh', prefix='kogniterm_run_')
             os.close(fd)
             with open(temp_path, 'w', encoding='utf-8') as f:
@@ -129,10 +142,8 @@ class CommandExecutor:
             command = f"source {temp_path}"
             was_transformed = True
             yield f"[KogniTerm] Ejecutando comando multilínea desde archivo temporal: {temp_path}\n"
-        else:
-            command, was_transformed, temp_path = _transform_python3_dash_c(command)
-            if was_transformed:
-                yield f"[KogniTerm] Transformando python3 -c a archivo temporal: {temp_path}\n"
+        elif was_transformed:
+            yield f"[KogniTerm] Transformando comando python -c a archivo temporal: {temp_path}\n"
 
 
         # Enviar el comando al shell persistente.
