@@ -34,10 +34,11 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 EXTERNAL_SKILLS_ROOT = PROJECT_ROOT / "kogniterm" / "skills" / "external"
 SKILLS_SH_API = "https://skills.sh/api/v1"
-
-# Mapa de esquemas de parámetros para las herramientas de este módulo
-tool_schemas = {
-    "main": {
+# Esquema de parámetros para la herramienta principal
+tool_schema = {
+    "name": "agent_skills_adapter",
+    "description": "Adaptador para permitir que skills diseñadas para el framework agent-skills funcionen en KogniTerm. Acciones: search, install, install_repo, list, load, execute.",
+    "parameters": {
         "type": "object",
         "properties": {
             "action": {
@@ -84,34 +85,8 @@ tool_schemas = {
             }
         },
         "required": ["action"]
-    },
-    "load_agent_skill": {
-        "type": "object",
-        "properties": {
-            "skill_path": {
-                "type": "string",
-                "description": "Ruta local al directorio de la skill a cargar"
-            }
-        },
-        "required": ["skill_path"]
-    },
-    "execute_agent_skill": {
-        "type": "object",
-        "properties": {
-            "skill_path": {
-                "type": "string",
-                "description": "Ruta local al directorio de la skill a ejecutar"
-            },
-            "parameters": {
-                "type": "object",
-                "description": "Parámetros para pasar a la función main de la skill"
-            }
-        },
-        "required": ["skill_path", "parameters"]
     }
 }
-
-
 def main(**kwargs):
     """Función principal del adaptador de skills externas."""
     action = kwargs.get("action")
@@ -488,3 +463,7 @@ def execute_agent_skill(skill_path: str, parameters: Dict[str, Any]):
 
 if __name__ == "__main__":
     print(json.dumps(main(action="search", query="marketing", limit=3), indent=2, ensure_ascii=False))
+# Atributos requeridos por SkillLoader para registrar la herramienta
+main.name = "agent_skills_adapter"
+main.description = "Adaptador para permitir que skills diseñadas para el framework agent-skills funcionen en KogniTerm. Acciones: search, install, install_repo, list, load, execute."
+main.parameters_schema = tool_schema["parameters"]
