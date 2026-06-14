@@ -118,6 +118,19 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
                     base_content += f"\n\n### Memorias y Preferencias Aprendidas:\n{learned_memories}\n"
     except Exception:
         pass
+
+    # Cargar memoria contextual del proyecto (llm_context.md)
+    try:
+        context_path = os.path.join(os.getcwd(), ".kogniterm", "llm_context.md")
+        if os.path.exists(context_path):
+            with open(context_path, 'r', encoding='utf-8') as f:
+                llm_context = f.read().strip()
+                if llm_context:
+                    base_content += f"\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO (llm_context.md):\nDebes basar tus decisiones en esta memoria y respetar sus convenciones de desarrollo:\n{llm_context}\n"
+        else:
+            base_content += "\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO:\nActualmente no existe el archivo `.kogniterm/llm_context.md`. Debes sugerir al usuario ejecutar `/init` al inicio de la interacción para realizar la investigación y construirla automáticamente.\n"
+    except Exception:
+        pass
     
     # Solo añadir la instrucción de pensar si el modelo NO es de razonamiento nativo
     if not llm_service.is_thinking_model():

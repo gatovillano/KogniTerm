@@ -1053,12 +1053,15 @@ class KogniTermTUI(App):
     def _start_indexing(self):
         """Begin the indexing process."""
         # Mostrar barra de progreso en la parte inferior
-        try:
-            self.query_one("#indexing_progress_container").display = True
-            self.query_one("#indexing_label").update("[#9ca3af]Indexando...[/#9ca3af]")
-            self.query_one("#indexing_bar").update("")
-        except Exception:
-            pass
+        def show_ui():
+            try:
+                self.query_one("#indexing_progress_container").display = True
+                self.query_one("#indexing_label").update("[#9ca3af]Indexando...[/#9ca3af]")
+                self.query_one("#indexing_bar").update("")
+            except Exception as e:
+                logger.error(f"Error showing indexing progress: {e}")
+        
+        self.call_from_thread(show_ui)
         self.run_worker(self._do_indexing)
 
     async def _do_indexing(self):
@@ -1092,54 +1095,69 @@ class KogniTermTUI(App):
 
     def _show_indexing_progress(self, current: int, total: int, description: str):
         """Update the progress bar at the bottom of the screen."""
-        try:
-            pct = int((current / total) * 100)
-            label = self.query_one("#indexing_label")
-            # Barra visual: ■■■■■■░░░░
-            filled = pct // 10
-            empty = 10 - filled
-            bar_text = f"{'[#3b82f6]■[/#3b82f6]' * filled}{'[#374151]░[/#374151]' * empty}"
-            label.update(f"Indexando {bar_text} {pct}%  {description}")
-        except Exception:
-            pass
+        def update_ui():
+            try:
+                pct = int((current / total) * 100)
+                label = self.query_one("#indexing_label")
+                # Barra visual: ■■■■■■░░░░
+                filled = pct // 10
+                empty = 10 - filled
+                bar_text = f"{'[#3b82f6]■[/#3b82f6]' * filled}{'[#374151]░[/#374151]' * empty}"
+                label.update(f"Indexando {bar_text} {pct}%  {description}")
+            except Exception as e:
+                logger.error(f"Error updating indexing progress UI: {e}")
+        
+        self.call_from_thread(update_ui)
 
     def _indexing_complete(self, num_chunks: int):
-        """Called on main thread when indexing completes."""
-        try:
-            label = self.query_one("#indexing_label")
-            if num_chunks > 0:
-                label.update("[green]■■■■■■■■■■ 100%  Indexación completada.[/green]")
-            else:
-                label.update("[yellow]Indexación completada: no se encontraron archivos relevantes.[/yellow]")
-            # Ocultar después de 3 segundos
-            import threading
-            def hide():
-                import time
-                time.sleep(3)
+        """Called when indexing completes."""
+        def complete_ui():
+            try:
+                label = self.query_one("#indexing_label")
+                if num_chunks > 0:
+                    label.update("[green]■■■■■■■■■■ 100%  Indexación completada.[/green]")
+                else:
+                    label.update("[yellow]Indexación completada: no se encontraron archivos relevantes.[/yellow]")
+            except Exception as e:
+                logger.error(f"Error updating indexing completion UI: {e}")
+        
+        self.call_from_thread(complete_ui)
+        
+        # Ocultar después de 3 segundos
+        import threading
+        def hide():
+            import time
+            time.sleep(3)
+            def hide_ui():
                 try:
                     self.query_one("#indexing_progress_container").display = False
                 except Exception:
                     pass
-            threading.Thread(target=hide, daemon=True).start()
-        except Exception:
-            pass
+            self.call_from_thread(hide_ui)
+        threading.Thread(target=hide, daemon=True).start()
 
     def _indexing_failed(self, error_msg: str):
-        """Called on main thread when indexing fails."""
-        try:
-            label = self.query_one("#indexing_label")
-            label.update(f"[red]Error en la indexación: {error_msg}[/red]")
-            import threading
-            def hide():
-                import time
-                time.sleep(5)
+        """Called when indexing fails."""
+        def fail_ui():
+            try:
+                label = self.query_one("#indexing_label")
+                label.update(f"[red]Error en la indexación: {error_msg}[/red]")
+            except Exception as e:
+                logger.error(f"Error updating indexing failure UI: {e}")
+        
+        self.call_from_thread(fail_ui)
+        
+        import threading
+        def hide():
+            import time
+            time.sleep(5)
+            def hide_ui():
                 try:
                     self.query_one("#indexing_progress_container").display = False
                 except Exception:
                     pass
-            threading.Thread(target=hide, daemon=True).start()
-        except Exception:
-            pass
+            self.call_from_thread(hide_ui)
+        threading.Thread(target=hide, daemon=True).start()
 
     @work(thread=True)
     def _start_deep_research_investigation(self, force: bool = False):
