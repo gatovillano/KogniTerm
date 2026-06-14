@@ -1137,6 +1137,91 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
+    @work(thread=True)
+    def _start_deep_research_investigation(self, force: bool = False):
+        """Worker that runs the DeepResearcher in the background."""
+        try:
+            self.tui_ui.print_message("🤖 Iniciando investigación local con DeepResearcher...", style="yellow")
+            
+            # 1. Asegurar que las herramientas críticas estén cargadas en el LLMService
+            if hasattr(self.llm_service, 'skill_manager'):
+                for skill in ['file_operations', 'codebase_search', 'task_tracker']:
+                    try:
+                        if skill not in self.llm_service.skill_manager.loaded_skills:
+                            self.llm_service.skill_manager.load_skill(skill)
+                    except Exception:
+                        pass
+
+            # 2. Crear el DeepResearcher
+            from kogniterm.core.agents.deep_researcher import create_deep_researcher
+            app = create_deep_researcher(
+                llm_service=self.llm_service,
+                terminal_ui=self.tui_ui,
+                interrupt_queue=self.tui_ui.interrupt_queue
+            )
+            
+            # 3. Formular la consulta
+            query = (
+                "Realiza una investigación profunda y exhaustiva del proyecto local para generar su Memoria Contextual. "
+                "Revisa la estructura de directorios, los archivos de configuración (como pyproject.toml, package.json, etc.), "
+                "los módulos del core en el código fuente, los archivos de test y el README.md. "
+                "Debes recopilar suficiente información para estructurar el informe final (llm_context.md) con las siguientes secciones exactas:\n"
+                "1. # Memoria Contextual del Proyecto: propósito principal, tecnologías clave y alcance del proyecto.\n"
+                "2. ## Arquitectura y Módulos Clave: explicación de la estructura de carpetas, responsabilidades de los módulos y flujo de ejecución.\n"
+                "3. ## Comandos del Proyecto: comandos útiles de bash/npm/pytest para instalación, ejecución y pruebas.\n"
+                "4. ## Convenciones y Reglas de Desarrollo: estilo de código, patrones de diseño, decisiones y reglas obligatorias."
+            )
+            
+            from langchain_core.messages import HumanMessage
+            from kogniterm.core.agents.deep_researcher import DeepResearchState
+            
+            initial_state = DeepResearchState()
+            initial_state.messages = [HumanMessage(content=query)]
+            
+            # Ejecutar el grafo de LangGraph
+            final_state = app.invoke(initial_state)
+            
+            # 4. Procesar el resultado
+            if final_state and 'messages' in final_state and final_state['messages']:
+                last_msg = final_state['messages'][-1]
+                content = getattr(last_msg, 'content', '')
+                if content:
+                    # Limpiar marcadores de pensamiento/razonamiento
+                    import re
+                    cleaned_content = content.strip()
+                    cleaned_content = re.sub(r'<thought>.*?</thought>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+                    cleaned_content = re.sub(r'<thinking>.*?</thinking>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+                    cleaned_content = cleaned_content.replace('__THINKING__:', '')
+                    cleaned_content = cleaned_content.replace('__THINKING__', '')
+                    cleaned_content = cleaned_content.strip()
+                    
+                    if cleaned_content:
+                        if cleaned_content.startswith("## 🔬 Informe de Deep Research"):
+                            cleaned_content = cleaned_content.replace("## 🔬 Informe de Deep Research\n\n", "")
+                        elif cleaned_content.startswith("## 🔬 Informe de Investigación"):
+                            cleaned_content = cleaned_content.replace("## 🔬 Informe de Investigación\n\n", "")
+                            
+                        header = "<!-- Generado por KogniTerm DeepResearcher -->\n"
+                        if not (cleaned_content.startswith("# Memoria Contextual") or cleaned_content.startswith("<!--")):
+                            cleaned_content = header + cleaned_content
+                        
+                        # Escribir la memoria local
+                        from kogniterm.core.context.project_memory_builder import ProjectMemoryBuilder
+                        builder = ProjectMemoryBuilder(self.workspace_directory)
+                        builder.write_memory_file(cleaned_content)
+                        
+                        self.tui_ui.print_message("✅ Memoria contextual del proyecto guardada exitosamente en .kogniterm/llm_context.md", style="green")
+                        self.tui_ui.print_message("✨ ¡Inicialización completada con éxito!", style="bold green")
+                        return
+            
+            self.tui_ui.print_message("⚠️ DeepResearcher finalizó sin generar un reporte válido.", style="yellow")
+            
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.error(f"Error executing DeepResearcher in TUI: {e}\n{error_trace}")
+            self.tui_ui.print_message(f"❌ Error durante la investigación de DeepResearcher: {e}", style="red")
+
     def action_toggle_mouse(self, force_off: bool = False, force_on: bool = False):
         """Alterna el soporte de ratón en tiempo de ejecución o lo fuerza."""
         if force_off:

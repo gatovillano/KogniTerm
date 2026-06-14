@@ -42,71 +42,84 @@ class ProjectMemoryBuilder:
         return full_path
 
     def investigate_with_llm(self, llm_service: Any) -> Optional[str]:
-        """Realiza una investigación local utilizando el LLM configurado para resumir el proyecto."""
-        # Leer el README principal
-        readme_content = self._read_text(self.root_dir / "README.md", max_chars=4000)
-        
-        # Obtener estructura de archivos básica
-        from kogniterm.core.context.workspace_context import WorkspaceContext
+        """Realiza una investigación local utilizando el LLM y DeepResearcher."""
         try:
-            wctx = WorkspaceContext(str(self.root_dir))
-            folder_structure = wctx._get_folder_structure(str(self.root_dir), indent=0, max_depth=2)
-        except Exception:
-            folder_structure = "(No se pudo obtener la estructura de archivos)"
-
-        # Construir prompt para la investigación local
-        prompt = (
-            "Eres un experto en ingeniería de software e investigación de código local.\n"
-            "Analiza la siguiente información de este repositorio y genera una Memoria Contextual del Proyecto en formato Markdown.\n"
-            "Esta memoria servirá para que otros agentes de IA entiendan instantáneamente la estructura, tecnologías y convenciones del proyecto.\n\n"
-            "CRITICAL: Escribe la respuesta DIRECTAMENTE. NO utilices herramientas, no llames funciones, no pidas aclaraciones, no escribas explicaciones introductorias ni de planificación. Genera el Markdown final inmediatamente.\n\n"
-            f"Estructura básica de directorios:\n```\n{folder_structure}\n```\n\n"
-        )
-        if readme_content:
-            prompt += f"Contenido del README.md:\n```\n{readme_content}\n```\n\n"
+            # 1. Asegurar que las herramientas críticas estén cargadas en el LLMService
+            if hasattr(llm_service, 'skill_manager'):
+                for skill in ['file_operations', 'codebase_search', 'task_tracker']:
+                    try:
+                        if skill not in llm_service.skill_manager.loaded_skills:
+                            llm_service.skill_manager.load_skill(skill)
+                    except Exception:
+                        pass
             
-        prompt += (
-            "Por favor, genera un documento Markdown estructurado con las siguientes secciones exactas:\n"
-            "1. # Memoria Contextual del Proyecto: Qué es el proyecto, su propósito principal y su alcance.\n"
-            "2. ## Arquitectura y Módulos Clave: Explicación concisa de los directorios importantes, flujo de ejecución y responsabilidades.\n"
-            "3. ## Comandos del Proyecto: Comandos comunes en bloques de código bash (instalación, ejecución, pruebas, linting, etc.).\n"
-            "4. ## Convenciones y Reglas de Desarrollo: Decisiones de diseño, estilos, patrones obligatorios y pautas del código.\n\n"
-            "Sé preciso, estructurado y técnico. Escribe tu respuesta en español."
-        )
-        
-        from langchain_core.messages import HumanMessage, AIMessage
-        try:
-            # Invocar al LLM de forma sincrónica con include_tools=False para evitar tool calling
-            generator = llm_service.invoke(
-                history=[HumanMessage(content=prompt)],
-                save_history=False,
-                include_tools=False
+            # 2. Obtener el terminal_ui e interrupt_queue del servicio o manager
+            terminal_ui = getattr(llm_service, 'terminal_ui', None)
+            if not terminal_ui and hasattr(llm_service, 'skill_manager'):
+                terminal_ui = getattr(llm_service.skill_manager, 'terminal_ui', None)
+                
+            interrupt_queue = getattr(llm_service, 'interrupt_queue', None)
+            if not interrupt_queue and hasattr(llm_service, 'skill_manager'):
+                interrupt_queue = getattr(llm_service.skill_manager, 'interrupt_queue', None)
+
+            # 3. Crear DeepResearcher
+            from kogniterm.core.agents.deep_researcher import create_deep_researcher
+            app = create_deep_researcher(
+                llm_service=llm_service,
+                terminal_ui=terminal_ui,
+                interrupt_queue=interrupt_queue
             )
-            response_content = ""
-            for chunk in generator:
-                if isinstance(chunk, AIMessage):
-                    response_content += chunk.content
-                elif isinstance(chunk, str):
-                    response_content += chunk
             
-            if response_content.strip():
-                # Limpiar marcadores de pensamiento/razonamiento
-                import re
-                cleaned_content = response_content.strip()
-                cleaned_content = re.sub(r'<thought>.*?</thought>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
-                cleaned_content = re.sub(r'<thinking>.*?</thinking>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
-                cleaned_content = cleaned_content.replace('__THINKING__:', '')
-                cleaned_content = cleaned_content.replace('__THINKING__', '')
-                cleaned_content = cleaned_content.strip()
-
-                if cleaned_content:
-                    header = "<!-- Generado por KogniTerm Local Investigator -->\n"
-                    if cleaned_content.startswith("# Memoria Contextual") or cleaned_content.startswith("<!--"):
-                        return cleaned_content
-                    return header + cleaned_content
-        except Exception:
-            # Fallback silencioso a la generación heurística
-            pass
+            query = (
+                "Realiza una investigación profunda y exhaustiva del proyecto local para generar su Memoria Contextual. "
+                "Revisa la estructura de directorios, los archivos de configuración (como pyproject.toml, package.json, etc.), "
+                "los módulos del core en el código fuente, los archivos de test y el README.md. "
+                "Debes recopilar suficiente información para estructurar el informe final (llm_context.md) con las siguientes secciones exactas:\n"
+                "1. # Memoria Contextual del Proyecto: propósito principal, tecnologías clave y alcance del proyecto.\n"
+                "2. ## Arquitectura y Módulos Clave: explicación de la estructura de carpetas, responsabilidades de los módulos y flujo de ejecución.\n"
+                "3. ## Comandos del Proyecto: comandos útiles de bash/npm/pytest para instalación, ejecución y pruebas.\n"
+                "4. ## Convenciones y Reglas de Desarrollo: estilo de código, patrones de diseño, decisiones y reglas obligatorias."
+            )
+            
+            from langchain_core.messages import HumanMessage
+            from kogniterm.core.agents.deep_researcher import DeepResearchState
+            
+            # Inicializar el estado de Deep Research
+            initial_state = DeepResearchState()
+            initial_state.messages = [HumanMessage(content=query)]
+            
+            # Ejecutar el grafo
+            final_state = app.invoke(initial_state)
+            
+            # El último mensaje en final_state.messages es el reporte de síntesis generado
+            if final_state and 'messages' in final_state and final_state['messages']:
+                last_msg = final_state['messages'][-1]
+                content = getattr(last_msg, 'content', '')
+                if content:
+                    # Limpiar marcadores de pensamiento/razonamiento
+                    import re
+                    cleaned_content = content.strip()
+                    cleaned_content = re.sub(r'<thought>.*?</thought>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+                    cleaned_content = re.sub(r'<thinking>.*?</thinking>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
+                    cleaned_content = cleaned_content.replace('__THINKING__:', '')
+                    cleaned_content = cleaned_content.replace('__THINKING__', '')
+                    cleaned_content = cleaned_content.strip()
+                    
+                    if cleaned_content:
+                        # Si tiene el encabezado de Síntesis del DeepResearcher, limpiarlo para dejar un markdown limpio
+                        if cleaned_content.startswith("## 🔬 Informe de Deep Research"):
+                            cleaned_content = cleaned_content.replace("## 🔬 Informe de Deep Research\n\n", "")
+                        elif cleaned_content.startswith("## 🔬 Informe de Investigación"):
+                            cleaned_content = cleaned_content.replace("## 🔬 Informe de Investigación\n\n", "")
+                            
+                        header = "<!-- Generado por KogniTerm DeepResearcher -->\n"
+                        if cleaned_content.startswith("# Memoria Contextual") or cleaned_content.startswith("<!--"):
+                            return cleaned_content
+                        return header + cleaned_content
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error running DeepResearcher in ProjectMemoryBuilder: {e}", exc_info=True)
+            
         return None
 
     def _normalize_existing_instructions(self, content: str) -> str:
