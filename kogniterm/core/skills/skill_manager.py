@@ -413,21 +413,6 @@ class SkillLoader:
                                 return invoke
                             attr.invoke = create_invoke(attr)
 
-                        tools.append(attr)
-                        seen_objects.add(id(attr))
-
-                        # 5. Asegurar método invoke para compatibilidad con LangChain
-                        if not hasattr(attr, 'invoke'):
-                            # Crear un wrapper para que funcione como una herramienta de LangChain
-                            def create_invoke(func):
-                                def invoke(input_data=None, config=None, **kwargs):
-                                    # Manejar diferentes formas de pasar argumentos
-                                    if isinstance(input_data, dict):
-                                        return func(**input_data)
-                                    return func(**kwargs)
-                                return invoke
-                            attr.invoke = create_invoke(attr)
-
                         # 6. Detectar parámetros de inyección de dependencias
                         try:
                             import inspect
