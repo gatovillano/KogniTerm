@@ -78,5 +78,5 @@ demo = "demo:main"
     assert "python -m pip install -e ." in content
     assert "python -m kogniterm.terminal.terminal" in content
     assert "python -m pytest tests/test_basic.py::test_logger_setup" in content
-    assert "`kogniterm/terminal/terminal.py` is the real entrypoint" in content
-    assert "Do not route new startup behavior through `kogniterm/main.py`" in content
+    assert "kogniterm/terminal/terminal.py`: Punto de entrada real de KogniTerm" in content
+    assert "No rutes nuevo comportamiento de inicio por `kogniterm/main.py`" in content
