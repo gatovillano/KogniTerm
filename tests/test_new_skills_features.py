@@ -90,11 +90,12 @@ def load_some_data_tool(key):
 
     def test_auto_dependency_installation(self, tmp_path):
         """Verifica que _validate_dependencies intente instalar paquetes faltantes."""
+        import importlib.metadata
         manager = SkillManager(base_path=tmp_path)
         
         # Simular que pip install se ejecuta correctamente
         with patch("subprocess.check_call") as mock_pip, \
-             patch("importlib.import_module", side_effect=ImportError):
+             patch("importlib.metadata.version", side_effect=importlib.metadata.PackageNotFoundError):
             
             # Primera llamada falla import, por lo que llama a pip, segunda llamada simula import exitoso posterior
             manager._validate_dependencies(["unsupported-fake-library"])
