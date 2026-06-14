@@ -952,7 +952,7 @@ class LLMService:
         
         logger.info(f"LLMService: Configuración recargada. Nuevo modelo: {self.model_name}")
 
-    def invoke(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True) -> Generator[Union[AIMessage, str], None, None]:
+    def invoke(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True, include_tools: bool = True) -> Generator[Union[AIMessage, str], None, None]:
         """
         Invoca al modelo LLM con el historial proporcionado.
         """
@@ -1124,15 +1124,16 @@ class LLMService:
         }
         
         # Añadir herramientas si están disponibles y el modelo las soporta
-        try:
-            tools = self._get_litellm_tools()
-            if tools:
-                completion_kwargs["tools"] = tools
-                # Forzar tool_choice a auto para incentivar el uso de herramientas
-                completion_kwargs["tool_choice"] = "auto"
-                logger.info(f"🔧 Incluyendo {len(tools)} herramientas en la llamada al LLM")
-        except Exception as e:
-            logger.warning(f"No se pudieron cargar las herramientas para el LLM: {e}")
+        if include_tools:
+            try:
+                tools = self._get_litellm_tools()
+                if tools:
+                    completion_kwargs["tools"] = tools
+                    # Forzar tool_choice a auto para incentivar el uso de herramientas
+                    completion_kwargs["tool_choice"] = "auto"
+                    logger.info(f"🔧 Incluyendo {len(tools)} herramientas en la llamada al LLM")
+            except Exception as e:
+                logger.warning(f"No se pudieron cargar las herramientas para el LLM: {e}")
         self._apply_reasoning_effort_param(completion_kwargs, self.model_name)
 
         # Pasar api_base y headers explícitamente si están definidos

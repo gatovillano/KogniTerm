@@ -278,6 +278,79 @@ class CLIHandler:
             print(f"❌ Unknown index command: {command}")
 
 
+    def handle_init(self, args: List[str]):
+        """Handles 'init' command to initialize the project context and run local investigation."""
+        force = '--force' in args or '-f' in args
+        workspace_directory = os.getcwd()
+        
+        print("🚀 KogniTerm Context Initializer & Local Investigator")
+        
+        # 1. Investigar y construir llm_context.md
+        from kogniterm.core.context.project_memory_builder import ProjectMemoryBuilder
+        from kogniterm.core.llm_service import LLMService
+        
+        llm = None
+        try:
+            llm = LLMService()
+            if not llm.api_key:
+                llm = None
+        except Exception:
+            llm = None
+            
+        if llm:
+            print(f"🤖 Connected to LLM ({llm.model_name}). Starting AI-assisted codebase investigation...")
+        else:
+            print("⚠️  No LLM API key configured. Falling back to heuristic-based codebase scanner...")
+            
+        builder = ProjectMemoryBuilder(workspace_directory)
+        context_path = os.path.join(workspace_directory, ".kogniterm", "llm_context.md")
+        
+        should_write = True
+        if os.path.exists(context_path) and not force:
+            print("ℹ️  .kogniterm/llm_context.md already exists. Skipping memory rebuild (use --force or -f to overwrite).")
+            should_write = False
+            
+        if should_write:
+            try:
+                print("📝 Generating project contextual memory...")
+                content = builder.build_markdown(llm_service=llm)
+                builder.write_memory_file(content)
+                print("✅ Successfully generated and saved .kogniterm/llm_context.md")
+            except Exception as e:
+                print(f"❌ Error generating project memory: {e}")
+                logger.error(f"Error in CLI handle_init building memory: {e}", exc_info=True)
+                
+        # 2. Correr el indexador de código (RAG Vector DB) automáticamente
+        print("\n🔍 Indexing codebase into Vector DB for RAG-ready code understanding...")
+        from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+        
+        vector_db = None
+        try:
+            indexer = CodebaseIndexer(workspace_directory)
+            vector_db = VectorDBManager(workspace_directory)
+            
+            # Run async indexing
+            chunks = asyncio.run(indexer.index_project(workspace_directory))
+            
+            if chunks:
+                print(f"✅ Generated {len(chunks)} codebase chunks. Storing in Vector DB...")
+                vector_db.clear_collection()
+                vector_db.add_chunks(chunks)
+                print("✨ Codebase indexing complete!")
+            else:
+                print("⚠️  No code files found or no chunks generated.")
+                
+        except Exception as e:
+            logger.error(f"Error during codebase indexing: {e}", exc_info=True)
+            print(f"❌ Error during codebase indexing: {e}")
+        finally:
+            if vector_db:
+                vector_db.close()
+                
+        print("\n🎉 Initialization complete! KogniTerm is now fully aware of your local repository context.")
+
+
     def handle_models(self, args: List[str]):
         """Handles 'models' commands (centralizado vía API)."""
         if len(args) < 1:
@@ -632,6 +705,9 @@ def run_cli() -> bool:
 
     if command == 'config':
         handler.handle_config(args)
+        return True
+    elif command == 'init':
+        handler.handle_init(args)
         return True
     elif command == 'index':
         handler.handle_index(args)

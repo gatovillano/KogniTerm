@@ -29,7 +29,6 @@ class TaskTrackerPanelWidget(Static):
     def update_tasks(self, agent_plans: dict):
         """Actualiza el panel con los datos de las tareas."""
         self.tasks_data = agent_plans
-        self.display = bool(agent_plans)  # Mostrar solo si hay tareas
         self.update_display()
         
     def update_display(self):
@@ -39,6 +38,16 @@ class TaskTrackerPanelWidget(Static):
             self.display = False
             return
             
+        # Determinar si todas las tareas de todos los agentes están completadas
+        all_completed = True
+        for agent_name, tasks in self.tasks_data.items():
+            for task in tasks:
+                if task.get("status") != "done":
+                    all_completed = False
+                    break
+            if not all_completed:
+                break
+
         from rich.console import Group
         
         # Crear una tabla por agente sin bordes internos
@@ -76,4 +85,4 @@ class TaskTrackerPanelWidget(Static):
             blocks.append(Group(header, table))
 
         self.update(Group(*blocks))
-        self.display = True
+        self.display = not all_completed
