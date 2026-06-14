@@ -692,6 +692,34 @@ class SkillManager:
                         except Exception:
                             pass
 
+            # Inyectar helpers de estado persistente (Proposal C)
+            state_file = self.base_path / '.kogniterm' / 'state' / f"{skill_name}.json"
+            
+            def get_state() -> dict:
+                if state_file.exists():
+                    try:
+                        with open(state_file, 'r', encoding='utf-8') as sf:
+                            return json.load(sf)
+                    except Exception as e:
+                        logger.error(f"Error leyendo estado para {skill_name}: {e}")
+                return {}
+                
+            def save_state(state: dict):
+                try:
+                    state_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(state_file, 'w', encoding='utf-8') as sf:
+                        json.dump(state, sf, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    logger.error(f"Error guardando estado para {skill_name}: {e}")
+
+            for tool in tools:
+                module_name = getattr(tool, '__module__', None)
+                if module_name:
+                    module = sys.modules.get(module_name)
+                    if module:
+                        setattr(module, 'get_skill_state', get_state)
+                        setattr(module, 'save_skill_state', save_state)
+
             # 3. Registrar cada herramienta en tool_registry
             for tool in tools:
                 tool_name = getattr(tool, 'name', tool.__class__.__name__)
@@ -762,18 +790,27 @@ class SkillManager:
 
     def _validate_dependencies(self, dependencies: List[str]):
         """
-        Valida que las dependencias estén instaladas.
-
-        No instala automáticamente, solo verifica y loggea warnings.
+        Valida e instala automáticamente dependencias faltantes usando pip.
         """
+        import subprocess
+        import sys
         for dep in dependencies:
-            # Si es un paquete pip (contiene ==, >=, <=, >, <)
-            if any(op in dep for op in ['==', '>=', '<=', '>', '<']):
-                package_name = dep.split('==')[0].split('>=')[0].split('<=')[0].split('>')[0].split('<')[0]
+            package_name = dep
+            for op in ['==', '>=', '<=', '>', '<']:
+                if op in dep:
+                    package_name = dep.split(op)[0]
+                    break
+            
+            package_name = package_name.strip().replace('-', '_')
+            try:
+                importlib.import_module(package_name)
+            except ImportError:
+                logger.info(f"Instalando dependencia faltante para skill: {dep}...")
                 try:
-                    importlib.import_module(package_name.replace('-', '_'))
-                except ImportError:
-                    logger.warning(f"Dependencia '{dep}' no instalada. Instalar con: pip install {dep}")
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
+                    logger.info(f"✅ Dependencia '{dep}' instalada exitosamente.")
+                except Exception as e:
+                    logger.error(f"❌ Error al instalar dependencia '{dep}': {e}")
             # Si es stdlib (ej. "subprocess"), no hacer nada
 
     def unload_skill(self, skill_name: str):
@@ -813,11 +850,202 @@ class SkillManager:
         return self.load_skill(skill_name)
 
     def get_tool(self, tool_name: str) -> Optional[Any]:
-        """Obtiene la instancia de una herramienta por nombre."""
+        """Obtiene la instancia de una herramienta por nombre, aplicándole sandbox si se requiere."""
         tool_info = self.tool_registry.get(tool_name)
         if tool_info:
-            return tool_info.get('tool')
+            tool = tool_info.get('tool')
+            # Si requiere sandbox y no es del núcleo confiable, envolver el tool
+            if tool_info.get('sandbox_required') or tool_info.get('security_level') in ['high', 'elevated']:
+                is_bundled = tool_info.get('skill') in ['execute_command', 'file_operations', 'advanced_file_editor', 'file_update', 'think', 'web_fetch', 'task_tracker']
+                if not is_bundled:
+                    return self._wrap_in_sandbox(tool, tool_info)
+            return tool
         return None
+
+    def _wrap_in_sandbox(self, tool, tool_info) -> Any:
+        """
+        Envuelve una herramienta para ejecutarse de forma aislada mediante un subproceso
+        restringido o bwrap (bubblewrap) si está disponible, montando de forma selectiva
+        el directorio actual.
+        """
+        import json
+        import subprocess
+        import sys
+        import os
+        from pathlib import Path
+
+        tool_name = getattr(tool, 'name', getattr(tool, '__name__', tool.__class__.__name__))
+        skill_name = tool_info['skill']
+        skill = self.skills.get(skill_name)
+        
+        # Localizar el script original
+        script_file = None
+        if skill:
+            scripts_dir = skill.path / 'scripts'
+            if scripts_dir.exists():
+                for f in scripts_dir.glob('*.py'):
+                    if f.stem == getattr(tool, '__module__', '').split('.')[-1]:
+                        script_file = f
+                        break
+            if not script_file:
+                for f in skill.path.glob('*.py'):
+                    if f.stem == getattr(tool, '__module__', '').split('.')[-1]:
+                        script_file = f
+                        break
+                        
+        def sandboxed_invoke(*args, **kwargs):
+            call_args = kwargs.copy()
+            if args:
+                if isinstance(args[0], dict):
+                    call_args.update(args[0])
+            
+            import_path = str(script_file.resolve()) if script_file else ""
+            func_name = getattr(tool, '__name__', 'run')
+            
+            payload = {
+                "script_path": import_path,
+                "func_name": func_name,
+                "args": call_args
+            }
+            
+            runner_code = """
+import sys
+import json
+import importlib.util
+import os
+
+try:
+    import resource
+    # Limitar memoria a 512MB
+    resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+    # Limitar número de descriptores de archivos a 64
+    resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+except Exception:
+    pass
+
+try:
+    payload = json.loads(sys.stdin.read())
+    script_path = payload["script_path"]
+    func_name = payload["func_name"]
+    args = payload["args"]
+    
+    spec = importlib.util.spec_from_file_location("sandbox_module", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    
+    # Resolver la función o método de la clase
+    if hasattr(module, func_name):
+        func = getattr(module, func_name)
+    else:
+        # Si es una clase con run
+        cls_name = func_name
+        if hasattr(module, cls_name):
+            inst = getattr(module, cls_name)()
+            func = getattr(inst, 'run', inst)
+        else:
+            # Buscar cualquier callable
+            func = None
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if attr_name == func_name or (callable(attr) and not attr_name.startswith('_')):
+                    func = attr
+                    break
+            if not func:
+                raise Exception(f"No se pudo resolver la función {func_name} en el módulo")
+                
+    result = func(**args)
+    print(json.dumps({"success": True, "result": result}))
+except Exception as e:
+    import traceback
+    print(json.dumps({"success": False, "error": str(e), "traceback": traceback.format_exc()}))
+"""
+            
+            # Limpiar entorno para proteger credenciales locales (ej. .git-credentials)
+            sandbox_env = {
+                "PATH": os.environ.get("PATH", ""),
+                "PYTHONPATH": os.environ.get("PYTHONPATH", ""),
+                "LANG": os.environ.get("LANG", "en_US.UTF-8"),
+                "TERM": os.environ.get("TERM", "xterm-256color")
+            }
+            
+            # Chequear bubblewrap
+            use_bwrap = False
+            bwrap_path = None
+            for p in ["/usr/bin/bwrap", "/bin/bwrap"]:
+                if os.path.exists(p):
+                    use_bwrap = True
+                    bwrap_path = p
+                    break
+            
+            cwd = os.getcwd()
+            cmd = [sys.executable, "-c", runner_code]
+            
+            if use_bwrap:
+                bwrap_cmd = [
+                    bwrap_path,
+                    "--ro-bind", "/usr", "/usr",
+                    "--ro-bind", "/lib", "/lib",
+                    "--ro-bind", "/bin", "/bin",
+                ]
+                if os.path.exists("/lib64"):
+                    bwrap_cmd.extend(["--ro-bind", "/lib64", "/lib64"])
+                if os.path.exists("/sbin"):
+                    bwrap_cmd.extend(["--ro-bind", "/sbin", "/sbin"])
+                if os.path.exists("/etc/alternatives"):
+                    bwrap_cmd.extend(["--ro-bind", "/etc/alternatives", "/etc/alternatives"])
+                
+                # Montar solo el workspace Cwd
+                bwrap_cmd.extend([
+                    "--bind", cwd, cwd,
+                    "--proc", "/proc",
+                    "--dev", "/dev",
+                    "--tmpfs", "/tmp",
+                    "--chdir", cwd,
+                    "--unshare-all"
+                ])
+                cmd = bwrap_cmd + cmd
+                
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=sandbox_env,
+                    text=True
+                )
+                
+                stdout, stderr = proc.communicate(input=json.dumps(payload), timeout=30)
+                
+                if proc.returncode != 0:
+                    return f"❌ Error de ejecución en sandbox (código {proc.returncode}): {stderr}"
+                
+                res = json.loads(stdout.strip())
+                if res.get("success"):
+                    return res.get("result")
+                else:
+                    return f"❌ Error dentro del sandbox: {res.get('error')}\n{res.get('traceback')}"
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                return "❌ Error: La ejecución del skill en el sandbox excedió el tiempo límite (30s)."
+            except Exception as e:
+                return f"❌ Error inicializando sandbox: {e}"
+                
+        sandboxed_invoke.name = tool_name
+        sandboxed_invoke.__name__ = tool_name
+        sandboxed_invoke.description = getattr(tool, 'description', '')
+        if hasattr(tool, 'parameters_schema'):
+            sandboxed_invoke.parameters_schema = tool.parameters_schema
+        elif hasattr(tool, 'args'):
+            sandboxed_invoke.args = tool.args
+            
+        def invoke(input_data=None, config=None, **kwargs):
+            if isinstance(input_data, dict):
+                return sandboxed_invoke(**input_data)
+            return sandboxed_invoke(**kwargs)
+        sandboxed_invoke.invoke = invoke
+        
+        return sandboxed_invoke
 
     def get_skill_for_tool(self, tool_name: str) -> Optional[Skill]:
         """Obtiene la skill que provee una herramienta."""

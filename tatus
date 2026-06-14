@@ -1,0 +1,37 @@
+[1mdiff --git a/kogniterm/terminal/tui/components/task_tracker_panel.py b/kogniterm/terminal/tui/components/task_tracker_panel.py[m
+[1mindex dd7c22a0..944079fe 100644[m
+[1m--- a/kogniterm/terminal/tui/components/task_tracker_panel.py[m
+[1m+++ b/kogniterm/terminal/tui/components/task_tracker_panel.py[m
+[36m@@ -29,7 +29,6 @@[m [mclass TaskTrackerPanelWidget(Static):[m
+     def update_tasks(self, agent_plans: dict):[m
+         """Actualiza el panel con los datos de las tareas."""[m
+         self.tasks_data = agent_plans[m
+[31m-        self.display = bool(agent_plans)  # Mostrar solo si hay tareas[m
+         self.update_display()[m
+         [m
+     def update_display(self):[m
+[36m@@ -39,6 +38,16 @@[m [mclass TaskTrackerPanelWidget(Static):[m
+             self.display = False[m
+             return[m
+             [m
+[32m+[m[32m        # Determinar si todas las tareas de todos los agentes están completadas[m
+[32m+[m[32m        all_completed = True[m
+[32m+[m[32m        for agent_name, tasks in self.tasks_data.items():[m
+[32m+[m[32m            for task in tasks:[m
+[32m+[m[32m                if task.get("status") != "done":[m
+[32m+[m[32m                    all_completed = False[m
+[32m+[m[32m                    break[m
+[32m+[m[32m            if not all_completed:[m
+[32m+[m[32m                break[m
+[32m+[m
+         from rich.console import Group[m
+         [m
+         # Crear una tabla por agente sin bordes internos[m
+[36m@@ -76,4 +85,4 @@[m [mclass TaskTrackerPanelWidget(Static):[m
+             blocks.append(Group(header, table))[m
+ [m
+         self.update(Group(*blocks))[m
+[31m-        self.display = True[m
+\ No newline at end of file[m
+[32m+[m[32m        self.display = not all_completed[m
+\ No newline at end of file[m

@@ -1002,6 +1002,19 @@ class LLMService:
             if not any("## 📁 CONTEXTO DEL PROYECTO" in str(msg.content) for msg in processed_history):
                 system_contents.append(workspace_context_message.content)
 
+        # Añadir el contexto de skills cargadas/relevantes (Semantic Routing) (Proposal A)
+        if hasattr(self, 'skill_manager') and self.skill_manager:
+            user_query = ""
+            for msg in reversed(processed_history):
+                if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
+                    user_query = msg.content
+                    break
+            
+            skill_context_message = self.skill_manager.build_skill_context_message(query=user_query)
+            if skill_context_message:
+                if not any("## 🧩 CONTEXTO DE SKILLS" in str(msg.content) for msg in processed_history):
+                    system_contents.append(skill_context_message.content)
+
         # Unificar todos los mensajes de sistema al principio (Requerido por muchos proveedores)
         if system_contents:
             litellm_messages.append({"role": "system", "content": "\n\n".join(system_contents)})
