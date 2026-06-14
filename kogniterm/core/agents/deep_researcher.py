@@ -447,9 +447,8 @@ def create_deep_researcher(llm_service: LLMService, terminal_ui: Any = None, int
     workflow.add_node("research", functools.partial(research_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
     workflow.add_node("reflection", functools.partial(reflection_node, llm_service=llm_service, terminal_ui=terminal_ui))
     workflow.add_node("synthesis", functools.partial(synthesis_node, llm_service=llm_service, terminal_ui=terminal_ui))
-    
     workflow.add_node("call_model", functools.partial(call_deep_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
-    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue, autonomous_approvals=True))
+    workflow.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
 
     # Definir flujo
     workflow.set_entry_point("planning")
