@@ -1032,8 +1032,8 @@ class KogniTermTUI(App):
                 # Show confirmation modal
                 self.push_screen(
                     IndexingConfirmModal(
-                        title="Espacio de trabajo no indexado",
-                        message="¿Desea indexar el espacio de trabajo ahora para búsquedas inteligentes? Esto puede tomar unos minutos."
+                        title="Inicializar contexto del proyecto",
+                        message="¿Desea inicializar el espacio de trabajo para este proyecto? Esto generará la memoria de contexto (.kogniterm/llm_context.md) mediante investigación autónoma e indexará el código para búsquedas inteligentes. (Equivale a ejecutar el comando /init)"
                     ),
                     self._on_indexing_confirmation
                 )
@@ -1045,6 +1045,10 @@ class KogniTermTUI(App):
         """Handle response from indexing confirmation modal."""
         if should_index:
             self._start_indexing()
+            try:
+                self._start_deep_research_investigation(force=False)
+            except Exception as e:
+                logger.error(f"Error starting deep research from modal confirmation: {e}")
 
     def _start_indexing(self):
         """Begin the indexing process."""
