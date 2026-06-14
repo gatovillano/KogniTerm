@@ -1,11 +1,7 @@
 import os
 from typing import List, Dict, Any, Optional
 
-def clean_path(path: str) -> str:
-    """Limpia la ruta de caracteres innecesarios."""
-    if not path:
-        return ""
-    return path.strip().replace('@', '')
+from ._utils import clean_path
 
 
 def read_file_tool(path: str, start_line: Optional[int] = None, end_line: Optional[int] = None) -> Dict[str, Any]:

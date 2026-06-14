@@ -38,21 +38,16 @@ class TaskTrackerPanelWidget(Static):
             self.display = False
             return
             
-        # Determinar si todas las tareas de todos los agentes están completadas
-        all_completed = True
-        for agent_name, tasks in self.tasks_data.items():
-            for task in tasks:
-                if task.get("status") != "done":
-                    all_completed = False
-                    break
-            if not all_completed:
-                break
-
         from rich.console import Group
         
         # Crear una tabla por agente sin bordes internos
         blocks = []
         for agent_name, tasks in self.tasks_data.items():
+            # Si todas las tareas del agente están completadas ("done") o no hay tareas,
+            # su plan completo desaparece del panel.
+            if not tasks or all(task.get("status") == "done" for task in tasks):
+                continue
+                
             header = Text.from_markup(
                 f"[bold {ColorPalette.SECONDARY}]● {self.panel_title or agent_name}[/bold {ColorPalette.SECONDARY}]"
             )
@@ -84,5 +79,9 @@ class TaskTrackerPanelWidget(Static):
 
             blocks.append(Group(header, table))
 
-        self.update(Group(*blocks))
-        self.display = not all_completed
+        if not blocks:
+            self.update("No hay tareas")
+            self.display = False
+        else:
+            self.update(Group(*blocks))
+            self.display = True

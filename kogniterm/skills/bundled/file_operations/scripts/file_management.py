@@ -2,11 +2,7 @@ import os
 import shutil
 from typing import Dict, Any, Optional
 
-def clean_path(path: str) -> str:
-    """Limpia la ruta de caracteres innecesarios."""
-    if not path:
-        return ""
-    return path.strip().replace('@', '')
+from ._utils import clean_path
 
 
 def delete_file_tool(path: str, confirm: bool = False) -> str | Dict[str, Any]:

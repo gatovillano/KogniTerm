@@ -2305,7 +2305,7 @@ class KogniTermTUI(App):
             
             # Mostrar/Ocultar el contenedor del tracker
             tracker = self.query_one("#tracker_container")
-            if agent_plans:
+            if agent_plans and self.task_tracker_panel.display:
                 tracker.display = True
             else:
                 tracker.display = False

@@ -3,11 +3,7 @@ import re
 import glob
 from typing import Dict, Any, Optional
 
-def clean_path(path: str) -> str:
-    """Limpia la ruta de caracteres innecesarios."""
-    if not path:
-        return ""
-    return path.strip().replace('@', '')
+from ._utils import clean_path
 
 
 def search_in_file_tool(path: str, pattern: str) -> Dict[str, Any]:
@@ -46,8 +42,6 @@ def glob_search_tool(pattern: str, path: Optional[str] = None) -> Dict[str, Any]
     Devuelve la lista de rutas encontradas.
     """
     path = clean_path(path) or os.getcwd()
-    if not os.path.isabs(path):
-        return {"error": "El 'path' debe ser una ruta absoluta."}
 
     try:
         full_pattern = os.path.join(path, pattern)

@@ -11,11 +11,7 @@ def matches_ignore(item_name: str, is_dir: bool = False) -> bool:
         return True
     return False
 
-def clean_path(path: str) -> str:
-    """Limpia la ruta de caracteres innecesarios."""
-    if not path:
-        return ""
-    return path.strip().replace('@', '')
+from ._utils import clean_path
 
 
 def list_directory_tool(path: str, recursive: bool = False) -> str | Dict[str, Any]:
