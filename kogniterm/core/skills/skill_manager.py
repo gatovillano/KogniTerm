@@ -376,17 +376,22 @@ class SkillLoader:
 
                         # 3. Determinar el esquema de parámetros
                         if not has_params:
-                            suggested_params = module_params_attr
-                            if not suggested_params and module_tool_schema:
-                                suggested_params = module_tool_schema.get('parameters')
-                            
-                            # Recalculate is_main_tool just in case, or reuse if variables are in scope (they are)
-                            current_name = getattr(attr, 'name', '')
-                            main_module_name = module_name_attr or (module_tool_schema.get('name') if module_tool_schema else None)
-                            is_main_tool = (current_name == main_module_name) if main_module_name else (reason == "tool_py_default")
-                            
-                            if suggested_params and is_main_tool:
-                                attr.parameters_schema = suggested_params
+                            # Intentar buscar en un mapa de esquemas del módulo (tool_schemas)
+                            module_schemas = getattr(module, 'tool_schemas', None)
+                            if isinstance(module_schemas, dict) and attr_name in module_schemas:
+                                attr.parameters_schema = module_schemas[attr_name]
+                            else:
+                                # Fallback al esquema global para la herramienta principal
+                                suggested_params = module_params_attr
+                                if not suggested_params and module_tool_schema:
+                                    suggested_params = module_tool_schema.get('parameters')
+                                
+                                current_name = getattr(attr, 'name', '')
+                                main_module_name = module_name_attr or (module_tool_schema.get('name') if module_tool_schema else None)
+                                is_main_tool = (current_name == main_module_name) if main_module_name else (reason == "tool_py_default")
+                                
+                                if suggested_params and is_main_tool:
+                                    attr.parameters_schema = suggested_params
                         
                         # 4. Inyectar get_action_description si existe en el módulo
                         if not hasattr(attr, 'get_action_description'):
@@ -494,6 +499,7 @@ class SkillManager:
         self,
         base_path: Optional[Path] = None,
         user_skills_path: Optional[Path] = None,
+        global_skills_path: Optional[Path] = None,
         llm_service=None,
         interrupt_queue: Optional[queue.Queue] = None,
         terminal_ui=None,
@@ -507,6 +513,8 @@ class SkillManager:
         Args:
             base_path: Ruta base del proyecto (kogniterm/)
             user_skills_path: Ruta de skills de usuario (~/.kogniterm/skills)
+            global_skills_path: Ruta de skills globales del agente (~/.agent/skills).
+                                 Si es None se usa el valor por defecto.
             llm_service: Instancia de LLMService
             interrupt_queue: Cola de interrupción
             terminal_ui: Interfaz de terminal
@@ -516,6 +524,9 @@ class SkillManager:
         """
         self.base_path = base_path or Path(__file__).parent.parent.parent
         self.user_skills_path = user_skills_path or Path.home() / '.kogniterm' / 'skills'
+
+        # Ruta de skills instaladas globalmente (compartidas entre agentes)
+        self.global_skills_path = global_skills_path or Path.home() / '.agents' / 'skills'
 
         # Contexto compartido
         self.llm_service = llm_service
@@ -543,24 +554,36 @@ class SkillManager:
         self.validator = SkillValidator()
         self.loader = SkillLoader()
 
-        logger.info(f"SkillManager inicializado. Bases: bundled={self.bundled_path}, managed={self.managed_path}, workspace={self.workspace_path}")
+        logger.info(
+            f"SkillManager inicializado. Bases: bundled={self.bundled_path}, "
+            f"global={self.global_skills_path}, managed={self.managed_path}, "
+            f"workspace={self.workspace_path}"
+        )
 
     def discover_all_skills(self) -> List[Skill]:
         """
-        Descubre todas las skills disponibles en las tres ubicaciones.
+        Descubre todas las skills disponibles en todas las ubicaciones.
+
+        Orden de prioridad (mayor a menor):
+          1. bundled   – skills integradas con KogniTerm
+          2. global    – skills instaladas globalmente en ~/.agent/skills
+          3. managed   – skills del usuario (~/.kogniterm/skills/managed)
+          4. workspace – skills del proyecto actual
+          5. external  – skills externas / legacy
 
         Returns:
             Lista de objetos Skill descubiertos (no necesariamente cargados)
         """
         discovered = []
         search_paths = [
-            ('bundled', self.bundled_path),
-            ('bundled', self.legacy_bundled_path),
-            ('managed', self.managed_path),
+            ('bundled',   self.bundled_path),
+            ('bundled',   self.legacy_bundled_path),
+            ('global',    self.global_skills_path),   # ← ~/.agent/skills
+            ('managed',   self.managed_path),
             ('workspace', self.workspace_path),
             ('workspace', self.legacy_workspace_path),
-            ('external', self.external_path),
-            ('external', self.legacy_external_path),
+            ('external',  self.external_path),
+            ('external',  self.legacy_external_path),
         ]
 
         seen_skill_paths = set()

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KogniTerm – Tu Terminal, Potenciada por IA</title>
+  <meta name="description" content="KogniTerm es un agente evolutivo de terminal que transforma tu línea de comandos en un entorno de desarrollo colaborativo con IA especializada. Soporta cualquier LLM: DeepSeek, Llama, Gemini y más." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── NAVBAR ── -->
+  <nav class="navbar" id="navbar">
+    <div class="nav-inner">
+      <div class="nav-logo">
+        <span class="logo-bracket">[</span>
+        <span class="logo-text">KogniTerm</span>
+        <span class="logo-bracket">]</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#features">Características</a></li>
+        <li><a href="#demo">Demo</a></li>
+        <li><a href="#install">Instalación</a></li>
+        <li><a href="#models">Modelos</a></li>
+      </ul>
+      <a href="#install" class="btn btn-primary nav-cta">Instalar ahora</a>
+    </div>
+  </nav>
+
+  <!-- ── HERO ── -->
+  <section class="hero" id="hero">
+    <div class="hero-bg">
+      <div class="grid-overlay"></div>
+      <div class="glow glow-1"></div>
+      <div class="glow glow-2"></div>
+      <div class="glow glow-3"></div>
+    </div>
+
+    <div class="hero-content">
+      <div class="badge-pill">
+        <span class="badge-dot"></span>
+        Agente Multi-LLM · Open Source
+      </div>
+
+      <h1 class="hero-title">
+        Tu Terminal,<br/>
+        <span class="gradient-text">Potenciada por IA</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        <strong>KogniTerm</strong> convierte tu línea de comandos en un entorno colaborativo
+        donde agentes de IA especializados razonan, investigan, codifican y ejecutan
+        tareas complejas junto a ti — con cualquier LLM.
+      </p>
+
+      <div class="hero-actions">
+        <a href="#install" class="btn btn-primary btn-lg" id="hero-install-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 17 21 12 16 7"/><polyline points="8 7 3 12 8 17"/></svg>
+          Empezar
+        </a>
+        <a href="https://github.com/gatovillano/KogniTerm" target="_blank" class="btn btn-ghost btn-lg" id="hero-github-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          GitHub
+        </a>
+      </div>
+
+      <div class="hero-code-block">
+        <div class="hero-code-bar">
+          <span class="hero-code-lang">bash</span>
+          <button class="copy-btn" id="hero-copy-btn"
+            data-copy='bash -c "$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"'>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copiar
+          </button>
+        </div>
+        <pre class="hero-code-content"><span class="sh-cmd">bash</span> <span class="sh-flag">-c</span> <span class="sh-str">"$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"</span></pre>
+      </div>
+
+      <div class="hero-stats">
+        <div class="stat">
+          <span class="stat-val">∞</span>
+          <span class="stat-label">Modelos LLM</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <span class="stat-val">3</span>
+          <span class="stat-label">Agentes Especializados</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <span class="stat-val">100%</span>
+          <span class="stat-label">Open Source</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="terminal-window" id="terminal-demo">
+        <div class="terminal-bar">
+          <div class="terminal-dots">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-yellow"></span>
+            <span class="dot dot-green"></span>
+          </div>
+          <span class="terminal-title">kogniterm — bash</span>
+          <span></span>
+        </div>
+        <div class="terminal-body">
+          <div class="term-line"><span class="prompt">❯</span> <span class="cmd typed" id="cmd1">kogniterm</span></div>
+          <div class="term-line output delay-1"><span class="ai-tag">[KogniTerm]</span> <span class="ai-text">Iniciando agentes especializados...</span></div>
+          <div class="term-line output delay-2"><span class="ai-tag ok">[✓]</span> <span class="ai-text">BashAgent, ResearcherAgent, CodeAgent listos.</span></div>
+          <div class="term-line output delay-3"><span class="prompt">❯</span> <span class="cmd">crea una API REST en FastAPI para gestionar tareas</span></div>
+          <div class="term-line output delay-4"><span class="ai-tag">[CodeAgent]</span> <span class="ai-text">Entendido. Generando estructura del proyecto...</span></div>
+          <div class="term-line output delay-5"><span class="ai-tag ok">[✓]</span> <span class="ai-text dim">main.py · models.py · routes/tasks.py</span></div>
+          <div class="term-line blink-cursor delay-6"><span class="prompt">❯</span> <span class="cursor-block">▋</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── DEMO GIF ── -->
+  <section class="demo-section" id="demo">
+    <div class="section-label">Demo en vivo</div>
+    <h2 class="section-title">Míralo en Acción</h2>
+    <p class="section-sub">Un agente que piensa, planea y ejecuta junto a ti en tiempo real.</p>
+
+    <div class="demo-wrapper">
+      <div class="demo-glow"></div>
+      <div class="demo-frame">
+        <div class="demo-bar">
+          <div class="terminal-dots">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-yellow"></span>
+            <span class="dot dot-green"></span>
+          </div>
+          <span class="terminal-title">KogniTerm – Demo</span>
+          <span></span>
+        </div>
+        <img
+          src="kogniterm.gif"
+          alt="Demo de KogniTerm en acción mostrando agentes de IA ejecutando tareas en la terminal"
+          class="demo-gif"
+          id="demo-gif"
+          loading="lazy"
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FEATURES ── -->
+  <section class="features-section" id="features">
+    <div class="section-label">Capacidades</div>
+    <h2 class="section-title">Diseñado para Desarrolladores</h2>
+    <p class="section-sub">Un ecosistema agéntico completo sin salir de tu terminal.</p>
+
+    <div class="features-grid">
+
+      <div class="feature-card card-accent-violet">
+        <div class="feature-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        </div>
+        <h3>Motor de Parseo Universal</h3>
+        <p>Otorga capacidades agénticas a <em>cualquier</em> LLM interpretando intenciones desde lenguaje natural, sin depender del Tool Calling nativo.</p>
+      </div>
+
+      <div class="feature-card card-accent-cyan">
+        <div class="feature-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h3>Equipo Multi-Agente</h3>
+        <p>BashAgent orquesta, ResearcherAgent analiza (solo lectura) y CodeAgent edita con precisión quirúrgica. Tres especialistas, un objetivo.</p>
+      </div>
+
+      <div class="feature-card card-accent-green">
+        <div class="feature-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3>Seguridad Human-in-the-Loop</h3>
+        <p>Confirmación antes de comandos destructivos, vista previa de diffs, ediciones atómicas. El agente propone, tú apruebas.</p>
+      </div>
+
+      <div class="feature-card card-accent-orange">
+        <div class="feature-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+        <h3>Ubicuidad Agéntica</h3>
+        <p>Arquitectura cliente-servidor: controla el mismo agente desde la TUI en tu PC y desde Telegram en tu móvil simultáneamente.</p>
+      </div>
+
+      <div class="feature-card card-accent-pink">
+        <div class="feature-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <h3>RAG Semántico</h3>
+        <p>Indexa tu repositorio completo con embeddings vectoriales. Los agentes conocen toda tu base de código sin leer cada archivo.</p>
+      </div>
+
+      <div class="feature-card card-accent-violet">
+        <div class="feature-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 17 21 12 16 7"/><polyline points="8 7 3 12 8 17"/></svg>
+        </div>
+        <h3>Comandos Mágicos</h3>
+        <p><code>%models</code>, <code>%reset</code>, <code>%undo</code>, <code>%compress</code>. Control total del flujo agéntico con prefijos intuitivos.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── MODELS ── -->
+  <section class="models-section" id="models">
+    <div class="section-label">Compatibilidad</div>
+    <h2 class="section-title">Funciona con Cualquier LLM</h2>
+    <p class="section-sub">No estás atado a ningún proveedor. Cambia de modelo en caliente con <code>%models</code>.</p>
+
+    <div class="models-track-wrapper">
+      <div class="models-track" id="models-track">
+        <div class="model-pill">🔥 DeepSeek</div>
+        <div class="model-pill">🦙 Llama 3</div>
+        <div class="model-pill">✨ Gemini</div>
+        <div class="model-pill">🤖 GPT-4o</div>
+        <div class="model-pill">🌬 Mistral</div>
+        <div class="model-pill">🐙 Claude</div>
+        <div class="model-pill">🏠 Ollama Local</div>
+        <div class="model-pill">🔗 OpenRouter</div>
+        <!-- duplicates for seamless loop -->
+        <div class="model-pill">🔥 DeepSeek</div>
+        <div class="model-pill">🦙 Llama 3</div>
+        <div class="model-pill">✨ Gemini</div>
+        <div class="model-pill">🤖 GPT-4o</div>
+        <div class="model-pill">🌬 Mistral</div>
+        <div class="model-pill">🐙 Claude</div>
+        <div class="model-pill">🏠 Ollama Local</div>
+        <div class="model-pill">🔗 OpenRouter</div>
+      </div>
+    </div>
+
+    <div class="model-cmd-demo">
+      <span class="prompt">❯</span>
+      <span class="cmd">kogniterm models use deepseek/deepseek-r1</span>
+      <span class="cmd-comment"># cambia en caliente sin reiniciar</span>
+    </div>
+  </section>
+
+  <!-- ── INSTALL ── -->
+  <section class="install-section" id="install">
+    <div class="install-glow"></div>
+    <div class="section-label">Instalación</div>
+    <h2 class="section-title">Listo en 30 Segundos</h2>
+    <p class="section-sub">Un solo comando lo configura todo: entorno virtual, rutas y API keys.</p>
+
+    <div class="install-tabs" role="tablist">
+      <button class="tab-btn active" id="tab-script" data-tab="script" role="tab" aria-selected="true">Script oficial</button>
+      <button class="tab-btn" id="tab-pipx" data-tab="pipx" role="tab" aria-selected="false">pipx</button>
+      <button class="tab-btn" id="tab-pip" data-tab="pip" role="tab" aria-selected="false">pip</button>
+    </div>
+
+    <div class="install-panels">
+      <div class="install-panel active" id="panel-script">
+        <div class="code-block">
+          <div class="code-bar">
+            <span class="code-lang">bash</span>
+            <button class="copy-btn" data-copy='bash -c "$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"' id="copy-script">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copiar
+            </button>
+          </div>
+          <pre class="code-content"><span class="sh-cmd">bash</span> <span class="sh-flag">-c</span> <span class="sh-str">"$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"</span></pre>
+        </div>
+        <p class="install-note">El script instala el entorno virtual, configura tu PATH y te guía para añadir tus API keys.</p>
+      </div>
+
+      <div class="install-panel" id="panel-pipx">
+        <div class="code-block">
+          <div class="code-bar">
+            <span class="code-lang">bash</span>
+            <button class="copy-btn" data-copy="pipx install kogniterm" id="copy-pipx">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copiar
+            </button>
+          </div>
+          <pre class="code-content"><span class="sh-cmd">pipx</span> install kogniterm</pre>
+        </div>
+        <p class="install-note">Instala en un entorno aislado. Recomendado si ya usas pipx.</p>
+      </div>
+
+      <div class="install-panel" id="panel-pip">
+        <div class="code-block">
+          <div class="code-bar">
+            <span class="code-lang">bash</span>
+            <button class="copy-btn" data-copy="pip install kogniterm" id="copy-pip">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copiar
+            </button>
+          </div>
+          <pre class="code-content"><span class="sh-cmd">pip</span> install kogniterm</pre>
+        </div>
+        <p class="install-note">Instalación estándar con pip. Asegúrate de estar en un virtualenv.</p>
+      </div>
+    </div>
+
+    <div class="install-cta-row">
+      <a href="https://github.com/gatovillano/KogniTerm" target="_blank" class="btn btn-ghost btn-md" id="footer-github-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+        Ver en GitHub
+      </a>
+      <a href="https://pypi.org/project/kogniterm/" target="_blank" class="btn btn-ghost btn-md" id="footer-pypi-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M11.979 0C5.678 0 5.38 2.754 5.38 2.754l-.007 2.85h6.712v.854H3.475S0 6.09 0 12.447c0 6.358 3.51 6.132 3.51 6.132h2.096v-2.95s-.113-3.51 3.454-3.51h5.949s3.34.054 3.34-3.228V3.228S18.797 0 11.979 0zm-3.322 1.866a1.074 1.074 0 0 1 1.074 1.074 1.074 1.074 0 0 1-1.074 1.073 1.074 1.074 0 0 1-1.073-1.073 1.074 1.074 0 0 1 1.073-1.074zM12.021 24C18.322 24 18.62 21.246 18.62 21.246l.007-2.85h-6.712v-.854h8.61S24 17.91 24 11.553c0-6.358-3.51-6.132-3.51-6.132h-2.096v2.95s.113 3.51-3.454 3.51h-5.949s-3.34-.054-3.34 3.228v5.613S5.203 24 12.021 24zm3.322-1.866a1.074 1.074 0 0 1-1.074-1.073 1.074 1.074 0 0 1 1.074-1.074 1.074 1.074 0 0 1 1.073 1.074 1.074 1.074 0 0 1-1.073 1.073z"/></svg>
+        PyPI
+      </a>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="nav-logo">
+        <span class="logo-bracket">[</span>
+        <span class="logo-text">KogniTerm</span>
+        <span class="logo-bracket">]</span>
+      </div>
+      <p class="footer-by">Desarrollado por <a href="https://github.com/gatovillano" target="_blank">Gatovillano</a> · MIT License</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
