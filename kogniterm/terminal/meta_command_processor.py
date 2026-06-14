@@ -119,6 +119,32 @@ class MetaCommandProcessor:
             return True
         
         if user_input.lower().strip().startswith('/init'):
+            # Si estamos en la aplicación TUI (Textual), delegamos la indexación al worker con barra inferior
+            # y arrancamos una sesión conversacional para que el agente haga la investigación en tiempo real.
+            if hasattr(self, 'kogniterm_app') and self.kogniterm_app:
+                self.terminal_ui.print_message("🚀 Iniciando indexación de vectores en segundo plano con la barra inferior...")
+                try:
+                    self.kogniterm_app._start_indexing()
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ No se pudo iniciar la barra de progreso de indexación: {e}", style="red")
+                
+                # Iniciar la investigación conversacional del BashAgent en tiempo real
+                self.terminal_ui.print_message("🤖 Iniciando proceso conversacional con el BashAgent para investigar el proyecto...", style="yellow")
+                
+                prompt = (
+                    "Inicia una investigación local del proyecto. Revisa la estructura de directorios, "
+                    "los archivos clave y el README.md. Luego, utiliza la herramienta `memory_init` "
+                    "y tus capacidades de edición para escribir los hallazgos en `.kogniterm/llm_context.md`. "
+                    "Describe detalladamente el propósito, la arquitectura, los comandos y las convenciones del proyecto.\n\n"
+                    "Por favor, ve explicando paso a paso en el chat lo que vas descubriendo e investigando."
+                )
+                
+                try:
+                    self.kogniterm_app.process_agent_request(prompt)
+                except Exception as e:
+                    self.terminal_ui.print_message(f"❌ Error al iniciar la investigación conversacional: {e}", style="red")
+                return True
+
             command_parts = user_input.strip().split(' ', 1)
             files_to_include = None
             force = False
