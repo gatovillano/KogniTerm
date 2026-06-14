@@ -139,7 +139,6 @@ class MetaCommandProcessor:
             # Si estamos en la aplicación TUI (Textual), delegamos la indexación al worker con barra inferior
             # y arrancamos la investigación con DeepResearcher de forma asíncrona.
             if hasattr(self, 'kogniterm_app') and self.kogniterm_app:
-                import os
                 workspace_directory = os.getcwd()
                 context_path = os.path.join(workspace_directory, ".kogniterm", "llm_context.md")
                 
