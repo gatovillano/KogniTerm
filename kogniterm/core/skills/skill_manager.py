@@ -794,25 +794,7 @@ class SkillManager:
         """
         import subprocess
         import sys
-        
-        # Mapeo de paquetes pip comunes a sus nombres de importación reales en Python
-        import_name_map = {
-            "beautifulsoup4": "bs4",
-            "tavily-python": "tavily",
-            "tavily_python": "tavily",
-            "PyGithub": "github",
-            "pygithub": "github",
-            "langchain-community": "langchain_community",
-            "langchain_community": "langchain_community",
-            "langchain-core": "langchain_core",
-            "langchain_core": "langchain_core",
-            "opencv-python": "cv2",
-            "opencv_python": "cv2",
-            "pillow": "PIL",
-            "pyyaml": "yaml",
-            "jupyter-client": "jupyter_client",
-            "jupyter_client": "jupyter_client",
-        }
+        import importlib.metadata
         
         for dep in dependencies:
             package_name = dep
@@ -822,22 +804,19 @@ class SkillManager:
                     break
             
             package_name = package_name.strip()
-            # Probar el nombre tal cual, con guion bajo, o mapeado
-            lookup_names = [package_name, package_name.replace('-', '_')]
-            mapped = import_name_map.get(package_name) or import_name_map.get(package_name.replace('-', '_'))
-            if mapped:
-                lookup_names.insert(0, mapped)
-                
-            imported = False
-            for name in lookup_names:
+            # Normalizar nombre para buscar en metadatos (e.g. reemplazar "_" por "-")
+            normalized_name = package_name.replace('_', '-')
+            
+            installed = False
+            for name in [package_name, normalized_name]:
                 try:
-                    importlib.import_module(name)
-                    imported = True
+                    importlib.metadata.version(name)
+                    installed = True
                     break
-                except ImportError:
+                except importlib.metadata.PackageNotFoundError:
                     continue
-                    
-            if not imported:
+            
+            if not installed:
                 logger.info(f"Instalando dependencia faltante para skill: {dep}...")
                 try:
                     subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
