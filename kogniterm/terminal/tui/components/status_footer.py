@@ -46,6 +46,7 @@ class StatusFooter(Static):
         right_text = f"{display_model} 🤖"
         
         yield Static(left_text, id="footer_left", markup=True)
+        yield Static("[dim]Ctrl+O:[/dim] Herramientas  [dim]Ctrl+B:[/dim] Tareas", id="footer_middle", markup=True)
         yield Static(right_text, id="footer_right", markup=True)
 
     def update_model(self, new_model: str):
