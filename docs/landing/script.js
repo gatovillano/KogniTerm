@@ -4,6 +4,33 @@ window.addEventListener('scroll', () => {
   navbar.classList.toggle('scrolled', window.scrollY > 40);
 }, { passive: true });
 
+/* ── Mobile hamburger menu toggle ── */
+const navToggle = document.getElementById('nav-toggle');
+const navMobileMenu = document.getElementById('nav-mobile-menu');
+
+if (navToggle && navMobileMenu) {
+  navToggle.addEventListener('click', () => {
+    const isOpen = navMobileMenu.classList.toggle('open');
+    navToggle.setAttribute('aria-expanded', isOpen);
+  });
+
+  // Close menu when a link is clicked
+  navMobileMenu.querySelectorAll('a').forEach(link => {
+    link.addEventListener('click', () => {
+      navMobileMenu.classList.remove('open');
+      navToggle.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  // Close menu on outside click
+  document.addEventListener('click', (e) => {
+    if (!navbar.contains(e.target)) {
+      navMobileMenu.classList.remove('open');
+      navToggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
 /* ── Install tabs ── */
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -20,7 +47,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 /* ── Copy buttons (install section + hero) ── */
-document.querySelectorAll('.copy-btn, .hero-copy-btn').forEach(btn => {
+document.querySelectorAll('.copy-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const text = btn.dataset.copy;
     try {

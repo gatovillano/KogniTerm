@@ -282,6 +282,16 @@ class TextualTerminalUI:
         if not output or not getattr(self, "app", None):
             return
 
+        # Guardar en el app para que Ctrl+O pueda recuperarlo y actualizar dinámicamente si está visible
+        def _save_and_update():
+            self.app._last_terminal_tool_name = tool_name
+            self.app._last_terminal_output = output
+            if getattr(self.app, "_tool_panel_explicitly_shown", False):
+                display_command = command or tool_name
+                self.app.update_live_display(("__TERMINAL__", tool_name, output, display_command), panel_id="tool_display")
+
+        self._safe_call(_save_and_update)
+
         # Default: mostrar las últimas 30 líneas si no se especifica otro límite
         limit = max_lines if max_lines is not None else 30
         lines = output.splitlines()
@@ -639,6 +649,11 @@ class KogniTermTUI(App):
     #footer_left {
         width: 1fr;
         content-align: left top;
+        padding: 0;
+    }
+    #footer_middle {
+        width: 1fr;
+        content-align: center top;
         padding: 0;
     }
     #footer_right {
@@ -2330,6 +2345,11 @@ class KogniTermTUI(App):
                     self.tool_display.update_content(self._last_terminal_output, command=command)
                 else:
                     self.tool_display.update(self._last_terminal_output)
+            else:
+                if hasattr(self.tool_display, "update_content"):
+                    self.tool_display.update_content("No hay salida de herramientas disponible aún.", command="Ayuda")
+                else:
+                    self.tool_display.update("No hay salida de herramientas disponible aún.")
             # Enfocar el panel si es visible para permitir scrolling con teclado
             self.tool_display.focus()
         else:
