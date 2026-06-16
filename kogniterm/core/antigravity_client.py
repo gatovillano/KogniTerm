@@ -519,15 +519,39 @@ class AntigravityClient:
         model_lower = model.lower()
         supports_thinking = ("gemini" in model_lower and not "1.5" in model_lower)
         if supports_thinking:
-            budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")
-            try:
-                budget = int(budget_str) if budget_str else 2048
-            except ValueError:
-                budget = 2048
-            generation_config["thinkingConfig"] = {
-                "thinkingBudget": budget
-            }
-            logger.info(f"Enabling thinkingConfig with budget {budget} for antigravity model {model}")
+            # Detect if it's a Gemini 3+ model (future-proof)
+            is_gemini_3 = ("gemini-3" in model_lower or "gemini-pro-agent" in model_lower or "gemini-4" in model_lower)
+            
+            if is_gemini_3:
+                # For Gemini 3.x / 3.5, use thinkingLevel
+                thinking_level = os.getenv("KOGNITERM_THINKING_LEVEL")
+                if not thinking_level:
+                    # Default to MEDIUM for flash, HIGH for pro/agent
+                    if "pro" in model_lower or "agent" in model_lower:
+                        thinking_level = "HIGH"
+                    else:
+                        thinking_level = "MEDIUM"
+                
+                # Ensure it is one of the valid values
+                thinking_level_upper = thinking_level.upper()
+                if thinking_level_upper not in ["MINIMAL", "LOW", "MEDIUM", "HIGH"]:
+                    thinking_level_upper = "MEDIUM"
+                    
+                generation_config["thinkingConfig"] = {
+                    "thinkingLevel": thinking_level_upper
+                }
+                logger.info(f"Enabling thinkingConfig with thinkingLevel {thinking_level_upper} for Gemini 3+ model {model}")
+            else:
+                # For Gemini 2.5 / 2.0, use thinkingBudget
+                budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")
+                try:
+                    budget = int(budget_str) if budget_str else 2048
+                except ValueError:
+                    budget = 2048
+                generation_config["thinkingConfig"] = {
+                    "thinkingBudget": budget
+                }
+                logger.info(f"Enabling thinkingConfig with thinkingBudget {budget} for Gemini 2.x model {model}")
 
         if generation_config:
             request_payload["generationConfig"] = generation_config

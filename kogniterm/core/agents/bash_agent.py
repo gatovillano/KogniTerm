@@ -16,6 +16,8 @@ import queue # Importar el módulo queue
 from concurrent.futures import ThreadPoolExecutor, as_completed # Nueva importación para paralelización
 import os
 import re
+import time
+import py_compile
 
 from ..llm_service import LLMService
 from kogniterm.ui.terminal_ui import TerminalUI
@@ -29,6 +31,75 @@ import logging
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+# Cache para optimizar accesos repetidos a disco en cada turno del agente
+_file_cache = {}
+_json_file_cache = {}
+
+def _get_cached_file(file_path: str) -> str:
+    now = time.time()
+    cache = _file_cache.get(file_path)
+    
+    # Si el caché existe y se comprobó hace menos de 2.0 segundos, confiar en él
+    if cache and (now - cache['last_checked'] < 2.0):
+        return cache['content']
+        
+    try:
+        if not os.path.exists(file_path):
+            content = ""
+            mtime = 0.0
+        else:
+            mtime = os.path.getmtime(file_path)
+            # Si mtime coincide, actualizar timestamp de verificación y retornar cache
+            if cache and cache['mtime'] == mtime:
+                cache['last_checked'] = now
+                return cache['content']
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+    except Exception:
+        content = ""
+        mtime = 0.0
+        
+    _file_cache[file_path] = {
+        'content': content,
+        'mtime': mtime,
+        'last_checked': now
+    }
+    return content
+
+def _get_cached_json(file_path: str) -> dict:
+    now = time.time()
+    cache = _json_file_cache.get(file_path)
+    
+    # Si el caché existe y se comprobó hace menos de 2.0 segundos, confiar en él
+    if cache and (now - cache['last_checked'] < 2.0):
+        return cache['parsed']
+        
+    try:
+        if not os.path.exists(file_path):
+            parsed = {}
+            mtime = 0.0
+        else:
+            mtime = os.path.getmtime(file_path)
+            # Si mtime coincide, actualizar timestamp de verificación y retornar cache
+            if cache and cache['mtime'] == mtime:
+                cache['last_checked'] = now
+                return cache['parsed']
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                parsed = json.load(f)
+    except Exception:
+        parsed = {}
+        mtime = 0.0
+        
+    _json_file_cache[file_path] = {
+        'parsed': parsed,
+        'mtime': mtime,
+        'last_checked': now
+    }
+    return parsed
+
 
 def process_file_references(content: str, workspace_directory: str) -> str:
     """Procesa referencias a archivos con @ y las reemplaza con su contenido."""
@@ -88,10 +159,8 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
 
     # Adjuntar instrucciones del usuario (global y del proyecto) si existen
     try:
-        from kogniterm.terminal.config_manager import ConfigManager
-        cm = ConfigManager()
-        global_conf = cm.load_global_config() or {}
-        project_conf = cm.load_project_config() or {}
+        global_conf = _get_cached_json(os.path.expanduser("~/.kogniterm/config.json")) or {}
+        project_conf = _get_cached_json(os.path.join(os.getcwd(), ".kogniterm", "config.json")) or {}
         global_instr = global_conf.get('agent_instructions', []) or []
         project_instr = project_conf.get('agent_instructions', []) or []
 
@@ -105,28 +174,24 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
             for ins in global_instr:
                 base_content += f"- {ins}\n"
     except Exception:
-        # No bloquear si el ConfigManager falla
+        # No bloquear si falla
         pass
     
     # Cargar memorias dinámicas de Gemini (si existen)
     try:
         memories_path = os.path.join(os.getcwd(), ".kogniterm", "instructions.md")
-        if os.path.exists(memories_path):
-            with open(memories_path, 'r', encoding='utf-8') as f:
-                learned_memories = f.read().strip()
-                if learned_memories:
-                    base_content += f"\n\n### Memorias y Preferencias Aprendidas:\n{learned_memories}\n"
+        learned_memories = _get_cached_file(memories_path)
+        if learned_memories:
+            base_content += f"\n\n### Memorias y Preferencias Aprendidas:\n{learned_memories}\n"
     except Exception:
         pass
 
     # Cargar memoria contextual del proyecto (llm_context.md)
     try:
         context_path = os.path.join(os.getcwd(), ".kogniterm", "llm_context.md")
-        if os.path.exists(context_path):
-            with open(context_path, 'r', encoding='utf-8') as f:
-                llm_context = f.read().strip()
-                if llm_context:
-                    base_content += f"\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO (llm_context.md):\nDebes basar tus decisiones en esta memoria y respetar sus convenciones de desarrollo:\n{llm_context}\n"
+        llm_context = _get_cached_file(context_path)
+        if llm_context:
+            base_content += f"\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO (llm_context.md):\nDebes basar tus decisiones en esta memoria y respetar sus convenciones de desarrollo:\n{llm_context}\n"
         else:
             base_content += "\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO:\nActualmente no existe el archivo `.kogniterm/llm_context.md`. Debes sugerir al usuario ejecutar `/init` al inicio de la interacción para realizar la investigación y construirla automáticamente.\n"
     except Exception:
@@ -299,20 +364,15 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
         terminal_ui.stop_live()
 
     verification_results = []
-    cmd_tool = llm_service.get_tool("execute_command")
 
     for file_path in modified_files:
         if file_path.endswith(".py"):
             try:
-                import subprocess
-                result = subprocess.run(
-                    ["python3", "-m", "py_compile", file_path],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode != 0:
-                    verification_results.append(f"❌ Error de sintaxis en `{file_path}`:\n{result.stderr.strip()}")
-                else:
-                    verification_results.append(f"✅ `{file_path}` — sintaxis OK")
+                import py_compile
+                py_compile.compile(file_path, doraise=True)
+                verification_results.append(f"✅ `{file_path}` — sintaxis OK")
+            except py_compile.PyCompileError as e:
+                verification_results.append(f"❌ Error de sintaxis en `{file_path}`:\n{str(e).strip()}")
             except Exception as e:
                 verification_results.append(f"⚠️ No se pudo verificar `{file_path}`: {e}")
 
@@ -765,10 +825,12 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         state.reset_temporary_state()
         return state
 
-    # --- PASO 4: Pre-fetch de metadata de herramientas en paralelo ---
-    # Obtener tool instances, skill_names y descripciones para TODAS las herramientas
-    # de forma concurrente antes de hacer submit al executor principal.
-    def fetch_metadata(tc):
+    # --- PASO 4: Pre-fetch de metadata de herramientas ---
+    # Obtener tool instances, skill_names y descripciones de forma directa.
+    # Al ser operaciones puramente en memoria, hacerlo de forma secuencial evita
+    # el overhead innecesario de inicializar y gestionar un ThreadPoolExecutor.
+    metadata_map: Dict[str, tuple] = {}  # tool_id -> (skill_name, bajada)
+    for tc in parallel_calls + interactive_calls:
         tool = llm_service.get_tool(tc['name'])
         skill_name = ""
         bajada = ""
@@ -778,14 +840,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 if skill:
                     skill_name = skill.name
             bajada = get_tool_action_description(tool, tc['args'])
-        return tc['id'], skill_name, bajada
-
-    metadata_map: Dict[str, tuple] = {}  # tool_id -> (skill_name, bajada)
-    all_calls = parallel_calls + interactive_calls
-    if all_calls:
-        with ThreadPoolExecutor(max_workers=min(len(all_calls), 8)) as meta_exec:
-            for tool_id, skill_name, bajada in meta_exec.map(fetch_metadata, all_calls):
-                metadata_map[tool_id] = (skill_name, bajada)
+        metadata_map[tc['id']] = (skill_name, bajada)
 
     # --- PASO 5: Emitir notificaciones visuales batch para herramientas paralelas ---
     for tc in parallel_calls:

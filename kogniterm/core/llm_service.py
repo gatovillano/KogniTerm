@@ -790,7 +790,11 @@ class LLMService:
                 pass
 
             converted_tools = []
+            is_thinking = self.is_thinking_model()
             for tool in self.skill_manager.get_tools():
+                if is_thinking and getattr(tool, 'name', '') == 'think':
+                    logger.info("🧠 Excluyendo la herramienta 'think' porque el modelo soporta razonamiento nativo.")
+                    continue
                 converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
                 logger.info(f"✅ Herramienta convertida: {tool.name} -> {converted.get('type', 'standard')}")
                 converted_tools.append(converted)
