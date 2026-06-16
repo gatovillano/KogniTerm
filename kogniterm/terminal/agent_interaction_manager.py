@@ -138,10 +138,21 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
             not getattr(self.agent_state, 'tool_code_to_confirm', None) and
             not has_tool_calls):
             try:
-                logger.info("Ejecutando el grafo de aprendizaje posterior...")
-                self.learning_agent_app.invoke(self.agent_state)
+                logger.info("Ejecutando el grafo de aprendizaje posterior en segundo plano...")
+                # Crear un estado shallow-copy para evitar race conditions si el estado principal se modifica
+                learning_state = AgentState(messages=list(self.agent_state.messages))
+                learning_state.critical_loop_detected = getattr(self.agent_state, 'critical_loop_detected', False)
+                learning_state.stop_requested = getattr(self.agent_state, 'stop_requested', False)
+                
+                def run_learning_bg():
+                    try:
+                        self.learning_agent_app.invoke(learning_state)
+                    except Exception as le:
+                        logger.error(f"Error en segundo plano al ejecutar el grafo de aprendizaje: {le}")
+                
+                threading.Thread(target=run_learning_bg, daemon=True).start()
             except Exception as e:
-                logger.error(f"Error al ejecutar el grafo de aprendizaje: {e}")
+                logger.error(f"Error al iniciar el thread de aprendizaje: {e}")
         
         return final_state_dict
 
