@@ -149,7 +149,10 @@ class CommandExecutor:
         # Enviar el comando al shell persistente.
         # El tamaño ya se ajusta con ioctl(TIOCSWINSZ), por lo que no inyectamos
         # un comando stty en línea para evitar que aparezca en el output renderizado.
-        marker = f"echo '{self._last_command_done_marker}'"
+        half_len = len(self._last_command_done_marker) // 2
+        part1 = self._last_command_done_marker[:half_len]
+        part2 = self._last_command_done_marker[half_len:]
+        marker = f"echo '{part1}''{part2}'"
         full_cmd = f"{command} ; {marker}\n"
         
         # Filtro de echo: definiremos la cadena exacta a borrar que producirá bash readline
@@ -174,9 +177,9 @@ class CommandExecutor:
                     os.write(master_fd, b"\x03") # Ctrl+C al shell
                     yield "\n\n⚠️  Comando interrumpido por el usuario.\n"
                     break
-
+ 
                 readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.02)
-
+ 
                 if master_fd in readable_fds:
                     try:
                         # Leer fragmento del PTY
@@ -185,30 +188,23 @@ class CommandExecutor:
                             break
                         
                         search_buffer += data
-
-
+ 
+ 
                         # Filtrar el eco del comando completo provocado por bash readline
                         if not getattr(self, '_echo_filtered', True):
                             expected = getattr(self, '_expected_echo', '')
-                            # Mecanismo de seguridad: si el buffer crece demasiado o hemos recibido muchos chunks, 
-                            # probablemente no es un eco exacto o ya pasó. No queremos bloquear la salida.
-                            if len(search_buffer) > len(expected) + 512:
+                            # Si ya tenemos un salto de línea en el buffer, podemos analizar la primera línea
+                            if '\n' in search_buffer:
+                                first_line, rest = search_buffer.split('\n', 1)
+                                # Si la primera línea contiene el token del marcador, es definitivamente el eco
+                                if "##KOGNITERM_" in first_line:
+                                    search_buffer = rest
                                 self._echo_filtered = True
-                                logger.warning("Filtro de eco: Buffer excedido, desactivando filtro.")
-                            elif (expected or '') == search_buffer:
-                                # Coincidencia exacta
-                                search_buffer = ""
-                                self._echo_filtered = True
-                            elif expected.startswith(search_buffer) and search_buffer:
-                                # Aún estamos buffereando el eco puro del comando
-                                # Pero solo esperamos un tiempo razonable
+                            elif len(search_buffer) < len(expected) + 64:
+                                # Aún no tenemos la línea de eco completa, seguimos esperando más chunks
                                 continue
-                            elif search_buffer.startswith(expected):
-                                # Cortamos exitosamente la cabecera exacta del comando
-                                search_buffer = search_buffer[len(expected):]
-                                self._echo_filtered = True
                             else:
-                                # Hay divergencia en el eco rápido, dejar pasar para no truncar datos genuinos
+                                # Mecanismo de seguridad por si el buffer crece demasiado
                                 self._echo_filtered = True
 
 

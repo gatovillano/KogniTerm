@@ -228,7 +228,7 @@ def test_thought_signature_propagation():
 
 
 def test_thinking_config_injection():
-    # Test that gemini-2.5-pro does NOT add thinkingConfig to request_payload because we disabled it to force manual CoT
+    # Test that gemini-2.5-pro DOES add thinkingConfig to request_payload because we enabled native reasoning
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
          patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
          patch("kogniterm.core.antigravity_client.requests.post") as mock_post:
@@ -253,13 +253,46 @@ def test_thinking_config_injection():
             stream=False
         )
         
+        # Verify mock_post was called and request body contains thinkingConfig
+        assert mock_post.called
+        call_kwargs = mock_post.call_args[1]
+        request_body = call_kwargs["json"]
+        request_payload = request_body["request"]
+        
+        assert "generationConfig" in request_payload
+        assert "thinkingConfig" in request_payload["generationConfig"]
+
+    # Test that gemini-1.5-pro does NOT add thinkingConfig
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch("kogniterm.core.antigravity_client.requests.post") as mock_post:
+         
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "response": {
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Hello world"}]
+                    }
+                }]
+            }
+        }
+        mock_post.return_value = mock_response
+
+        # Execute completion (non-stream) for gemini-1.5-pro
+        AntigravityClient.completion(
+            model="antigravity/gemini-1.5-pro",
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False
+        )
+        
         # Verify mock_post was called and request body does NOT contain thinkingConfig
         assert mock_post.called
         call_kwargs = mock_post.call_args[1]
         request_body = call_kwargs["json"]
         request_payload = request_body["request"]
         
-        # thinkingConfig should be absent because supports_thinking was set to False
         if "generationConfig" in request_payload:
             assert "thinkingConfig" not in request_payload["generationConfig"]
 

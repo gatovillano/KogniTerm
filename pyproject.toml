@@ -41,6 +41,8 @@ dependencies = [
     "python-telegram-bot",
     "playwright",
     "fastembed",
+    "websockets",
+    "httpx",
 ]
 
 [project.scripts]

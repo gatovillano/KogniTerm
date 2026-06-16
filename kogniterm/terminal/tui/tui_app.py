@@ -3,7 +3,7 @@ import os
 import queue
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 from textual.app import App, ComposeResult
 from textual import work
 from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea, RichLog
@@ -13,6 +13,10 @@ from langchain_core.messages import HumanMessage
 import threading
 
 logger = logging.getLogger(__name__)
+
+# URL del servidor KogniTerm (puede sobreescribirse con KOGNITERM_SERVER_URL)
+_DEFAULT_SERVER_URL = os.environ.get("KOGNITERM_SERVER_URL", "ws://127.0.0.1:8765")
+_DEFAULT_SESSION_ID = os.environ.get("KOGNITERM_SESSION_ID", "tui-default")
 
 
 try:
@@ -909,6 +913,16 @@ class KogniTermTUI(App):
         self._completion_input = None  # Input widget para autocompletado
         self._tool_panel_explicitly_shown = False
 
+        # ── Modo híbrido cliente-servidor ──────────────────────────────────────
+        # Cuando _server_mode es True, todos los mensajes del usuario se envían
+        # al servidor KogniTerm vía WebSocket. Si el servidor no está disponible
+        # al arranque, permanecemos en modo local (False) sin cambiar nada.
+        self._server_mode: bool = False
+        self._ws_client: Optional["TUIWebSocketClient"] = None  # type: ignore[name-defined]
+        self._ws_task: Optional[asyncio.Task] = None
+        self._server_url: str = _DEFAULT_SERVER_URL
+        self._session_id: str = _DEFAULT_SESSION_ID
+
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
         ("ctrl+b", "toggle_sidebar", "Toggle Sidebar"),
@@ -1035,6 +1049,46 @@ class KogniTermTUI(App):
         
         # Check if workspace needs indexing and prompt user
         self.call_after_refresh(self._check_workspace_index)
+
+        # ── Intento de conexión al servidor (modo híbrido) ──────────────────
+        # Lanzamos el probe en background para no bloquear el arranque de la TUI.
+        self._ws_task = asyncio.create_task(self._try_server_connect())
+
+    # ── Lógica de modo servidor ────────────────────────────────────────────────
+
+    async def _try_server_connect(self) -> None:
+        """
+        Prueba si el servidor KogniTerm está disponible y, si es así, activa
+        el modo servidor iniciando el cliente WebSocket persistente.
+        """
+        from kogniterm.terminal.tui.ws_client import probe_server, TUIWebSocketClient
+        available = await probe_server(self._server_url)
+        if not available:
+            logger.info("[Híbrido] Servidor no disponible. Usando modo local.")
+            return
+
+        logger.info("[Híbrido] Servidor disponible. Activando modo servidor.")
+        self._server_mode = True
+        self._ws_client = TUIWebSocketClient(self, self._server_url, self._session_id)
+        # Crear tarea de conexión persistente en el loop de Textual
+        self._ws_task = asyncio.create_task(self._ws_client.run())
+
+    async def _send_to_server(self, text: str) -> None:
+        """Envía un mensaje al servidor vía WebSocket y actualiza el estado."""
+        if not self._ws_client or not self._ws_client.is_connected:
+            # El servidor puede haberse desconectado; caer al modo local
+            logger.warning("[Híbrido] WS no conectado. Fallback a modo local.")
+            self._server_mode = False
+            self.process_agent_request(text)
+            return
+
+        # _send_to_server ya corre en el loop de Textual (desde _handle_input_async),
+        # por lo que podemos llamar métodos de UI directamente.
+        self.is_processing = True
+        self._start_spinner()
+        await self._ws_client.send_message(text)
+
+    # ── Workspace indexing check ───────────────────────────────────────────────
 
     def _check_workspace_index(self):
         """Check if the workspace is indexed; if not, prompt user to index."""
@@ -1616,7 +1670,14 @@ class KogniTermTUI(App):
 
         if event.key == "escape":
             if self.is_processing:
-                self.tui_ui.get_interrupt_queue().put(True)
+                if self._server_mode and self._ws_client and self._ws_client.is_connected:
+                    # Modo servidor: enviar interrupción al backend
+                    asyncio.run_coroutine_threadsafe(
+                        self._ws_client.send_interrupt(), self.loop
+                    )
+                else:
+                    # Modo local: usar la cola de interrupción estándar
+                    self.tui_ui.get_interrupt_queue().put(True)
                 self.tui_ui.print_message("⏳ Solicitando interrupción...", style="yellow")
                 event.prevent_default()
                 return
@@ -1773,8 +1834,13 @@ class KogniTermTUI(App):
         
         if await self.meta_command_processor.process_meta_command(user_input):
             return
-            
-        self.process_agent_request(user_input)
+
+        # ── Decisión híbrida: servidor vs local ────────────────────────────────
+        if self._server_mode and self._ws_client:
+            # Intentar via WebSocket; si falla, caer al modo local automáticamente
+            await self._send_to_server(user_input)
+        else:
+            self.process_agent_request(user_input)
 
     def apply_theme(self, theme_name: str, persist: bool = True):
         """Aplica un tema visual a la aplicación Textual.
@@ -2251,14 +2317,13 @@ class KogniTermTUI(App):
         if panel_id:
             try:
                 panel = self.query_one(f"#{panel_id}")
-                panel.display = True
-                
+                # NO forzar panel.display = True aquí - la visibilidad se controla
+                # explícitamente por el usuario con Ctrl+O (action_toggle_tool_panel)
                 # Manejo especial para terminales en paneles dedicados
                 if isinstance(renderable, tuple) and renderable[0] == "__TERMINAL__":
                     tool_name = renderable[1]
                     output = renderable[2]
                     command = renderable[3] if len(renderable) >= 4 else tool_name
-                    
                     if hasattr(panel, "update_content"):
                         panel.update_content(output, command=command)
                     else:
@@ -2268,16 +2333,12 @@ class KogniTermTUI(App):
                 return
             except Exception:
                 pass
-
         # Detener spinner INMEDIATAMENTE cuando llega contenido real.
         if self._spinner_timer:
             self._stop_spinner()
-        
         self._last_live_renderable = renderable
-        
         # Enviar al chat log para streaming en sitio
         self.chat_log.write_stream(renderable)
-        
         # Opcional: auto-scroll si el usuario está cerca del final
         try:
             log = self.chat_log
@@ -2286,6 +2347,7 @@ class KogniTermTUI(App):
             self.chat_log.scroll_end(animate=False)
         except Exception:
             pass
+        
 
     def update_terminal_output(self, tool_name: str, output: str, show_cursor: bool = None, command: str = ""):
         """
@@ -2308,10 +2370,8 @@ class KogniTermTUI(App):
 
         # Pasamos el output crudo con una tupla marcadora para que ChatLogWidget instancie el ToolOutputWidget
         # Tupla de 4 elementos: (__TERMINAL__, tool_name, output, display_command)
-        if getattr(self, "_tool_panel_explicitly_shown", False):
-            self.update_live_display(("__TERMINAL__", tool_name, output, display_command), panel_id="tool_display")
-        else:
-            self.update_live_display(("__TERMINAL__", tool_name, output, display_command))
+        # Siempre enviamos al panel tool_display, independientemente de si está visible
+        self.update_live_display(("__TERMINAL__", tool_name, output, display_command), panel_id="tool_display")
 
     def update_task_tracker(self, agent_plans: dict):
         """Actualiza los datos del task tracker y muestra el panel si hay tareas."""

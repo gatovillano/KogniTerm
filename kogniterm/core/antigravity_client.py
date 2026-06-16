@@ -512,11 +512,12 @@ class AntigravityClient:
         if temperature is not None:
             generation_config["temperature"] = temperature
             
-        # Desactivamos supports_thinking en antigravity porque el proxy
-        # de Google no devuelve el razonamiento en claro (sólo thoughtSignature),
-        # impidiendo que el usuario visualice sus pensamientos. Al desactivarlo,
-        # KogniTerm fuerza el CoT manual con etiquetas XML (<thought>...</thought>).
-        supports_thinking = False
+        # Habilitamos supports_thinking para modelos Gemini >= 2.0 / 2.5 / 3.x que soportan
+        # razonamiento nativo, excluyendo los modelos 1.5 que no lo soportan. Esto permite
+        # que realicen la etapa de razonamiento nativa del LLM en lugar de actuar
+        # de forma errática con herramientas.
+        model_lower = model.lower()
+        supports_thinking = ("gemini" in model_lower and not "1.5" in model_lower)
         if supports_thinking:
             budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")
             try:
