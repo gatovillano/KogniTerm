@@ -337,15 +337,10 @@ class LLMService:
         """ Detecta si el modelo actual tiene capacidades de razonamiento nativo. """
         model_lower = self.model_name.lower()
         # Evitar el CoT manual (<thought>) en Gemini, ya que Gemini funciona de forma
-        # errática con herramientas si se le obliga a escribir explicaciones de pensamiento.
+        # errática con herramientas si se le obliga a escribir explicaciones de pensamiento manuales.
+        # Los modelos Gemini >= 2.0/2.5/3.x ya usan razonamiento nativo.
         if "gemini" in model_lower:
             return True
-            
-        # Desactivamos razonamiento nativo en los modelos de antigravity
-        # para forzar el uso de CoT manual (etiquetas XML) ya que el proxy
-        # de Google Antigravity oculta/elimina los pensamientos nativos en la respuesta.
-        if "antigravity" in model_lower:
-            return False
 
         thinking_keywords = [
             "deepseek-reasoner", "deepseek-r1", 

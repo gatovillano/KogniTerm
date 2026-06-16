@@ -202,7 +202,10 @@ class ProviderConfig:
                     return True
 
             # Para Ollama Cloud u otros, requerimos API Key
-            key = self.get_api_key() or os.getenv("OLLAMA_API_KEY")
+            if self.name == "ollama_cloud":
+                key = self.get_api_key() or os.getenv("OLLAMA_CLOUD_API_KEY")
+            else:
+                key = self.get_api_key() or os.getenv("OLLAMA_API_KEY")
             return key is not None
             
         return self.get_api_key() is not None
@@ -496,8 +499,11 @@ class MultiProviderManager:
             if kwargs.get("tool_choice"):
                 completion_kwargs["tool_choice"] = kwargs.get("tool_choice")
 
-            if provider.model_prefix == "ollama":
+            if provider.name == "ollama":
                 completion_kwargs["custom_llm_provider"] = "ollama"
+            elif provider.name == "ollama_cloud":
+                # Ollama Cloud usa API compatible con OpenAI, no necesita custom_llm_provider
+                pass
             elif provider.name == "kilocode":
                 completion_kwargs["custom_llm_provider"] = "openai"
             elif provider.model_prefix == "gemini" or provider.name == "google":

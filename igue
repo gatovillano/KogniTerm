@@ -1,0 +1,108 @@
+[1mdiff --git a/kogniterm/core/antigravity_client.py b/kogniterm/core/antigravity_client.py[m
+[1mindex c24d1ef1..d41cf269 100644[m
+[1m--- a/kogniterm/core/antigravity_client.py[m
+[1m+++ b/kogniterm/core/antigravity_client.py[m
+[36m@@ -512,11 +512,12 @@[m [mclass AntigravityClient:[m
+         if temperature is not None:[m
+             generation_config["temperature"] = temperature[m
+             [m
+[31m-        # Desactivamos supports_thinking en antigravity porque el proxy[m
+[31m-        # de Google no devuelve el razonamiento en claro (sólo thoughtSignature),[m
+[31m-        # impidiendo que el usuario visualice sus pensamientos. Al desactivarlo,[m
+[31m-        # KogniTerm fuerza el CoT manual con etiquetas XML (<thought>...</thought>).[m
+[31m-        supports_thinking = False[m
+[32m+[m[32m        # Habilitamos supports_thinking para modelos Gemini >= 2.0 / 2.5 / 3.x que soportan[m
+[32m+[m[32m        # razonamiento nativo, excluyendo los modelos 1.5 que no lo soportan. Esto permite[m
+[32m+[m[32m        # que realicen la etapa de razonamiento nativa del LLM en lugar de actuar[m
+[32m+[m[32m        # de forma errática con herramientas.[m
+[32m+[m[32m        model_lower = model.lower()[m
+[32m+[m[32m        supports_thinking = ("gemini" in model_lower and not "1.5" in model_lower)[m
+         if supports_thinking:[m
+             budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")[m
+             try:[m
+[1mdiff --git a/kogniterm/core/llm_service.py b/kogniterm/core/llm_service.py[m
+[1mindex 3f9ecb89..65fa63cb 100644[m
+[1m--- a/kogniterm/core/llm_service.py[m
+[1m+++ b/kogniterm/core/llm_service.py[m
+[36m@@ -336,16 +336,11 @@[m [mclass LLMService:[m
+     def is_thinking_model(self) -> bool:[m
+         """ Detecta si el modelo actual tiene capacidades de razonamiento nativo. """[m
+         model_lower = self.model_name.lower()[m
+[31m-        # Evitar el CoT manual (<thought>) en Gemini, ya que Gemini funciona de forma[m
+[31m-        # errática con herramientas si se le obliga a escribir explicaciones de pensamiento.[m
+[31m-        if "gemini" in model_lower:[m
+[32m+[m[32m        # Evitar el CoT manual (<thought>) en Gemini y Antigravity, ya que Gemini funciona de forma[m
+[32m+[m[32m        # errática con herramientas si se le obliga a escribir explicaciones de pensamiento manuales.[m
+[32m+[m[32m        # Los modelos Gemini >= 2.0/2.5/3.x ya usan razonamiento nativo.[m
+[32m+[m[32m        if "gemini" in model_lower or "antigravity" in model_lower:[m
+             return True[m
+[31m-            [m
+[31m-        # Desactivamos razonamiento nativo en los modelos de antigravity[m
+[31m-        # para forzar el uso de CoT manual (etiquetas XML) ya que el proxy[m
+[31m-        # de Google Antigravity oculta/elimina los pensamientos nativos en la respuesta.[m
+[31m-        if "antigravity" in model_lower:[m
+[31m-            return False[m
+ [m
+         thinking_keywords = [[m
+             "deepseek-reasoner", "deepseek-r1", [m
+[1mdiff --git a/tests/test_antigravity_integration.py b/tests/test_antigravity_integration.py[m
+[1mindex bc52311e..e850fbed 100644[m
+[1m--- a/tests/test_antigravity_integration.py[m
+[1m+++ b/tests/test_antigravity_integration.py[m
+[36m@@ -228,7 +228,7 @@[m [mdef test_thought_signature_propagation():[m
+ [m
+ [m
+ def test_thinking_config_injection():[m
+[31m-    # Test that gemini-2.5-pro does NOT add thinkingConfig to request_payload because we disabled it to force manual CoT[m
+[32m+[m[32m    # Test that gemini-2.5-pro DOES add thinkingConfig to request_payload because we enabled native reasoning[m
+     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \[m
+          patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \[m
+          patch("kogniterm.core.antigravity_client.requests.post") as mock_post:[m
+[36m@@ -253,13 +253,46 @@[m [mdef test_thinking_config_injection():[m
+             stream=False[m
+         )[m
+         [m
+[32m+[m[32m        # Verify mock_post was called and request body contains thinkingConfig[m
+[32m+[m[32m        assert mock_post.called[m
+[32m+[m[32m        call_kwargs = mock_post.call_args[1][m
+[32m+[m[32m        request_body = call_kwargs["json"][m
+[32m+[m[32m        request_payload = request_body["request"][m
+[32m+[m[41m        [m
+[32m+[m[32m        assert "generationConfig" in request_payload[m
+[32m+[m[32m        assert "thinkingConfig" in request_payload["generationConfig"][m
+[32m+[m
+[32m+[m[32m    # Test that gemini-1.5-pro does NOT add thinkingConfig[m
+[32m+[m[32m    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \[m
+[32m+[m[32m         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \[m
+[32m+[m[32m         patch("kogniterm.core.antigravity_client.requests.post") as mock_post:[m
+[32m+[m[41m         [m
+[32m+[m[32m        mock_response = MagicMock()[m
+[32m+[m[32m        mock_response.status_code = 200[m
+[32m+[m[32m        mock_response.json.return_value = {[m
+[32m+[m[32m            "response": {[m
+[32m+[m[32m                "candidates": [{[m
+[32m+[m[32m                    "content": {[m
+[32m+[m[32m                        "parts": [{"text": "Hello world"}][m
+[32m+[m[32m                    }[m
+[32m+[m[32m                }][m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        mock_post.return_value = mock_response[m
+[32m+[m
+[32m+[m[32m        # Execute completion (non-stream) for gemini-1.5-pro[m
+[32m+[m[32m        AntigravityClient.completion([m
+[32m+[m[32m            model="antigravity/gemini-1.5-pro",[m
+[32m+[m[32m            messages=[{"role": "user", "content": "Hi"}],[m
+[32m+[m[32m            stream=False[m
+[32m+[m[32m        )[m
+[32m+[m[41m        [m
+         # Verify mock_post was called and request body does NOT contain thinkingConfig[m
+         assert mock_post.called[m
+         call_kwargs = mock_post.call_args[1][m
+         request_body = call_kwargs["json"][m
+         request_payload = request_body["request"][m
+         [m
+[31m-        # thinkingConfig should be absent because supports_thinking was set to False[m
+         if "generationConfig" in request_payload:[m
+             assert "thinkingConfig" not in request_payload["generationConfig"][m
+ [m
