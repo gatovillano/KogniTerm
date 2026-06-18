@@ -140,6 +140,8 @@ class SessionManager:
         """Carga una sesión por nombre y devuelve el historial de mensajes."""
         if name == self.ACTIVE_AUTOSAVE_NAME:
             file_path = self.history_file_path
+        elif name.startswith("autosave_"):
+            file_path = os.path.join(self.workspace_dir, ".kogniterm", "autosave", f"{name}.json")
         else:
             file_path = os.path.join(self.sessions_dir, f"{name}.json")
         
@@ -168,7 +170,10 @@ class SessionManager:
             logger.warning("No se puede eliminar el autoguardado activo desde el gestor de sesiones.")
             return False
 
-        file_path = os.path.join(self.sessions_dir, f"{name}.json")
+        if name.startswith("autosave_"):
+            file_path = os.path.join(self.workspace_dir, ".kogniterm", "autosave", f"{name}.json")
+        else:
+            file_path = os.path.join(self.sessions_dir, f"{name}.json")
         
         if not os.path.exists(file_path):
             return False
