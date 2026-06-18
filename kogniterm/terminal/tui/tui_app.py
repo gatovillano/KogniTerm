@@ -2372,6 +2372,10 @@ class KogniTermTUI(App):
         # Tupla de 4 elementos: (__TERMINAL__, tool_name, output, display_command)
         # Siempre enviamos al panel tool_display, independientemente de si está visible
         self.update_live_display(("__TERMINAL__", tool_name, output, display_command), panel_id="tool_display")
+        
+        # Si el panel de herramientas no está visible, lo enviamos al chat log para visualización inline
+        if not getattr(self, "_tool_panel_explicitly_shown", False):
+            self.update_live_display(("__TERMINAL__", tool_name, output, display_command))
 
     def update_task_tracker(self, agent_plans: dict):
         """Actualiza los datos del task tracker y muestra el panel si hay tareas."""
