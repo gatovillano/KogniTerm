@@ -1,5 +1,5 @@
 import threading
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, FrozenSet
 from .models import DelegationContext, DelegationLimits, AgentRole
 from .agent_roles import DEFAULT_BLOCKED_TOOLS
 
@@ -14,7 +14,7 @@ class DelegationManager:
         self.active_agents: Dict[str, DelegationContext] = {}
         self._lock = threading.Lock()
 
-    def register_agent(self, agent_id: str, parent_id: Optional[str], role: AgentRole) -> DelegationContext:
+    def register_agent(self, agent_id: str, parent_id: Optional[str], role: AgentRole, blocked_tools: Optional[FrozenSet[str]] = None) -> DelegationContext:
         """
         Registra un agente hijo calculando su profundidad y aplicando límites
         de profundidad y concurrencia. Retorna el contexto registrado.
@@ -44,7 +44,10 @@ class DelegationManager:
                     )
 
             # Resolver las herramientas bloqueadas para este rol
-            blocked = DEFAULT_BLOCKED_TOOLS.get(role, frozenset())
+            if blocked_tools is not None:
+                blocked = blocked_tools
+            else:
+                blocked = DEFAULT_BLOCKED_TOOLS.get(role, frozenset())
 
             ctx = DelegationContext(
                 agent_id=agent_id,

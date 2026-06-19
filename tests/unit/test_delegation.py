@@ -213,3 +213,98 @@ def test_call_agent_skill_delegation_integration():
     
     # Heartbeat monitor should have removed the agent
     llm_service.heartbeat_monitor.remove_agent.assert_called_once()
+
+
+def test_call_agent_skill_dynamic_agent_allowed_tools():
+    from unittest.mock import MagicMock, patch
+    from kogniterm.skills.bundled.call_agent.scripts.tool import call_agent_skill
+    from kogniterm.core.delegation import DelegationManager, AgentRole
+    from kogniterm.core.agents.tool_executor import ToolExecutor
+
+    # Mock llm_service
+    llm_service = MagicMock()
+    llm_service.delegation_manager = DelegationManager()
+    llm_service.heartbeat_monitor = MagicMock()
+    
+    # Mock tool_map
+    llm_service.tool_map = {
+        "file_operations": MagicMock(),
+        "web_fetch": MagicMock(),
+        "execute_command": MagicMock(),
+    }
+    
+    def mock_get_tool(name):
+        if name in llm_service.tool_map:
+            return llm_service.tool_map[name]
+        return None
+        
+    llm_service.get_tool = mock_get_tool
+    
+    # Mock _invoke_tool_with_interrupt to act as a generator yielding a mock string
+    def mock_invoke_tool_with_interrupt(tool, args, ctx):
+        yield "mock_execution_output"
+        
+    llm_service._invoke_tool_with_interrupt = mock_invoke_tool_with_interrupt
+    
+    delegation_state = {"current": None}
+    type(llm_service).current_delegation_context = property(
+        fget=lambda self: delegation_state["current"],
+        fset=lambda self, val: delegation_state.update({"current": val})
+    )
+
+    parent_ctx = llm_service.delegation_manager.register_agent(
+        agent_id="orchestrator", parent_id=None, role=AgentRole.ORCHESTRATOR
+    )
+
+    mock_graph = MagicMock()
+    
+    custom_prompt = "Eres un agente SQL experto que solo puede usar operaciones de archivo."
+    allowed_tools = ["file_operations"]
+    
+    captured_sys_prompt = []
+    
+    def mock_create_dynamic_agent(svc, sys_prompt, ui, interrupt):
+        captured_sys_prompt.append(sys_prompt)
+        return mock_graph
+        
+    def mock_invoke(initial_state, config=None):
+        child_ctx = initial_state.delegation_context
+        # Verificar que se creó el rol LEAF con herramientas bloqueadas personalizadas
+        assert child_ctx.role == AgentRole.LEAF
+        assert "execute_command" in child_ctx.blocked_tools
+        assert "web_fetch" in child_ctx.blocked_tools  # Debe estar bloqueada porque no está en allowed_tools
+        assert "file_operations" not in child_ctx.blocked_tools  # Debe estar permitida
+        
+        # Probar bloqueo en ToolExecutor
+        tc_allowed = {"name": "file_operations", "args": {"operation": "read"}, "id": "call_allow"}
+        tc_blocked = {"name": "web_fetch", "args": {"url": "http://example.com"}, "id": "call_block"}
+        
+        # Test execute_single_tool con tool permitida
+        tid_allow, content_allow, _ = ToolExecutor.execute_single_tool(tc_allowed, llm_service, None, delegation_context=child_ctx)
+        assert "está deshabilitada" not in content_allow
+        assert "mock_execution_output" in content_allow
+        
+        # Test execute_single_tool con tool bloqueada
+        tid_block, content_block, _ = ToolExecutor.execute_single_tool(tc_blocked, llm_service, None, delegation_context=child_ctx)
+        assert "Error: La herramienta 'web_fetch' está deshabilitada" in content_block
+
+        from langchain_core.messages import AIMessage
+        return {"messages": [AIMessage(content="SQL query verified")]}
+
+    mock_graph.invoke = mock_invoke
+
+    with patch("kogniterm.core.agents.dynamic_agent.create_dynamic_agent", side_effect=mock_create_dynamic_agent), \
+         patch("kogniterm.skills.bundled.call_agent.scripts.tool._request_autonomous_execution", return_value=True):
+         
+        res = call_agent_skill(
+            agent_name="sql_expert",
+            task="Retrieve user count",
+            llm_service=llm_service,
+            delegation_context=parent_ctx,
+            custom_system_prompt=custom_prompt,
+            allowed_tools=allowed_tools
+        )
+        
+        assert "SQL query verified" in res
+        assert captured_sys_prompt[0] == custom_prompt
+

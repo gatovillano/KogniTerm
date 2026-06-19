@@ -212,7 +212,17 @@ def _request_autonomous_execution(agent_label: str, terminal_ui: Any = None) -> 
 
     return True
 
-def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, terminal_ui: Any = None, interrupt_queue: Any = None, approval_handler: Any = None, delegation_context: Optional[Any] = None) -> str:
+def call_agent_skill(
+    agent_name: str, 
+    task: str, 
+    llm_service: Any = None, 
+    terminal_ui: Any = None, 
+    interrupt_queue: Any = None, 
+    approval_handler: Any = None, 
+    delegation_context: Optional[Any] = None,
+    custom_system_prompt: Optional[str] = None,
+    allowed_tools: Optional[list] = None
+) -> str:
     """
     Función principal que implementa la funcionalidad de call_agent
     
@@ -224,11 +234,15 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
         interrupt_queue: Cola de interrupciones
         approval_handler: Manejador de aprobaciones
         delegation_context: Contexto de delegación del padre
+        custom_system_prompt: Prompt de sistema personalizado para agente dinámico
+        allowed_tools: Lista de herramientas permitidas para el agente dinámico
     
     Returns:
         str: Resultado de la ejecución del agente
     """
     is_tui = bool(getattr(terminal_ui, "is_tui", False))
+    from kogniterm.core.agent_state import AgentState
+    from langchain_core.messages import HumanMessage
 
     # --- Montar el panel de streaming en el TUI ---
     stream_widget = None
@@ -265,12 +279,24 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
     child_id = f"child_{agent_name}_{uuid.uuid4().hex[:8]}"
     parent_id = getattr(delegation_context, "agent_id", "orchestrator")
 
+    # Calcular conjunto de herramientas bloqueadas personalizadas si se define allowed_tools
+    blocked_tools_set = None
+    if allowed_tools is not None and llm_service:
+        all_tools = set(llm_service.tool_map.keys()) if hasattr(llm_service, "tool_map") else set()
+        from kogniterm.core.delegation.agent_roles import DEFAULT_BLOCKED_TOOLS
+        mandatory_blocked = DEFAULT_BLOCKED_TOOLS.get(AgentRole.LEAF, frozenset())
+        # Bloquear todas las que no estén permitidas, más las obligatorias por seguridad
+        blocked_tools_set = frozenset(
+            (all_tools - set(allowed_tools)) | mandatory_blocked
+        )
+
     if llm_service and hasattr(llm_service, "delegation_manager") and llm_service.delegation_manager:
         try:
             child_ctx = llm_service.delegation_manager.register_agent(
                 agent_id=child_id,
                 parent_id=parent_id,
-                role=AgentRole.LEAF
+                role=AgentRole.LEAF,
+                blocked_tools=blocked_tools_set
             )
             if hasattr(llm_service, "heartbeat_monitor") and llm_service.heartbeat_monitor:
                 llm_service.heartbeat_monitor.update_heartbeat(child_id, threshold=300.0)
@@ -293,9 +319,6 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
             if not is_tui:
                 console.print(f"[dim]ℹ️  Invocando al motor de desarrollo profundo ({agent_display})...[/dim]")
             
-            from kogniterm.core.agent_state import AgentState
-            from langchain_core.messages import HumanMessage
-    
             if not _request_autonomous_execution(agent_display, terminal_ui):
                 if stream_widget is not None:
                     _widget_set_complete(stream_widget, terminal_ui, "Cancelado por el usuario.")
@@ -341,9 +364,6 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
             if not is_tui:
                 console.print("[dim]ℹ️  Invocando al motor de investigación profunda (DeepResearcher)...[/dim]")
             
-            from kogniterm.core.agent_state import AgentState
-            from langchain_core.messages import HumanMessage
-    
             if not _request_autonomous_execution("DeepResearcher", terminal_ui):
                 if stream_widget is not None:
                     _widget_set_complete(stream_widget, terminal_ui, "Cancelado por el usuario.")
@@ -384,7 +404,55 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
                 return error_msg
     
         else:
-            return f"Error: Agente '{agent_name}' no reconocido. Opciones válidas: 'code_agent', 'researcher_agent'."
+            # Agente dinámico personalizado
+            from kogniterm.core.agents.dynamic_agent import create_dynamic_agent
+            
+            agent_display = f"CustomAgent ({agent_name})"
+            if not is_tui:
+                console.print(f"[dim]ℹ️  Invocando agente dinámico personalizado ({agent_display})...[/dim]")
+                
+            if not _request_autonomous_execution(agent_display, terminal_ui):
+                if stream_widget is not None:
+                    _widget_set_complete(stream_widget, terminal_ui, "Cancelado por el usuario.")
+                return f"Ejecución de {agent_display} cancelada por el usuario."
+                
+            # Generar prompt de sistema por defecto si no se proveyó
+            sys_prompt = custom_system_prompt
+            if sys_prompt is None:
+                sys_prompt = f"Eres un agente asistente especializado en {agent_name}. Tu misión es realizar con éxito la tarea descrita en el mensaje del usuario de manera autónoma y precisa."
+                
+            agent_graph = create_dynamic_agent(llm_service, sys_prompt, agent_ui, interrupt_queue)
+            initial_state = AgentState(messages=[HumanMessage(content=task)], autonomous_approvals=True)
+            if child_ctx:
+                initial_state.delegation_context = child_ctx
+                
+            try:
+                final_state = agent_graph.invoke(initial_state, config={"recursion_limit": RESEARCHER_RECURSION_LIMIT})
+                last_message = final_state["messages"][-1]
+                result_str = last_message.content
+                
+                if not result_str.strip():
+                    logger.warning(f"{agent_display} devolvió un resultado vacío.")
+                    if stream_widget is not None:
+                        _widget_set_error(stream_widget, terminal_ui, "Sin resultado.")
+                    return "Error: El agente dinámico no pudo generar un resultado."
+                    
+                if stream_widget is not None:
+                    _widget_set_complete(stream_widget, terminal_ui)
+                elif not is_tui:
+                    console.print(Panel(
+                        Markdown(result_str),
+                        title=f"[bold green]✅ Misión Finalizada por {agent_display}[/bold green]",
+                        border_style="green",
+                        padding=(1, 2)
+                    ))
+                return f"Respuesta de {agent_display}:\n\n{result_str}"
+            except Exception as e:
+                error_msg = f"Error al ejecutar {agent_display}: {str(e)}"
+                logger.error(error_msg)
+                if stream_widget is not None:
+                    _widget_set_error(stream_widget, terminal_ui, str(e))
+                return error_msg
     finally:
         if llm_service:
             llm_service.current_delegation_context = old_ctx
@@ -396,18 +464,28 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
 # Schema para el LLM
 tool_schema = {
     "name": "call_agent",
-    "description": "Invoca a un agente especializado para realizar tareas complejas. Agentes disponibles: 'code_agent' (para tareas de código y edición), 'researcher_agent' (para investigación y tareas complejas).",
+    "description": "Invoca a un agente especializado para realizar tareas complejas. Permite invocar agentes predefinidos ('code_agent', 'researcher_agent') o instanciar un agente dinámico personalizado especificando un rol y directrices personalizadas.",
     "parameters": {
         "type": "object",
         "properties": {
             "agent_name": {
                 "type": "string",
-                "description": "El nombre del agente a invocar: 'code_agent' o 'researcher_agent'.",
-                "enum": ["code_agent", "researcher_agent"]
+                "description": "El nombre o rol del agente a invocar. Ejemplos predefinidos: 'code_agent' o 'researcher_agent'. Ejemplos dinámicos: cualquier nombre de rol (ej: 'tester', 'sql_expert')."
             },
             "task": {
                 "type": "string",
                 "description": "La tarea específica que el agente debe realizar."
+            },
+            "custom_system_prompt": {
+                "type": "string",
+                "description": "Opcional. Prompt de sistema personalizado para guiar las directrices, persona, y restricciones del agente dinámico. Úsalo si agent_name no es 'code_agent' ni 'researcher_agent'."
+            },
+            "allowed_tools": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "description": "Opcional. Lista de nombres de herramientas a las que este agente dinámico tiene permitido acceder. Si se omite, tendrá acceso a las herramientas estándar de LEAF."
             }
         },
         "required": ["agent_name", "task"]
