@@ -137,8 +137,9 @@ class TUIWebSocketClient:
                 task.cancel()
             # Propagar la excepción del task que falló
             for task in done:
-                if task.exception():
-                    raise task.exception()
+                exc = task.exception()
+                if exc:
+                    raise exc
 
     # ── Bucles internos ─────────────────────────────────────────────────────────
 
@@ -288,6 +289,10 @@ class TUIWebSocketClient:
         elif event_type == "indexing_complete":
             chunks = data.get("chunks", 0) if isinstance(data, dict) else 0
             self._app.call_from_thread(self._app._indexing_complete, chunks)
+
+        elif event_type == "indexing_error":
+            error_msg = data.get("message", "Error desconocido") if isinstance(data, dict) else str(data)
+            self._app.call_from_thread(self._app._indexing_failed, error_msg)
 
         elif event_type in ("pong", "info"):
             # Keep-alive y mensajes informativos — ignorar silenciosamente

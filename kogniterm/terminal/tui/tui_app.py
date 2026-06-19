@@ -1185,6 +1185,7 @@ class KogniTermTUI(App):
         """Update the progress bar at the bottom of the screen."""
         def update_ui():
             try:
+                self.query_one("#indexing_progress_container").display = True
                 pct = int((current / total) * 100)
                 label = self.query_one("#indexing_label")
                 # Barra visual: ■■■■■■░░░░
@@ -1201,6 +1202,7 @@ class KogniTermTUI(App):
         """Called when indexing completes."""
         def complete_ui():
             try:
+                self.query_one("#indexing_progress_container").display = True
                 label = self.query_one("#indexing_label")
                 if num_chunks > 0:
                     label.update("[green]■■■■■■■■■■ 100%  Indexación completada.[/green]")
@@ -1226,6 +1228,7 @@ class KogniTermTUI(App):
         """Called when indexing fails."""
         def fail_ui():
             try:
+                self.query_one("#indexing_progress_container").display = True
                 label = self.query_one("#indexing_label")
                 label.update(f"[red]Error en la indexación: {error_msg}[/red]")
             except Exception as e:
