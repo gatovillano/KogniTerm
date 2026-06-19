@@ -1133,8 +1133,27 @@ class KogniTermTUI(App):
         show_ui()  # Llamada directa en el hilo principal (no requiere call_from_thread)
         self.run_worker(self._do_indexing)
 
+    def call_from_thread(self, callback, *args, **kwargs):
+        """Thread-safe and main-thread-safe version of call_from_thread.
+        
+        If called from the main thread / app thread, it schedules the callback
+        using call_next. Otherwise, it delegates to super().call_from_thread.
+        """
+        import threading
+        if (
+            threading.current_thread() is threading.main_thread()
+            or getattr(self, "_thread_id", None) == threading.get_ident()
+        ):
+            self.call_next(callback, *args, **kwargs)
+        else:
+            super().call_from_thread(callback, *args, **kwargs)
+
+    def _call_on_app_thread(self, func, *args, **kwargs):
+        """Schedule a callback on Textual's app thread from any worker context."""
+        self.call_from_thread(func, *args, **kwargs)
+
     async def _do_indexing(self):
-        """Worker that performs indexing (runs in background thread)."""
+        """Worker that performs indexing."""
         project_path = self.workspace_directory
         try:
             from kogniterm.core.context.codebase_indexer import CodebaseIndexer
@@ -1157,7 +1176,7 @@ class KogniTermTUI(App):
             self._indexing_failed(str(e))
 
     def _indexing_progress_callback(self, current: int, total: int, description: str):
-        """Handle progress updates from indexing (called from worker thread)."""
+        """Handle progress updates from indexing."""
         if total == 0:
             return
         self._show_indexing_progress(current, total, description)
@@ -1176,7 +1195,7 @@ class KogniTermTUI(App):
             except Exception as e:
                 logger.error(f"Error updating indexing progress UI: {e}")
         
-        self.call_from_thread(update_ui)
+        self._call_on_app_thread(update_ui)
 
     def _indexing_complete(self, num_chunks: int):
         """Called when indexing completes."""
@@ -1190,10 +1209,8 @@ class KogniTermTUI(App):
             except Exception as e:
                 logger.error(f"Error updating indexing completion UI: {e}")
         
-        self.call_from_thread(complete_ui)
-        
+        self._call_on_app_thread(complete_ui)        
         # Ocultar después de 3 segundos
-        import threading
         def hide():
             import time
             time.sleep(3)
@@ -1202,7 +1219,7 @@ class KogniTermTUI(App):
                     self.query_one("#indexing_progress_container").display = False
                 except Exception:
                     pass
-            self.call_from_thread(hide_ui)
+            self._call_on_app_thread(hide_ui)
         threading.Thread(target=hide, daemon=True).start()
 
     def _indexing_failed(self, error_msg: str):
@@ -1214,9 +1231,8 @@ class KogniTermTUI(App):
             except Exception as e:
                 logger.error(f"Error updating indexing failure UI: {e}")
         
-        self.call_from_thread(fail_ui)
+        self._call_on_app_thread(fail_ui)
         
-        import threading
         def hide():
             import time
             time.sleep(5)
@@ -1225,7 +1241,7 @@ class KogniTermTUI(App):
                     self.query_one("#indexing_progress_container").display = False
                 except Exception:
                     pass
-            self.call_from_thread(hide_ui)
+            self._call_on_app_thread(hide_ui)
         threading.Thread(target=hide, daemon=True).start()
 
     @work(thread=True)
@@ -2284,7 +2300,10 @@ class KogniTermTUI(App):
             # Enfocar el widget para que capture teclado
             widget.focus()
 
-        if threading.current_thread() is threading.main_thread():
+        if (
+            threading.current_thread() is threading.main_thread()
+            or getattr(self, "_thread_id", None) == threading.get_ident()
+        ):
             mount_widget()
         else:
             self.call_from_thread(mount_widget)
@@ -2306,10 +2325,14 @@ class KogniTermTUI(App):
                 future.set_result(result)
             self.call_after_refresh(lambda: self.push_screen(TextualInputModal(title, text, password=password), result_callback))
             
-        if threading.current_thread() is threading.main_thread():
+        if (
+            threading.current_thread() is threading.main_thread()
+            or getattr(self, "_thread_id", None) == threading.get_ident()
+        ):
             push_screen_callback()
         else:
             self.call_from_thread(push_screen_callback)
+
         return future.result()
 
     def update_live_display(self, renderable, panel_id=None):

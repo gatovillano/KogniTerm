@@ -172,7 +172,7 @@ update_kogniterm() {
     fi
 
     echo -e "  Sincronizando con repositorio remoto..."
-    git pull origin main
+    git pull --no-rebase origin main
     if [ $? -ne 0 ]; then
         echo -e "${RED}❌ Error al hacer git pull.${RESET}"
         [ "$stash_created" = true ] && git stash pop
