@@ -28,12 +28,17 @@ class ToolExecutor:
     """
     
     @staticmethod
-    def execute_single_tool(tc: Dict[str, Any], llm_service: LLMService, terminal_ui: Optional[Any] = None) -> tuple:
+    def execute_single_tool(tc: Dict[str, Any], llm_service: LLMService, terminal_ui: Optional[Any] = None, delegation_context: Optional[Any] = None) -> tuple:
         """Ejecuta una herramienta individual y retorna (tool_id, content, exception)."""
         tool_name = tc['name']
         tool_args = tc['args']
         tool_id = tc['id']
         is_tui = getattr(terminal_ui, "is_tui", False)
+
+        if delegation_context and hasattr(delegation_context, "blocked_tools") and tool_name in delegation_context.blocked_tools:
+            role_name = getattr(delegation_context.role, "value", str(delegation_context.role))
+            logger.warning(f"La herramienta '{tool_name}' fue bloqueada para el subagente (rol: {role_name})")
+            return tool_id, f"Error: La herramienta '{tool_name}' está deshabilitada debido a restricciones del rol ({role_name}).", None
 
         command_hint = ""
         if isinstance(tool_args, dict):
@@ -136,10 +141,22 @@ class ToolExecutor:
         # 1. Registrar y Verificar Interrupciones
         try:
             futures = []
+            del_ctx = getattr(state, "delegation_context", None)
+
             for tc in last_message.tool_calls:
                 # Detección de bucles (hash de args)
                 state.tool_call_history.append({"name": tc['name'], "args_hash": hash(str(tc['args']))})
                 
+                # Validar permisos RBAC antes de proceder
+                if del_ctx and hasattr(del_ctx, "blocked_tools") and tc['name'] in del_ctx.blocked_tools:
+                    role_name = getattr(del_ctx.role, "value", str(del_ctx.role))
+                    logger.warning(f"La herramienta '{tc['name']}' fue bloqueada para el subagente (rol: {role_name})")
+                    tool_messages.append(ToolMessage(
+                        content=f"Error: La herramienta '{tc['name']}' está deshabilitada debido a restricciones del rol ({role_name}).",
+                        tool_call_id=tc['id']
+                    ))
+                    continue
+
                 # Caso especial: execute_command (esperar confirmación sin ejecutar aún)
                 if tc['name'] == "execute_command":
                     state.command_to_confirm = tc['args'].get('command')
@@ -151,9 +168,12 @@ class ToolExecutor:
                             if skill:
                                 skill_name = skill.name
                         terminal_ui.print_tool_notification("execute_command", f"Preparando: {state.command_to_confirm}", skill_name=skill_name)
+                    
+                    if tool_messages:
+                        state.messages.extend(tool_messages)
                     return {"messages": state.messages, "command_to_confirm": state.command_to_confirm}
 
-                futures.append(executor.submit(ToolExecutor.execute_single_tool, tc, llm_service, terminal_ui))
+                futures.append(executor.submit(ToolExecutor.execute_single_tool, tc, llm_service, terminal_ui, del_ctx))
 
             for future in as_completed(futures):
                 tid, content, exc = future.result()

@@ -103,3 +103,39 @@ def test_heartbeat_monitor():
 
     finally:
         monitor.stop()
+
+def test_tool_executor_rbac_blocking():
+    from kogniterm.core.agent_state import AgentState
+    from kogniterm.core.agents.tool_executor import ToolExecutor
+    from langchain_core.messages import AIMessage, ToolMessage
+    
+    # 1. Test execute_single_tool with blocked tool
+    tc = {"name": "execute_command", "args": {"command": "ls"}, "id": "call_1"}
+    
+    # Create delegation context for LEAF agent (which has execute_command blocked)
+    limits = DelegationLimits()
+    manager = DelegationManager(limits=limits)
+    leaf_ctx = manager.register_agent("leaf_agent", parent_id=None, role=AgentRole.LEAF)
+    
+    # Execute single tool: should be blocked
+    tid, content, exc = ToolExecutor.execute_single_tool(tc, None, None, delegation_context=leaf_ctx)
+    assert tid == "call_1"
+    assert "Error: La herramienta 'execute_command' está deshabilitada" in content
+    assert exc is None
+
+    # 2. Test execute_tool_node with blocked tool in agent state
+    state = AgentState(messages=[
+        AIMessage(content="", tool_calls=[tc])
+    ])
+    state.delegation_context = leaf_ctx
+    
+    # We pass None for llm_service because the execution should be blocked before calling any service.
+    # We pass None for terminal_ui
+    res_state = ToolExecutor.execute_tool_node(state, None, None)
+    
+    # The output should have the ToolMessage with the error
+    assert len(res_state.messages) == 2
+    last_msg = res_state.messages[-1]
+    assert isinstance(last_msg, ToolMessage)
+    assert last_msg.tool_call_id == "call_1"
+    assert "Error: La herramienta 'execute_command' está deshabilitada" in last_msg.content
