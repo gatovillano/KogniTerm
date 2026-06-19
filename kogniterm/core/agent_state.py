@@ -38,6 +38,7 @@ class AgentState:
     tool_call_history: deque = field(default_factory=lambda: deque(maxlen=5)) # Historial de llamadas a herramientas para detección de bucles
     critical_loop_detected: bool = False # Bandera para indicar que se detectó un bucle crítico y se debe terminar el flujo
     stop_requested: bool = False # Nueva bandera para indicar interrupción y detener el grafo
+    delegation_context: Optional[Any] = None # Contexto de delegación (para subagentes)
 
     # Añadir un campo para la ruta del archivo de historial
     history_file_path: str = field(default_factory=lambda: os.path.join(os.getcwd(), ".kogniterm", "history.json"))
