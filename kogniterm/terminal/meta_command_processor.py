@@ -142,15 +142,16 @@ class MetaCommandProcessor:
                 workspace_directory = os.getcwd()
                 context_path = os.path.join(workspace_directory, ".kogniterm", "llm_context.md")
                 
+                # La indexación del codebase se ejecuta siempre
+                self.terminal_ui.print_message("🚀 Iniciando indexación de vectores en segundo plano con la barra inferior...")
+                try:
+                    self.kogniterm_app._start_indexing()
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ No se pudo iniciar la barra de progreso de indexación: {e}", style="red")
+                
                 if os.path.exists(context_path) and not force:
                     self.terminal_ui.print_message("ℹ️  .kogniterm/llm_context.md already exists. Skipping memory rebuild (use '/init -f' to overwrite).", style="yellow")
                 else:
-                    self.terminal_ui.print_message("🚀 Iniciando indexación de vectores en segundo plano con la barra inferior...")
-                    try:
-                        self.kogniterm_app._start_indexing()
-                    except Exception as e:
-                        self.terminal_ui.print_message(f"⚠️ No se pudo iniciar la barra de progreso de indexación: {e}", style="red")
-                    
                     try:
                         self.kogniterm_app._start_deep_research_investigation(force=force)
                     except Exception as e:
