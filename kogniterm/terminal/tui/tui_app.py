@@ -718,13 +718,13 @@ class KogniTermTUI(App):
 
     /* ── BARRA DE PROGRESO DE INDEXACIÓN ────────── */
     #indexing_progress_container {
-        dock: bottom;
         height: 2;
-        width: 100%;
+        width: 85%;
+        max-width: 180;
+        min-width: 60;
         background: #11111b;
         border-top: solid #374151;
         display: none;
-        layer: popup;
     }
     #indexing_label {
         width: 100%;
@@ -950,11 +950,6 @@ class KogniTermTUI(App):
         self.command_popup = ListView(id="command_popup")
         yield self.command_popup
         
-        # Barra de progreso de indexación (docked bottom, above input)
-        with Vertical(id="indexing_progress_container"):
-            yield Static("", id="indexing_bar", markup=True)
-            yield Static("", id="indexing_label", markup=True)
-        
         with Vertical(id="bottom_container"):
             # Panel de queue (mensajes en espera)
             self.queue_display = QueueDisplay(id="queue_display")
@@ -984,6 +979,11 @@ class KogniTermTUI(App):
             with Vertical(id="tracker_container"):
                 self.task_tracker_panel = TaskTrackerPanelWidget(id="task_tracker_panel")
                 yield self.task_tracker_panel
+
+            # Barra de progreso de indexación (docked bottom, above input)
+            with Vertical(id="indexing_progress_container"):
+                yield Static("", id="indexing_bar", markup=True)
+                yield Static("", id="indexing_label", markup=True)
 
             with Horizontal(id="input_container"):
                 self.chat_input = ChatInput(id="chat_input")
@@ -1108,6 +1108,15 @@ class KogniTermTUI(App):
     def _on_indexing_confirmation(self, should_index: bool):
         """Handle response from indexing confirmation modal."""
         if should_index:
+            # Transition to chat screen first so they can see everything
+            self._splash_visible = False
+            try:
+                self.query_one("#splash_overlay").display = False
+                self.query_one("#bottom_container").display = True
+                self.query_one("#chat_input", ChatInput).focus()
+            except Exception:
+                pass
+
             self._start_indexing()
             try:
                 self._start_deep_research_investigation(force=False)
