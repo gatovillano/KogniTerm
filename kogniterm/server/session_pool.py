@@ -111,6 +111,10 @@ class ServerUI(TerminalUI):
 
     def update_terminal_output(self, tool_name: str, output: str, tool_call_id: Optional[str] = None, **kwargs) -> None:
         logger.info(f"[{self.session_id}] ServerUI.update_terminal_output: {tool_name}")
+        self._push("terminal_output", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id})
+
+    def update_tool_display(self, tool_name: str, output: str, tool_call_id: Optional[str] = None, **kwargs) -> None:
+        logger.info(f"[{self.session_id}] ServerUI.update_tool_display: {tool_name}")
         self._push("tool_result", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id})
 
     def update_task_tracker(self, agent_plans: dict) -> None:

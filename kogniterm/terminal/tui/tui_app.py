@@ -1130,7 +1130,7 @@ class KogniTermTUI(App):
             except Exception as e:
                 logger.error(f"Error showing indexing progress: {e}")
         
-        self.call_from_thread(show_ui)
+        show_ui()  # Llamada directa en el hilo principal (no requiere call_from_thread)
         self.run_worker(self._do_indexing)
 
     async def _do_indexing(self):

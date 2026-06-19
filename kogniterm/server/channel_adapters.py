@@ -85,7 +85,7 @@ class CLIAdapter(ChannelAdapter):
     Imprime los eventos en stdout.
     """
 
-    PRINTABLE_TYPES = {"stream", "message", "tool_start", "tool_output", "done", "error"}
+    PRINTABLE_TYPES = {"stream", "message", "tool_start", "tool_output", "tool_result", "terminal_output", "done", "error"}
 
     async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         t = event["type"]
@@ -98,7 +98,7 @@ class CLIAdapter(ChannelAdapter):
         elif t in ("tool_start", "tool_call"):
             tool_name = d.get('tool') or d.get('name') or 'herramienta'
             print(f"\n⚙️  [{tool_name}] {d.get('description', '')}")
-        elif t in ("tool_output", "tool_result"):
+        elif t in ("tool_output", "tool_result", "terminal_output"):
             output_content = d.get('output') or d.get('content') or ''
             print(f"\n📤 {output_content}")
         elif t == "done":

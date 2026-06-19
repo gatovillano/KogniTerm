@@ -226,6 +226,19 @@ class TUIWebSocketClient:
                     tool_name, output,
                 )
 
+        elif event_type == "terminal_output":
+            # Salida interactiva para el panel terminal
+            if isinstance(data, dict):
+                output = data.get("content", "")
+                tool_name = data.get("tool", "Terminal")
+            else:
+                output, tool_name = str(data), "Terminal"
+            if output:
+                self._app.call_from_thread(
+                    self._app.tui_ui.update_terminal_output,
+                    tool_name, output,
+                )
+
         elif event_type == "task_tracker":
             # Actualizar el panel de tareas
             if isinstance(data, dict):
