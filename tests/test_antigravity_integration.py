@@ -478,6 +478,126 @@ def test_antigravity_normalize_contents_mismatched_ids_fallback():
     assert normalized[2]["parts"][0]["functionResponse"]["name"] == "file_operations"
 
 
+def test_thinking_config_gemini_3_level(monkeypatch):
+    # Test that gemini-3-flash adds thinkingLevel (MEDIUM) instead of thinkingBudget to request_payload
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch("kogniterm.core.antigravity_client.requests.post") as mock_post:
+         
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "response": {
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Hello world"}]
+                    }
+                }]
+            }
+        }
+        mock_post.return_value = mock_response
+
+        # Execute completion (non-stream) for gemini-3-flash
+        AntigravityClient.completion(
+            model="antigravity/gemini-3-flash",
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False
+        )
+        
+        # Verify request body contains thinkingLevel and it is MEDIUM (default for flash)
+        assert mock_post.called
+        call_kwargs = mock_post.call_args[1]
+        request_body = call_kwargs["json"]
+        request_payload = request_body["request"]
+        
+        assert "generationConfig" in request_payload
+        assert "thinkingConfig" in request_payload["generationConfig"]
+        assert request_payload["generationConfig"]["thinkingConfig"].get("thinkingLevel") == "MEDIUM"
+        assert "thinkingBudget" not in request_payload["generationConfig"]["thinkingConfig"]
+
+    # Test with custom KOGNITERM_THINKING_LEVEL env var set to HIGH
+    monkeypatch.setenv("KOGNITERM_THINKING_LEVEL", "HIGH")
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch("kogniterm.core.antigravity_client.requests.post") as mock_post:
+         
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "response": {
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Hello world"}]
+                    }
+                }]
+            }
+        }
+        mock_post.return_value = mock_response
+
+        # Execute completion (non-stream) for gemini-3-flash
+        AntigravityClient.completion(
+            model="antigravity/gemini-3-flash",
+            messages=[{"role": "user", "content": "Hi"}],
+            stream=False
+        )
+        
+        # Verify request body contains thinkingLevel and it is HIGH
+        assert mock_post.called
+        call_kwargs = mock_post.call_args[1]
+        request_body = call_kwargs["json"]
+        request_payload = request_body["request"]
+        
+        assert "generationConfig" in request_payload
+        assert "thinkingConfig" in request_payload["generationConfig"]
+        assert request_payload["generationConfig"]["thinkingConfig"].get("thinkingLevel") == "HIGH"
+
+
+def test_llm_service_excludes_think_tool_for_thinking_models():
+    # Mock LLMService and a SkillManager loaded with a tool named 'think'
+    from langchain_core.tools import BaseTool
+    from pydantic import BaseModel, Field
+
+    class ThinkToolInput(BaseModel):
+        thought: str = Field(description="thoughts")
+
+    class FakeThinkTool(BaseTool):
+        name: str = "think"
+        description: str = "think tool"
+        args_schema: type[BaseModel] = ThinkToolInput
+        def _run(self, thought: str) -> str:
+            return "ok"
+
+    class FakeOtherTool(BaseTool):
+        name: str = "other_tool"
+        description: str = "other tool description"
+        def _run(self) -> str:
+            return "ok"
+
+    service = LLMService()
+    # Mock skill manager to return our mock tools
+    mock_get_tools = MagicMock(return_value=[FakeThinkTool(), FakeOtherTool()])
+    service.skill_manager.get_tools = mock_get_tools
+    
+    # 1. When model is NOT a thinking model (e.g., Claude 3.5 Sonnet)
+    service.set_model("antigravity/claude-3-5-sonnet")
+    tools = service._get_litellm_tools()
+    # Should include both 'think' and 'other_tool'
+    tool_names = [t.get("function", {}).get("name") for t in tools]
+    assert "think" in tool_names
+    assert "other_tool" in tool_names
+
+    # 2. When model IS a thinking model (e.g., Gemini 3 Flash)
+    service.set_model("antigravity/gemini-3-flash")
+    # Reset cached litellm_tools to force reload
+    service.litellm_tools = None
+    tools = service._get_litellm_tools()
+    # Should exclude 'think' and only include 'other_tool'
+    tool_names = [t.get("function", {}).get("name") for t in tools]
+    assert "think" not in tool_names
+    assert "other_tool" in tool_names
+
+
+
 
 
 

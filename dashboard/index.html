@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KogniTerm - Estadísticas de Uso</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #00d4ff;
+            --secondary: #7b2cbf;
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --bg-card-hover: #1a1a25;
+            --text-primary: #ffffff;
+            --text-secondary: #b0b0c0;
+            --accent-green: #00ff88;
+            --accent-yellow: #ffd700;
+            --accent-red: #ff4757;
+            --gradient-1: linear-gradient(135deg, #00d4ff 0%, #7b2cbf 100%);
+            --gradient-2: linear-gradient(135deg, #7b2cbf 0%, #ff4757 100%);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            --border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        /* Animated background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+
+        .bg-animation::before {
+            content: '';
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            top: -50%;
+            left: -50%;
+            background: radial-gradient(circle, rgba(0, 212, 255, 0.03) 0%, transparent 50%),
+                        radial-gradient(circle, rgba(123, 44, 191, 0.03) 0%, transparent 50%);
+            animation: rotate 20s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 3rem 0 2rem;
+            position: relative;
+        }
+
+        .logo {
+            font-size: 3rem;
+            font-weight: 800;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+            letter-spacing: -2px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            font-weight: 400;
+        }
+
+        .last-updated {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 212, 255, 0.1);
+            border: var(--border);
+            border-radius: 2rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: var(--border);
+            border-radius: 16px;
+            padding: 1.75rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-1);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .stat-card:hover {
+            background: var(--bg-card-hover);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow);
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .stat-icon.clones { background: rgba(0, 212, 255, 0.15); }
+        .stat-icon.views { background: rgba(123, 44, 191, 0.15); }
+        .stat-icon.stars { background: rgba(255, 215, 0, 0.15); }
+        .stat-icon.forks { background: rgba(0, 255, 136, 0.15); }
+        .stat-icon.contributors { background: rgba(255, 71, 87, 0.15); }
+        .stat-icon.releases { background: rgba(0, 212, 255, 0.15); }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* Traffic Section */
+        .section {
+            margin: 3rem 0;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: var(--gradient-1);
+            border-radius: 2px;
+        }
+
+        .chart-container {
+            background: var(--bg-card);
+            border: var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        .chart-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-tab {
+            padding: 0.6rem 1.2rem;
+            background: transparent;
+            border: var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .chart-tab:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        .chart-tab.active {
+            background: var(--gradient-1);
+            color: white;
+            border-color: transparent;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+            margin-top: 1rem;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Traffic Table */
+        .traffic-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1.5rem;
+        }
+
+        .traffic-table th,
+        .traffic-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: var(--border);
+        }
+
+        .traffic-table th {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .traffic-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .traffic-table td {
+            font-variant-numeric: tabular-nums;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+        }
+
+        .badge-warning {
+            background: rgba(255, 215, 0, 0.15);
+            color: var(--accent-yellow);
+        }
+
+        /* Repository Info */
+        .repo-info {
+            background: var(--bg-card);
+            border: var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-top: 2rem;
+        }
+
+        .repo-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .repo-icon {
+            font-size: 2rem;
+        }
+
+        .repo-name {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .repo-description {
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+            line-height: 1.6;
+        }
+
+        .repo-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .repo-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        /* Loading State */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 1rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Error State */
+        .error {
+            background: rgba(255, 71, 87, 0.1);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            color: var(--accent-red);
+            text-align: center;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 3rem 0;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .logo {
+                font-size: 2rem;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .chart-wrapper {
+                height: 250px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+    
+    <div class="container">
+        <header class="header">
+            <h1 class="logo">KogniTerm</h1>
+            <p class="subtitle">Panel de Estadísticas de Uso</p>
+            <div class="last-updated">
+                <span class="pulse-dot"></span>
+                <span>Actualizado: <span id="lastUpdate">Cargando...</span></span>
+            </div>
+        </header>
+
+        <div id="statsContainer">
+            <div class="loading">
+                <div class="spinner"></div>
+                <span>Cargando estadísticas desde GitHub...</span>
+            </div>
+        </div>
+
+        <div class="section" id="trafficSection" style="display: none;">
+            <h2 class="section-title">📈 Tráfico del Repositorio</h2>
+            <div class="chart-container">
+                <div class="chart-tabs">
+                    <button class="chart-tab active" data-chart="clones">Clonaciones</button>
+                    <button class="chart-tab" data-chart="views">Vistas</button>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="trafficChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="section" id="repoSection" style="display: none;">
+            <h2 class="section-title">📦 Información del Repositorio</h2>
+            <div class="repo-info">
+                <div class="repo-header">
+                    <span class="repo-icon">📂</span>
+                    <div>
+                        <div class="repo-name" id="repoName">gatovillano/KogniTerm</div>
+                        <div class="repo-description" id="repoDescription">
+                            KogniTerm es un agente evolutivo de terminal de última generación.
+                        </div>
+                    </div>
+                </div>
+                <div class="repo-meta">
+                    <div class="repo-meta-item">
+                        <span>🔤</span>
+                        <span id="repoLanguage">Python</span>
+                    </div>
+                    <div class="repo-meta-item">
+                        <span>📅</span>
+                        <span>Creado: <span id="repoCreated">-</span></span>
+                    </div>
+                    <div class="repo-meta-item">
+                        <span>🔄</span>
+                        <span>Última actualización: <span id="repoUpdated">-</span></span>
+                    </div>
+                    <div class="repo-meta-item">
+                        <span>👥</span>
+                        <span><span id="repoContributors">-</span> contribuidores</span>
+                    </div>
+                    <div class="repo-meta-item">
+                        <span>🏷️</span>
+                        <span><span id="repoReleases">-</span> releases</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>Datos obtenidos de la API de GitHub • Repositorio: <a href="https://github.com/gatovillano/KogniTerm" target="_blank">gatovillano/KogniTerm</a></p>
+        </footer>
+    </div>
+
+    <script>
+        // Configuration
+        const REPO_OWNER = 'gatovillano';
+        const REPO_NAME = 'KogniTerm';
+        const API_BASE = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`;
+        
+        // Token from config (loaded from config.json if exists)
+        let GITHUB_TOKEN = '';
+        
+        // Try to load token from config
+        async function loadToken() {
+            try {
+                const response = await fetch('/config.json');
+                if (response.ok) {
+                    const config = await response.json();
+                    GITHUB_TOKEN = config.github_token || '';
+                }
+            } catch (e) {
+                // No config file, use unauthenticated requests
+            }
+        }
+        
+        // State
+        let currentChart = 'clones';
+        let trafficData = { clones: [], views: [] };
+        
+        // Fetch data from GitHub API
+        async function fetchGitHub(endpoint) {
+            const headers = { 'Accept': 'application/vnd.github.v3+json' };
+            if (GITHUB_TOKEN) {
+                headers['Authorization'] = `token ${GITHUB_TOKEN}`;
+            }
+            
+            const response = await fetch(`${API_BASE}${endpoint}`, { headers });
+            if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+            return response.json();
+        }
+        
+        // Format number with K/M suffix
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+        
+        // Format date
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('es-ES', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }
+        
+        // Render stats cards
+        function renderStats(data) {
+            const container = document.getElementById('statsContainer');
+            
+            const stats = [
+                { 
+                    icon: '📥', 
+                    label: 'Clones Totales', 
+                    value: formatNumber(data.clones.count), 
+                    subtitle: `${data.clones.uniques} únicos`,
+                    class: 'clones'
+                },
+                { 
+                    icon: '👁️', 
+                    label: 'Vistas Totales', 
+                    value: formatNumber(data.views.count), 
+                    subtitle: `${data.views.uniques} únicas`,
+                    class: 'views'
+                },
+                { 
+                    icon: '⭐', 
+                    label: 'Estrellas', 
+                    value: formatNumber(data.repo.stargazers_count), 
+                    subtitle: 'GitHub stars',
+                    class: 'stars'
+                },
+                { 
+                    icon: '🍴', 
+                    label: 'Forks', 
+                    value: formatNumber(data.repo.forks_count), 
+                    subtitle: 'Repositorios derivados',
+                    class: 'forks'
+                },
+                { 
+                    icon: '👥', 
+                    label: 'Contribuidores', 
+                    value: data.contributors, 
+                    subtitle: 'desarrolladores activos',
+                    class: 'contributors'
+                },
+                { 
+                    icon: '🏷️', 
+                    label: 'Releases', 
+                    value: data.releases, 
+                    subtitle: 'versiones publicadas',
+                    class: 'releases'
+                }
+            ];
+            
+            container.innerHTML = `
+                <div class="stats-grid">
+                    ${stats.map(stat => `
+                        <div class="stat-card">
+                            <div class="stat-icon ${stat.class}">${stat.icon}</div>
+                            <div class="stat-label">${stat.label}</div>
+                            <div class="stat-value">${stat.value}</div>
+                            <div class="stat-subtitle">${stat.subtitle}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleString('es-ES');
+        }
+        
+        // Render traffic chart
+        function renderTrafficChart(data, type) {
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            const chartData = data[type];
+            
+            if (!chartData || chartData.length === 0) {
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = '16px Inter';
+                ctx.fillStyle = '#b0b0c0';
+                ctx.textAlign = 'center';
+                ctx.fillText('No hay datos de tráfico disponibles', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return;
+            }
+            
+            const labels = chartData.map(d => {
+                const date = new Date(d.timestamp);
+                return date.toLocaleDateString('es-ES', { month: 'short', day: 'numeric' });
+            });
+            
+            const values = chartData.map(d => d.count);
+            const uniques = chartData.map(d => d.uniques);
+            
+            const width = ctx.canvas.width = ctx.canvas.offsetWidth;
+            const height = ctx.canvas.height = ctx.canvas.offsetHeight;
+            const padding = { top: 40, right: 20, bottom: 50, left: 60 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+            
+            ctx.clearRect(0, 0, width, height);
+            
+            // Find max value
+            const maxValue = Math.max(...values, ...uniques) * 1.2;
+            
+            // Draw grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 5; i++) {
+                const y = padding.top + (chartHeight / 5) * i;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(width - padding.right, y);
+                ctx.stroke();
+                
+                const value = Math.round(maxValue - (maxValue / 5) * i);
+                ctx.fillStyle = '#b0b0c0';
+                ctx.font = '12px Inter';
+                ctx.textAlign = 'right';
+                ctx.fillText(value.toString(), padding.left - 10, y + 4);
+            }
+            
+            // Draw bars
+            const barWidth = chartWidth / values.length * 0.6;
+            const barGap = chartWidth / values.length;
+            
+            values.forEach((val, i) => {
+                const x = padding.left + barGap * i + (barGap - barWidth) / 2;
+                const barHeight = (val / maxValue) * chartHeight;
+                const y = padding.top + chartHeight - barHeight;
+                
+                // Total bar
+                const gradient = ctx.createLinearGradient(x, y, x, padding.top + chartHeight);
+                gradient.addColorStop(0, '#00d4ff');
+                gradient.addColorStop(1, 'rgba(0, 212, 255, 0.2)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(x, y, barWidth, barHeight);
+                
+                // Unique bar (overlay)
+                const uniqueHeight = (uniques[i] / maxValue) * chartHeight;
+                const uniqueY = padding.top + chartHeight - uniqueHeight;
+                ctx.fillStyle = '#7b2cbf';
+                ctx.fillRect(x + barWidth * 0.3, uniqueY, barWidth * 0.4, uniqueHeight);
+                
+                // Label
+                ctx.fillStyle = '#b0b0c0';
+                ctx.font = '11px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText(labels[i], x + barWidth / 2, height - padding.bottom + 20);
+            });
+            
+            // Draw legend
+            ctx.fillStyle = '#00d4ff';
+            ctx.fillRect(padding.left, 10, 12, 12);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '12px Inter';
+            ctx.textAlign = 'left';
+            ctx.fillText('Total', padding.left + 18, 20);
+            
+            ctx.fillStyle = '#7b2cbf';
+            ctx.fillRect(padding.left + 80, 10, 12, 12);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('Únicos', padding.left + 98, 20);
+        }
+        
+        // Render traffic table
+        function renderTrafficTable(data, type) {
+            const section = document.getElementById('trafficSection');
+            const chartData = data[type];
+            
+            if (!chartData || chartData.length === 0) {
+                section.querySelector('.chart-container').innerHTML = '<div class="loading">No hay datos disponibles</div>';
+                return;
+            }
+            
+            const rows = chartData.slice(-14).reverse().map(day => `
+                <tr>
+                    <td>${formatDate(day.timestamp)}</td>
+                    <td><strong>${day.count}</strong></td>
+                    <td>${day.uniques}</td>
+                    <td>
+                        ${day.uniques > 0 
+                            ? `<span class="badge badge-success">Activo</span>` 
+                            : `<span class="badge badge-warning">Sin actividad</span>`
+                        }
+                    </td>
+                </tr>
+            `).join('');
+            
+            section.querySelector('.chart-container').innerHTML = `
+                <div class="chart-tabs">
+                    <button class="chart-tab ${type === 'clones' ? 'active' : ''}" data-chart="clones">Clonaciones</button>
+                    <button class="chart-tab ${type === 'views' ? 'active' : ''}" data-chart="views">Vistas</button>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="trafficChart"></canvas>
+                </div>
+                <table class="traffic-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Total</th>
+                            <th>Únicos</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+            
+            // Re-attach event listeners
+            section.querySelectorAll('.chart-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const chartType = tab.dataset.chart;
+                    currentChart = chartType;
+                    renderTrafficTable(data, chartType);
+                    renderTrafficChart(data, chartType);
+                });
+            });
+            
+            renderTrafficChart(data, type);
+        }
+        
+        // Render repository info
+        function renderRepoInfo(data) {
+            document.getElementById('repoName').textContent = data.repo.full_name;
+            document.getElementById('repoDescription').textContent = data.repo.description;
+            document.getElementById('repoLanguage').textContent = data.repo.language || 'N/A';
+            document.getElementById('repoCreated').textContent = formatDate(data.repo.created_at);
+            document.getElementById('repoUpdated').textContent = formatDate(data.repo.updated_at);
+            document.getElementById('repoContributors').textContent = data.contributors;
+            document.getElementById('repoReleases').textContent = data.releases;
+        }
+        
+        // Main initialization
+        async function init() {
+            try {
+                await loadToken();
+                
+                const [repoData, clonesData, viewsData, contributorsData, releasesData] = await Promise.all([
+                    fetchGitHub(''),
+                    fetchGitHub('/traffic/clones').catch(() => ({ count: 0, uniques: 0, clones: [] })),
+                    fetchGitHub('/traffic/views').catch(() => ({ count: 0, uniques: 0, views: [] })),
+                    fetchGitHub('/contributors').then(data => data.length).catch(() => 0),
+                    fetchGitHub('/releases').then(data => data.length).catch(() => 0)
+                ]);
+                
+                trafficData = {
+                    clones: clonesData.clones || [],
+                    views: viewsData.views || []
+                };
+                
+                const statsData = {
+                    repo: repoData,
+                    clones: { count: clonesData.count, uniques: clonesData.uniques },
+                    views: { count: viewsData.count, uniques: viewsData.uniques },
+                    contributors: contributorsData,
+                    releases: releasesData
+                };
+                
+                renderStats(statsData);
+                renderRepoInfo(statsData);
+                
+                const trafficSection = document.getElementById('trafficSection');
+                const repoSection = document.getElementById('repoSection');
+                
+                if (trafficData.clones.length > 0 || trafficData.views.length > 0) {
+                    trafficSection.style.display = 'block';
+                    renderTrafficTable(trafficData, 'clones');
+                }
+                
+                repoSection.style.display = 'block';
+                
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                document.getElementById('statsContainer').innerHTML = `
+                    <div class="error">
+                        <strong>Error al cargar estadísticas</strong>
+                        <p style="margin-top: 0.5rem; color: #b0b0c0;">${error.message}</p>
+                        <p style="margin-top: 1rem; font-size: 0.9rem;">
+                            Asegúrate de tener un token de GitHub configurado en config.json
+                        </p>
+                    </div>
+                `;
+            }
+        }
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>

@@ -85,21 +85,30 @@ class SessionManager:
             "source": source,
         }
 
+    def _extract_message_list(self, data) -> Optional[List[dict]]:
+        """Extrae la lista de mensajes de un archivo, manejando formato con metadatos o lista directa."""
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("messages")
+        return None
+
     def _count_messages(self, file_path: str) -> int:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        return len(data) if isinstance(data, list) else 0
+        message_list = self._extract_message_list(data)
+        return len(message_list) if message_list is not None else 0
 
-    def _deserialize_messages(self, data: List[dict]) -> List[BaseMessage]:
-        if not data:
+    def _deserialize_messages(self, message_list: List[dict]) -> List[BaseMessage]:
+        if not message_list:
             return []
 
-        first_item = data[0]
+        first_item = message_list[0]
         if isinstance(first_item, dict) and "data" in first_item:
-            return messages_from_dict(data)
+            return messages_from_dict(message_list)
 
         messages: List[BaseMessage] = []
-        for item in data:
+        for item in message_list:
             item_type = item.get('type')
             if item_type == 'human':
                 messages.append(HumanMessage(content=item.get('content', '')))
@@ -111,7 +120,7 @@ class SessionManager:
                 messages.append(AIMessage(
                     content=item.get('content', ''),
                     tool_calls=item.get('tool_calls', []),
-                    additional_kwargs=additional_kwargs if additional_kwargs else None
+                    additional_kwargs=additional_kwargs
                 ))
             elif item_type == 'tool':
                 messages.append(ToolMessage(content=item.get('content', ''), tool_call_id=item.get('tool_call_id', '')))
@@ -136,16 +145,28 @@ class SessionManager:
             logger.error(f"Error al guardar sesión '{name}': {e}")
             return False
 
+    def _find_autosave_file(self, name: str) -> Optional[str]:
+        """Busca recursivamente un archivo de autoguardado por nombre."""
+        kogniterm_autosave_dir = os.path.join(self.workspace_dir, ".kogniterm", "autosave")
+        if not os.path.exists(kogniterm_autosave_dir):
+            return None
+        
+        for root, dirs, files in os.walk(kogniterm_autosave_dir):
+            for filename in files:
+                if filename == f"{name}.json" or filename == name:
+                    return os.path.join(root, filename)
+        return None
+
     def load_session(self, name: str) -> Optional[List[BaseMessage]]:
         """Carga una sesión por nombre y devuelve el historial de mensajes."""
         if name == self.ACTIVE_AUTOSAVE_NAME:
             file_path = self.history_file_path
         elif name.startswith("autosave_"):
-            file_path = os.path.join(self.workspace_dir, ".kogniterm", "autosave", f"{name}.json")
+            file_path = self._find_autosave_file(name)
         else:
             file_path = os.path.join(self.sessions_dir, f"{name}.json")
         
-        if not os.path.exists(file_path):
+        if not file_path or not os.path.exists(file_path):
             logger.warning(f"Sesión '{name}' no encontrada.")
             return None
             
@@ -153,8 +174,9 @@ class SessionManager:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            if isinstance(data, list):
-                messages = self._deserialize_messages(data)
+            message_list = self._extract_message_list(data)
+            if message_list is not None:
+                messages = self._deserialize_messages(message_list)
                 self.current_session_name = name
                 return messages
             else:
@@ -171,11 +193,11 @@ class SessionManager:
             return False
 
         if name.startswith("autosave_"):
-            file_path = os.path.join(self.workspace_dir, ".kogniterm", "autosave", f"{name}.json")
+            file_path = self._find_autosave_file(name)
         else:
             file_path = os.path.join(self.sessions_dir, f"{name}.json")
         
-        if not os.path.exists(file_path):
+        if not file_path or not os.path.exists(file_path):
             return False
             
         try:
