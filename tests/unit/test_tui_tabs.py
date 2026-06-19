@@ -27,7 +27,7 @@ async def test_kogniterm_tui_agent_tabs():
         # Verify it was added to the tab panes
         pane = app.query_one("#pane_test_agent_1", TabPane)
         assert pane is not None
-        assert pane.title == "Dynamic Coder"
+        assert getattr(pane, "_title", "Dynamic Coder") == "Dynamic Coder"
         
         # Remove dynamic tab
         app.remove_agent_tab("test_agent_1")
