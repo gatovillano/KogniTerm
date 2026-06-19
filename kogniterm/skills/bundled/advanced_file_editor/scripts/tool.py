@@ -134,19 +134,23 @@ class TransactionManager:
 _transaction_manager = TransactionManager()
 
 
-def _validate_operation_safety(operation: Dict[str, Any]) -> Tuple[bool, str]:
+def _validate_operation_safety(operation: Dict[str, Any], path_context: str = "") -> Tuple[bool, str]:
     """
     Valida que una operación sea segura de ejecutar.
+    
+    Args:
+        operation: Diccionario con los parámetros de la operación
+        path_context: Path del contexto (para operaciones batch)
     
     Returns:
         Tuple[bool, str]: (es_seguro, mensaje_error)
     """
     action = operation.get('action')
-    path = operation.get('path', '')
+    path = operation.get('path', path_context)  # Usar path_context si no está en operation
     
     # Validaciones básicas
     if not path:
-        return False, "Path no especificado"
+        return False, "Path no especificado (ni en operación ni en contexto)"
     
     if not action:
         return False, "Action no especificada"
@@ -253,7 +257,7 @@ def batch_edit(
     # Validar todas las operaciones antes de ejecutar
     validation_errors = []
     for idx, op in enumerate(operations):
-        is_safe, msg = _validate_operation_safety(op)
+        is_safe, msg = _validate_operation_safety(op, path_context=path)
         if not is_safe:
             validation_errors.append(f"Operación {idx}: {msg}")
     
@@ -277,11 +281,8 @@ def batch_edit(
         
         try:
             # Aplicar operación individual
-            op_result = advanced_file_editor(
-                path=path,
-                confirm=True,  # Ya validamos, forzamos confirmación
-                **{k: v for k, v in op.items() if k != 'path'}  # Excluir path duplicado
-            )
+            op_params = {k: v for k, v in op.items() if k != 'path'}  # Excluir path duplicado
+            op_result = advanced_file_editor(path=path, confirm=True, **op_params)
             
             if isinstance(op_result, dict):
                 if op_result.get('status') == 'success':
