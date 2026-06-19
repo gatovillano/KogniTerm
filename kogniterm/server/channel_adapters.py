@@ -221,6 +221,25 @@ class SlackAdapter(ChannelAdapter):
 class TelegramAdapter(ChannelAdapter):
     import re
 
+    # Caracteres especiales que requieren escape en MarkdownV2
+    MDV2_SPECIAL_CHARS = '_*[]()~`>#+-=|{}.!&'
+
+    @staticmethod
+    def _escape_markdown_v2(text: str) -> str:
+        """
+        Escapa caracteres especiales para MarkdownV2.
+        Telegram requiere escape de: _ * [ ] ( ) ~ \` > # + - = . ! | { } &
+        """
+        if not isinstance(text, str):
+            text = str(text)
+        result = []
+        for char in text:
+            if char in TelegramAdapter.MDV2_SPECIAL_CHARS:
+                result.append(f'\\{char}')
+            else:
+                result.append(char)
+        return ''.join(result)
+
     @staticmethod
     def _clean_text_for_telegram(text: str) -> str:
         """
@@ -241,6 +260,7 @@ class TelegramAdapter(ChannelAdapter):
     """
     Adaptador para Telegram usando la librería python-telegram-bot.
     Mantiene la sesión del agente mapeada al chat_id de Telegram.
+    Soporta renderizado MarkdownV2 para mensajes formateados.
     """
 
     # Constantes para el streaming nativo de Telegram (Bot API 9.3+).
@@ -297,7 +317,8 @@ class TelegramAdapter(ChannelAdapter):
             await self.app.shutdown()
 
     async def _handle_start(self, update, context):
-        await update.message.reply_text(f"🚀 KogniTerm conectado. Sesión: `{self.session_id}`")
+        escaped_session_id = self._escape_markdown_v2(self.session_id)
+        await update.message.reply_text(f"🚀 KogniTerm conectado. Sesión: `{escaped_session_id}`", parse_mode='MarkdownV2')
 
     async def _handle_stop(self, update, context):
         pool.delete(self.session_id)
@@ -382,7 +403,8 @@ class TelegramAdapter(ChannelAdapter):
                     logger.info(f"[TelegramAdapter] Enviando texto final a Telegram (chat_id={chat_id}, len={len(final_text)}): {final_text[:50]}...")
                     # El draft es efímero (30s preview) → SIEMPRE llamar a send_message
                     # al final para que el mensaje persista en el chat del usuario.
-                    await self.app.bot.send_message(chat_id=chat_id, text=final_text)
+                    escaped = self._escape_markdown_v2(final_text)
+                    await self.app.bot.send_message(chat_id=chat_id, text=escaped, parse_mode='MarkdownV2')
                 else:
                     logger.info(f"[TelegramAdapter] final_text quedó vacío después de limpiar para chat_id {chat_id}.")
             else:
@@ -403,21 +425,21 @@ class TelegramAdapter(ChannelAdapter):
             cleaned_err = self._clean_text_for_telegram(err_msg)
             if cleaned_err:
                 logger.info(f"[TelegramAdapter] Enviando mensaje de error a Telegram (chat_id={chat_id}): {cleaned_err[:50]}...")
-                await self.app.bot.send_message(chat_id=chat_id, text=f"❌ Error: {cleaned_err}")
+                escaped_err = self._escape_markdown_v2(f"❌ Error: {cleaned_err}")
+                await self.app.bot.send_message(chat_id=chat_id, text=escaped_err, parse_mode='MarkdownV2')
         elif t in ("tool_start", "tool_call"):
             tool_name = d.get('tool') or d.get('name') or 'herramienta'
             logger.info(f"[TelegramAdapter] Enviando inicio de herramienta a Telegram (chat_id={chat_id}): {tool_name}")
-            await self.app.bot.send_message(
-                chat_id=chat_id, 
-                text=f"⚙️ `{tool_name}`..."
-            )
+            escaped_tool = self._escape_markdown_v2(f"⚙️ `{tool_name}`...")
+            await self.app.bot.send_message(chat_id=chat_id, text=escaped_tool, parse_mode='MarkdownV2')
         elif t == "message":
             # Limpiar el mensaje antes de enviarlo
             msg_text = d.get('text', d) if isinstance(d, dict) else d
             cleaned = self._clean_text_for_telegram(msg_text)
             if cleaned:
                 logger.info(f"[TelegramAdapter] Enviando mensaje de texto a Telegram (chat_id={chat_id}): {cleaned[:50]}...")
-                await self.app.bot.send_message(chat_id=chat_id, text=cleaned)
+                escaped_msg = self._escape_markdown_v2(cleaned)
+                await self.app.bot.send_message(chat_id=chat_id, text=escaped_msg, parse_mode='MarkdownV2')
 
     async def _enqueue_draft(self, chat_id: int, text: str) -> None:
         """
@@ -478,6 +500,7 @@ class TelegramAdapter(ChannelAdapter):
                 "chat_id": chat_id,
                 "draft_id": draft_id,
                 "text": text,
+                "parse_mode": "MarkdownV2",
             }
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=2.0) as resp:
