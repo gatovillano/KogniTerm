@@ -246,6 +246,13 @@ class LLMService:
             logger.warning("La aplicación continuará en MODO SEGURO (sin búsqueda vectorial).")
             self.vector_db_manager = None
 
+        # Inicializar DelegationManager y HeartbeatMonitor
+        from kogniterm.core.delegation import DelegationManager, HeartbeatMonitor
+        self.delegation_manager = DelegationManager()
+        self.heartbeat_monitor = HeartbeatMonitor()
+        self.heartbeat_monitor.start()
+        self._thread_local = threading.local()
+
         # print("DEBUG: Inicializando SkillManager...")
         from .skills.skill_manager import SkillManager
         self.skill_manager = SkillManager(
@@ -323,6 +330,14 @@ class LLMService:
         )
         self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
         
+    @property
+    def current_delegation_context(self):
+        return getattr(self._thread_local, "delegation_context", None)
+
+    @current_delegation_context.setter
+    def current_delegation_context(self, value):
+        self._thread_local.delegation_context = value
+
     @property
     def conversation_history(self) -> List[BaseMessage]:
         """Proxy para acceder al historial gestionado por HistoryManager."""
@@ -955,6 +970,11 @@ class LLMService:
         """
         Invoca al modelo LLM con el historial proporcionado.
         """
+        # Actualizar latido/heartbeat de delegación si hay contexto activo en este hilo
+        ctx = self.current_delegation_context
+        if ctx and hasattr(self, "heartbeat_monitor") and self.heartbeat_monitor:
+            self.heartbeat_monitor.update_heartbeat(ctx.agent_id, threshold=300.0)
+
         # 1. Determinar el historial base
         messages_to_process = history if history is not None else self.conversation_history
         if messages_to_process is None:
@@ -2269,6 +2289,10 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
     def close(self):
         """Libera recursos y cierra conexiones de servicios internos."""
         try:
+            if hasattr(self, 'heartbeat_monitor') and self.heartbeat_monitor:
+                self.heartbeat_monitor.stop()
+                logger.info("LLMService: HeartbeatMonitor detenido.")
+
             if hasattr(self, 'vector_db_manager') and self.vector_db_manager:
                 self.vector_db_manager.close()
                 logger.info("LLMService: VectorDBManager cerrado.")
@@ -2300,17 +2324,27 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
         else:
             print("MultiProviderManager no está habilitado")
 
-    def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict) -> Generator[Any, None, None]:
+    def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict, delegation_context: Optional[Any] = None) -> Generator[Any, None, None]:
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
         def _tool_target():
             try:
                 # Soporte para diferentes tipos de ejecución de herramientas
                 if hasattr(tool, '_run'):
-                    # Herramientas BaseTool de LangChain (usando el método privado para obtener el generador si existe)
-                    result = tool._run(**tool_args)
+                    # Herramientas BaseTool de LangChain
+                    import inspect
+                    sig = inspect.signature(tool._run)
+                    if 'delegation_context' in sig.parameters:
+                        result = tool._run(**tool_args, delegation_context=delegation_context)
+                    else:
+                        result = tool._run(**tool_args)
                 elif hasattr(tool, 'run'):
                     # Objetos con método run
-                    result = tool.run(**tool_args)
+                    import inspect
+                    sig = inspect.signature(tool.run)
+                    if 'delegation_context' in sig.parameters:
+                        result = tool.run(**tool_args, delegation_context=delegation_context)
+                    else:
+                        result = tool.run(**tool_args)
                 elif callable(tool):
                     # Funciones directas (común en el sistema de skills)
                     import inspect
@@ -2325,6 +2359,8 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                         injected_args['interrupt_queue'] = getattr(self, 'interrupt_queue', None)
                     if 'approval_handler' in sig.parameters and hasattr(self, 'skill_manager') and hasattr(self.skill_manager, 'approval_handler'):
                         injected_args['approval_handler'] = self.skill_manager.approval_handler
+                    if 'delegation_context' in sig.parameters:
+                        injected_args['delegation_context'] = delegation_context
                         
                     result = tool(**injected_args)
                 else:
