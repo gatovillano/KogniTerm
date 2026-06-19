@@ -77,7 +77,7 @@ class ToolExecutor:
         try:
             full_tool_output = ""
             last_ui_update = 0
-            for part in llm_service._invoke_tool_with_interrupt(tool, tool_args):
+            for part in llm_service._invoke_tool_with_interrupt(tool, tool_args, delegation_context):
                 if part:
                     full_tool_output += str(part)
                     current_time = time.time()

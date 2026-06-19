@@ -6,7 +6,7 @@ import logging
 from typing import Any, Optional
 from textual.app import App, ComposeResult
 from textual import work
-from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea, RichLog
+from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea, RichLog, TabbedContent, TabPane
 from textual.containers import Vertical, Horizontal
 from textual import events
 from langchain_core.messages import HumanMessage
@@ -567,13 +567,12 @@ class KogniTermTUI(App):
         display: none;
     }
 
-    /* Contenedor para paneles paralelos (call_agents_parallel) */
+    /* Contenedor para paneles paralelos con pestañas (call_agents_parallel) */
     #parallel_agents_container {
         width: 85%;
         max-width: 180;
         min-width: 60;
-        height: auto;
-        layout: horizontal;
+        height: 24; /* Altura fija para contener las pestañas + contenido */
         align: center bottom;
         padding: 0;
         margin: 0;
@@ -582,18 +581,13 @@ class KogniTermTUI(App):
 
     /* Paneles internos del contenedor paralelo */
     #parallel_agents_container ChatLogWidget {
-        width: 1fr;
-        min-width: 40;
-        max-width: 100%;
-        height: 20; /* Altura fija o mínima razonable */
-        min-height: 10;
-        max-height: 40;
-        margin: 0 1;
+        width: 100%;
+        height: 100%;
+        margin: 0;
         padding: 0 1;
-        border: round #3b82f6 60%;
-        display: none; /* el skill los activará */
         background: #1a1a1a;
         overflow-y: scroll;
+        border: none;
     }
 
     #queue_display {
@@ -978,13 +972,14 @@ class KogniTermTUI(App):
             yield self.live_display
 
             # Contenedor para paneles paralelos (inactivo por defecto)
-            with Horizontal(id="parallel_agents_container"):
-                # Panel para el coder
-                self.live_display_coder = ChatLogWidget(id="live_display_coder")
-                yield self.live_display_coder
-                # Panel para el researcher
-                self.live_display_researcher = ChatLogWidget(id="live_display_researcher")
-                yield self.live_display_researcher
+            # Contenedor para paneles paralelos con pestañas (inactivo por defecto)
+            with TabbedContent(id="parallel_agents_container"):
+                with TabPane("DeepCoder", id="tab_coder"):
+                    self.live_display_coder = ChatLogWidget(id="live_display_coder")
+                    yield self.live_display_coder
+                with TabPane("DeepResearcher", id="tab_researcher"):
+                    self.live_display_researcher = ChatLogWidget(id="live_display_researcher")
+                    yield self.live_display_researcher
 
             with Vertical(id="tracker_container"):
                 self.task_tracker_panel = TaskTrackerPanelWidget(id="task_tracker_panel")
@@ -2337,6 +2332,43 @@ class KogniTermTUI(App):
             self.call_from_thread(push_screen_callback)
 
         return future.result()
+
+    def add_agent_tab(self, agent_id: str, title: str) -> ChatLogWidget:
+        """Añade dinámicamente una pestaña para un subagente y retorna su ChatLogWidget."""
+        tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
+        
+        # Verificar si ya existe
+        try:
+            widget = self.query_one(f"#live_display_{agent_id}", ChatLogWidget)
+            return widget
+        except Exception:
+            pass
+            
+        widget = ChatLogWidget(id=f"live_display_{agent_id}")
+        pane = TabPane(title, widget, id=f"pane_{agent_id}")
+        
+        # add_pane debe ejecutarse en el thread principal
+        if threading.current_thread() is threading.main_thread():
+            tabbed_content.add_pane(pane)
+        else:
+            self.call_from_thread(tabbed_content.add_pane, pane)
+            
+        return widget
+
+    def remove_agent_tab(self, agent_id: str):
+        """Elimina una pestaña de subagente por su id."""
+        tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
+        
+        def _remove():
+            try:
+                tabbed_content.remove_pane(f"pane_{agent_id}")
+            except Exception:
+                pass
+                
+        if threading.current_thread() is threading.main_thread():
+            _remove()
+        else:
+            self.call_from_thread(_remove)
 
     def update_live_display(self, renderable, panel_id=None):
         """Actualiza el widget de streaming en tiempo real directamente en el chat log."""

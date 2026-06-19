@@ -88,6 +88,22 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
             insertion_idx = 1
         self.agent_state.messages.insert(insertion_idx, context_message)
 
+        # Registrar y establecer el contexto de delegación del orquestador principal
+        if self.llm_service and hasattr(self.llm_service, "delegation_manager"):
+            try:
+                from kogniterm.core.delegation import AgentRole
+                if not self.llm_service.delegation_manager.get_context("orchestrator"):
+                    self.llm_service.delegation_manager.register_agent(
+                        agent_id="orchestrator",
+                        parent_id=None,
+                        role=AgentRole.ORCHESTRATOR
+                    )
+                ctx = self.llm_service.delegation_manager.get_context("orchestrator")
+                self.agent_state.delegation_context = ctx
+                self.llm_service.current_delegation_context = ctx
+            except Exception as e:
+                logger.error(f"Error al registrar el orquestador principal en la delegación: {e}")
+
         sys.stderr.flush()
         
         try:

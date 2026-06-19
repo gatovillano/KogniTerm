@@ -212,7 +212,7 @@ def _request_autonomous_execution(agent_label: str, terminal_ui: Any = None) -> 
 
     return True
 
-def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, terminal_ui: Any = None, interrupt_queue: Any = None, approval_handler: Any = None) -> str:
+def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, terminal_ui: Any = None, interrupt_queue: Any = None, approval_handler: Any = None, delegation_context: Optional[Any] = None) -> str:
     """
     Función principal que implementa la funcionalidad de call_agent
     
@@ -223,6 +223,7 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
         terminal_ui: Interfaz de terminal
         interrupt_queue: Cola de interrupciones
         approval_handler: Manejador de aprobaciones
+        delegation_context: Contexto de delegación del padre
     
     Returns:
         str: Resultado de la ejecución del agente
@@ -257,101 +258,140 @@ def call_agent_skill(agent_name: str, task: str, llm_service: Any = None, termin
         console.print(f"\n[bold green]🤖 Delegando tarea a: {agent_name}[/bold green]")
         console.print(f"[italic]Tarea: {task}[/italic]\n")
 
-    if agent_name == "code_agent" or agent_name == "code_crew":
-        from kogniterm.core.agents.deep_coder import create_deep_coder
-        
-        agent_display = "DeepCoder" if agent_name == "code_agent" else "DeepCoder (Legacy Crew Name)"
-        if not is_tui:
-            console.print(f"[dim]ℹ️  Invocando al motor de desarrollo profundo ({agent_display})...[/dim]")
-        
-        from kogniterm.core.agent_state import AgentState
-        from langchain_core.messages import HumanMessage
+    import uuid
+    from kogniterm.core.delegation import AgentRole
 
-        if not _request_autonomous_execution(agent_display, terminal_ui):
-            if stream_widget is not None:
-                _widget_set_complete(stream_widget, terminal_ui, "Cancelado por el usuario.")
-            return f"Ejecución de {agent_display} cancelada por el usuario."
-        
-        agent_graph = create_deep_coder(llm_service, agent_ui, interrupt_queue)
-        initial_state = AgentState(messages=[HumanMessage(content=task)], autonomous_approvals=True)
-        
+    child_ctx = None
+    child_id = f"child_{agent_name}_{uuid.uuid4().hex[:8]}"
+    parent_id = getattr(delegation_context, "agent_id", "orchestrator")
+
+    if llm_service and hasattr(llm_service, "delegation_manager") and llm_service.delegation_manager:
         try:
-            final_state = agent_graph.invoke(initial_state, config={"recursion_limit": RESEARCHER_RECURSION_LIMIT})
-            last_message = final_state["messages"][-1]
-            
-            result_str = last_message.content
-            
-            if not result_str.strip():
-                logger.warning(f"{agent_display} devolvió un resultado vacío.")
-                if stream_widget is not None:
-                    _widget_set_error(stream_widget, terminal_ui, "Sin resultado.")
-                return "Error: El motor de desarrollo no pudo generar un resultado."
-
-            if stream_widget is not None:
-                _widget_set_complete(stream_widget, terminal_ui)
-            elif not is_tui:
-                console.print(Panel(
-                    Markdown(result_str),
-                    title=f"[bold green]✅ Tarea de Código Finalizada por {agent_display}[/bold green]",
-                    border_style="green",
-                    padding=(1, 2)
-                ))
-            return f"Respuesta de {agent_display}:\n\n{result_str}"
+            child_ctx = llm_service.delegation_manager.register_agent(
+                agent_id=child_id,
+                parent_id=parent_id,
+                role=AgentRole.LEAF
+            )
+            if hasattr(llm_service, "heartbeat_monitor") and llm_service.heartbeat_monitor:
+                llm_service.heartbeat_monitor.update_heartbeat(child_id, threshold=300.0)
         except Exception as e:
-            error_msg = f"Error al ejecutar {agent_display}: {str(e)}"
+            error_msg = f"Error de Delegación: No se pudo registrar el subagente debido a límites de concurrencia o profundidad. Detalles: {e}"
             logger.error(error_msg)
             if stream_widget is not None:
-                _widget_set_error(stream_widget, terminal_ui, str(e))
+                _widget_set_error(stream_widget, terminal_ui, error_msg)
             return error_msg
 
-    elif agent_name == "researcher_agent":
-        from kogniterm.core.agents.deep_researcher import create_deep_researcher
-        
-        if not is_tui:
-            console.print("[dim]ℹ️  Invocando al motor de investigación profunda (DeepResearcher)...[/dim]")
-        
-        from kogniterm.core.agent_state import AgentState
-        from langchain_core.messages import HumanMessage
+    old_ctx = getattr(llm_service, "current_delegation_context", None)
+    if child_ctx:
+        llm_service.current_delegation_context = child_ctx
 
-        if not _request_autonomous_execution("DeepResearcher", terminal_ui):
-            if stream_widget is not None:
-                _widget_set_complete(stream_widget, terminal_ui, "Cancelado por el usuario.")
-            return "Ejecución de DeepResearcher cancelada por el usuario."
-        
-        agent_graph = create_deep_researcher(llm_service, agent_ui, interrupt_queue)
-        initial_state = AgentState(messages=[HumanMessage(content=task)], autonomous_approvals=True)
-        
-        try:
-            final_state = agent_graph.invoke(initial_state, config={"recursion_limit": RESEARCHER_RECURSION_LIMIT})
-            last_message = final_state["messages"][-1]
+    try:
+        if agent_name == "code_agent" or agent_name == "code_crew":
+            from kogniterm.core.agents.deep_coder import create_deep_coder
             
-            result_str = last_message.content
+            agent_display = "DeepCoder" if agent_name == "code_agent" else "DeepCoder (Legacy Crew Name)"
+            if not is_tui:
+                console.print(f"[dim]ℹ️  Invocando al motor de desarrollo profundo ({agent_display})...[/dim]")
             
-            if not result_str.strip():
-                logger.warning("DeepResearcher devolvió un resultado vacío.")
+            from kogniterm.core.agent_state import AgentState
+            from langchain_core.messages import HumanMessage
+    
+            if not _request_autonomous_execution(agent_display, terminal_ui):
                 if stream_widget is not None:
-                    _widget_set_error(stream_widget, terminal_ui, "Sin resultado.")
-                return "Error: El motor de investigación no pudo generar un resultado."
-
-            if stream_widget is not None:
-                _widget_set_complete(stream_widget, terminal_ui)
-            elif not is_tui:
-                console.print(Panel(
-                    Markdown(result_str),
-                    title="[bold green]✅ Informe de Investigación Finalizado[/bold green]",
-                    border_style="green",
-                    padding=(1, 2)
-                ))
-            return f"Respuesta de DeepResearcher:\n\n{result_str}"
-        except Exception as e:
-            error_msg = f"Error al ejecutar DeepResearcher: {str(e)}"
-            logger.error(error_msg)
-            if stream_widget is not None:
-                _widget_set_error(stream_widget, terminal_ui, str(e))
-            return error_msg
-
-    else:
-        return f"Error: Agente '{agent_name}' no reconocido. Opciones válidas: 'code_agent', 'researcher_agent'."
+                    _widget_set_complete(stream_widget, terminal_ui, "Cancelado por el usuario.")
+                return f"Ejecución de {agent_display} cancelada por el usuario."
+            
+            agent_graph = create_deep_coder(llm_service, agent_ui, interrupt_queue)
+            initial_state = AgentState(messages=[HumanMessage(content=task)], autonomous_approvals=True)
+            if child_ctx:
+                initial_state.delegation_context = child_ctx
+            
+            try:
+                final_state = agent_graph.invoke(initial_state, config={"recursion_limit": RESEARCHER_RECURSION_LIMIT})
+                last_message = final_state["messages"][-1]
+                
+                result_str = last_message.content
+                
+                if not result_str.strip():
+                    logger.warning(f"{agent_display} devolvió un resultado vacío.")
+                    if stream_widget is not None:
+                        _widget_set_error(stream_widget, terminal_ui, "Sin resultado.")
+                    return "Error: El motor de desarrollo no pudo generar un resultado."
+    
+                if stream_widget is not None:
+                    _widget_set_complete(stream_widget, terminal_ui)
+                elif not is_tui:
+                    console.print(Panel(
+                        Markdown(result_str),
+                        title=f"[bold green]✅ Tarea de Código Finalizada por {agent_display}[/bold green]",
+                        border_style="green",
+                        padding=(1, 2)
+                    ))
+                return f"Respuesta de {agent_display}:\n\n{result_str}"
+            except Exception as e:
+                error_msg = f"Error al ejecutar {agent_display}: {str(e)}"
+                logger.error(error_msg)
+                if stream_widget is not None:
+                    _widget_set_error(stream_widget, terminal_ui, str(e))
+                return error_msg
+    
+        elif agent_name == "researcher_agent":
+            from kogniterm.core.agents.deep_researcher import create_deep_researcher
+            
+            if not is_tui:
+                console.print("[dim]ℹ️  Invocando al motor de investigación profunda (DeepResearcher)...[/dim]")
+            
+            from kogniterm.core.agent_state import AgentState
+            from langchain_core.messages import HumanMessage
+    
+            if not _request_autonomous_execution("DeepResearcher", terminal_ui):
+                if stream_widget is not None:
+                    _widget_set_complete(stream_widget, terminal_ui, "Cancelado por el usuario.")
+                return "Ejecución de DeepResearcher cancelada por el usuario."
+            
+            agent_graph = create_deep_researcher(llm_service, agent_ui, interrupt_queue)
+            initial_state = AgentState(messages=[HumanMessage(content=task)], autonomous_approvals=True)
+            if child_ctx:
+                initial_state.delegation_context = child_ctx
+            
+            try:
+                final_state = agent_graph.invoke(initial_state, config={"recursion_limit": RESEARCHER_RECURSION_LIMIT})
+                last_message = final_state["messages"][-1]
+                
+                result_str = last_message.content
+                
+                if not result_str.strip():
+                    logger.warning("DeepResearcher devolvió un resultado vacío.")
+                    if stream_widget is not None:
+                        _widget_set_error(stream_widget, terminal_ui, "Sin resultado.")
+                    return "Error: El motor de investigación no pudo generar un resultado."
+    
+                if stream_widget is not None:
+                    _widget_set_complete(stream_widget, terminal_ui)
+                elif not is_tui:
+                    console.print(Panel(
+                        Markdown(result_str),
+                        title="[bold green]✅ Informe de Investigación Finalizado[/bold green]",
+                        border_style="green",
+                        padding=(1, 2)
+                    ))
+                return f"Respuesta de DeepResearcher:\n\n{result_str}"
+            except Exception as e:
+                error_msg = f"Error al ejecutar DeepResearcher: {str(e)}"
+                logger.error(error_msg)
+                if stream_widget is not None:
+                    _widget_set_error(stream_widget, terminal_ui, str(e))
+                return error_msg
+    
+        else:
+            return f"Error: Agente '{agent_name}' no reconocido. Opciones válidas: 'code_agent', 'researcher_agent'."
+    finally:
+        if llm_service:
+            llm_service.current_delegation_context = old_ctx
+            if hasattr(llm_service, "delegation_manager") and llm_service.delegation_manager:
+                llm_service.delegation_manager.unregister_agent(child_id)
+            if hasattr(llm_service, "heartbeat_monitor") and llm_service.heartbeat_monitor:
+                llm_service.heartbeat_monitor.remove_agent(child_id)
 
 # Schema para el LLM
 tool_schema = {

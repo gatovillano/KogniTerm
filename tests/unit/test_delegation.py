@@ -139,3 +139,77 @@ def test_tool_executor_rbac_blocking():
     assert isinstance(last_msg, ToolMessage)
     assert last_msg.tool_call_id == "call_1"
     assert "Error: La herramienta 'execute_command' está deshabilitada" in last_msg.content
+
+def test_call_agent_skill_delegation_integration():
+    import kogniterm.core.agents.deep_coder
+    from unittest.mock import MagicMock, patch
+    from kogniterm.skills.bundled.call_agent.scripts.tool import call_agent_skill
+    from kogniterm.core.delegation import DelegationManager, HeartbeatMonitor, AgentRole
+
+    # Mock llm_service
+    llm_service = MagicMock()
+    llm_service.delegation_manager = DelegationManager()
+    llm_service.heartbeat_monitor = MagicMock()
+    
+    # Store thread-local simulation
+    delegation_state = {"current": None}
+    
+    # Simulate current_delegation_context property on mock
+    type(llm_service).current_delegation_context = property(
+        fget=lambda self: delegation_state["current"],
+        fset=lambda self, val: delegation_state.update({"current": val})
+    )
+
+    # Register parent context
+    parent_ctx = llm_service.delegation_manager.register_agent(
+        agent_id="orchestrator", parent_id=None, role=AgentRole.ORCHESTRATOR
+    )
+
+    # Mock create_deep_coder to return a mock graph
+    mock_graph = MagicMock()
+    
+    def mock_invoke(initial_state, config=None):
+        # Assert that child agent was registered
+        active_agents = llm_service.delegation_manager.active_agents
+        child_agents = [a for a in active_agents.values() if a.parent_id == "orchestrator"]
+        assert len(child_agents) == 1
+        child_ctx = child_agents[0]
+        assert child_ctx.role == AgentRole.LEAF
+        assert child_ctx.depth == 1
+        
+        # Assert that delegation context was set on initial_state
+        assert initial_state.delegation_context == child_ctx
+        
+        # Assert that thread local context was set on llm_service
+        assert llm_service.current_delegation_context == child_ctx
+        
+        # Return a dummy final state with a message
+        from kogniterm.core.agent_state import AgentState
+        from langchain_core.messages import AIMessage
+        return {"messages": [AIMessage(content="Done")]}
+        
+    mock_graph.invoke = mock_invoke
+
+    with patch("kogniterm.core.agents.deep_coder.create_deep_coder", return_value=mock_graph), \
+         patch("kogniterm.skills.bundled.call_agent.scripts.tool._request_autonomous_execution", return_value=True):
+         
+        # Execute skill
+        res = call_agent_skill(
+            agent_name="code_agent",
+            task="Test task",
+            llm_service=llm_service,
+            delegation_context=parent_ctx
+        )
+        
+        assert "Done" in res
+
+    # After execution, child agent should be unregistered
+    active_agents = llm_service.delegation_manager.active_agents
+    child_agents = [a for a in active_agents.values() if a.parent_id == "orchestrator"]
+    assert len(child_agents) == 0
+    
+    # Thread local context should be restored
+    assert llm_service.current_delegation_context is None
+    
+    # Heartbeat monitor should have removed the agent
+    llm_service.heartbeat_monitor.remove_agent.assert_called_once()
