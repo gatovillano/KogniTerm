@@ -49,6 +49,40 @@ async def probe_server(server_url: str) -> bool:
         return False
 
 
+def build_native_renderable(thinking: str, response: str) -> Any:
+    from rich.padding import Padding
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    from rich.text import Text
+    from kogniterm.terminal.themes import ColorPalette, Icons
+
+    renderables = []
+    if thinking:
+        # En TUI: construir Panel con fondo explícito y letra opaca (gris/dim)
+        thinking_content = Markdown(thinking)
+        thought_panel = Panel(
+            thinking_content,
+            title=f"{Icons.THINKING} KogniTerm Pensando...",
+            border_style=ColorPalette.GRAY_700,
+            style=f"dim {ColorPalette.GRAY_500} on {ColorPalette.GRAY_900}",
+            padding=(0, 4),
+            expand=True
+        )
+        renderables.append(thought_panel)
+
+    if response:
+        if thinking:
+            renderables.append(Text("\n"))  # Separación entre pensamiento y respuesta
+        renderables.append(Markdown(response))
+
+    if not renderables:
+        return None
+
+    # Mismo padding (2, 0, 1, 0) que usa la visualización local en bash_agent
+    return Padding(Group(*renderables), (2, 0, 1, 0))
+
+
 class TUIWebSocketClient:
     """
     Gestiona el ciclo de vida del cliente WebSocket desde la TUI.
@@ -69,6 +103,9 @@ class TUIWebSocketClient:
         self._connected = False
         self._stopped = False
         self._send_queue: asyncio.Queue = asyncio.Queue()
+        # Variables de control para evitar solapamientos y comportamientos erráticos en streaming
+        self._last_live_update_time = 0.0
+        self._stream_accumulator = ""
 
     # ── Propiedades públicas ────────────────────────────────────────────────────
 
@@ -183,14 +220,21 @@ class TUIWebSocketClient:
             if model:
                 self._app.call_from_thread(self._app.update_status_footer, model)
 
-        elif event_type in ("stream", "chunk"):
+        elif event_type == "stream":
             # Fragmento de texto del LLM
-            if isinstance(data, dict):
-                text = data.get("content", "")
-            else:
-                text = str(data) if data else ""
+            text = str(data) if data else ""
             if text:
-                self._app.call_from_thread(self._app.chat_log.write_stream, text)
+                # Si recibimos live_update en los últimos 2 segundos, ignoramos los fragmentos
+                # individuales (stream) del agente para evitar sobreescrituras en el widget de thoughts.
+                import time
+                if time.time() - self._last_live_update_time > 2.0:
+                    self._stream_accumulator += text
+                    # Detener el spinner en el thread de UI de Textual inmediatamente cuando llega contenido
+                    def write_to_log():
+                        if self._app._spinner_timer:
+                            self._app._stop_spinner()
+                        self._app.chat_log.write_stream(self._stream_accumulator)
+                    self._app.call_from_thread(write_to_log)
 
         elif event_type == "message":
             # Mensaje completo del agente (no streaming)
@@ -203,6 +247,8 @@ class TUIWebSocketClient:
 
         elif event_type == "tool_call":
             # El agente comenzó a usar una herramienta
+            self._last_live_update_time = 0.0
+            self._stream_accumulator = ""
             if isinstance(data, dict):
                 tool_name = data.get("name", "herramienta")
                 description = data.get("description", "")
@@ -216,6 +262,8 @@ class TUIWebSocketClient:
 
         elif event_type == "tool_result":
             # Salida de una herramienta
+            self._last_live_update_time = 0.0
+            self._stream_accumulator = ""
             if isinstance(data, dict):
                 output = data.get("content", "")
                 tool_name = data.get("tool", "Terminal")
@@ -229,6 +277,8 @@ class TUIWebSocketClient:
 
         elif event_type == "terminal_output":
             # Salida interactiva para el panel terminal
+            self._last_live_update_time = 0.0
+            self._stream_accumulator = ""
             if isinstance(data, dict):
                 output = data.get("content", "")
                 tool_name = data.get("tool", "Terminal")
@@ -247,9 +297,35 @@ class TUIWebSocketClient:
 
         elif event_type == "live_update":
             # Actualización de rich content (reasoning, etc.)
-            text = str(data) if data else ""
-            if text:
-                self._app.call_from_thread(self._app.chat_log.write_stream, text)
+            if isinstance(data, dict):
+                thinking = data.get("thinking", "")
+                response = data.get("response", "")
+                renderable = build_native_renderable(thinking, response)
+                if renderable:
+                    import time
+                    self._last_live_update_time = time.time()
+                    # Detener el spinner en el thread de UI de Textual inmediatamente cuando llega contenido
+                    def write_to_log():
+                        if self._app._spinner_timer:
+                            self._app._stop_spinner()
+                        self._app.chat_log.write_stream(renderable)
+                    self._app.call_from_thread(write_to_log)
+            else:
+                text = str(data) if data else ""
+                if text:
+                    import time
+                    self._last_live_update_time = time.time()
+                    def write_to_log():
+                        if self._app._spinner_timer:
+                            self._app._stop_spinner()
+                        self._app.chat_log.write_stream(text)
+                    self._app.call_from_thread(write_to_log)
+
+        elif event_type == "live_stop":
+            # Parar el streaming actual y congelar el widget
+            self._last_live_update_time = 0.0
+            self._stream_accumulator = ""
+            self._app.call_from_thread(self._app.chat_log.stop_stream)
 
         elif event_type == "approval_required":
             # El servidor necesita aprobación del usuario
@@ -266,9 +342,13 @@ class TUIWebSocketClient:
 
         elif event_type == "done":
             # El agente terminó su turno
+            self._last_live_update_time = 0.0
+            self._stream_accumulator = ""
             self._app.call_from_thread(self._on_agent_done)
 
         elif event_type == "error":
+            self._last_live_update_time = 0.0
+            self._stream_accumulator = ""
             error_msg = data.get("message", str(data)) if isinstance(data, dict) else str(data)
             self._app.call_from_thread(
                 self._app.tui_ui.print_message,
@@ -355,6 +435,8 @@ class TUIWebSocketClient:
 
     async def send_message(self, text: str) -> None:
         """Envía un mensaje de usuario al agente en el servidor."""
+        self._last_live_update_time = 0.0
+        self._stream_accumulator = ""
         await self._send_queue.put({"type": "message", "text": text})
 
     async def send_interrupt(self) -> None:
