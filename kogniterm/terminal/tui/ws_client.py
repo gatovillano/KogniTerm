@@ -284,11 +284,19 @@ class TUIWebSocketClient:
                 tool_name = data.get("tool", "Terminal")
             else:
                 output, tool_name = str(data), "Terminal"
-            if output:
+            if output is not None:
                 self._app.call_from_thread(
                     self._app.tui_ui.update_terminal_output,
                     tool_name, output,
                 )
+
+        elif event_type == "set_terminal_cursor":
+            active = data.get("active", False) if isinstance(data, dict) else bool(data)
+            self._app.call_from_thread(
+                self._app.set_terminal_cursor,
+                active,
+                ServerTerminalExecutorProxy(self) if active else None
+            )
 
         elif event_type == "task_tracker":
             # Actualizar el panel de tareas
@@ -463,6 +471,10 @@ class TUIWebSocketClient:
             "approved": approved,
         })
 
+    async def send_terminal_input(self, text: str) -> None:
+        """Envía caracteres ingresados por el usuario para ser inyectados en la PTY del servidor."""
+        await self._send_queue.put({"type": "terminal_input", "text": text})
+
     async def send_ping(self) -> None:
         """Envía un ping de keep-alive."""
         await self._send_queue.put({"type": "ping"})
@@ -476,3 +488,20 @@ class TUIWebSocketClient:
                 asyncio.run_coroutine_threadsafe(self._ws.close(), asyncio.get_event_loop())
             except Exception:
                 pass
+
+
+class ServerTerminalExecutorProxy:
+    def __init__(self, ws_client: TUIWebSocketClient):
+        self.ws_client = ws_client
+
+    def write_input(self, data) -> None:
+        if isinstance(data, bytes):
+            try:
+                data = data.decode('utf-8')
+            except Exception:
+                return
+        if self.ws_client and self.ws_client.is_connected:
+            asyncio.run_coroutine_threadsafe(
+                self.ws_client.send_terminal_input(data),
+                self.ws_client._app.loop
+            )

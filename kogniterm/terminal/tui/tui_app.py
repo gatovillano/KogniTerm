@@ -1655,7 +1655,12 @@ class KogniTermTUI(App):
             is_terminal_focused = False
             focused_widget = None
 
-        if focused_widget and is_terminal_focused and self.command_executor and self.command_executor.process:
+        is_interactive_mode = False
+        if focused_widget and is_terminal_focused:
+            if (self.command_executor and self.command_executor.process) or (self._server_mode and self.interactive_executor):
+                is_interactive_mode = True
+
+        if is_interactive_mode:
             # Si es escape, devolver foco al input
             if event.key == "escape":
                 try:
