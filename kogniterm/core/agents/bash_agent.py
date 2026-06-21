@@ -143,6 +143,7 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
     - Herramientas de delegación:
       - `call_agent(agent_name="researcher_agent", task="...")` para investigación profunda, análisis de requerimientos o informes técnicos.
       - `call_agent(agent_name="code_agent", task="...")` para desarrollo de código, refactorización y validación técnica.
+      - **Agentes Dinámicos**: También puedes instanciar un agente dinámico personalizado especificando cualquier rol/nombre en `agent_name` (ej: `tester`, `sql_expert`, `doc_builder`), un prompt de sistema para guiar su comportamiento en `custom_system_prompt`, y una lista opcional en `allowed_tools` con las herramientas a las que este agente tendrá acceso.
     - **Límites de Delegación**:
       - Tienes un límite máximo de profundidad de delegación de 2 niveles y hasta 3 subagentes concurrentes activos.
       - Los subagentes se ejecutan con el rol restrictivo `LEAF` (no pueden delegar más tareas, tienen prohibido ejecutar comandos directos de consola mediante `execute_command`, ni pueden mutar la memoria central `.kogniterm/llm_context.md` - la cual acceden en modo de solo lectura).
