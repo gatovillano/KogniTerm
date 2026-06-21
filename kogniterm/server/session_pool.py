@@ -268,6 +268,10 @@ class ServerUI(TerminalUI):
         logger.info(f"[{self.session_id}] ServerUI.update_terminal_output: {tool_name}")
         self._push("terminal_output", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id})
 
+    def set_terminal_cursor(self, active: bool, executor=None):
+        logger.info(f"[{self.session_id}] ServerUI.set_terminal_cursor: {active}")
+        self._push("set_terminal_cursor", {"active": active})
+
     def update_tool_display(self, tool_name: str, output: str, tool_call_id: Optional[str] = None, **kwargs) -> None:
         logger.info(f"[{self.session_id}] ServerUI.update_tool_display: {tool_name}")
         self._push("tool_result", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id})
@@ -432,6 +436,11 @@ class AgentSession:
     def interrupt(self) -> None:
         """Interrumpe la ejecución actual del agente en esta sesión."""
         self.interrupt_queue.put_nowait(True)
+
+    def write_terminal_input(self, text: str) -> None:
+        """Escribe la entrada del usuario en la PTY del CommandExecutor del servidor."""
+        if hasattr(self, "command_executor") and self.command_executor:
+            self.command_executor.write_input(text)
 
     async def send(self, message: str, executor) -> None:
         """

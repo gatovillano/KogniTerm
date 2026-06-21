@@ -847,6 +847,11 @@ def create_app() -> FastAPI:
                     else:
                         await websocket.send_json({"type": "error", "data": "Falta ID de aprobación."})
 
+                elif msg_type == "terminal_input":
+                    text = data.get("text", "")
+                    if text:
+                        session.write_terminal_input(text)
+
                 elif msg_type == "ping":
                     await websocket.send_json({"type": "pong", "data": {}})
 
