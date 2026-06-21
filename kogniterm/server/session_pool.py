@@ -245,6 +245,22 @@ class ServerUI(TerminalUI):
         self._push("chunk", {"content": message})
         self._push("message", {"text": message})
 
+    def print_warning_box(self, message: str, title: str = "Advertencia") -> None:
+        logger.info(f"[{self.session_id}] ServerUI.print_warning_box: {message[:50]}...")
+        from kogniterm.ui.terminal_ui import create_warning_box
+        warning_panel = create_warning_box(message, title)
+        ansi_text = self._render_rich(warning_panel)
+        self._push("chunk", {"content": ansi_text})
+        self._push("message", {"text": ansi_text})
+
+    def print_error_box(self, message: str, title: str = "Error") -> None:
+        logger.info(f"[{self.session_id}] ServerUI.print_error_box: {message[:50]}...")
+        from kogniterm.ui.terminal_ui import create_error_box
+        error_panel = create_error_box(message, title)
+        ansi_text = self._render_rich(error_panel)
+        self._push("chunk", {"content": ansi_text})
+        self._push("message", {"text": ansi_text})
+
     def print_tool_notification(self, tool_name: str, bajada: str = "", skill_name: str = "", **kwargs) -> None:
         self._push("tool_call", {"name": tool_name, "description": bajada, "skill": skill_name})
 
@@ -370,12 +386,35 @@ class AgentSession:
         # Cola de interrupción (para Ctrl+C desde el canal)
         self.interrupt_queue: queue.Queue = queue.Queue()
 
+        # Inicializar CommandExecutor y CommandApprovalHandler para el servidor
+        from kogniterm.core.command_executor import CommandExecutor
+        from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+        
+        self.command_executor = CommandExecutor()
+        self.command_executor.terminal_ui = self.ui
+        
+        try:
+            self.command_approval_handler = CommandApprovalHandler(
+                llm_service,
+                self.command_executor,
+                None,
+                self.ui,
+                self.agent_state,
+                llm_service.get_tool("file_update") if llm_service else None,
+                llm_service.get_tool("advanced_file_editor") if llm_service else None,
+                llm_service.get_tool("file_operations") if llm_service else None
+            )
+        except Exception as e:
+            logger.error(f"[Session:{self.session_id}] Error al inicializar CommandApprovalHandler: {e}")
+            self.command_approval_handler = None
+
         # Gestor de interacción (crea el grafo LangGraph)
         self.manager = AgentInteractionManager(
             llm_service=llm_service,
             agent_state=self.agent_state,
             terminal_ui=self.ui,
             interrupt_queue=self.interrupt_queue,
+            command_approval_handler=self.command_approval_handler
         )
 
         # Lock para serializar invocaciones del agente por sesión
@@ -463,7 +502,7 @@ class AgentSession:
 
             loop = asyncio.get_event_loop()
             try:
-                await loop.run_in_executor(executor, self.manager.invoke_agent, message)
+                await loop.run_in_executor(executor, self._run_agent_loop, message)
                 # Guardar después de cada interacción exitosa
                 if self.session_manager:
                     self.session_manager.save_session(self.session_id, self.agent_state.messages)
@@ -473,6 +512,95 @@ class AgentSession:
                 self.ui._push("error", {"message": str(exc)})
             finally:
                 self.is_running = False
+
+    def _run_agent_loop(self, user_input: Optional[str]) -> None:
+        """
+        Ejecuta el bucle de interacción del agente de forma síncrona en el hilo worker,
+        procesando confirmaciones de comandos y de skills de la misma manera que la TUI local.
+        """
+        try:
+            while True:
+                # 1. Invocar al agente
+                final_state = self.manager.invoke_agent(user_input)
+                
+                self.agent_state.messages = final_state.get('messages', self.agent_state.messages)
+                self.agent_state.command_to_confirm = final_state.get('command_to_confirm')
+                
+                # Caso A: Comando de terminal (Bash)
+                if self.agent_state.command_to_confirm:
+                    command = self.agent_state.command_to_confirm
+                    
+                    # Bloquear el hilo worker hasta que el usuario decida (TUI/WebSocket)
+                    approved = self.ui.ask_approval_sync(
+                        message=f"¿Ejecutar comando: {command}?",
+                        title="Confirmación de Comando",
+                        diff_content=command,
+                        file_path="bash"
+                    )
+                    
+                    if command and self.command_approval_handler:
+                        self.command_approval_handler.handle_command_approval(
+                            command_to_execute=command,
+                            auto_approve=approved
+                        )
+                    
+                    # Limpiar estado de confirmación tras procesar
+                    self.agent_state.command_to_confirm = None
+                    self.agent_state.tool_call_id_to_confirm = None
+                    
+                    if not approved:
+                        self.ui.print_warning_box("Comando cancelado por el usuario.")
+                    
+                    user_input = None
+                    continue # Volver al inicio del bucle para que el agente procese el resultado
+                
+                # Caso B: Confirmación de Skill (file_operations, advanced_file_editor, etc.)
+                elif getattr(self.agent_state, 'tool_pending_confirmation', None) or self.agent_state.file_update_diff_pending_confirmation:
+                    tool_name = self.agent_state.tool_pending_confirmation
+                    diff_info = self.agent_state.file_update_diff_pending_confirmation
+                    
+                    message = "Confirmación de herramienta requerida."
+                    diff_content = None
+                    file_path = None
+                    
+                    if isinstance(diff_info, dict):
+                        message = diff_info.get("action_description", diff_info.get("message", message))
+                        diff_content = diff_info.get("diff")
+                        file_path = diff_info.get("path")
+                    elif isinstance(diff_info, str):
+                        diff_content = diff_info
+                    
+                    approved = self.ui.ask_approval_sync(
+                        message=message,
+                        title=f"Confirmación: {tool_name}",
+                        diff_content=diff_content,
+                        file_path=file_path
+                    )
+                    
+                    if self.command_approval_handler:
+                        self.command_approval_handler.handle_command_approval(
+                            command_to_execute="", # No es un comando bash
+                            raw_tool_output=diff_info if isinstance(diff_info, dict) else {"status": "requires_confirmation", "diff": diff_content, "path": file_path, "operation": tool_name},
+                            auto_approve=approved,
+                            tool_name=tool_name,
+                            original_tool_args=self.agent_state.tool_args_pending_confirmation
+                        )
+                    
+                    # Limpiar estado de confirmación
+                    self.agent_state.reset_tool_confirmation()
+                    self.agent_state.tool_call_id_to_confirm = None
+                    
+                    if not approved:
+                        self.ui.print_warning_box("Acción cancelada por el usuario.")
+                    
+                    user_input = None
+                    continue # Volver al inicio del bucle
+                
+                # Sin confirmaciones pendientes: salir del loop
+                break
+        except Exception as e:
+            logger.error(f"[Session:{self.session_id}] Error crítico en _run_agent_loop: {e}", exc_info=True)
+            raise e
 
     @property
     def message_count(self) -> int:
