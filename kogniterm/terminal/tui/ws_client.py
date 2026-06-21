@@ -353,7 +353,7 @@ class TUIWebSocketClient:
                 request_id = data.get("id", "")
                 message = data.get("message", "Confirmar acción")
                 title = data.get("title", "Aprobación Requerida")
-                diff_content = data.get("diff_content", "")
+                diff_content = data.get("diff", data.get("diff_content", ""))
                 file_path = data.get("file_path", "")
                 self._app.call_from_thread(
                     self._handle_approval_request,
@@ -423,11 +423,24 @@ class TUIWebSocketClient:
                 approved = result in ("accept", "accept_all")
                 if result == "accept_all":
                     self._app._auto_approve_all = True
-                # Enviar respuesta al servidor en un coroutine seguro
-                asyncio.run_coroutine_threadsafe(
-                    self.send_approval(request_id, approved),
-                    self._app.loop,
-                )
+                
+                logger.info(f"[WS] Aprobación del usuario recibida: {result} (approved={approved}) para request_id={request_id}")
+                
+                # Enviar respuesta al servidor de forma segura
+                try:
+                    import asyncio
+                    import threading
+                    if threading.current_thread() is threading.main_thread():
+                        asyncio.create_task(self.send_approval(request_id, approved))
+                        logger.info(f"[WS] Aprobación enviada al servidor via create_task")
+                    else:
+                        asyncio.run_coroutine_threadsafe(
+                            self.send_approval(request_id, approved),
+                            self._app.loop,
+                        )
+                        logger.info(f"[WS] Aprobación enviada al servidor via run_coroutine_threadsafe")
+                except Exception as e:
+                    logger.error(f"[WS] Error al enviar aprobación al servidor: {e}")
 
             widget = InlineApprovalWidget(
                 message=message,
