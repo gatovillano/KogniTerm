@@ -496,7 +496,7 @@ class TelegramAdapter(ChannelAdapter):
 
     async def start(self):
         """Inicia el bot de Telegram en modo non-blocking."""
-        from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+        from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
         
         self.app = ApplicationBuilder().token(self.token).build()
 
@@ -504,6 +504,7 @@ class TelegramAdapter(ChannelAdapter):
         self.app.add_handler(CommandHandler("start", self._handle_start))
         self.app.add_handler(CommandHandler("stop", self._handle_stop))
         self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self._handle_message))
+        self.app.add_handler(CallbackQueryHandler(self._handle_callback_query))
 
         await self.app.initialize()
         await self.app.start()
@@ -543,6 +544,35 @@ class TelegramAdapter(ChannelAdapter):
         # Enviar al agente
         await self.send_message(user_text)
 
+    async def _handle_callback_query(self, update, context):
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
+        if not data or ":" not in data:
+            return
+            
+        action, request_id = data.split(":", 1)
+        approved = action == "approve"
+        
+        chat_id = update.effective_chat.id
+        session_id = self._chat_sessions.get(chat_id)
+        if not session_id:
+            session_id = f"telegram_{chat_id}"
+            
+        session = pool.get(session_id)
+        if session:
+            session.ui.handle_approval_response(request_id, approved)
+            
+            # Actualizar el mensaje de Telegram para remover los botones e indicar la decisión
+            status_text = "🟢 <b>Aprobado</b>" if approved else "🔴 <b>Denegado</b>"
+            orig_text = query.message.text_html
+            new_text = f"{orig_text}\n\n{status_text}"
+            try:
+                await query.edit_message_text(text=new_text, parse_mode='HTML', reply_markup=None)
+            except Exception as e:
+                logger.warning(f"No se pudo actualizar el mensaje de aprobación en Telegram: {e}")
+
     async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         import logging
         logger = logging.getLogger("kogniterm.server.channel_adapters")
@@ -560,7 +590,7 @@ class TelegramAdapter(ChannelAdapter):
         
         if not chat_id:
             chat_id = self._current_chat_id
-
+ 
         if not chat_id:
             logger.warning("[TelegramAdapter] No se pudo enviar el evento porque no se determinó el chat_id.")
             return
@@ -605,7 +635,12 @@ class TelegramAdapter(ChannelAdapter):
                 self._draft_last_sent_text[chat_id] = ""
                 self._draft_last_sent_at[chat_id] = 0.0
 
-            cleaned_thinking = clean_thinking_text(d)
+            if isinstance(d, dict):
+                raw_thinking = d.get("thinking", "")
+            else:
+                raw_thinking = d
+
+            cleaned_thinking = clean_thinking_text(raw_thinking)
             if cleaned_thinking:
                 import html
                 # Envuelve el pensamiento en un bloque de cita (blockquote) de Telegram HTML
@@ -671,6 +706,40 @@ class TelegramAdapter(ChannelAdapter):
             # Resetear banderas de stream/pensamiento al ejecutar herramienta
             self._thinking_active[chat_id] = False
             self._stream_active[chat_id] = False
+
+        elif t == "approval_required":
+            request_id = d.get("id")
+            message = d.get("message", "")
+            title = d.get("title", "Aprobación Requerida")
+            diff_content = d.get("diff_content", "")
+            file_path = d.get("file_path", "")
+            
+            import html
+            msg_html = f"⚠️ <b>{html.escape(title)}</b>\n\n{html.escape(message)}"
+            if file_path:
+                msg_html += f"\n📁 <b>Archivo:</b> <code>{html.escape(file_path)}</code>"
+            
+            if diff_content:
+                if len(diff_content) > 2000:
+                    diff_content = diff_content[:2000] + "\n... (diff truncado)"
+                msg_html += f"\n\n<pre><code class=\"language-diff\">{html.escape(diff_content)}</code></pre>"
+                
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [
+                [
+                    InlineKeyboardButton("✅ Aprobar", callback_data=f"approve:{request_id}"),
+                    InlineKeyboardButton("❌ Denegar", callback_data=f"deny:{request_id}")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            logger.info(f"[TelegramAdapter] Enviando solicitud de aprobación {request_id} a chat_id {chat_id}")
+            await self.app.bot.send_message(
+                chat_id=chat_id,
+                text=msg_html,
+                parse_mode='HTML',
+                reply_markup=reply_markup
+            )
 
         elif t == "message":
             # Limpiar el mensaje antes de enviarlo

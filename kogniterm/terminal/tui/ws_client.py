@@ -298,18 +298,30 @@ class TUIWebSocketClient:
         elif event_type == "live_update":
             # Actualización de rich content (reasoning, etc.)
             if isinstance(data, dict):
-                thinking = data.get("thinking", "")
-                response = data.get("response", "")
-                renderable = build_native_renderable(thinking, response)
-                if renderable:
+                special_type = data.get("special_type")
+                if special_type == "spinner":
+                    content = ("__SPINNER__", data.get("text", ""))
                     import time
                     self._last_live_update_time = time.time()
-                    # Detener el spinner en el thread de UI de Textual inmediatamente cuando llega contenido
-                    def write_to_log():
-                        if self._app._spinner_timer:
-                            self._app._stop_spinner()
-                        self._app.chat_log.write_stream(renderable)
-                    self._app.call_from_thread(write_to_log)
+                    self._app.call_from_thread(lambda: self._app.chat_log.write_stream(content))
+                elif special_type == "terminal":
+                    content = ("__TERMINAL__", data.get("tool", ""), data.get("output", ""), data.get("command", ""))
+                    import time
+                    self._last_live_update_time = time.time()
+                    self._app.call_from_thread(lambda: self._app.chat_log.write_stream(content))
+                else:
+                    thinking = data.get("thinking", "")
+                    response = data.get("response", "")
+                    renderable = build_native_renderable(thinking, response)
+                    if renderable:
+                        import time
+                        self._last_live_update_time = time.time()
+                        # Detener el spinner en el thread de UI de Textual inmediatamente cuando llega contenido
+                        def write_to_log():
+                            if self._app._spinner_timer:
+                                self._app._stop_spinner()
+                            self._app.chat_log.write_stream(renderable)
+                        self._app.call_from_thread(write_to_log)
             else:
                 text = str(data) if data else ""
                 if text:
