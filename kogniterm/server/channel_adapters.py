@@ -218,27 +218,238 @@ class SlackAdapter(ChannelAdapter):
 
 
 
+# ── Helper functions for Markdown to Telegram HTML conversion ─────────────────
+
+def _parse_inline_helper(escaped_text: str) -> str:
+    i = 0
+    n = len(escaped_text)
+    res = []
+    stack = []
+    
+    while i < n:
+        if stack and stack[-1] == 'code':
+            if escaped_text[i] == '`':
+                res.append('</code>')
+                stack.pop()
+                i += 1
+            else:
+                res.append(escaped_text[i])
+                i += 1
+            continue
+            
+        if escaped_text[i] == '`':
+            res.append('<code>')
+            stack.append('code')
+            i += 1
+            continue
+            
+        if escaped_text[i:i+2] == '**' or escaped_text[i:i+2] == '__':
+            if 'b' in stack:
+                temp_closed = []
+                while stack and stack[-1] != 'b':
+                    t = stack.pop()
+                    res.append(f'</{t}>')
+                    temp_closed.append(t)
+                stack.pop()
+                res.append('</b>')
+                for t in reversed(temp_closed):
+                    res.append(f'<{t}>')
+                    stack.append(t)
+            else:
+                res.append('<b>')
+                stack.append('b')
+            i += 2
+            continue
+            
+        if escaped_text[i:i+2] == '~~':
+            if 's' in stack:
+                temp_closed = []
+                while stack and stack[-1] != 's':
+                    t = stack.pop()
+                    res.append(f'</{t}>')
+                    temp_closed.append(t)
+                stack.pop()
+                res.append('</s>')
+                for t in reversed(temp_closed):
+                    res.append(f'<{t}>')
+                    stack.append(t)
+            else:
+                res.append('<s>')
+                stack.append('s')
+            i += 2
+            continue
+            
+        if escaped_text[i] == '*' or escaped_text[i] == '_':
+            if 'i' in stack:
+                temp_closed = []
+                while stack and stack[-1] != 'i':
+                    t = stack.pop()
+                    res.append(f'</{t}>')
+                    temp_closed.append(t)
+                stack.pop()
+                res.append('</i>')
+                for t in reversed(temp_closed):
+                    res.append(f'<{t}>')
+                    stack.append(t)
+            else:
+                res.append('<i>')
+                stack.append('i')
+            i += 1
+            continue
+            
+        if escaped_text[i] == '[':
+            close_bracket = escaped_text.find(']', i)
+            if close_bracket != -1 and close_bracket + 1 < n and escaped_text[close_bracket + 1] == '(':
+                close_paren = escaped_text.find(')', close_bracket + 2)
+                if close_paren != -1:
+                    link_text = escaped_text[i+1:close_bracket]
+                    url = escaped_text[close_bracket+2:close_paren]
+                    parsed_link_text = _parse_inline_helper(link_text)
+                    res.append(f'<a href="{url}">{parsed_link_text}</a>')
+                    i = close_paren + 1
+                    continue
+                    
+        res.append(escaped_text[i])
+        i += 1
+        
+    while stack:
+        t = stack.pop()
+        res.append(f'</{t}>')
+        
+    return ''.join(res)
+
+
+def parse_inline_styles(text: str) -> str:
+    import html
+    return _parse_inline_helper(html.escape(text))
+
+
+def markdown_to_telegram_html(md: str) -> str:
+    if not md:
+        return ""
+        
+    lines = md.split('\n')
+    output_lines = []
+    
+    in_code_block = False
+    code_block_lang = ""
+    code_block_lines = []
+    
+    in_blockquote = False
+    blockquote_lines = []
+    
+    def flush_blockquote():
+        nonlocal in_blockquote, blockquote_lines
+        if in_blockquote:
+            content = '\n'.join(blockquote_lines)
+            parsed_content = parse_inline_styles(content)
+            output_lines.append(f'<blockquote>{parsed_content}</blockquote>')
+            blockquote_lines = []
+            in_blockquote = False
+
+    for line in lines:
+        stripped = line.strip()
+        
+        if stripped.startswith('```'):
+            if in_code_block:
+                import html
+                code_content = '\n'.join(code_block_lines)
+                escaped_code = html.escape(code_content)
+                if code_block_lang:
+                    output_lines.append(f'<pre><code class="language-{code_block_lang}">{escaped_code}</code></pre>')
+                else:
+                    output_lines.append(f'<pre><code>{escaped_code}</code></pre>')
+                in_code_block = False
+                code_block_lines = []
+                code_block_lang = ""
+            else:
+                flush_blockquote()
+                in_code_block = True
+                code_block_lang = stripped[3:].strip()
+            continue
+            
+        if in_code_block:
+            code_block_lines.append(line)
+            continue
+            
+        if stripped.startswith('>'):
+            content = line.lstrip()[1:]
+            if content.startswith(' '):
+                content = content[1:]
+            blockquote_lines.append(content)
+            in_blockquote = True
+            continue
+        else:
+            flush_blockquote()
+            
+        if stripped.startswith('#'):
+            hashes = 0
+            for char in stripped:
+                if char == '#':
+                    hashes += 1
+                else:
+                    break
+            if hashes > 0 and len(stripped) > hashes and stripped[hashes] == ' ':
+                header_text = stripped[hashes:].strip()
+                parsed_header = parse_inline_styles(header_text)
+                output_lines.append(f'<b>{parsed_header}</b>')
+                continue
+                
+        output_lines.append(parse_inline_styles(line))
+        
+    if in_code_block:
+        import html
+        code_content = '\n'.join(code_block_lines)
+        escaped_code = html.escape(code_content)
+        if code_block_lang:
+            output_lines.append(f'<pre><code class="language-{code_block_lang}">{escaped_code}</code></pre>')
+        else:
+            output_lines.append(f'<pre><code>{escaped_code}</code></pre>')
+            
+    flush_blockquote()
+    
+    return '\n'.join(output_lines)
+
+
+def split_markdown(text: str, max_chars: int = 3500) -> tuple[str, str]:
+    if len(text) <= max_chars:
+        return text, ""
+    split_idx = text.rfind('\n', 0, max_chars)
+    if split_idx == -1 or split_idx < max_chars // 2:
+        split_idx = max_chars
+    return text[:split_idx], text[split_idx:]
+
+
+def clean_thinking_text(text: str) -> str:
+    import re
+    # Remove ANSI codes
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip top, bottom, or middle box boundaries
+        if '─' in stripped or '╭' in stripped or '╰' in stripped:
+            continue
+            
+        line_content = line.strip()
+        # Remove vertical borders at the start or end of the line
+        line_content = re.sub(r'^[│┃]', '', line_content)
+        line_content = re.sub(r'[│┃]$', '', line_content)
+        
+        line_content = line_content.strip()
+        if line_content:
+            cleaned_lines.append(line_content)
+            
+    return '\n'.join(cleaned_lines)
+
+
 class TelegramAdapter(ChannelAdapter):
     import re
-
-    # Caracteres especiales que requieren escape en MarkdownV2
-    MDV2_SPECIAL_CHARS = '_*[]()~`>#+-=|{}.!&'
-
-    @staticmethod
-    def _escape_markdown_v2(text: str) -> str:
-        """
-        Escapa caracteres especiales para MarkdownV2.
-        Telegram requiere escape de: _ * [ ] ( ) ~ \` > # + - = . ! | { } &
-        """
-        if not isinstance(text, str):
-            text = str(text)
-        result = []
-        for char in text:
-            if char in TelegramAdapter.MDV2_SPECIAL_CHARS:
-                result.append(f'\\{char}')
-            else:
-                result.append(char)
-        return ''.join(result)
 
     @staticmethod
     def _clean_text_for_telegram(text: str) -> str:
@@ -257,16 +468,6 @@ class TelegramAdapter(ChannelAdapter):
         # Strip general
         return text.strip()
 
-    """
-    Adaptador para Telegram usando la librería python-telegram-bot.
-    Mantiene la sesión del agente mapeada al chat_id de Telegram.
-    Soporta renderizado MarkdownV2 para mensajes formateados.
-    """
-
-    # Constantes para el streaming nativo de Telegram (Bot API 9.3+).
-    # El draft es efímero (preview de 30s) y debe finalizar con send_message.
-    # 300 ms es el intervalo mínimo recomendado por la doc oficial y por
-    # implementaciones de referencia (OpenClaw, aiogram 3.28+).
     DRAFT_THROTTLE_S: float = 0.300
     DRAFT_MAX_CHARS: int = 4096
 
@@ -276,8 +477,6 @@ class TelegramAdapter(ChannelAdapter):
         Genera un draft_id determinístico y estable por chat_id.
         Debe ser entero positivo no-cero (requisito de sendMessageDraft).
         """
-        # abs(hash) para evitar negativos; % (2**31 - 1) para mantenerlo en rango int32 positivo;
-        # +1 para garantizar != 0.
         return (abs(hash(f"telegram_{chat_id}")) % (2**31 - 1)) + 1
 
     def __init__(self, token: str, session_id: Optional[str] = None):
@@ -289,10 +488,11 @@ class TelegramAdapter(ChannelAdapter):
         self._chat_sessions: Dict[int, str] = {}  # chat_id -> session_id
         self._stream_texts: Dict[int, str] = {}   # chat_id -> texto acumulado del stream
         self._draft_ids: Dict[int, int] = {}      # chat_id -> draft_id (estable)
-        # Estado para throttle/dedupe del streaming nativo
-        self._draft_last_sent_text: Dict[int, str] = {}   # último texto enviado al draft
+        self._draft_last_sent_text: Dict[int, str] = {}   # último texto HTML enviado
         self._draft_last_sent_at: Dict[int, float] = {}   # monotonic() del último envío
         self._draft_overflow: Dict[int, bool] = {}        # True cuando len > 4096
+        self._thinking_active: Dict[int, bool] = {}       # chat_id -> pensando actualmente
+        self._stream_active: Dict[int, bool] = {}         # chat_id -> streaming de respuesta activo
 
     async def start(self):
         """Inicia el bot de Telegram en modo non-blocking."""
@@ -317,8 +517,9 @@ class TelegramAdapter(ChannelAdapter):
             await self.app.shutdown()
 
     async def _handle_start(self, update, context):
-        escaped_session_id = self._escape_markdown_v2(self.session_id)
-        await update.message.reply_text(f"🚀 KogniTerm conectado. Sesión: `{escaped_session_id}`", parse_mode='MarkdownV2')
+        import html
+        escaped_session_id = html.escape(self.session_id)
+        await update.message.reply_text(f"🚀 KogniTerm conectado. Sesión: <code>{escaped_session_id}</code>", parse_mode='HTML')
 
     async def _handle_stop(self, update, context):
         pool.delete(self.session_id)
@@ -375,123 +576,145 @@ class TelegramAdapter(ChannelAdapter):
             self._stream_texts[chat_id] = ""
         if chat_id not in self._draft_ids:
             self._draft_ids[chat_id] = None
+        if chat_id not in self._thinking_active:
+            self._thinking_active[chat_id] = False
+        if chat_id not in self._stream_active:
+            self._stream_active[chat_id] = False
 
-        # Separar stream y live_update
         if t == "stream":
-            if self._draft_ids[chat_id] is None:
-                self._draft_ids[chat_id] = self._make_draft_id(chat_id)
+            if not self._stream_active.get(chat_id, False):
+                self._stream_active[chat_id] = True
+                if self._draft_ids[chat_id] is None:
+                    self._draft_ids[chat_id] = self._make_draft_id(chat_id)
                 self._stream_texts[chat_id] = ""
-                # Resetear también flags de throttle/overflow al iniciar un nuevo stream
                 self._draft_overflow[chat_id] = False
                 self._draft_last_sent_text[chat_id] = ""
                 self._draft_last_sent_at[chat_id] = 0.0
 
             # Acumular chunks sin limpiar para no perder espacios internos
             self._stream_texts[chat_id] += d
-
-            # Enviar el borrador en streaming a Telegram (con throttle, dedupe y manejo de overflow)
             await self._enqueue_draft(chat_id, self._stream_texts[chat_id])
             
         elif t == "live_update":
-            # Ignorar live_update para Telegram (evita duplicar "Pensando...")
-            pass
+            # Procesar el pensamiento acumulado del agente en el borrador
+            if not self._thinking_active.get(chat_id, False):
+                self._thinking_active[chat_id] = True
+                if self._draft_ids[chat_id] is None:
+                    self._draft_ids[chat_id] = self._make_draft_id(chat_id)
+                self._draft_overflow[chat_id] = False
+                self._draft_last_sent_text[chat_id] = ""
+                self._draft_last_sent_at[chat_id] = 0.0
+
+            cleaned_thinking = clean_thinking_text(d)
+            if cleaned_thinking:
+                import html
+                # Envuelve el pensamiento en un bloque de cita (blockquote) de Telegram HTML
+                html_thinking = f"<blockquote><b>🤔 Pensando...</b>\n{html.escape(cleaned_thinking)}</blockquote>"
+                await self._enqueue_draft(chat_id, html_thinking, is_html=True)
+
         elif t == "done":
-            logger.info(f"[TelegramAdapter] Evento 'done' recibido para chat_id {chat_id}. Longitud de stream acumulado: {len(self._stream_texts[chat_id])} (overflow={self._draft_overflow.get(chat_id, False)})")
+            logger.info(f"[TelegramAdapter] Evento 'done' recibido para chat_id {chat_id}. Longitud de stream acumulado: {len(self._stream_texts[chat_id])}")
             if self._stream_texts[chat_id]:
                 final_text = self._clean_text_for_telegram(self._stream_texts[chat_id])
                 if final_text:
                     logger.info(f"[TelegramAdapter] Enviando texto final a Telegram (chat_id={chat_id}, len={len(final_text)}): {final_text[:50]}...")
-                    # El draft es efímero (30s preview) → SIEMPRE llamar a send_message
-                    # al final para que el mensaje persista en el chat del usuario.
-                    escaped = self._escape_markdown_v2(final_text)
-                    await self.app.bot.send_message(chat_id=chat_id, text=escaped, parse_mode='MarkdownV2')
+                    html_msg = markdown_to_telegram_html(final_text)
+                    await self.app.bot.send_message(chat_id=chat_id, text=html_msg, parse_mode='HTML')
                 else:
                     logger.info(f"[TelegramAdapter] final_text quedó vacío después de limpiar para chat_id {chat_id}.")
+                    # Borrar borrador explicitamente
+                    if self._draft_ids[chat_id] is not None:
+                        await self._send_message_draft(chat_id, self._draft_ids[chat_id], "")
             else:
-                logger.info(f"[TelegramAdapter] No hay texto de stream acumulado para enviar al chat_id {chat_id}.")
-            # Resetear TODO el estado del draft para este chat
+                # Borrar borrador llamando a sendMessageDraft con texto vacío
+                if self._draft_ids[chat_id] is not None:
+                    await self._send_message_draft(chat_id, self._draft_ids[chat_id], "")
+            
+            # Resetear estado del stream y del draft
             self._draft_ids[chat_id] = None
             self._stream_texts[chat_id] = ""
             self._draft_overflow[chat_id] = False
             self._draft_last_sent_text[chat_id] = ""
             self._draft_last_sent_at[chat_id] = 0.0
+            self._thinking_active[chat_id] = False
+            self._stream_active[chat_id] = False
+
         elif t == "error":
+            # Borrar borrador
+            if self._draft_ids[chat_id] is not None:
+                await self._send_message_draft(chat_id, self._draft_ids[chat_id], "")
+
+            # Resetear estado de stream y del draft
             self._draft_ids[chat_id] = None
             self._stream_texts[chat_id] = ""
             self._draft_overflow[chat_id] = False
             self._draft_last_sent_text[chat_id] = ""
             self._draft_last_sent_at[chat_id] = 0.0
+            self._thinking_active[chat_id] = False
+            self._stream_active[chat_id] = False
+            
             err_msg = d.get('message', d) if isinstance(d, dict) else d
             cleaned_err = self._clean_text_for_telegram(err_msg)
             if cleaned_err:
                 logger.info(f"[TelegramAdapter] Enviando mensaje de error a Telegram (chat_id={chat_id}): {cleaned_err[:50]}...")
-                escaped_err = self._escape_markdown_v2(f"❌ Error: {cleaned_err}")
-                await self.app.bot.send_message(chat_id=chat_id, text=escaped_err, parse_mode='MarkdownV2')
+                import html
+                escaped_err = f"❌ <b>Error:</b> {html.escape(cleaned_err)}"
+                await self.app.bot.send_message(chat_id=chat_id, text=escaped_err, parse_mode='HTML')
+
         elif t in ("tool_start", "tool_call"):
             tool_name = d.get('tool') or d.get('name') or 'herramienta'
             logger.info(f"[TelegramAdapter] Enviando inicio de herramienta a Telegram (chat_id={chat_id}): {tool_name}")
-            escaped_tool = self._escape_markdown_v2(f"⚙️ `{tool_name}`...")
-            await self.app.bot.send_message(chat_id=chat_id, text=escaped_tool, parse_mode='MarkdownV2')
+            import html
+            escaped_tool = f"⚙️ <code>{html.escape(tool_name)}</code>..."
+            await self.app.bot.send_message(chat_id=chat_id, text=escaped_tool, parse_mode='HTML')
+
+            # Resetear banderas de stream/pensamiento al ejecutar herramienta
+            self._thinking_active[chat_id] = False
+            self._stream_active[chat_id] = False
+
         elif t == "message":
             # Limpiar el mensaje antes de enviarlo
             msg_text = d.get('text', d) if isinstance(d, dict) else d
             cleaned = self._clean_text_for_telegram(msg_text)
             if cleaned:
                 logger.info(f"[TelegramAdapter] Enviando mensaje de texto a Telegram (chat_id={chat_id}): {cleaned[:50]}...")
-                escaped_msg = self._escape_markdown_v2(cleaned)
-                await self.app.bot.send_message(chat_id=chat_id, text=escaped_msg, parse_mode='MarkdownV2')
+                html_msg = markdown_to_telegram_html(cleaned)
+                await self.app.bot.send_message(chat_id=chat_id, text=html_msg, parse_mode='HTML')
 
-    async def _enqueue_draft(self, chat_id: int, text: str) -> None:
-        """
-        Envía un update de sendMessageDraft aplicando:
-          - Limpieza de Rich/ANSI en el texto (para que la preview no muestre
-            bordes o caracteres que rompan la animación).
-          - Dedupe: si el texto limpio coincide con el último enviado, se omite.
-          - Throttle: mínimo DRAFT_THROTTLE_S entre llamadas para no saturar
-            la API de Telegram.
-          - Overflow: si len(cleaned) > DRAFT_MAX_CHARS (4096), deja de enviar
-            drafts y deja que el mensaje final se entregue completo vía send_message
-            en el evento 'done' (recomendación oficial: no truncar).
-        """
-        # Si ya estábamos en overflow, no enviar más drafts; send_message se
-        # encargará del contenido completo al recibir 'done'.
+    async def _enqueue_draft(self, chat_id: int, text: str, is_html: bool = False) -> None:
         if self._draft_overflow.get(chat_id, False):
             return
 
-        cleaned = self._clean_text_for_telegram(text)
-        if not cleaned:
+        if is_html:
+            html_content = text
+        else:
+            cleaned = self._clean_text_for_telegram(text)
+            if not cleaned:
+                return
+            # Convertir a HTML para un renderizado seguro y correcto de Markdown
+            html_content = markdown_to_telegram_html(cleaned)
+
+        if html_content == self._draft_last_sent_text.get(chat_id, ""):
             return
 
-        # Dedupe: si el último texto enviado es idéntico, omitir.
-        if cleaned == self._draft_last_sent_text.get(chat_id, ""):
-            return
-
-        # Overflow: parar el stream de drafts antes de romper la API.
-        if len(cleaned) > self.DRAFT_MAX_CHARS:
+        if len(html_content) > self.DRAFT_MAX_CHARS:
             self._draft_overflow[chat_id] = True
             logger.info(
                 f"[TelegramAdapter] Draft omitido por overflow (chat_id={chat_id}, "
-                f"len={len(cleaned)} > {self.DRAFT_MAX_CHARS}); se enviará completo vía send_message."
+                f"len={len(html_content)} > {self.DRAFT_MAX_CHARS}); se enviará completo vía send_message."
             )
             return
 
-        # Throttle: respetar el intervalo mínimo entre envíos.
         now = time.monotonic()
         last = self._draft_last_sent_at.get(chat_id, 0.0)
         if (now - last) < self.DRAFT_THROTTLE_S:
-            # Muy pronto desde el último envío; el siguiente chunk volverá a llamar.
             return
 
-        # Aceptar envío: actualizar estado y enviar.
-        self._draft_last_sent_text[chat_id] = cleaned
+        self._draft_last_sent_text[chat_id] = html_content
         self._draft_last_sent_at[chat_id] = now
-        await self._send_message_draft(chat_id, self._draft_ids[chat_id], cleaned)
+        await self._send_message_draft(chat_id, self._draft_ids[chat_id], html_content)
 
     async def _send_message_draft(self, chat_id: int, draft_id: int, text: str) -> None:
-        """
-        Llama al método nativo sendMessageDraft de la API de Telegram usando el bot HTTP API directamente.
-        Se ejecuta de manera segura para evitar que fallas en este endpoint efímero afecten el flujo principal.
-        """
         import aiohttp
         try:
             token = self.token
@@ -500,13 +723,14 @@ class TelegramAdapter(ChannelAdapter):
                 "chat_id": chat_id,
                 "draft_id": draft_id,
                 "text": text,
-                "parse_mode": "MarkdownV2",
+                "parse_mode": "HTML",
             }
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=2.0) as resp:
-                    # Solo leemos el texto, no arrojamos excepciones por código de estado HTTP
-                    await resp.text()
+                    if resp.status != 200:
+                        logger.error(f"[TelegramAdapter] Error al enviar borrador: HTTP {resp.status} - {await resp.text()}")
+                    else:
+                        await resp.text()
         except Exception as exc:
             logger.debug(f"[TelegramAdapter] Error al enviar borrador sendMessageDraft: {exc}")
 
-    # _flush_buffer ya no es necesario con streaming nativo

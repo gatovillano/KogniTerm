@@ -31,6 +31,110 @@ from rich.console import Console
 logger = logging.getLogger("kogniterm.server.session_pool")
 
 
+def clean_thinking_text(text: str) -> str:
+    import re
+    # Remove ANSI codes
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip top, bottom, or middle box boundaries
+        if '─' in stripped or '╭' in stripped or '╰' in stripped:
+            continue
+            
+        line_content = line.strip()
+        # Remove vertical borders at the start or end of the line
+        line_content = re.sub(r'^[│┃]', '', line_content)
+        line_content = re.sub(r'[│┃]$', '', line_content)
+        
+        line_content = line_content.strip()
+        if line_content:
+            cleaned_lines.append(line_content)
+            
+    return '\n'.join(cleaned_lines)
+
+
+def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
+    from rich.padding import Padding
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    from rich.text import Text
+
+    thinking = ""
+    response = ""
+
+    def recurse(r):
+        nonlocal thinking, response
+        if isinstance(r, Padding):
+            recurse(r.renderable)
+        elif isinstance(r, Group):
+            for sub_r in r.renderables:
+                recurse(sub_r)
+        elif isinstance(r, Panel):
+            title = str(r.title or "").lower()
+            is_thinking_panel = "pensando" in title or "thinking" in title
+            
+            p_content = r.renderable
+            content_str = ""
+            if isinstance(p_content, Markdown):
+                content_str = p_content.markup
+            elif isinstance(p_content, Text):
+                content_str = p_content.plain
+            elif isinstance(p_content, str):
+                content_str = p_content
+            else:
+                try:
+                    if isinstance(p_content, (Group, Padding)):
+                        recurse(p_content)
+                        return
+                    from rich.console import Console
+                    from io import StringIO
+                    buf = StringIO()
+                    c = Console(file=buf, force_terminal=False, no_color=True, width=120)
+                    c.print(p_content)
+                    content_str = buf.getvalue().strip()
+                except Exception:
+                    content_str = str(p_content)
+            
+            if is_thinking_panel:
+                thinking += "\n" + content_str
+            else:
+                display_title = f"### {r.title}\n" if r.title else ""
+                response += "\n" + display_title + content_str
+        elif isinstance(r, Markdown):
+            response += "\n" + r.markup
+        elif isinstance(r, Text):
+            plain = r.plain
+            if plain.strip():
+                response += "\n" + plain
+        elif isinstance(r, str):
+            if r.strip():
+                response += "\n" + r
+        else:
+            try:
+                from rich.console import Console
+                from io import StringIO
+                buf = StringIO()
+                c = Console(file=buf, force_terminal=False, no_color=True, width=120)
+                c.print(r)
+                val = buf.getvalue().strip()
+                if val:
+                    response += "\n" + val
+            except Exception:
+                val = str(r).strip()
+                if val:
+                    response += "\n" + val
+
+    recurse(renderable)
+    return thinking.strip(), response.strip()
+
+
 # ── Adaptador de UI para el servidor ──────────────────────────────────────────
 
 
@@ -79,9 +183,9 @@ class ServerUI(TerminalUI):
             logger.warning(f"[{self.session_id}] No se pudo enviar evento {event_type}: {exc}")
 
     def _render_rich(self, renderable: Any) -> str:
-        """Convierte un renderable de Rich a texto plano / ANSI."""
+        """Convierte un renderable de Rich a texto con formato ANSI."""
         buf = StringIO()
-        c = Console(file=buf, force_terminal=True, width=120, no_color=True)
+        c = Console(file=buf, force_terminal=True, width=120, no_color=False)
         c.print(renderable)
         return buf.getvalue()
 
@@ -94,9 +198,44 @@ class ServerUI(TerminalUI):
         self._push("stream", text)
 
     def update_live(self, renderable: Any) -> None:
-        rich_content = self._render_rich(renderable)
-        self._push("live_update", rich_content)
-        # Compatibility with desktop 'reasoning' if applicable (optional)
+        try:
+            # Check for special tuples first
+            if isinstance(renderable, tuple) and len(renderable) >= 2:
+                if renderable[0] == "__SPINNER__":
+                    self._push("live_update", {"special_type": "spinner", "text": renderable[1]})
+                    return
+                elif renderable[0] == "__TERMINAL__":
+                    tool = renderable[1]
+                    output = renderable[2] if len(renderable) > 2 else ""
+                    command = renderable[3] if len(renderable) > 3 else tool
+                    self._push("live_update", {
+                        "special_type": "terminal",
+                        "tool": tool,
+                        "output": output,
+                        "command": command
+                    })
+                    return
+
+            thinking, response = extract_thinking_and_response(renderable)
+            
+            # Clean thinking from any residual ANSI or box characters
+            if thinking:
+                thinking = clean_thinking_text(thinking)
+                
+            self._push("live_update", {"thinking": thinking, "response": response})
+        except Exception as exc:
+            logger.warning(f"Error al extraer estructuradamente: {exc}")
+            # Fallback to plain text representation of the renderable (without ANSI/box borders)
+            try:
+                buf = StringIO()
+                c = Console(file=buf, force_terminal=False, no_color=True, width=120)
+                c.print(renderable)
+                plain_text = buf.getvalue()
+                cleaned = clean_thinking_text(plain_text)
+                self._push("live_update", {"thinking": cleaned, "response": ""})
+            except Exception as e2:
+                logger.error(f"Fallback rendering failed: {e2}")
+                self._push("live_update", {"thinking": "", "response": ""})
 
     def stop_live(self, **kwargs) -> None:
         self._push("live_stop", {})

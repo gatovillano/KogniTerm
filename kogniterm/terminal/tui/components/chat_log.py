@@ -255,7 +255,12 @@ class ChatLogWidget(VerticalScroll):
             is_terminal, tool_name = _check_is_terminal(content)
             
             if isinstance(content, str):
-                renderable = Padding(content, (1, 0, 1, 4))
+                if "\x1b" in content or "┃" in content or "╭" in content:
+                    from rich.text import Text
+                    renderable = Padding(Text.from_ansi(content), (1, 0, 1, 4))
+                else:
+                    from rich.markdown import Markdown
+                    renderable = Padding(Markdown(content), (1, 0, 1, 4))
             else:
                 renderable = content
             terminal_command = tool_name  # para el caso no-terminal, coincide con tool_name
