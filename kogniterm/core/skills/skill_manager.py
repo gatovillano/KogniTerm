@@ -1044,7 +1044,11 @@ except Exception as e:
                     "--dev", "/dev",
                     "--tmpfs", "/tmp",
                     "--chdir", cwd,
-                    "--unshare-all"
+                    "--unshare-user",
+                    "--unshare-ipc",
+                    "--unshare-pid",
+                    "--unshare-uts",
+                    "--unshare-cgroup"
                 ])
                 cmd = bwrap_cmd + cmd
                 

@@ -2525,8 +2525,9 @@ class KogniTermTUI(App):
                 title_align="left",
                 expand=True
             )
-            if hasattr(self, "chat_log"):
-                self.chat_log.write_message(panel)
+            from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+            for log_widget in self.query(ChatLogWidget):
+                log_widget.write_message(panel)
 
     def action_toggle_tool_panel(self):
         """Alterna la visibilidad del panel de herramientas (tool_display) manualmente."""
