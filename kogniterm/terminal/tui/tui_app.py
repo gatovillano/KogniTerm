@@ -59,7 +59,6 @@ try:
     from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
 except Exception:
     CommandApprovalHandler = None
-from .components.task_tracker_panel import TaskTrackerPanelWidget
 from textual.screen import ModalScreen
 from textual.reactive import reactive
 from rich.text import Text
@@ -542,29 +541,6 @@ class KogniTermTUI(App):
     }
 
     /* ── CHAT MODE (base layer) ─────────────────── */
-    #tracker_container {
-        dock: left;
-        width: 25%;
-        max-width: 55;
-        min-width: 20;
-        height: 1fr;
-        margin: 0;
-        padding: 0 0 0 0;
-        display: none; /* Oculto por defecto */
-        background: #141418;
-        border-right: solid #2a2a3a;
-        overflow-y: auto;
-    }
-
-    #task_tracker_panel {
-        width: 100%;
-        height: auto;
-        margin: 0;
-        padding: 1 1;
-        border: none;
-        background: transparent;
-    }
-
     #approval_container {
         layer: approval;
         dock: bottom;
@@ -963,7 +939,6 @@ class KogniTermTUI(App):
 
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
-        ("ctrl+b", "toggle_sidebar", "Toggle Sidebar"),
         ("ctrl+o", "toggle_tool_panel", "Toggle Tool Panel"),
     ]
 
@@ -983,11 +958,6 @@ class KogniTermTUI(App):
         from textual.widgets import Static
         from textual.containers import Vertical
         
-        # ── Sidebar izquierdo: Task Tracker Panel ──────────
-        with Vertical(id="tracker_container"):
-            self.task_tracker_panel = TaskTrackerPanelWidget(id="task_tracker_panel")
-            yield self.task_tracker_panel
-
         # ── Base layer: chat interface ──────────────────────
         with Vertical(id="chat_container"):
             self.chat_log = ChatLogWidget(id="chat_log")
@@ -2503,21 +2473,54 @@ class KogniTermTUI(App):
             self.update_live_display(("__TERMINAL__", tool_name, output, display_command))
 
     def update_task_tracker(self, agent_plans: dict):
-        """Actualiza los datos del task tracker y muestra el panel si hay tareas."""
-        if hasattr(self, "task_tracker_panel"):
-            self.task_tracker_panel.update_tasks(agent_plans)
-            
-            # Mostrar/Ocultar el contenedor del tracker
-            tracker = self.query_one("#tracker_container")
-            if agent_plans and self.task_tracker_panel.display:
-                tracker.display = True
-            else:
-                tracker.display = False
+        """Muestra el estado de las tareas en el flujo de chat usando un panel verde."""
+        if not agent_plans:
+            return
 
-    def action_toggle_sidebar(self):
-        """Alterna la visibilidad del tracker manualmente."""
-        tracker = self.query_one("#tracker_container")
-        tracker.display = not tracker.display
+        from rich.table import Table
+        from rich.text import Text
+        from rich.console import Group
+        from rich.panel import Panel
+        from kogniterm.terminal.themes import ColorPalette
+
+        blocks = []
+        for agent_name, tasks in agent_plans.items():
+            if not tasks or all(task.get("status") == "done" for task in tasks):
+                continue
+
+            header = Text.from_markup(f"[bold {ColorPalette.SECONDARY}]● {agent_name}[/bold {ColorPalette.SECONDARY}]")
+            table = Table(expand=True, box=None, show_header=False, padding=(0, 1), title=None)
+            table.add_column("Status")
+            table.add_column("Task")
+
+            for task in tasks:
+                status = task.get("status", "pending")
+                task_text = task.get("task", "")
+
+                if status == "done":
+                    style = "strike #525252"
+                    status_icon = "✅"
+                elif status == "in-progress":
+                    style = "bold cyan"
+                    status_icon = "🔄"
+                else:
+                    style = "white"
+                    status_icon = "⏳"
+
+                table.add_row(status_icon, f"[{style}]{task_text}[/]")
+
+            blocks.append(Group(header, table))
+
+        if blocks:
+            panel = Panel(
+                Group(*blocks),
+                border_style="green",
+                title="[bold green]Task Tracker[/bold green]",
+                title_align="left",
+                expand=True
+            )
+            if hasattr(self, "chat_log"):
+                self.chat_log.write_message(panel)
 
     def action_toggle_tool_panel(self):
         """Alterna la visibilidad del panel de herramientas (tool_display) manualmente."""

@@ -5,6 +5,43 @@ Este archivo documenta los cambios importantes en cada versión de KogniTerm.
 ---
 
 ## [0.5.0] - 2025-05-22
+## [0.5.1] - 2025-05-22 (hotfix)
+
+### 🔧 Mejoras en Gestión de Memoria del Proyecto
+
+#### Reforzamiento de Revisión de Memoria
+- **Nueva función `force_refresh_project_memory()`**: Limpia cachés y fuerza la lectura de archivos de memoria desde disco
+  - Limpia globales `_file_cache` y `_json_file_cache`
+  - Carga y cachea contenido de `.kogniterm/llm_context.md` (memoria contextual)
+  - Carga y cachea contenido de `.kogniterm/instructions.md` (memorias aprendidas)
+  - Registra logs informativos con tamaño de contenido
+
+#### Validación de Integridad de Memoria
+- **Nueva función `validate_memory_integrity()`**: Valida la existencia y contenido de archivos de memoria
+  - Verifica que los archivos existan y no estén vacíos
+  - Retorna diccionario con estado de validación por archivo
+  - Manejo de errores con logging
+
+#### Reporte de Estado de Memoria
+- **Nueva función `get_memory_status_report()`**: Genera reporte visual del estado de memoria
+  - Combina validación e integridad en formato markdown
+  - Iconos de estado visual (✅, ❌, ⚠️)
+  - Incluye tamaño de archivos y estado de caché
+
+#### Integración en Sistema de Mensajes
+- **Modificación `get_system_message()`**: Ahora incluye reporte de memoria al final del mensaje de sistema
+  - Parámetro `force_refresh` para forzar recarga desde disco
+  - Mensajes informativos cuando se actualiza memoria
+  - Reporte automático de estado de archivos de memoria
+
+#### Correcciones
+- **task_tracker**: Corregido estado 'completed' a 'done' según especificación
+- **sophisticated_editor_tool**: Eliminado parámetro `target_content_pattern` no válido
+
+---
+
+## [0.5.0] - 2025-05-22
+
 
 ### 🚀 Nuevas Características
 
