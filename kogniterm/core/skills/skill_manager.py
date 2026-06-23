@@ -549,6 +549,7 @@ class SkillManager:
         self.skills: Dict[str, Skill] = {}  # name -> Skill
         self.loaded_skills: set = set()     # Nombres de skills cargadas
         self.tool_registry: Dict[str, Dict[str, Any]] = {}  # tool_name -> {tool, skill, security_level, sandbox_required}
+        self.skill_embeddings: Dict[str, List[float]] = {}  # name -> embedding vector
 
         # Componentes
         self.validator = SkillValidator()
@@ -1184,16 +1185,41 @@ except Exception as e:
             'path': str(skill.path)
         }
 
-    def _score_skill_relevance(self, skill: Skill, query: str) -> float:
-        """Calcula una puntuación simple de relevancia entre una skill y una consulta."""
+    def _score_skill_relevance(self, skill: Skill, query: str, query_embedding: Optional[List[float]] = None) -> float:
+        """
+        Calcula una puntuación de relevancia para una skill basada en la query.
+        Mejoras: Mayor peso a las tags y nombre exacto.
+        También utiliza similitud de coseno si se proporcionan embeddings.
+        """
         if not query:
-            return 0.0
+            return 1.0
 
         normalized_query = re.sub(r"\s+", " ", query.lower()).strip()
         if not normalized_query:
             return 0.0
 
         score = 0.0
+        
+        # Similitud semántica usando embeddings
+        if query_embedding and self.embeddings_service and skill.name in self.skill_embeddings:
+            try:
+                import numpy as np
+                skill_vec = np.array(self.skill_embeddings[skill.name])
+                query_vec = np.array(query_embedding)
+                
+                # Cosine similarity
+                dot_product = np.dot(query_vec, skill_vec)
+                norm_q = np.linalg.norm(query_vec)
+                norm_s = np.linalg.norm(skill_vec)
+                
+                if norm_q > 0 and norm_s > 0:
+                    cosine_sim = dot_product / (norm_q * norm_s)
+                    # Añadir la similitud al score (escalado para tener peso en el score final)
+                    if cosine_sim > 0.4:
+                        score += (cosine_sim * 10.0)
+            except Exception as e:
+                logger.debug(f"Error computing cosine similarity for skill {skill.name}: {e}")
+
         haystack_parts = [
             skill.name,
             skill.description,
@@ -1208,7 +1234,7 @@ except Exception as e:
 
         query_tokens = [token for token in re.split(r"\W+", normalized_query) if token]
         if not query_tokens:
-            return 0.0
+            return score
 
         if normalized_query in haystack:
             score += 6.0
@@ -1234,12 +1260,33 @@ except Exception as e:
         limit: int = 5,
         include_unloaded: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Busca skills relevantes para una consulta textual."""
+        """Busca skills relevantes para una consulta textual utilizando embeddings y similitud semántica."""
         candidates = self.skills.values() if include_unloaded else [s for s in self.skills.values() if s.loaded]
         scored = []
+        
+        query_embedding = None
+        if self.embeddings_service and query.strip():
+            try:
+                query_embedding = self.embeddings_service.embed_query(query)
+                
+                # Asegurar que todas las skills candidatas tengan embeddings pre-computados
+                skills_to_embed = [s for s in candidates if s.name not in self.skill_embeddings]
+                if skills_to_embed:
+                    texts_to_embed = []
+                    for s in skills_to_embed:
+                        # Crear un documento representativo de la skill
+                        doc = f"{s.name}. {s.description}. Categoría: {s.category}. Tags: {', '.join(s.tags)}. {s.instructions[:500]}"
+                        texts_to_embed.append(doc)
+                    
+                    if texts_to_embed:
+                        new_embeddings = self.embeddings_service.generate_embeddings(texts_to_embed)
+                        for s, emb in zip(skills_to_embed, new_embeddings):
+                            self.skill_embeddings[s.name] = emb
+            except Exception as e:
+                logger.warning(f"Error generating embeddings for semantic skill search: {e}")
 
         for skill in candidates:
-            score = self._score_skill_relevance(skill, query)
+            score = self._score_skill_relevance(skill, query, query_embedding)
             if score <= 0:
                 continue
             scored.append((score, skill))
@@ -1265,8 +1312,15 @@ except Exception as e:
         """Devuelve bloques de instrucciones de las skills cargadas, priorizando relevancia si hay query."""
         loaded_skills = [skill for skill in self.skills.values() if skill.loaded]
         if query:
+            query_embedding = None
+            if self.embeddings_service:
+                try:
+                    query_embedding = self.embeddings_service.embed_query(query)
+                except Exception as e:
+                    logger.warning(f"Error embedding query for skill instructions: {e}")
+
             ranked = sorted(
-                ((self._score_skill_relevance(skill, query), skill) for skill in loaded_skills),
+                ((self._score_skill_relevance(skill, query, query_embedding), skill) for skill in loaded_skills),
                 key=lambda item: (-item[0], item[1].name)
             )
             loaded_skills = [skill for score, skill in ranked if score > 0][:limit]

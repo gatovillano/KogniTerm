@@ -603,6 +603,12 @@ class KogniTermTUI(App):
     #parallel_agents_container ChatLogWidget {
         width: 100%;
         height: 100%;
+    }
+
+    #parallel_agents_container TabPane {
+        height: 1fr;
+    }
+    #parallel_agents_container ChatLogWidget {
         margin: 0;
         padding: 0 1;
         background: #1a1a1a;
