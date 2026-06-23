@@ -717,7 +717,15 @@ class SkillManager:
 
             # Inyectar helpers de estado persistente (Proposal C)
             state_file = self.base_path / '.kogniterm' / 'state' / f"{skill_name}.json"
-            
+
+            # task_tracker no persiste entre sesiones: borrar estado previo al cargar
+            if skill_name == "task_tracker" and state_file.exists():
+                try:
+                    state_file.unlink()
+                    logger.debug("Estado previo de task_tracker borrado al iniciar sesión.")
+                except Exception as _e:
+                    logger.debug(f"No se pudo borrar estado de task_tracker: {_e}")
+
             def get_state() -> dict:
                 if state_file.exists():
                     try:

@@ -224,7 +224,13 @@ Estoy analizando la petición del usuario y decido usar tal herramienta...
 3. **Finalización**: Al terminar todo el trabajo solicitado, DEBES registrar la finalización llamando a `task_tracker` con `action="update"` para marcar la última tarea como completada.
 ¡NUNCA procedas con ninguna tarea o acción sin registrarla y mantenerla al día en `task_tracker`!\n"""
 
-    return SystemMessage(content=base_content)
+    # Añadir reporte de estado de memoria al final del mensaje de sistema
+    try:
+        memory_report = get_memory_status_report()
+        base_content += f"\n\n{memory_report}\n"
+    except Exception as e:
+        logger.warning(f"[Memory] No se pudo generar reporte de memoria: {e}")
+return SystemMessage(content=base_content)
 
 # Para mantener compatibilidad con imports si los hay, aunque ahora usaremos la función get_system_message
 SYSTEM_MESSAGE = None

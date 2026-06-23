@@ -272,11 +272,13 @@ class ServerUI(TerminalUI):
         self._push("message", {"text": ansi_text})
 
     def print_tool_notification(self, tool_name: str, bajada: str = "", skill_name: str = "", **kwargs) -> None:
-        self._push("tool_call", {"name": tool_name, "description": bajada, "skill": skill_name})
+        agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
+        self._push("tool_call", {"name": tool_name, "description": bajada, "skill": skill_name}, agent_id=agent_id)
 
     def update_terminal_output(self, tool_name: str, output: str, tool_call_id: Optional[str] = None, **kwargs) -> None:
         logger.info(f"[{self.session_id}] ServerUI.update_terminal_output: {tool_name}")
-        self._push("terminal_output", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id})
+        agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
+        self._push("terminal_output", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id}, agent_id=agent_id)
 
     def set_terminal_cursor(self, active: bool, executor=None):
         logger.info(f"[{self.session_id}] ServerUI.set_terminal_cursor: {active}")
@@ -284,7 +286,8 @@ class ServerUI(TerminalUI):
 
     def update_tool_display(self, tool_name: str, output: str, tool_call_id: Optional[str] = None, **kwargs) -> None:
         logger.info(f"[{self.session_id}] ServerUI.update_tool_display: {tool_name}")
-        self._push("tool_result", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id})
+        agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
+        self._push("tool_result", {"content": output, "tool": tool_name, "tool_call_id": tool_call_id}, agent_id=agent_id)
 
     def update_task_tracker(self, agent_plans: dict) -> None:
         self._push("task_tracker", agent_plans)

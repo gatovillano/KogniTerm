@@ -2324,7 +2324,7 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
         else:
             print("MultiProviderManager no está habilitado")
 
-    def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict, delegation_context: Optional[Any] = None) -> Generator[Any, None, None]:
+    def _invoke_tool_with_interrupt(self, tool: BaseTool, tool_args: dict, delegation_context: Optional[Any] = None, terminal_ui: Optional[Any] = None) -> Generator[Any, None, None]:
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
         def _tool_target():
             try:
@@ -2354,7 +2354,7 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                     if 'llm_service' in sig.parameters:
                         injected_args['llm_service'] = self
                     if 'terminal_ui' in sig.parameters:
-                        injected_args['terminal_ui'] = getattr(self, 'terminal_ui', None)
+                        injected_args['terminal_ui'] = terminal_ui or getattr(self, 'terminal_ui', None)
                     if 'interrupt_queue' in sig.parameters:
                         injected_args['interrupt_queue'] = getattr(self, 'interrupt_queue', None)
                     if 'approval_handler' in sig.parameters and hasattr(self, 'skill_manager') and hasattr(self.skill_manager, 'approval_handler'):

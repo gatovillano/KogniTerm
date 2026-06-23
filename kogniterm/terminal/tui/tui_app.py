@@ -221,9 +221,22 @@ class TextualTerminalUI:
         else:
             self.app.call_from_thread(func, *args, **kwargs)
 
-    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False):
+    def _get_chat_log(self, panel_id: str = None):
+        """Retorna el ChatLogWidget para el panel indicado, o el chat_log principal."""
+        if not panel_id:
+            return self.app.chat_log
+        if hasattr(self.app, panel_id):
+            return getattr(self.app, panel_id)
+        try:
+            return self.app.query_one(f"#{panel_id}")
+        except Exception:
+            return self.app.chat_log
+
+    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False, **kwargs):
+        panel_id = kwargs.get("panel_id")
+        target_log = self._get_chat_log(panel_id)
         if is_user_message:
-            self._safe_call(self.app.chat_log.write_user_message, message)
+            self._safe_call(target_log.write_user_message, message)
         else:
             # Si el mensaje contiene markup Rich (ej. [#color]texto[/#color]), lo convertimos
             # a un objeto Text para que RichLog (que tiene markup=False) lo renderice correctamente.
@@ -231,11 +244,11 @@ class TextualTerminalUI:
             if isinstance(message, str) and ('[' in message and ']' in message):
                 try:
                     renderable = Text.from_markup(message)
-                    self._safe_call(self.app.chat_log.write_message, renderable)
+                    self._safe_call(target_log.write_message, renderable)
                     return
                 except Exception:
                     pass  # Fallback a write_agent_message si el markup falla
-            self._safe_call(self.app.chat_log.write_agent_message, message)
+            self._safe_call(target_log.write_agent_message, message)
 
     def print_stream(self, text: str, **kwargs):
         """
@@ -253,7 +266,7 @@ class TextualTerminalUI:
         if panel_id:
             def _update_panel():
                 try:
-                    panel = self.app.query_one(f"#{panel_id}")
+                    panel = self._get_chat_log(panel_id)
                     # ChatLogWidget (VerticalScroll) usa write_stream; Static/ToolOutputWidget usa update
                     from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
                     if isinstance(panel, ChatLogWidget):
@@ -285,10 +298,14 @@ class TextualTerminalUI:
         # Optional panel routing if supported
         command = kwargs.get("command", tool_name)
         self._safe_call(self.app.update_terminal_output, tool_name, output, command=command)
+
     def update_tool_display(self, tool_name: str, output: str, command: str = "", max_lines=None, **kwargs):
-        """Escribe la salida final de una herramienta en el chat log de la TUI."""
+        """Escribe la salida final de una herramienta en el chat log de la TUI o de un panel."""
         if not output or not getattr(self, "app", None):
             return
+
+        panel_id = kwargs.get("panel_id")
+        target_log = self._get_chat_log(panel_id)
 
         # Guardar en el app para que Ctrl+O pueda recuperarlo y actualizar dinámicamente si está visible
         def _save_and_update():
@@ -309,7 +326,7 @@ class TextualTerminalUI:
             displayed = output
 
         self._safe_call(
-            self.app.chat_log.write_tool_output,
+            target_log.write_tool_output,
             displayed,
             tool_name,
             language=command or None,
@@ -321,7 +338,18 @@ class TextualTerminalUI:
 
     def stop_live(self, **kwargs):
         """Finaliza el streaming y consolida el mensaje."""
-        if kwargs.get("panel_id"): return
+        panel_id = kwargs.get("panel_id")
+        if panel_id:
+            # Si hay panel_id, detener streaming en ese panel específico
+            def _stop():
+                try:
+                    panel = self._get_chat_log(panel_id)
+                    if hasattr(panel, "stop_stream"):
+                        panel.stop_stream()
+                except Exception:
+                    pass
+            self._safe_call(_stop)
+            return
         self._safe_call(self.app.hide_live_display)
 
     def resume_spinner(self):
@@ -331,18 +359,25 @@ class TextualTerminalUI:
         self._safe_call(self.app._resume_spinner)
 
     def print_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = "", **kwargs):
-        """Muestra notificación de herramienta ejecutándose, alineada a la izquierda."""
-        if kwargs.get("panel_id"): return
-        self._safe_call(self.app.chat_log.write_tool_notification, tool_name, action_desc, skill_name)
+        """Muestra notificación de herramienta ejecutándose, alineada a la izquierda o en panel."""
+        panel_id = kwargs.get("panel_id")
+        target_log = self._get_chat_log(panel_id)
+        self._safe_call(target_log.write_tool_notification, tool_name, action_desc, skill_name)
 
-    def print_success_box(self, message: str, title: str = "Éxito"):
-        self._safe_call(self.app.chat_log.write_message, f"✅ [box] **{title}**: {message}", style="green")
+    def print_success_box(self, message: str, title: str = "Éxito", **kwargs):
+        panel_id = kwargs.get("panel_id")
+        target_log = self._get_chat_log(panel_id)
+        self._safe_call(target_log.write_message, f"✅ [box] **{title}**: {message}", style="green")
 
-    def print_error_box(self, message: str, title: str = "Error"):
-        self._safe_call(self.app.chat_log.write_message, f"❌ [box] **{title}**: {message}", style="red")
+    def print_error_box(self, message: str, title: str = "Error", **kwargs):
+        panel_id = kwargs.get("panel_id")
+        target_log = self._get_chat_log(panel_id)
+        self._safe_call(target_log.write_message, f"❌ [box] **{title}**: {message}", style="red")
 
-    def print_warning_box(self, message: str, title: str = "Advertencia"):
-        self._safe_call(self.app.chat_log.write_message, f"⚠️ [box] **{title}**: {message}", style="yellow")
+    def print_warning_box(self, message: str, title: str = "Advertencia", **kwargs):
+        panel_id = kwargs.get("panel_id")
+        target_log = self._get_chat_log(panel_id)
+        self._safe_call(target_log.write_message, f"⚠️ [box] **{title}**: {message}", style="yellow")
 
     def print_status(self, message: str, spinner_style: str = "dots"):
         import contextlib
@@ -508,21 +543,26 @@ class KogniTermTUI(App):
 
     /* ── CHAT MODE (base layer) ─────────────────── */
     #tracker_container {
-        height: auto;
-        width: 85%;
-        max-width: 180;
+        dock: left;
+        width: 25%;
+        max-width: 55;
+        min-width: 20;
+        height: 1fr;
         margin: 0;
-        padding: 0;
+        padding: 0 0 0 0;
         display: none; /* Oculto por defecto */
-        align-horizontal: center;
+        background: #141418;
+        border-right: solid #2a2a3a;
+        overflow-y: auto;
     }
 
     #task_tracker_panel {
         width: 100%;
         height: auto;
         margin: 0;
-        padding: 0;
-        border: solid $secondary;
+        padding: 1 1;
+        border: none;
+        background: transparent;
     }
 
     #approval_container {
@@ -943,6 +983,11 @@ class KogniTermTUI(App):
         from textual.widgets import Static
         from textual.containers import Vertical
         
+        # ── Sidebar izquierdo: Task Tracker Panel ──────────
+        with Vertical(id="tracker_container"):
+            self.task_tracker_panel = TaskTrackerPanelWidget(id="task_tracker_panel")
+            yield self.task_tracker_panel
+
         # ── Base layer: chat interface ──────────────────────
         with Vertical(id="chat_container"):
             self.chat_log = ChatLogWidget(id="chat_log")
@@ -980,9 +1025,7 @@ class KogniTermTUI(App):
                     self.live_display_researcher = ChatLogWidget(id="live_display_researcher")
                     yield self.live_display_researcher
 
-            with Vertical(id="tracker_container"):
-                self.task_tracker_panel = TaskTrackerPanelWidget(id="task_tracker_panel")
-                yield self.task_tracker_panel
+            # Nota: tracker_container se yield fuera de bottom_container (ver abajo)
 
             # Barra de progreso de indexación (docked bottom, above input)
             with Vertical(id="indexing_progress_container"):
