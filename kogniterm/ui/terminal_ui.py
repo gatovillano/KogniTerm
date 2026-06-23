@@ -354,14 +354,17 @@ class TerminalUI:
         """
         Imprime un panel de confirmación estandarizado con mejor estilo.
         """
+        from rich import box
+        title_text = Text(f"{Icons.WARNING} {title}", style=f"bold {border_style}")
+        group = Group(title_text, "", content)
+        
         self.console.print(
             Padding(
                 Panel(
-                    content,
-                    border_style=border_style,
-                    title=f"{Icons.WARNING} {title}",
+                    group,
                     width=min(self.console.width - 4, 100),  # Ajustar dinámicamente al ancho menos padding
-                    expand=False
+                    expand=False,
+                    box=None  # Sin bordes exteriores ni líneas divisorias
                 ),
                 (1, 2)
             )

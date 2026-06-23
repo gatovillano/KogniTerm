@@ -230,7 +230,7 @@ Estoy analizando la petición del usuario y decido usar tal herramienta...
         base_content += f"\n\n{memory_report}\n"
     except Exception as e:
         logger.warning(f"[Memory] No se pudo generar reporte de memoria: {e}")
-return SystemMessage(content=base_content)
+    return SystemMessage(content=base_content)
 
 # Para mantener compatibilidad con imports si los hay, aunque ahora usaremos la función get_system_message
 SYSTEM_MESSAGE = None

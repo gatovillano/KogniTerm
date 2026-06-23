@@ -178,7 +178,7 @@ class InlineApprovalWidget(Widget):
         p = ColorPalette
         # Fondo del contenedor principal
         self.styles.background = p.GRAY_800
-        self.styles.border = ("solid", p.PRIMARY_DARK) # Borde sutil del color del tema
+        self.styles.border = None # Sin borde exterior
         
         try:
             title = self.query_one("#ia-title-label")
@@ -226,7 +226,7 @@ class InlineApprovalWidget(Widget):
         height: auto;
         max-height: 20;
         margin-bottom: 1;
-        border: solid #333333;
+        border: none;
     }
     #ia-diff-container {
         width: 100%;
