@@ -226,34 +226,28 @@ class ParallelPanelUI:
             return
 
         # Modo TUI local: acceso directo al widget
-        import time
-        current_time = time.time()
-        is_final = kwargs.get("final", False)
-        if is_final or (current_time - self._last_update_time) >= self._update_interval:
-            self._last_update_time = current_time
-            
-            def _update():
-                try:
-                    panel = self._get_tui_panel()
-                    if panel is None:
-                        logger.warning("ParallelPanelUI: Panel %s not found in TUI application", self.panel_id)
-                        return
-                    if hasattr(panel, "write_stream"):
-                        panel.write_stream(renderable)
-                    elif hasattr(panel, "update"):
-                        panel.update(renderable)
-                    if hasattr(panel, "scroll_end"):
-                        panel.scroll_end(animate=False)
-                except Exception as e:
-                    logger.exception("ParallelPanelUI: Error during panel %s _update: %s", self.panel_id, e)
-            
-            if threading.current_thread() is threading.main_thread():
-                _update()
-            else:
-                try:
-                    self.app.call_from_thread(_update)
-                except Exception as e:
-                    logger.exception("ParallelPanelUI: Error scheduling call_from_thread: %s", e)
+        def _update():
+            try:
+                panel = self._get_tui_panel()
+                if panel is None:
+                    logger.warning("ParallelPanelUI: Panel %s not found in TUI application", self.panel_id)
+                    return
+                if hasattr(panel, "write_stream"):
+                    panel.write_stream(renderable)
+                elif hasattr(panel, "update"):
+                    panel.update(renderable)
+                if hasattr(panel, "scroll_end"):
+                    panel.scroll_end(animate=False)
+            except Exception as e:
+                logger.exception("ParallelPanelUI: Error during panel %s _update: %s", self.panel_id, e)
+        
+        if threading.current_thread() is threading.main_thread():
+            _update()
+        else:
+            try:
+                self.app.call_from_thread(_update)
+            except Exception as e:
+                logger.exception("ParallelPanelUI: Error scheduling call_from_thread: %s", e)
 
     def stop_live(self, *args, **kwargs):
         """Called by the agent when a node finishes streaming."""
@@ -320,7 +314,8 @@ class ParallelPanelUI:
             self.original_ui._push("live_update", {"thinking": "", "response": self._accumulated_text}, agent_id=self.panel_id)
             return
         # Acumular la salida de la herramienta en el historial del panel
-        self._accumulated_text += f"\n\n[bold cyan]$ {command or tool_name}[/bold cyan]\n{output}\n"
+        msg = f"\n\n**$ {command or tool_name}**\n```bash\n{output}\n```\n"
+        self._accumulated_text += msg
         return self.update_live(self._accumulated_text)
 
     def update_tool_display(self, *args, **kwargs):
@@ -331,9 +326,9 @@ class ParallelPanelUI:
             self.original_ui._push("tool_call", {"name": tool_name, "description": action_desc, "skill": skill_name}, agent_id=self.panel_id)
             return
         # Acumular la notificación en el historial
-        msg = f"\n[bold yellow]⚙ {skill_name or tool_name}[/bold yellow]"
+        msg = f"\n**⚙ {skill_name or tool_name}**"
         if action_desc:
-            msg += f": [italic]{action_desc}[/italic]"
+            msg += f": *{action_desc}*"
         self._accumulated_text += msg + "\n"
         return self.update_live(self._accumulated_text)
 
