@@ -158,8 +158,9 @@ class TerminalUIProxy:
 class ParallelPanelUI:
     """Concrete wrapper that forces calls to the TUI with an explicit panel_id.
 
-    This avoids relying on signature inspection and guarantees that streaming
-    and tool outputs target the intended parallel panel widgets.
+    En LOCAL mode (TUI directa sin WS) accede directamente a los widgets Textual.
+    En SERVER mode (TUI conectada via WS) enruta via _push() con agent_id para
+    que los eventos lleguen al panel correcto a través del WebSocket.
     """
     def __init__(self, original_ui, panel_id):
         self.original_ui = original_ui
@@ -170,7 +171,12 @@ class ParallelPanelUI:
         self.app = getattr(original_ui, "app", original_ui)
         self._accumulated_text = ""
         self._last_update_time = 0
-        self._update_interval = 0.05 # 50ms (20 FPS max)
+        self._update_interval = 0.05  # 50ms (20 FPS max)
+
+    @property
+    def _is_server_mode(self) -> bool:
+        """True cuando original_ui es un ServerUI (modo WS), no una TUI Textual."""
+        return hasattr(self.original_ui, '_push') and not hasattr(self.original_ui, 'query_one')
 
     def _safe_call_app(self, method_name, *args, **kwargs):
         try:
@@ -187,38 +193,76 @@ class ParallelPanelUI:
             logger.exception("ParallelPanelUI: error calling %s", method_name)
         return None
 
+    def _get_tui_panel(self):
+        """Retorna el widget ChatLogWidget del panel en modo TUI local."""
+        try:
+            if hasattr(self.app, 'query_one'):
+                return self.app.query_one(f"#{self.panel_id}")
+        except Exception:
+            pass
+        return None
+
     def update_live(self, renderable, **kwargs):
-        """Update the panel with the given renderable. Includes throttling for performance."""
+        """Update the panel with the given renderable."""
+        if self._is_server_mode:
+            # En modo servidor enviamos como live_update con agent_id
+            if isinstance(renderable, str):
+                self.original_ui._push("live_update", {"thinking": "", "response": renderable}, agent_id=self.panel_id)
+            elif isinstance(renderable, tuple):
+                self.original_ui._push("live_update", {"thinking": "", "response": str(renderable)}, agent_id=self.panel_id)
+            else:
+                try:
+                    from io import StringIO
+                    from rich.console import Console as RichConsole
+                    buf = StringIO()
+                    c = RichConsole(file=buf, force_terminal=False, no_color=True, width=120)
+                    c.print(renderable)
+                    self.original_ui._push("live_update", {"thinking": "", "response": buf.getvalue()}, agent_id=self.panel_id)
+                except Exception:
+                    pass
+            return
+
+        # Modo TUI local: acceso directo al widget
         import time
         current_time = time.time()
-        
         is_final = kwargs.get("final", False)
         if is_final or (current_time - self._last_update_time) >= self._update_interval:
             self._last_update_time = current_time
             
             def _update():
                 try:
-                    panel = self.app.query_one(f"#{self.panel_id}")
+                    panel = self._get_tui_panel()
+                    if panel is None:
+                        return
                     if hasattr(panel, "write_stream"):
                         panel.write_stream(renderable)
-                    else:
+                    elif hasattr(panel, "update"):
                         panel.update(renderable)
-                    # Forzar scroll al final para ver siempre lo último
-                    panel.scroll_end(animate=False)
+                    if hasattr(panel, "scroll_end"):
+                        panel.scroll_end(animate=False)
                 except Exception:
                     pass
             
             if threading.current_thread() is threading.main_thread():
                 _update()
             else:
-                self.app.call_from_thread(_update)
+                try:
+                    self.app.call_from_thread(_update)
+                except Exception:
+                    pass
 
-    def stop_live(self):
+    def stop_live(self, *args, **kwargs):
         """Called by the agent when a node finishes streaming."""
+        if self._is_server_mode:
+            self.original_ui._push("live_stop", {}, agent_id=self.panel_id)
+            self._accumulated_text = ""
+            return
+
+        # Modo TUI local
         def _stop():
             try:
-                panel = self.app.query_one(f"#{self.panel_id}")
-                if hasattr(panel, "stop_stream"):
+                panel = self._get_tui_panel()
+                if panel and hasattr(panel, "stop_stream"):
                     panel.stop_stream()
             except Exception:
                 pass
@@ -226,7 +270,11 @@ class ParallelPanelUI:
         if threading.current_thread() is threading.main_thread():
             _stop()
         else:
-            self.app.call_from_thread(_stop)
+            try:
+                self.app.call_from_thread(_stop)
+            except Exception:
+                pass
+        self._accumulated_text = ""
 
     def write_stream_to_chat(self, *args, **kwargs):
         return self._safe_call_app("write_stream_to_chat", *args, **kwargs)
@@ -234,13 +282,38 @@ class ParallelPanelUI:
     def print_stream(self, text: str):
         if not text:
             return
-        logger.info(f"ParallelPanelUI.print_stream: received text chunk: {repr(text)}")
+        logger.info(f"ParallelPanelUI.print_stream: received text chunk for {self.panel_id}: {repr(text[:30])}")
         self._accumulated_text += text
-        logger.info(f"ParallelPanelUI.print_stream: accumulated text now: {repr(self._accumulated_text)}")
+
+        if self._is_server_mode:
+            # En modo servidor: enviar como evento stream con agent_id
+            self.original_ui._push("stream", text, agent_id=self.panel_id)
+            return
+
+        # Modo TUI local: actualizar el panel directamente
         return self.update_live(self._accumulated_text)
+
+    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False):
+        if self._is_server_mode:
+            self.original_ui._push("message", {"text": message}, agent_id=self.panel_id)
+            return
+        return self._call_forward(
+            "print_message",
+            message,
+            style,
+            is_user_message,
+            status,
+            use_bubble,
+        )
 
     def update_terminal_output(self, tool_name: str, output: str, command: str = "", **kwargs):
         if not output:
+            return
+        if self._is_server_mode:
+            # Acumular y enviar como live_update
+            msg = f"\n**$ {command or tool_name}**\n```\n{output}\n```"
+            self._accumulated_text += msg
+            self.original_ui._push("live_update", {"thinking": "", "response": self._accumulated_text}, agent_id=self.panel_id)
             return
         # Acumular la salida de la herramienta en el historial del panel
         self._accumulated_text += f"\n\n[bold cyan]$ {command or tool_name}[/bold cyan]\n{output}\n"
@@ -250,6 +323,9 @@ class ParallelPanelUI:
         return self.update_terminal_output(*args, **kwargs)
 
     def print_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = "", **kwargs):
+        if self._is_server_mode:
+            self.original_ui._push("tool_call", {"name": tool_name, "description": action_desc, "skill": skill_name}, agent_id=self.panel_id)
+            return
         # Acumular la notificación en el historial
         msg = f"\n[bold yellow]⚙ {skill_name or tool_name}[/bold yellow]"
         if action_desc:
@@ -257,32 +333,43 @@ class ParallelPanelUI:
         self._accumulated_text += msg + "\n"
         return self.update_live(self._accumulated_text)
 
-    def stop_live(self, *args, **kwargs):
-        result = self._safe_call_app("stop_live", *args, **kwargs)
-        def _stop():
-            try:
-                panel = self.app.query_one(f"#{self.panel_id}")
-                if hasattr(panel, "stop_stream"):
-                    panel.stop_stream()
-            except Exception:
-                pass
-        
-        if threading.current_thread() is threading.main_thread():
-            _stop()
+    def _call_forward(self, method_name: str, *args, **kwargs):
+        """Delegar al original_ui en modo TUI local."""
+        if self.original_ui is None:
+            return None
+        if hasattr(self.original_ui, method_name):
+            target = self.original_ui
+        elif hasattr(self.app, method_name):
+            target = self.app
         else:
-            self.app.call_from_thread(_stop)
-        self._accumulated_text = ""  # Limpiamos para mantener historial limpio en el widget de chat
-        return result
+            return None
+        method = getattr(target, method_name)
+        try:
+            import inspect
+            sig = inspect.signature(method)
+            call_kwargs = dict(kwargs)
+            if "panel_id" in sig.parameters and "panel_id" not in call_kwargs:
+                call_kwargs["panel_id"] = self.panel_id
+            accepted = {k: v for k, v in call_kwargs.items() if k in sig.parameters}
+            return method(*args, **accepted)
+        except Exception:
+            try:
+                return method(*args, **kwargs)
+            except Exception:
+                return None
 
     def put(self, message):
         if self.original_ui is not None and hasattr(self.original_ui, 'put'):
             return self.original_ui.put(message)
-        logger.warning(f"ParallelPanelUI: put() no disponible en original_ui")
 
     def put_nowait(self, message):
         if self.original_ui is not None and hasattr(self.original_ui, 'put_nowait'):
             return self.original_ui.put_nowait(message)
-        logger.warning(f"ParallelPanelUI: put_nowait() no disponible en original_ui")
+
+    def __getattr__(self, name):
+        if self.original_ui is None:
+            return lambda *args, **kwargs: None
+        return getattr(self.original_ui, name)
 
 def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any = None, terminal_ui: Any = None, interrupt_queue: Any = None, approval_handler: Any = None) -> str:
     """Invoca ambos agentes en paralelo"""
@@ -331,8 +418,18 @@ def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any
             break
         return None
 
-    # Activar layout de dos columnas para paneles paralelos
-    if terminal_ui and getattr(terminal_ui, "is_tui", False):
+    # Activar layout de paneles paralelos
+    is_server_mode = hasattr(terminal_ui, '_push') and not hasattr(terminal_ui, 'query_one')
+
+    if is_server_mode:
+        # Modo WS: notificar a la TUI via eventos WebSocket
+        try:
+            terminal_ui.show_agent_panel("live_display_coder", "DeepCoder")
+            terminal_ui.show_agent_panel("live_display_researcher", "DeepResearcher")
+        except Exception as e:
+            logger.warning("No se pudieron emitir agent_panel_show events: %s", e)
+    elif terminal_ui and getattr(terminal_ui, "is_tui", False):
+        # Modo TUI local: activar paneles directamente
         try:
             target_app = _resolve_tui_app(terminal_ui)
             if target_app is None:
@@ -341,40 +438,36 @@ def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any
             def _activate_panels():
                 """Se ejecuta en el hilo principal de Textual."""
                 try:
-                    # Mostrar el contenedor raíz y el paralelo
+                    # Mostrar el contenedor de paneles paralelos (TabbedContent)
                     target_app.query_one("#bottom_container").display = True
                     container = target_app.query_one("#parallel_agents_container")
                     container.display = True
-                    target_app.query_one("#tracker_container").add_class("parallel-mode")
-                    target_app.query_one("#tracker_container").display = True
-
-                    # En modo paralelo los paneles ocupan la zona inferior completa,
-                    # por lo que ocultamos la barra de input y el footer temporalmente.
                     try:
-                        target_app.query_one("#input_container").display = False
+                        target_app.query_one("#tracker_container").add_class("parallel-mode")
+                        target_app.query_one("#tracker_container").display = True
+                    except Exception:
+                        pass
+
+                    # NOTA: NO ocultamos #input_container ni StatusFooter
+                    # El usuario debe poder continuar interactuando con el agente principal
+
+                    # Inicializar pestañas con mensajes de bienvenida
+                    try:
+                        coder_panel = target_app.query_one("#live_display_coder")
+                        if hasattr(coder_panel, "write_stream"):
+                            coder_panel.write_stream("[bold cyan]⚡ DeepCoder iniciando...[/bold cyan]")
+                        coder_panel.border_title = "DeepCoder"
                     except Exception:
                         pass
                     try:
-                        target_app.query_one("StatusFooter").display = False
+                        researcher_panel = target_app.query_one("#live_display_researcher")
+                        if hasattr(researcher_panel, "write_stream"):
+                            researcher_panel.write_stream("[bold magenta]🔍 DeepResearcher iniciando...[/bold magenta]")
+                        researcher_panel.border_title = "DeepResearcher"
                     except Exception:
                         pass
-                    
-                    # Mostrar paneles hijos
-                    coder_panel = target_app.query_one("#live_display_coder")
-                    researcher_panel = target_app.query_one("#live_display_researcher")
-                    coder_panel.display = True
-                    researcher_panel.display = True
 
-                    # Asignar títulos a los bordes
-                    coder_panel.border_title = "DeepCoder"
-                    researcher_panel.border_title = "DeepResearcher"
-                    
-                    # Inicializar con mensajes de carga
-                    from rich.text import Text
-                    coder_panel.update(Text.from_markup("[bold cyan]⚙ DeepCoder iniciando...[/bold cyan]"))
-                    researcher_panel.update(Text.from_markup("[bold magenta]🔍 DeepResearcher iniciando...[/bold magenta]"))
-                    
-                    # Ocultar paneles normales
+                    # Ocultar paneles normales (solo los de thinking/tool, no el input)
                     try:
                         target_app.query_one("#live_display").display = False
                     except Exception:
@@ -388,7 +481,6 @@ def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any
                 except Exception as e:
                     logger.warning("Error activando paneles: %s", e)
             
-            import threading
             if threading.current_thread() is threading.main_thread():
                 _activate_panels()
             else:
@@ -400,8 +492,7 @@ def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any
         except Exception as e:
             logger.error("Error activando paneles paralelos: %s", e)
     
-    # Use a concrete wrapper that forces the `panel_id` to ensure outputs
-    # are rendered in the two-column parallel panels.
+    # Crear UIs con panel_id para enrutamiento correcto
     ui_coder = ParallelPanelUI(terminal_ui, "live_display_coder")
     ui_researcher = ParallelPanelUI(terminal_ui, "live_display_researcher")
     
@@ -517,47 +608,53 @@ def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any
     finally:
         # Consolidar: mover contenido de los paneles al chat log y ocultarlos
         try:
-            target_app = _resolve_tui_app(terminal_ui)
-            if target_app:
-                # Primero desactivar los listeners de teclado antes de eliminar paneles
-                if hasattr(target_app, '_keyboard_handler'):
-                    target_app._keyboard_handler = None
-                    
-                if hasattr(target_app, 'consolidate_parallel_panels'):
-                    target_app.consolidate_parallel_panels()
-                else:
-                    def _deactivate_panels():
-                        try:
-                            # Dar un pequeño margen para leer el final antes de ocultar
-                            container = target_app.query_one("#parallel_agents_container")
-                            container.display = False
-                            target_app.live_display_coder.display = False
-                            target_app.live_display_researcher.display = False
-                            target_app.live_display.display = True
-                            target_app.tool_display.display = True
-                            try:
-                                target_app.query_one("#tracker_container").remove_class("parallel-mode")
-                            except Exception:
-                                pass
-                            try:
-                                target_app.query_one("#input_container").display = True
-                            except Exception:
-                                pass
-                            try:
-                                target_app.query_one("StatusFooter").display = True
-                            except Exception:
-                                pass
-                            target_app.refresh(layout=True)
-                        except Exception:
-                            pass
-                    
-                    if threading.current_thread() is threading.main_thread():
-                        _deactivate_panels()
+            if is_server_mode:
+                # Modo WS: notificar a la TUI via evento para ocultar paneles
+                try:
+                    terminal_ui.hide_agent_panels()
+                except Exception as e:
+                    logger.warning("No se pudo emitir agent_panel_hide: %s", e)
+            else:
+                target_app = _resolve_tui_app(terminal_ui)
+                if target_app:
+                    if hasattr(target_app, 'consolidate_parallel_panels'):
+                        target_app.consolidate_parallel_panels()
                     else:
-                        # Pequeña pausa para que el usuario vea el 'finalizado'
-                        import time
-                        time.sleep(2)
-                        target_app.call_from_thread(_deactivate_panels)
+                        def _deactivate_panels():
+                            try:
+                                container = target_app.query_one("#parallel_agents_container")
+                                container.display = False
+                                try:
+                                    target_app.query_one("#tracker_container").remove_class("parallel-mode")
+                                except Exception:
+                                    pass
+                                try:
+                                    target_app.query_one("#live_display").display = True
+                                except Exception:
+                                    pass
+                                try:
+                                    target_app.query_one("#tool_display").display = True
+                                except Exception:
+                                    pass
+                                # Restaurar input y footer (aunque no los hayamos ocultado, por si acaso)
+                                try:
+                                    target_app.query_one("#input_container").display = True
+                                except Exception:
+                                    pass
+                                try:
+                                    target_app.query_one("StatusFooter").display = True
+                                except Exception:
+                                    pass
+                                target_app.refresh(layout=True)
+                            except Exception:
+                                pass
+                        
+                        if threading.current_thread() is threading.main_thread():
+                            _deactivate_panels()
+                        else:
+                            import time
+                            time.sleep(2)
+                            target_app.call_from_thread(_deactivate_panels)
         except Exception as e:
             logger.error(f"Error consolidando paneles paralelos: {e}")
         

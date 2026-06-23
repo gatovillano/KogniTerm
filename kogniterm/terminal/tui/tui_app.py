@@ -254,8 +254,12 @@ class TextualTerminalUI:
             def _update_panel():
                 try:
                     panel = self.app.query_one(f"#{panel_id}")
-                    # Usually streaming text to a panel is for replacing its content or rendering it (Rich renderable)
-                    panel.update(content)
+                    # ChatLogWidget (VerticalScroll) usa write_stream; Static/ToolOutputWidget usa update
+                    from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+                    if isinstance(panel, ChatLogWidget):
+                        panel.write_stream(content)
+                    elif hasattr(panel, "update"):
+                        panel.update(content)
                 except Exception:
                     pass
             self._safe_call(_update_panel)
@@ -2392,14 +2396,20 @@ class KogniTermTUI(App):
                 # NO forzar panel.display = True aquí - la visibilidad se controla
                 # explícitamente por el usuario con Ctrl+O (action_toggle_tool_panel)
                 # Manejo especial para terminales en paneles dedicados
+                from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
                 if isinstance(renderable, tuple) and renderable[0] == "__TERMINAL__":
                     tool_name = renderable[1]
                     output = renderable[2]
                     command = renderable[3] if len(renderable) >= 4 else tool_name
                     if hasattr(panel, "update_content"):
                         panel.update_content(output, command=command)
+                    elif isinstance(panel, ChatLogWidget):
+                        panel.write_stream(("__TERMINAL__", tool_name, output, command))
                     else:
                         panel.update(output)
+                elif isinstance(panel, ChatLogWidget):
+                    # ChatLogWidget (VerticalScroll) no tiene update(); usar write_stream
+                    panel.write_stream(renderable)
                 else:
                     panel.update(renderable)
                 return

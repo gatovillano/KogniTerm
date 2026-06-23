@@ -103,9 +103,10 @@ class TUIWebSocketClient:
         self._connected = False
         self._stopped = False
         self._send_queue: asyncio.Queue = asyncio.Queue()
-        # Variables de control para evitar solapamientos y comportamientos erráticos en streaming
+        # Acumuladores de streaming por agente: clave = agent_id o "__main__"
+        self._stream_accumulators: dict = {}
+        # Tiempo del último live_update (solo para agente principal)
         self._last_live_update_time = 0.0
-        self._stream_accumulator = ""
 
     # ── Propiedades públicas ────────────────────────────────────────────────────
 
@@ -222,39 +223,50 @@ class TUIWebSocketClient:
 
         elif event_type == "stream":
             # Fragmento de texto del LLM
+            agent_id = event.get("agent_id")
             text = str(data) if data else ""
             if text:
-                # Si recibimos live_update en los últimos 2 segundos, ignoramos los fragmentos
-                # individuales (stream) del agente para evitar sobreescrituras en el widget de thoughts.
                 import time
-                if time.time() - self._last_live_update_time > 2.0:
-                    self._stream_accumulator += text
-                    # Detener el spinner en el thread de UI de Textual inmediatamente cuando llega contenido
-                    def write_to_log():
-                        if self._app._spinner_timer:
+                # Solo suprimir stream del agente principal si hay live_update reciente
+                if agent_id or time.time() - self._last_live_update_time > 2.0:
+                    accumulated = self._get_stream_accumulator(agent_id) + text
+                    self._set_stream_accumulator(accumulated, agent_id)
+                    chat_log = self._get_chat_log(agent_id)
+                    
+                    if agent_id:
+                        # Mostrar panel del subagente (no bloquea el agente principal)
+                        self._app.call_from_thread(self._show_agent_panel, agent_id)
+
+                    def write_to_log(cl=chat_log, acc=accumulated, aid=agent_id):
+                        if not aid and self._app._spinner_timer:
                             self._app._stop_spinner()
-                        self._app.chat_log.write_stream(self._stream_accumulator)
+                        cl.write_stream(acc)
                     self._app.call_from_thread(write_to_log)
 
         elif event_type == "message":
             # Mensaje completo del agente (no streaming)
+            agent_id = event.get("agent_id")
             if isinstance(data, dict):
                 text = data.get("text", "")
             else:
                 text = str(data) if data else ""
             if text:
-                self._app.call_from_thread(self._app.chat_log.write_agent_message, text)
+                chat_log = self._get_chat_log(agent_id)
+                self._app.call_from_thread(chat_log.write_agent_message, text)
 
         elif event_type == "tool_call":
             # El agente comenzó a usar una herramienta
-            self._last_live_update_time = 0.0
-            self._stream_accumulator = ""
+            agent_id = event.get("agent_id")
+            self._reset_stream_accumulator(agent_id)
+            if not agent_id:
+                self._last_live_update_time = 0.0
             if isinstance(data, dict):
                 tool_name = data.get("name", "herramienta")
                 description = data.get("description", "")
                 skill = data.get("skill", "")
             else:
                 tool_name, description, skill = str(data), "", ""
+            # Notificaciones de herramientas de subagentes van al chat principal
             self._app.call_from_thread(
                 self._app.tui_ui.print_tool_notification,
                 tool_name, description, skill,
@@ -262,8 +274,10 @@ class TUIWebSocketClient:
 
         elif event_type == "tool_result":
             # Salida de una herramienta
-            self._last_live_update_time = 0.0
-            self._stream_accumulator = ""
+            agent_id = event.get("agent_id")
+            self._reset_stream_accumulator(agent_id)
+            if not agent_id:
+                self._last_live_update_time = 0.0
             if isinstance(data, dict):
                 output = data.get("content", "")
                 tool_name = data.get("tool", "Terminal")
@@ -277,8 +291,10 @@ class TUIWebSocketClient:
 
         elif event_type == "terminal_output":
             # Salida interactiva para el panel terminal
-            self._last_live_update_time = 0.0
-            self._stream_accumulator = ""
+            agent_id = event.get("agent_id")
+            self._reset_stream_accumulator(agent_id)
+            if not agent_id:
+                self._last_live_update_time = 0.0
             if isinstance(data, dict):
                 output = data.get("content", "")
                 tool_name = data.get("tool", "Terminal")
@@ -305,47 +321,59 @@ class TUIWebSocketClient:
 
         elif event_type == "live_update":
             # Actualización de rich content (reasoning, etc.)
+            agent_id = event.get("agent_id")
+            chat_log = self._get_chat_log(agent_id)
+
+            if agent_id:
+                # Para subagentes: mostrar panel y enrutar
+                self._app.call_from_thread(self._show_agent_panel, agent_id)
+            else:
+                import time
+                self._last_live_update_time = time.time()
+
             if isinstance(data, dict):
                 special_type = data.get("special_type")
-                if special_type == "spinner":
+                if special_type == "spinner" and not agent_id:
                     content = ("__SPINNER__", data.get("text", ""))
-                    import time
-                    self._last_live_update_time = time.time()
-                    self._app.call_from_thread(lambda: self._app.chat_log.write_stream(content))
-                elif special_type == "terminal":
+                    self._app.call_from_thread(lambda cl=chat_log, c=content: cl.write_stream(c))
+                elif special_type == "terminal" and not agent_id:
                     content = ("__TERMINAL__", data.get("tool", ""), data.get("output", ""), data.get("command", ""))
-                    import time
-                    self._last_live_update_time = time.time()
-                    self._app.call_from_thread(lambda: self._app.chat_log.write_stream(content))
+                    self._app.call_from_thread(lambda cl=chat_log, c=content: cl.write_stream(c))
                 else:
                     thinking = data.get("thinking", "")
                     response = data.get("response", "")
-                    renderable = build_native_renderable(thinking, response)
-                    if renderable:
-                        import time
-                        self._last_live_update_time = time.time()
-                        # Detener el spinner en el thread de UI de Textual inmediatamente cuando llega contenido
-                        def write_to_log():
-                            if self._app._spinner_timer:
-                                self._app._stop_spinner()
-                            self._app.chat_log.write_stream(renderable)
-                        self._app.call_from_thread(write_to_log)
+                    if agent_id:
+                        # Para subagentes: mostrar como texto simple acumulado
+                        display_text = (response or thinking or "").strip()
+                        if display_text:
+                            acc = self._get_stream_accumulator(agent_id) + display_text
+                            self._set_stream_accumulator(acc, agent_id)
+                            self._app.call_from_thread(lambda cl=chat_log, t=acc: cl.write_stream(t))
+                    else:
+                        renderable = build_native_renderable(thinking, response)
+                        if renderable:
+                            def write_to_log(cl=chat_log, r=renderable):
+                                if self._app._spinner_timer:
+                                    self._app._stop_spinner()
+                                cl.write_stream(r)
+                            self._app.call_from_thread(write_to_log)
             else:
                 text = str(data) if data else ""
                 if text:
-                    import time
-                    self._last_live_update_time = time.time()
-                    def write_to_log():
-                        if self._app._spinner_timer:
+                    def write_to_log(cl=chat_log, t=text, aid=agent_id):
+                        if not aid and self._app._spinner_timer:
                             self._app._stop_spinner()
-                        self._app.chat_log.write_stream(text)
+                        cl.write_stream(t)
                     self._app.call_from_thread(write_to_log)
 
         elif event_type == "live_stop":
             # Parar el streaming actual y congelar el widget
-            self._last_live_update_time = 0.0
-            self._stream_accumulator = ""
-            self._app.call_from_thread(self._app.chat_log.stop_stream)
+            agent_id = event.get("agent_id")
+            self._reset_stream_accumulator(agent_id)
+            if not agent_id:
+                self._last_live_update_time = 0.0
+            chat_log = self._get_chat_log(agent_id)
+            self._app.call_from_thread(chat_log.stop_stream)
 
         elif event_type == "approval_required":
             # El servidor necesita aprobación del usuario
@@ -363,12 +391,12 @@ class TUIWebSocketClient:
         elif event_type == "done":
             # El agente terminó su turno
             self._last_live_update_time = 0.0
-            self._stream_accumulator = ""
+            self._stream_accumulators.clear()
             self._app.call_from_thread(self._on_agent_done)
 
         elif event_type == "error":
             self._last_live_update_time = 0.0
-            self._stream_accumulator = ""
+            self._stream_accumulators.clear()
             error_msg = data.get("message", str(data)) if isinstance(data, dict) else str(data)
             self._app.call_from_thread(
                 self._app.tui_ui.print_message,
@@ -376,6 +404,18 @@ class TUIWebSocketClient:
                 "bold red",
             )
             self._app.call_from_thread(self._on_agent_done)
+
+        elif event_type == "agent_panel_show":
+            # El servidor indica que debe mostrarse el panel de un subagente
+            if isinstance(data, dict):
+                agent_id = data.get("agent_id", "")
+                title = data.get("title", agent_id)
+                if agent_id:
+                    self._app.call_from_thread(self._show_agent_panel, agent_id, title)
+
+        elif event_type == "agent_panel_hide":
+            # El servidor indica que los paneles paralelos deben ocultarse
+            self._app.call_from_thread(self._hide_agent_panels)
 
         elif event_type == "indexing_progress":
             if isinstance(data, dict):
@@ -400,6 +440,70 @@ class TUIWebSocketClient:
 
         else:
             logger.debug(f"[WS] Evento no manejado: {event_type}")
+
+    # ── Helpers de enrutamiento a paneles ────────────────────────────────────
+
+    def _get_chat_log(self, agent_id: str = None):
+        """Retorna el ChatLogWidget para el agente indicado.
+        
+        Si agent_id es None o no se encuentra el panel, devuelve el chat_log principal.
+        """
+        if not agent_id:
+            return self._app.chat_log
+        # Los paneles de agentes paralelos son atributos directos de la app
+        panel_attr = agent_id  # e.g. "live_display_coder"
+        if hasattr(self._app, panel_attr):
+            return getattr(self._app, panel_attr)
+        return self._app.chat_log
+
+    def _get_stream_accumulator(self, agent_id: str = None) -> str:
+        key = agent_id or "__main__"
+        return self._stream_accumulators.get(key, "")
+
+    def _set_stream_accumulator(self, value: str, agent_id: str = None):
+        key = agent_id or "__main__"
+        self._stream_accumulators[key] = value
+
+    def _reset_stream_accumulator(self, agent_id: str = None):
+        key = agent_id or "__main__"
+        self._stream_accumulators[key] = ""
+
+    def _show_agent_panel(self, agent_id: str, title: str = ""):
+        """Muestra el contenedor de paneles paralelos y activa la pestaña del agente.
+        
+        Se debe ejecutar en el hilo principal de Textual.
+        """
+        try:
+            container = self._app.query_one("#parallel_agents_container")
+            if not container.display:
+                container.display = True
+            # Activar la pestaña correspondiente
+            # agent_id es algo como "live_display_coder" → tab_id es "tab_coder"
+            tab_suffix = agent_id.replace("live_display_", "")
+            tab_id = f"tab_{tab_suffix}"
+            try:
+                container.active = tab_id
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"[WS] Error mostrando panel del agente {agent_id}: {e}")
+
+    def _hide_agent_panels(self):
+        """Oculta el contenedor de paneles paralelos."""
+        try:
+            container = self._app.query_one("#parallel_agents_container")
+            container.display = False
+            # Restaurar paneles principales
+            try:
+                self._app.query_one("#live_display").display = True
+            except Exception:
+                pass
+            try:
+                self._app.query_one("#tool_display").display = True
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"[WS] Error ocultando paneles paralelos: {e}")
 
     # ── Helpers de eventos complejos ───────────────────────────────────────────
 

@@ -166,18 +166,23 @@ class ServerUI(TerminalUI):
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
-    def _push(self, event_type: str, data: Any) -> None:
-        """Envía un evento desde cualquier hilo al loop asyncio del servidor."""
+    def _push(self, event_type: str, data: Any, agent_id: str = None) -> None:
+        """Envía un evento desde cualquier hilo al loop asyncio del servidor.
+        
+        Si se provee agent_id, se incluye en el evento para que la TUI pueda
+        enrutar el output al panel/pestaña del subagente correspondiente.
+        """
         event = {"type": event_type, "data": data, "ts": datetime.utcnow().isoformat()}
+        if agent_id:
+            event["agent_id"] = agent_id
         try:
             self._loop.call_soon_threadsafe(self._async_queue.put_nowait, event)
             
-            # Broadcast a Telegram si es un mensaje de texto
-            if event_type in ["message", "stream"] and self.telegram_adapters:
+            # Broadcast a Telegram si es un mensaje de texto (solo agente principal)
+            if not agent_id and event_type in ["message", "stream"] and self.telegram_adapters:
                 text = data if isinstance(data, str) else data.get("text", "")
                 if text:
                     for adapter in self.telegram_adapters:
-                        # Usamos run_coroutine_threadsafe para enviar desde fuera del loop
                         asyncio.run_coroutine_threadsafe(adapter.send_message(text), self._loop)
         except Exception as exc:
             logger.warning(f"[{self.session_id}] No se pudo enviar evento {event_type}: {exc}")
@@ -191,18 +196,17 @@ class ServerUI(TerminalUI):
 
     # ── TerminalUI overrides ───────────────────────────────────────────────────
 
-    def print_stream(self, text: str) -> None:
+    def print_stream(self, text: str, agent_id: str = None) -> None:
         logger.info(f"[{self.session_id}] ServerUI.print_stream: {text[:50]}...")
-        # Desktop expects 'chunk' type with 'content' key, Core expects 'stream' type with text data
-        self._push("chunk", {"content": text})
-        self._push("stream", text)
+        self._push("chunk", {"content": text}, agent_id=agent_id)
+        self._push("stream", text, agent_id=agent_id)
 
-    def update_live(self, renderable: Any) -> None:
+    def update_live(self, renderable: Any, agent_id: str = None) -> None:
         try:
             # Check for special tuples first
             if isinstance(renderable, tuple) and len(renderable) >= 2:
                 if renderable[0] == "__SPINNER__":
-                    self._push("live_update", {"special_type": "spinner", "text": renderable[1]})
+                    self._push("live_update", {"special_type": "spinner", "text": renderable[1]}, agent_id=agent_id)
                     return
                 elif renderable[0] == "__TERMINAL__":
                     tool = renderable[1]
@@ -213,37 +217,43 @@ class ServerUI(TerminalUI):
                         "tool": tool,
                         "output": output,
                         "command": command
-                    })
+                    }, agent_id=agent_id)
                     return
 
             thinking, response = extract_thinking_and_response(renderable)
             
-            # Clean thinking from any residual ANSI or box characters
             if thinking:
                 thinking = clean_thinking_text(thinking)
                 
-            self._push("live_update", {"thinking": thinking, "response": response})
+            self._push("live_update", {"thinking": thinking, "response": response}, agent_id=agent_id)
         except Exception as exc:
             logger.warning(f"Error al extraer estructuradamente: {exc}")
-            # Fallback to plain text representation of the renderable (without ANSI/box borders)
             try:
                 buf = StringIO()
                 c = Console(file=buf, force_terminal=False, no_color=True, width=120)
                 c.print(renderable)
                 plain_text = buf.getvalue()
                 cleaned = clean_thinking_text(plain_text)
-                self._push("live_update", {"thinking": cleaned, "response": ""})
+                self._push("live_update", {"thinking": cleaned, "response": ""}, agent_id=agent_id)
             except Exception as e2:
                 logger.error(f"Fallback rendering failed: {e2}")
-                self._push("live_update", {"thinking": "", "response": ""})
+                self._push("live_update", {"thinking": "", "response": ""}, agent_id=agent_id)
 
-    def stop_live(self, **kwargs) -> None:
-        self._push("live_stop", {})
+    def stop_live(self, agent_id: str = None, **kwargs) -> None:
+        self._push("live_stop", {}, agent_id=agent_id)
 
-    def print_message(self, message: str, style: str = "", **kwargs) -> None:
+    def print_message(self, message: str, style: str = "", agent_id: str = None, **kwargs) -> None:
         logger.info(f"[{self.session_id}] ServerUI.print_message: {message[:50]}...")
-        self._push("chunk", {"content": message})
-        self._push("message", {"text": message})
+        self._push("chunk", {"content": message}, agent_id=agent_id)
+        self._push("message", {"text": message}, agent_id=agent_id)
+
+    def show_agent_panel(self, agent_id: str, title: str = "") -> None:
+        """Notifica a la TUI que debe mostrar/activar el panel de un subagente."""
+        self._push("agent_panel_show", {"agent_id": agent_id, "title": title or agent_id})
+
+    def hide_agent_panels(self) -> None:
+        """Notifica a la TUI que los paneles paralelos deben ocultarse."""
+        self._push("agent_panel_hide", {})
 
     def print_warning_box(self, message: str, title: str = "Advertencia") -> None:
         logger.info(f"[{self.session_id}] ServerUI.print_warning_box: {message[:50]}...")
