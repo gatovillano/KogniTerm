@@ -1,14 +1,17 @@
 """
 Skill: task_tracker
 Permite a los agentes gestionar una lista de tareas compartida con panel visual.
+
+Las tareas son exclusivamente en memoria para la sesión activa.
+Al inicio de cada sesión el estado siempre empieza limpio (sin huérfanos).
 """
 from typing import List, Dict, Any
-import json
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Almacenamiento en memoria para esta sesión (por agente)
+# Almacenamiento en memoria para esta sesión (por agente).
+# Se reinicia completamente al cargar el módulo (= inicio de sesión).
 _agent_plans: Dict[str, List[Dict[str, Any]]] = {}
 _llm_service: Any = None  # Será inyectado por el SkillLoader
 
@@ -19,33 +22,25 @@ STATUS_DONE = "done"
 VALID_STATUSES = {STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_DONE}
 
 
-def load_saved_plans():
-    global _agent_plans
-    if not _agent_plans and globals().get('get_skill_state'):
-        try:
-            saved = globals()['get_skill_state']()
-            if saved:
-                _agent_plans.update(saved)
-        except Exception as e:
-            logger.debug(f"Error cargando estado guardado: {e}")
+def _clear_persisted_state():
+    """Borra el archivo de estado en disco si existe, para no cargar huérfanos."""
+    try:
+        get_state = globals().get('get_skill_state')
+        save_state = globals().get('save_skill_state')
+        if save_state:
+            # Sobreescribir con dict vacío para limpiar el archivo en disco
+            save_state({})
+    except Exception as e:
+        logger.debug(f"Error limpiando estado en disco: {e}")
 
-def save_plans():
-    global _agent_plans
-    if globals().get('save_skill_state'):
-        try:
-            globals()['save_skill_state'](_agent_plans)
-        except Exception as e:
-            logger.debug(f"Error guardando estado: {e}")
 
 def _update_ui():
     """Actualiza el panel lateral de tareas en la TUI."""
     global _agent_plans, _llm_service
-    load_saved_plans()
     if not _llm_service:
         return
 
     try:
-        # Usar el adaptador de TUI para actualizar el panel de tareas
         if hasattr(_llm_service, 'terminal_ui') and _llm_service.terminal_ui:
             tui = _llm_service.terminal_ui
             if hasattr(tui, 'update_task_tracker'):
@@ -62,10 +57,8 @@ def _normalize_agent_name(agent_name: str) -> str:
 def _init_tasks(agent_name: str, plan: List[str]) -> str:
     """Inicializa la lista de tareas para un agente."""
     global _agent_plans
-    load_saved_plans()
     normalized_name = _normalize_agent_name(agent_name)
     _agent_plans[normalized_name] = [{"task": t, "status": STATUS_PENDING} for t in plan]
-    save_plans()
     _update_ui()
     return f"✅ Plan de {len(_agent_plans[normalized_name])} tareas inicializado para '{normalized_name}'."
 
@@ -73,7 +66,6 @@ def _init_tasks(agent_name: str, plan: List[str]) -> str:
 def _update_task(agent_name: str, task_index: int, status: str) -> str:
     """Marca una tarea como completada o en curso para un agente."""
     global _agent_plans
-    load_saved_plans()
     normalized_name = _normalize_agent_name(agent_name)
 
     if status not in VALID_STATUSES:
@@ -88,7 +80,6 @@ def _update_task(agent_name: str, task_index: int, status: str) -> str:
 
     old_status = tasks[task_index]["status"]
     tasks[task_index]["status"] = status
-    save_plans()
     _update_ui()
 
     if old_status == status:
@@ -99,7 +90,6 @@ def _update_task(agent_name: str, task_index: int, status: str) -> str:
 def _get_status(agent_name: str = None) -> str:
     """Devuelve el estado actual de todas las tareas (o de un agente)."""
     global _agent_plans
-    load_saved_plans()
     if not _agent_plans:
         return "📋 No hay tareas inicializadas."
 
@@ -123,7 +113,6 @@ def _get_status(agent_name: str = None) -> str:
 def _show_task_tracker_panel():
     """Muestra el panel de tareas en la TUI."""
     global _agent_plans, _llm_service
-    load_saved_plans()
     if not _llm_service:
         return
 
@@ -177,7 +166,6 @@ def task_tracker(action: str, agent_name: str, plan: List[str] = None, task_inde
         if not plan:
             return "❌ Error: 'plan' es requerido para action='init'. Proporciona una lista de tareas."
         result = _init_tasks(agent_name, plan)
-        # Mostrar el panel después de inicializar
         _show_task_tracker_panel()
         return result
     elif action == "update":

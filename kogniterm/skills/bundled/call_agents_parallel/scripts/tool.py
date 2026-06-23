@@ -196,10 +196,13 @@ class ParallelPanelUI:
     def _get_tui_panel(self):
         """Retorna el widget ChatLogWidget del panel en modo TUI local."""
         try:
+            # Primero intentar obtenerlo como atributo directo de la app (más rápido y seguro)
+            if hasattr(self.app, self.panel_id):
+                return getattr(self.app, self.panel_id)
             if hasattr(self.app, 'query_one'):
                 return self.app.query_one(f"#{self.panel_id}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("ParallelPanelUI: Error querying panel %s: %s", self.panel_id, e)
         return None
 
     def update_live(self, renderable, **kwargs):
@@ -233,6 +236,7 @@ class ParallelPanelUI:
                 try:
                     panel = self._get_tui_panel()
                     if panel is None:
+                        logger.warning("ParallelPanelUI: Panel %s not found in TUI application", self.panel_id)
                         return
                     if hasattr(panel, "write_stream"):
                         panel.write_stream(renderable)
@@ -240,16 +244,16 @@ class ParallelPanelUI:
                         panel.update(renderable)
                     if hasattr(panel, "scroll_end"):
                         panel.scroll_end(animate=False)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.exception("ParallelPanelUI: Error during panel %s _update: %s", self.panel_id, e)
             
             if threading.current_thread() is threading.main_thread():
                 _update()
             else:
                 try:
                     self.app.call_from_thread(_update)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.exception("ParallelPanelUI: Error scheduling call_from_thread: %s", e)
 
     def stop_live(self, *args, **kwargs):
         """Called by the agent when a node finishes streaming."""
@@ -348,9 +352,15 @@ class ParallelPanelUI:
             import inspect
             sig = inspect.signature(method)
             call_kwargs = dict(kwargs)
-            if "panel_id" in sig.parameters and "panel_id" not in call_kwargs:
+            if "panel_id" not in call_kwargs:
                 call_kwargs["panel_id"] = self.panel_id
-            accepted = {k: v for k, v in call_kwargs.items() if k in sig.parameters}
+            
+            # Si el método acepta **kwargs (VAR_KEYWORD), pasamos todos los argumentos
+            has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            if has_var_keyword:
+                accepted = call_kwargs
+            else:
+                accepted = {k: v for k, v in call_kwargs.items() if k in sig.parameters}
             return method(*args, **accepted)
         except Exception:
             try:

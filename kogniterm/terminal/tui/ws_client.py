@@ -266,11 +266,16 @@ class TUIWebSocketClient:
                 skill = data.get("skill", "")
             else:
                 tool_name, description, skill = str(data), "", ""
-            # Notificaciones de herramientas de subagentes van al chat principal
-            self._app.call_from_thread(
-                self._app.tui_ui.print_tool_notification,
-                tool_name, description, skill,
-            )
+            
+            if agent_id:
+                chat_log = self._get_chat_log(agent_id)
+                self._app.call_from_thread(self._show_agent_panel, agent_id)
+                self._app.call_from_thread(chat_log.write_tool_notification, tool_name, description, skill)
+            else:
+                self._app.call_from_thread(
+                    self._app.tui_ui.print_tool_notification,
+                    tool_name, description, skill,
+                )
 
         elif event_type == "tool_result":
             # Salida de una herramienta
@@ -284,10 +289,17 @@ class TUIWebSocketClient:
             else:
                 output, tool_name = str(data), "Terminal"
             if output:
-                self._app.call_from_thread(
-                    self._app.tui_ui.update_tool_display,
-                    tool_name, output,
-                )
+                if agent_id:
+                    chat_log = self._get_chat_log(agent_id)
+                    limit = 30
+                    lines = output.splitlines()
+                    displayed = "\n".join(lines[-limit:]) if len(lines) > limit else output
+                    self._app.call_from_thread(chat_log.write_tool_output, displayed, tool_name)
+                else:
+                    self._app.call_from_thread(
+                        self._app.tui_ui.update_tool_display,
+                        tool_name, output,
+                    )
 
         elif event_type == "terminal_output":
             # Salida interactiva para el panel terminal
@@ -301,10 +313,14 @@ class TUIWebSocketClient:
             else:
                 output, tool_name = str(data), "Terminal"
             if output is not None:
-                self._app.call_from_thread(
-                    self._app.tui_ui.update_terminal_output,
-                    tool_name, output,
-                )
+                if agent_id:
+                    chat_log = self._get_chat_log(agent_id)
+                    self._app.call_from_thread(chat_log.write_stream, ("__TERMINAL__", tool_name, output))
+                else:
+                    self._app.call_from_thread(
+                        self._app.tui_ui.update_terminal_output,
+                        tool_name, output,
+                    )
 
         elif event_type == "set_terminal_cursor":
             active = data.get("active", False) if isinstance(data, dict) else bool(data)
@@ -346,9 +362,11 @@ class TUIWebSocketClient:
                         # Para subagentes: mostrar como texto simple acumulado
                         display_text = (response or thinking or "").strip()
                         if display_text:
-                            acc = self._get_stream_accumulator(agent_id) + display_text
-                            self._set_stream_accumulator(acc, agent_id)
-                            self._app.call_from_thread(lambda cl=chat_log, t=acc: cl.write_stream(t))
+                            # En modo servidor, live_update envía el texto completo acumulado (buf.getvalue()).
+                            # Por lo tanto, no debemos volver a sumarlo con el acumulador anterior,
+                            # sino simplemente usar el display_text como el nuevo valor acumulado.
+                            self._set_stream_accumulator(display_text, agent_id)
+                            self._app.call_from_thread(lambda cl=chat_log, t=display_text: cl.write_stream(t))
                     else:
                         renderable = build_native_renderable(thinking, response)
                         if renderable:
@@ -390,20 +408,33 @@ class TUIWebSocketClient:
 
         elif event_type == "done":
             # El agente terminó su turno
-            self._last_live_update_time = 0.0
-            self._stream_accumulators.clear()
-            self._app.call_from_thread(self._on_agent_done)
+            agent_id = event.get("agent_id")
+            if agent_id:
+                self._reset_stream_accumulator(agent_id)
+            else:
+                self._last_live_update_time = 0.0
+                self._stream_accumulators.clear()
+                self._app.call_from_thread(self._on_agent_done)
 
         elif event_type == "error":
-            self._last_live_update_time = 0.0
-            self._stream_accumulators.clear()
+            agent_id = event.get("agent_id")
             error_msg = data.get("message", str(data)) if isinstance(data, dict) else str(data)
-            self._app.call_from_thread(
-                self._app.tui_ui.print_message,
-                f"❌ Error del servidor: {error_msg}",
-                "bold red",
-            )
-            self._app.call_from_thread(self._on_agent_done)
+            if agent_id:
+                self._reset_stream_accumulator(agent_id)
+                chat_log = self._get_chat_log(agent_id)
+                self._app.call_from_thread(
+                    chat_log.write_agent_message,
+                    f"❌ Error: {error_msg}"
+                )
+            else:
+                self._last_live_update_time = 0.0
+                self._stream_accumulators.clear()
+                self._app.call_from_thread(
+                    self._app.tui_ui.print_message,
+                    f"❌ Error del servidor: {error_msg}",
+                    "bold red",
+                )
+                self._app.call_from_thread(self._on_agent_done)
 
         elif event_type == "agent_panel_show":
             # El servidor indica que debe mostrarse el panel de un subagente

@@ -339,7 +339,7 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
     try:
         # _invoke_tool_with_interrupt es un generador, debemos iterar para obtener el resultado final
         output_str = ""
-        for part in llm_service._invoke_tool_with_interrupt(tool, tool_args):
+        for part in llm_service._invoke_tool_with_interrupt(tool, tool_args, terminal_ui=terminal_ui):
             if part is not None:
                 output_str += str(part)
         
@@ -444,7 +444,7 @@ def _consume_tool_generator(result) -> str:
     return str(result)
 
 
-def _invoke_tool_autonomously(llm_service: LLMService, tool_name: str, tool_args: dict) -> str:
+def _invoke_tool_autonomously(llm_service: LLMService, tool_name: str, tool_args: dict, terminal_ui: Optional[Any] = None) -> str:
     """Reintenta una herramienta con confirmación implícita para agentes autónomos."""
     tool = llm_service.get_tool(tool_name)
     if tool is None:
@@ -454,7 +454,7 @@ def _invoke_tool_autonomously(llm_service: LLMService, tool_name: str, tool_args
     approved_args["confirm"] = True
 
     parts = []
-    for part in llm_service._invoke_tool_with_interrupt(tool, approved_args):
+    for part in llm_service._invoke_tool_with_interrupt(tool, approved_args, terminal_ui=terminal_ui):
         parts.append(part)
 
     if not parts:
@@ -556,6 +556,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: O
                             tc["name"] for tc in last_message.tool_calls if tc["id"] == tool_id
                         ),
                         exception.tool_args,
+                        terminal_ui=terminal_ui,
                     )
                     tool_messages.append(ToolMessage(content=auto_content, tool_call_id=tool_id))
                     continue

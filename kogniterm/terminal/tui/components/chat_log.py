@@ -298,15 +298,17 @@ class ChatLogWidget(VerticalScroll):
                         self._active_message_widget.update(r)
                 
                 self.scroll_end(animate=False)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.exception("ChatLogWidget: Error in _mount_or_update for %s: %s", self.id, e)
 
         try:
             if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
                 self.app.call_from_thread(_mount_or_update, renderable, is_terminal, is_spinner, tool_name, terminal_command)
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.exception("ChatLogWidget: Error calling call_from_thread in write_stream: %s", e)
 
         _mount_or_update(renderable, is_terminal, is_spinner, tool_name, terminal_command)
 
