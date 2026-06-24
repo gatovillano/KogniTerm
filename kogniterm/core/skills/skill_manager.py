@@ -266,9 +266,15 @@ class SkillLoader:
         module_params_attr = getattr(module, 'parameters_schema', None)
         module_tool_schema = getattr(module, 'tool_schema', None)
 
+        # Funciones que claramente NO son herramientas (helpers, descripción, etc.)
+        excluded_names = (
+            'get_action_description', 'get_description', 'description',
+            'set_llm_service', 'validate', 'sanitize', 'format_output', 'format_input'
+        )
+
         # Estrategia 1: Buscar objetos con atributos 'name' o método 'run' (clases legacy)
         for attr_name in dir(module):
-            if attr_name.startswith('_'):
+            if attr_name.startswith('_') or attr_name in excluded_names:
                 continue
             attr = getattr(module, attr_name)
             if callable(attr):
@@ -283,7 +289,7 @@ class SkillLoader:
         if not tools:
             seen_objects = set()
             for attr_name in sorted(dir(module)): # Origen consistente
-                if attr_name.startswith('_'):
+                if attr_name.startswith('_') or attr_name in excluded_names:
                     continue
                 attr = getattr(module, attr_name)
                 
@@ -300,14 +306,6 @@ class SkillLoader:
                         
                     is_tool = False
                     reason = ""
-                    
-                    # Funciones que claramente NO son herramientas (helpers, descripción, etc.)
-                    excluded_names = (
-                        'get_action_description', 'get_description', 'description',
-                        'validate', 'sanitize', 'format_output', 'format_input'
-                    )
-                    if attr_name in excluded_names:
-                        continue
                     
                     # Si ya encontramos una herramienta que coincide con el nombre del módulo, no agregar más
                     if tools and module_name_attr and attr_name != module_name_attr:

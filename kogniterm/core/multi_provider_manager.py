@@ -502,8 +502,10 @@ class MultiProviderManager:
             if provider.name == "ollama":
                 completion_kwargs["custom_llm_provider"] = "ollama"
             elif provider.name == "ollama_cloud":
-                # Ollama Cloud usa API compatible con OpenAI, no necesita custom_llm_provider
-                pass
+                # Ollama Cloud expone una API compatible con OpenAI en /v1/chat/completions.
+                # Sin custom_llm_provider, LiteLLM infiere "ollama" nativo y arma
+                # https://ollama.com/v1/api/generate, que devuelve 404 ("path not found").
+                completion_kwargs["custom_llm_provider"] = "openai"
             elif provider.name == "kilocode":
                 completion_kwargs["custom_llm_provider"] = "openai"
             elif provider.model_prefix == "gemini" or provider.name == "google":

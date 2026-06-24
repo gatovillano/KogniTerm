@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Verificar si estamos en el directorio correcto
-if [ ! -d "apps/server" ] || [ ! -d "apps/desktop" ]; then
+if [ ! -d "apps/desktop" ] || [ ! -d "apps/desktop" ]; then
     echo "❌ Error: Este script debe ejecutarse desde el directorio kogniterm-desktop/"
     exit 1
 fi
@@ -41,15 +41,15 @@ echo ""
 # Iniciar backend en una nueva terminal
 echo "${BLUE}📡 Iniciando backend (KogniTerm Server)...${NC}"
 if command_exists gnome-terminal; then
-    gnome-terminal -- bash -c "source \$HOME/.cargo/env; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash"
+    gnome-terminal -- bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash"
 elif command_exists konsole; then
-    konsole -e bash -c "source \$HOME/.cargo/env; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
+    konsole -e bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
 elif command_exists xterm; then
-    xterm -e "source \$HOME/.cargo/env; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
+    xterm -e "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
 else
     echo "⚠️  No se encontró un emulador de terminal compatible."
     echo "Por favor, ejecuta manualmente en otra terminal (desde la raíz del proyecto):"
-    echo "  python3 -m kogniterm.server --port 8765"
+    echo "  source /home/gato/.kogniterm/venv/bin/activate && python3 -m kogniterm.server --port 8765"
 fi
 
 # Función para esperar a que el backend esté listo

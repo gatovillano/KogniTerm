@@ -1,6 +1,9 @@
+import logging
 from textual.widgets import Static
 from textual.containers import VerticalScroll, Horizontal
 from kogniterm.terminal.themes import ColorPalette
+
+logger = logging.getLogger(__name__)
 
 from rich.panel import Panel
 from rich.text import Text
@@ -70,7 +73,7 @@ class ChatLogWidget(VerticalScroll):
         """Escribe un elemento Rich al log."""
         if style and isinstance(renderable, str):
             renderable = Text(renderable, style=style)
-        
+
         # Si es un simple string, lo envolvemos para padding
         if isinstance(renderable, str):
              renderable = Text(renderable)
@@ -84,7 +87,8 @@ class ChatLogWidget(VerticalScroll):
                 self.mount(widget)
                 self.scroll_end(animate=False)
                 return widget
-            except Exception:
+            except Exception as e:
+                logger.warning("ChatLogWidget.write_message: _mount_msg falló: %s", e)
                 return None
 
         try:
@@ -92,8 +96,8 @@ class ChatLogWidget(VerticalScroll):
                 # call_from_thread will schedule the mount on the main thread
                 self.app.call_from_thread(_mount_msg, renderable)
                 return None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("ChatLogWidget.write_message: call_from_thread falló, intentando mount directo: %s", e)
 
         return _mount_msg(renderable)
 

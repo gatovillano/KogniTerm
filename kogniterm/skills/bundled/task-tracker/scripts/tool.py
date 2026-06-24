@@ -183,7 +183,18 @@ def task_tracker(action: str, agent_name: str, plan: List[str] = None, task_inde
 
 
 # Para inyección de dependencias por parte del SkillLoader
-def set_llm_service(llm_service: Any):
+def set_llm_service(llm_service: Any = None, *args, **kwargs):
     """Inyecta el servicio LLM para acceso a la TUI."""
     global _llm_service
-    _llm_service = llm_service
+    if llm_service is not None:
+        _llm_service = llm_service
+    
+    # Si se llama como herramienta por error (ej. se pasa 'action'), delegar a task_tracker
+    if 'action' in kwargs or (args and isinstance(args[0], str)):
+        action = kwargs.get('action') or args[0]
+        agent_name = kwargs.get('agent_name', 'kogni_agent')
+        plan = kwargs.get('plan')
+        task_index = kwargs.get('task_index')
+        status = kwargs.get('status')
+        return task_tracker(action=action, agent_name=agent_name, plan=plan, task_index=task_index, status=status)
+
