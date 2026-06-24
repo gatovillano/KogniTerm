@@ -16,9 +16,16 @@ description = "Inicializa la memoria contextual del proyecto creando un archivo 
 _llm_service = None
 
 
-def set_llm_service(llm_service):
+def set_llm_service(llm_service=None, *args, **kwargs):
     global _llm_service
-    _llm_service = llm_service
+    if llm_service is not None:
+        _llm_service = llm_service
+    
+    # Si se llama como herramienta por error, delegar a memory_init
+    if 'file_path' in kwargs or kwargs or args:
+        file_path = kwargs.get('file_path', 'llm_context.md')
+        return memory_init(file_path=file_path)
+
 
 
 def memory_init(

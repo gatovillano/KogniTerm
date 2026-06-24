@@ -596,6 +596,7 @@ class KogniTermTUI(App):
         align: center bottom;
         padding: 0;
         margin: 0;
+        background: transparent;
         display: none; /* activarse dinámicamente desde el skill */
     }
 
@@ -603,17 +604,20 @@ class KogniTermTUI(App):
     #parallel_agents_container ChatLogWidget {
         width: 100%;
         height: 100%;
+        margin: 0;
+        padding: 0 1;
+        background: transparent;
+        overflow-y: scroll;
+        border: none;
     }
 
     #parallel_agents_container TabPane {
         height: 1fr;
+        background: transparent;
     }
-    #parallel_agents_container ChatLogWidget {
-        margin: 0;
-        padding: 0 1;
-        background: #1a1a1a;
-        overflow-y: scroll;
-        border: none;
+
+    #parallel_agents_container ContentSwitcher {
+        background: transparent;
     }
 
     #queue_display {
@@ -2526,8 +2530,11 @@ class KogniTermTUI(App):
                 expand=True
             )
             from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+            # Filtrar por .display para no escribir en ChatLogWidget de TabPane inactivos
+            # (deep_coder, deep_researcher, dinámicos) que existen en el DOM pero están ocultos.
             for log_widget in self.query(ChatLogWidget):
-                log_widget.write_message(panel)
+                if log_widget.display:
+                    log_widget.write_message(panel)
 
     def action_toggle_tool_panel(self):
         """Alterna la visibilidad del panel de herramientas (tool_display) manualmente."""
