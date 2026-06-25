@@ -41,10 +41,16 @@ def _update_ui():
         return
 
     try:
+        tui = None
         if hasattr(_llm_service, 'terminal_ui') and _llm_service.terminal_ui:
             tui = _llm_service.terminal_ui
-            if hasattr(tui, 'update_task_tracker'):
-                tui.update_task_tracker(_agent_plans)
+        elif hasattr(_llm_service, 'skill_manager') and _llm_service.skill_manager and getattr(_llm_service.skill_manager, 'terminal_ui', None):
+            tui = _llm_service.skill_manager.terminal_ui
+        elif globals().get('_terminal_ui'):
+            tui = globals().get('_terminal_ui')
+
+        if tui and hasattr(tui, 'update_task_tracker'):
+            tui.update_task_tracker(_agent_plans)
     except Exception as e:
         logger.debug(f"Error actualizando UI de tareas: {e}")
 
@@ -87,6 +93,60 @@ def _update_task(agent_name: str, task_index: int, status: str) -> str:
     return f"✅ Tarea {task_index} de '{normalized_name}' actualizada: '{old_status}' → '{status}'."
 
 
+def _batch_update_tasks(agent_name: str, updates: List[Dict[str, Any]]) -> str:
+    """Aplica múltiples actualizaciones de estado en una sola llamada atómica.
+
+    Cada elemento de ``updates`` debe ser un dict ``{"task_index": int, "status": str}``.
+    Las actualizaciones válidas se aplican todas; las inválidas se reportan sin
+    abortar el resto. La UI se refresca una única vez al final del lote.
+    """
+    global _agent_plans
+    normalized_name = _normalize_agent_name(agent_name)
+
+    if normalized_name not in _agent_plans:
+        return f"❌ Error: agente '{agent_name}' no encontrado. Inicializa un plan primero con action='init'."
+
+    tasks = _agent_plans[normalized_name]
+    successes: List[str] = []
+    errors: List[str] = []
+
+    for i, update in enumerate(updates or []):
+        if not isinstance(update, dict):
+            errors.append(f"item #{i}: se esperaba un objeto {{'task_index', 'status'}}")
+            continue
+
+        task_index = update.get("task_index")
+        status = update.get("status")
+
+        if status not in VALID_STATUSES:
+            errors.append(f"item #{i}: estado '{status}' no válido. Usa: {', '.join(sorted(VALID_STATUSES))}")
+            continue
+
+        if not isinstance(task_index, int) or task_index < 0 or task_index >= len(tasks):
+            errors.append(f"item #{i}: índice {task_index} fuera de rango (0-{len(tasks)-1})")
+            continue
+
+        old_status = tasks[task_index]["status"]
+        tasks[task_index]["status"] = status
+        successes.append(f"#{task_index}: '{old_status}' → '{status}'")
+
+    if successes:
+        _update_ui()
+
+    lines: List[str] = []
+    if successes:
+        lines.append(f"✅ {len(successes)} actualizaciones aplicadas a '{normalized_name}':")
+        lines.extend(f"   • Tarea {s}" for s in successes)
+    if errors:
+        lines.append(f"❌ {len(errors)} actualizaciones con error:")
+        lines.extend(f"   • {e}" for e in errors)
+
+    if not lines:
+        return "ℹ️ No se proporcionaron actualizaciones válidas."
+    return "\n".join(lines)
+
+
+
 def _get_status(agent_name: str = None) -> str:
     """Devuelve el estado actual de todas las tareas (o de un agente)."""
     global _agent_plans
@@ -117,7 +177,14 @@ def _show_task_tracker_panel():
         return
 
     try:
-        tui = _llm_service.terminal_ui
+        tui = None
+        if hasattr(_llm_service, 'terminal_ui') and _llm_service.terminal_ui:
+            tui = _llm_service.terminal_ui
+        elif hasattr(_llm_service, 'skill_manager') and _llm_service.skill_manager and getattr(_llm_service.skill_manager, 'terminal_ui', None):
+            tui = _llm_service.skill_manager.terminal_ui
+        elif globals().get('_terminal_ui'):
+            tui = globals().get('_terminal_ui')
+
         if tui and hasattr(tui, 'update_task_tracker'):
             tui.update_task_tracker(_agent_plans)
     except Exception as e:
@@ -146,21 +213,49 @@ tool_schema = {
             },
             "task_index": {
                 "type": "integer",
-                "description": "Índice de la tarea para 'update' (0-indexed)."
+                "description": "Índice de la tarea para 'update' (0-indexed). Usa 'updates' para cambiar varias a la vez."
             },
             "status": {
                 "type": "string",
                 "description": f"Nuevo estado: {', '.join(sorted(VALID_STATUSES))}."
-            }
+            },
+            "updates": {
+                "type": "array",
+                "description": (
+                    "Lista de cambios a aplicar de una sola vez en 'update'. "
+                    "Cada elemento debe ser un objeto {'task_index': int, 'status': str}."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "task_index": {"type": "integer", "minimum": 0},
+                        "status": {
+                            "type": "string",
+                            "enum": sorted(VALID_STATUSES),
+                        },
+                    },
+                    "required": ["task_index", "status"],
+                },
+            },
         },
         "required": ["action", "agent_name"]
     }
 }
 
 
-def task_tracker(action: str, agent_name: str, plan: List[str] = None, task_index: int = None, status: str = None) -> str:
+def task_tracker(
+    action: str,
+    agent_name: str,
+    plan: List[str] = None,
+    task_index: int = None,
+    status: str = None,
+    updates: List[Dict[str, Any]] = None,
+) -> str:
     """
     Gestiona planes de trabajo especializados para cada agente.
+
+    Para aplicar varios cambios en una sola llamada, usa ``action="update"`` con
+    ``updates=[{"task_index": 0, "status": "done"}, {"task_index": 1, "status": "in-progress"}]``.
     """
     if action == "init":
         if not plan:
@@ -168,8 +263,10 @@ def task_tracker(action: str, agent_name: str, plan: List[str] = None, task_inde
         result = _init_tasks(agent_name, plan)
         return result
     elif action == "update":
+        if updates is not None:
+            return _batch_update_tasks(agent_name, updates)
         if task_index is None:
-            return "❌ Error: 'task_index' es requerido para action='update'."
+            return "❌ Error: 'task_index' es requerido para action='update' (o usa 'updates' para varias a la vez)."
         if status is None:
             return "❌ Error: 'status' es requerido para action='update'."
         result = _update_task(agent_name, task_index, status)
@@ -188,7 +285,7 @@ def set_llm_service(llm_service: Any = None, *args, **kwargs):
     global _llm_service
     if llm_service is not None:
         _llm_service = llm_service
-    
+
     # Si se llama como herramienta por error (ej. se pasa 'action'), delegar a task_tracker
     if 'action' in kwargs or (args and isinstance(args[0], str)):
         action = kwargs.get('action') or args[0]
@@ -196,5 +293,13 @@ def set_llm_service(llm_service: Any = None, *args, **kwargs):
         plan = kwargs.get('plan')
         task_index = kwargs.get('task_index')
         status = kwargs.get('status')
-        return task_tracker(action=action, agent_name=agent_name, plan=plan, task_index=task_index, status=status)
+        updates = kwargs.get('updates')
+        return task_tracker(
+            action=action,
+            agent_name=agent_name,
+            plan=plan,
+            task_index=task_index,
+            status=status,
+            updates=updates,
+        )
 
