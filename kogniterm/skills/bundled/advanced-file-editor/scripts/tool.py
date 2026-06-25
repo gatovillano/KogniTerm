@@ -26,15 +26,59 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
 
-# Importaciones del módulo base
-from kogniterm.skills.bundled.file_operations.scripts.file_editor import (
-    advanced_file_editor,
-    common_editor_schema,
-    FlexibleMatcher,
-    RaceConditionGuard,
-    RaceConditionDetected
-)
-from kogniterm.skills.bundled.file_operations.scripts._utils import clean_path
+# Importaciones del módulo base via importlib (los directorios con guiones
+# no pueden importarse con la sintaxis de puntos de Python)
+import importlib.util
+import sys
+from pathlib import Path
+from types import ModuleType
+
+
+def _load_file_operations():
+    """Carga módulos desde la skill hermana file-operations via importlib."""
+    this_dir = Path(__file__).resolve().parent          # advanced-file-editor/scripts/
+    bundled_dir = this_dir.parent.parent                # skills/bundled/
+    file_ops_scripts = bundled_dir / "file-operations" / "scripts"
+
+    # Crear paquete virtual para resolver imports relativos internos
+    parent_pkg_name = "_file_ops_scripts_pkg"
+    if parent_pkg_name not in sys.modules:
+        parent_pkg = ModuleType(parent_pkg_name)
+        parent_pkg.__path__ = [str(file_ops_scripts)]
+        sys.modules[parent_pkg_name] = parent_pkg
+
+    # Cargar _utils primero (dependencia de file_editor)
+    utils_path = file_ops_scripts / "_utils.py"
+    utils_spec = importlib.util.spec_from_file_location(
+        f"{parent_pkg_name}._utils", str(utils_path)
+    )
+    utils_module = importlib.util.module_from_spec(utils_spec)
+    utils_module.__package__ = parent_pkg_name
+    sys.modules[f"{parent_pkg_name}._utils"] = utils_module
+    utils_spec.loader.exec_module(utils_module)
+
+    # Cargar file_editor
+    editor_path = file_ops_scripts / "file_editor.py"
+    editor_spec = importlib.util.spec_from_file_location(
+        f"{parent_pkg_name}.file_editor", str(editor_path),
+        submodule_search_locations=[str(file_ops_scripts)]
+    )
+    editor_module = importlib.util.module_from_spec(editor_spec)
+    editor_module.__package__ = parent_pkg_name
+    sys.modules[f"{parent_pkg_name}.file_editor"] = editor_module
+    editor_spec.loader.exec_module(editor_module)
+
+    return editor_module, utils_module
+
+
+_editor_module, _utils_module = _load_file_operations()
+
+advanced_file_editor = _editor_module.advanced_file_editor
+common_editor_schema = _editor_module.common_editor_schema
+FlexibleMatcher = _editor_module.FlexibleMatcher
+RaceConditionGuard = _editor_module.RaceConditionGuard
+RaceConditionDetected = _editor_module.RaceConditionDetected
+clean_path = _utils_module.clean_path
 
 # Configuración de logging
 logger = logging.getLogger(__name__)

@@ -1,3 +1,8 @@
+---
+name: email-manager
+description: Skill para gestionar correos electrónicos mediante IMAP/SMTP.
+category: external
+---
 # Email Manager
 
 Skill para gestionar correos electrónicos mediante IMAP/SMTP.
