@@ -33,7 +33,11 @@ sandbox_required: false
     "agent_name": "NombreAgente",
     "plan": ["tarea1", "tarea2"],
     "task_index": 0,
-    "status": "pending|in-progress|done"
+    "status": "pending|in-progress|done",
+    "updates": [
+      {"task_index": 0, "status": "done"},
+      {"task_index": 1, "status": "in-progress"}
+    ]
   }
 }
 ```
@@ -48,12 +52,29 @@ sandbox_required: false
 {"action": "init", "agent_name": "BashAgent", "plan": ["Analizar logs", "Generar reporte"]}
 ```
 
-### update
+### update (una sola tarea)
 - **Requerido**: `action`, `agent_name`, `task_index`, `status`
 - **Efecto**: Actualiza el estado de una tarea específica
 - **Ejemplo**:
 ```json
 {"action": "update", "agent_name": "BashAgent", "task_index": 0, "status": "in-progress"}
+```
+
+### update (varias tareas a la vez)
+- **Requerido**: `action`, `agent_name`, `updates`
+- **Efecto**: Aplica múltiples cambios en una sola llamada atómica. La UI
+  se refresca una sola vez tras aplicar todos los cambios válidos. Los items
+  inválidos se reportan sin abortar el resto del lote.
+- **Ejemplo**:
+```json
+{
+  "action": "update",
+  "agent_name": "BashAgent",
+  "updates": [
+    {"task_index": 0, "status": "done"},
+    {"task_index": 1, "status": "in-progress"}
+  ]
+}
 ```
 
 ### get
@@ -71,6 +92,7 @@ sandbox_required: false
 ```json
 {"action": "show", "agent_name": "BashAgent"}
 ```
+
 
 ## Valores válidos
 
