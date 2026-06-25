@@ -8,7 +8,7 @@ en skills con estructura completa (SKILL.md, scripts/, references/).
 import ast
 import inspect
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import yaml
 import re
 from datetime import datetime
@@ -156,7 +156,6 @@ class SkillMigrator:
         permissions = self._infer_permissions(tool_name)
         security_level = self._infer_security_level(tool_name)
         needs_allowlist = self._needs_allowlist(tool_name)
-        needs_sandbox = self._needs_sandbox(tool_name)
 
         # 6. Crear estructura de skill
         skill_dir = self.skills_output_path / tool_name
@@ -178,7 +177,6 @@ class SkillMigrator:
             'security_level': security_level,
             'allowlist': needs_allowlist,
             'auto_approve': False,
-            'sandbox_required': needs_sandbox,
             'resources': [],
             'assets': [],
             'metadata': {
@@ -355,12 +353,6 @@ class SkillMigrator:
 
         return any(kw in tool_lower for kw in high_risk_keywords)
 
-    def _needs_sandbox(self, tool_name: str) -> bool:
-        """Determina si la skill necesita ejecución en sandbox Docker."""
-        sandbox_keywords = ['execute_command', 'browser', 'web_fetch', 'web_scraping', 'pc_interaction']
-        tool_lower = tool_name.lower()
-
-        return any(kw in tool_lower for kw in sandbox_keywords)
 
     def _infer_category(self, tool_name: str) -> str:
         """Infiere categoría basada en el nombre."""
@@ -424,7 +416,6 @@ class SkillMigrator:
         name = config['name']
         security_level = config['security_level']
         permissions = config['required_permissions']
-        sandbox = config['sandbox_required']
 
         instructions = f"""# Instrucciones para el LLM
 
@@ -444,7 +435,6 @@ class SkillMigrator:
 - Nivel de seguridad: **{security_level}**
 - Permisos requeridos: {', '.join(permissions) if permissions else 'Ninguno'}
 - Requiere allowlisting: {config['allowlist']}
-- Ejecución en sandbox: {sandbox}
 
 ## Cómo usar:
 

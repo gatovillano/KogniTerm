@@ -10,7 +10,6 @@ required_permissions: ["execute", "filesystem"]
 security_level: "elevated"
 allowlist: true
 auto_approve: false
-sandbox_required: true
 ---
 
 # Instrucciones para el LLM

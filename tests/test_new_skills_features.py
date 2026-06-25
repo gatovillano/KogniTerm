@@ -46,7 +46,7 @@ category: system
 tags: ["test"]
 dependencies: []
 security_level: "low"
-sandbox_required: false
+---
 ---
 """)
 
@@ -106,8 +106,11 @@ def load_some_data_tool(key):
             assert "install" in args
             assert "unsupported-fake-library" in args
 
-    def test_sandboxed_tool_wrapping(self, tmp_path):
-        """Verifica que las herramientas marcadas con sandbox_required se envuelvan en _wrap_in_sandbox."""
+    def test_high_security_tool_passthrough(self, tmp_path):
+        """Las herramientas de skills externas con security_level alto se devuelven tal cual.
+        No hay sandbox de procesos: el wrapper fue desimplementado. El test
+        verifica que ``get_tool`` retorna la función original.
+        """
         bundled = tmp_path / "bundled"
         bundled.mkdir()
         skill_dir = bundled / "sandbox_skill"
@@ -115,20 +118,17 @@ def load_some_data_tool(key):
         (skill_dir / "scripts").mkdir()
         (skill_dir / "references").mkdir()
 
-        # Crear SKILL.md con sandbox_required: true
         (skill_dir / "SKILL.md").write_text("""---
 name: sandbox_skill
 version: 1.0.0
-description: "Skill en sandbox"
+description: "Skill de prueba"
 category: external
 tags: ["test"]
 dependencies: []
 security_level: "high"
-sandbox_required: true
 ---
 """)
 
-        # Crear script
         (skill_dir / "scripts" / "tool.py").write_text("""
 def run_in_sandbox_tool(x, y):
     return x + y
@@ -139,14 +139,9 @@ def run_in_sandbox_tool(x, y):
         success = manager.load_skill("sandbox_skill")
         assert success
 
-        tool_info = manager.tool_registry.get("run_in_sandbox_tool")
-        assert tool_info["sandbox_required"] is True
-
-        # Al obtener la herramienta, debe ser una función envuelta
         tool = manager.get_tool("run_in_sandbox_tool")
         assert tool is not None
         assert tool.__name__ == "run_in_sandbox_tool"
-        
-        # Ejecutar en sandbox
+
         result = tool(x=10, y=20)
-        assert result == 30 or "❌" in str(result)
+        assert result == 30
