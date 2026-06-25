@@ -1,17 +1,38 @@
 import { useRef, useEffect, useState } from 'react';
 import { ChatMessage } from './components/chat/ChatMessage';
 import { ChatInput } from './components/chat/ChatInput';
-import { TerminalView } from './components/terminal/TerminalView';
 import { FileExplorer } from './components/files/FileExplorer';
 import { SettingsModal } from './components/settings/SettingsModal';
+import { ThreadList } from './components/chat/ThreadList';
+import { TaskTracker } from './components/chat/TaskTracker';
+import { TerminalPanel } from './components/chat/TerminalPanel';
+import { CommandApproval } from './components/chat/CommandApproval';
 import { useChat } from './hooks/useChat';
-import { Terminal as TerminalIcon, Settings, Files, MessageSquare, ShieldCheck, Command, Folder } from 'lucide-react';
+import { Settings, Files, MessageSquare, ShieldCheck, Command, Folder, MessageCircle, Terminal } from 'lucide-react';
 import './App.css';
 
-type ViewType = 'chat' | 'terminal' | 'files';
+type ViewType = 'chat' | 'files' | 'threads';
 
 function App() {
-  const { messages, isGenerating, error, sendMessage, isConnected } = useChat();
+  const [currentThreadId, setCurrentThreadId] = useState<string>(() => {
+    // Generar un ID único para esta instancia del cliente
+    return `desktop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  });
+  const {
+    messages,
+    isGenerating,
+    error,
+    sendMessage,
+    isConnected,
+    taskPlans,
+    pendingApproval,
+    respondApproval,
+    terminalEntries,
+    isTerminalVisible,
+    sendTerminalInput,
+    closeTerminal,
+  } = useChat(currentThreadId);
+  const hasActiveTasks = Object.values(taskPlans).some((plan) => plan.length > 0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [currentDir, setCurrentDir] = useState<string>('~/Gemini-Interpreter'); // Default fallback
@@ -52,15 +73,15 @@ function App() {
   return (
     <div className="flex h-screen bg-[var(--bg-app)] text-slate-200 font-sans overflow-hidden selection:bg-indigo-500/30">
       {/* Sidebar */}
-      <aside className="w-[70px] glass-panel flex flex-col items-center py-6 z-30">
-        <div className="h-10 w-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center mb-10 shadow-lg shadow-indigo-500/20 ring-1 ring-white/10">
-          <Command size={20} className="text-white" />
+      <aside className="w-[80px] glass-panel flex flex-col items-center py-6 z-30">
+        <div className="h-12 w-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center mb-10 shadow-lg shadow-indigo-500/20 ring-1 ring-white/10">
+          <Command size={24} className="text-white" />
         </div>
 
         <nav className="flex flex-col gap-4 flex-1 w-full px-3">
           {[
             { id: 'chat', icon: MessageSquare, label: 'Chat' },
-            { id: 'terminal', icon: TerminalIcon, label: 'Terminal' },
+            { id: 'threads', icon: MessageCircle, label: 'Hilos' },
             { id: 'files', icon: Files, label: 'Archivos' }
           ].map((item) => (
             <button
@@ -71,7 +92,7 @@ function App() {
                 : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
                 }`}
             >
-              <item.icon size={22} strokeWidth={activeView === item.id ? 2.5 : 2} />
+              <item.icon size={28} strokeWidth={activeView === item.id ? 2.5 : 1.8} />
 
               {/* Tooltip hint */}
               <div className="absolute left-14 bg-zinc-800 text-zinc-200 text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-zinc-700/50">
@@ -85,11 +106,27 @@ function App() {
           ))}
         </nav>
 
+        {/* Terminal toggle button */}
+        {terminalEntries.length > 0 && (
+          <button
+            onClick={() => closeTerminal()}
+            className={`p-3 rounded-xl transition-all mb-2 relative ${
+              isTerminalVisible
+                ? 'bg-emerald-500/10 text-emerald-400'
+                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+            }`}
+            title="Terminal"
+          >
+            <Terminal size={28} strokeWidth={isTerminalVisible ? 2.5 : 1.8} />
+            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          </button>
+        )}
+
         <button
           onClick={() => setIsSettingsOpen(true)}
           className="p-3 rounded-xl text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-all mt-auto mb-2"
         >
-          <Settings size={22} />
+          <Settings size={28} />
         </button>
       </aside>
 
@@ -129,8 +166,9 @@ function App() {
 
         {/* Content Area */}
         {activeView === 'chat' && (
-          <>
-            <section className="flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-0 scroll-smooth pb-32">
+          <div className="flex flex-1 overflow-hidden">
+            <div className="flex-1 flex flex-col relative min-w-0">
+              <section className={`flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-0 scroll-smooth ${isTerminalVisible ? 'pb-16' : 'pb-32'}`}>
               <div className="max-w-3xl mx-auto py-8">
                 {messages.length === 0 ? (
                   <div className="h-[60vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
@@ -184,13 +222,33 @@ function App() {
               </div>
             </section>
 
+            {/* Terminal Panel — docked at bottom when visible */}
+            <TerminalPanel
+              entries={terminalEntries}
+              isVisible={isTerminalVisible}
+              onClose={closeTerminal}
+              onTerminalInput={sendTerminalInput}
+            />
+
             <ChatInput onSendMessage={sendMessage} isGenerating={isGenerating} />
-          </>
+            </div>
+
+            {/* Task Tracker Panel — slides in when agent has active tasks */}
+            {hasActiveTasks && (
+              <TaskTracker taskPlans={taskPlans} />
+            )}
+          </div>
         )}
 
-        {activeView === 'terminal' && (
-          <div className="flex-1 p-0 bg-[#0d0d0f]">
-            <TerminalView />
+        {activeView === 'threads' && (
+          <div className="flex-1 overflow-hidden flex bg-slate-950">
+            <ThreadList 
+              currentThread={currentThreadId} 
+              onSelectThread={(id) => {
+                setCurrentThreadId(id || `desktop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+                setActiveView('chat');
+              }} 
+            />
           </div>
         )}
 
@@ -200,6 +258,15 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* Command Approval Modal */}
+      {pendingApproval && (
+        <CommandApproval
+          request={pendingApproval}
+          onApprove={(id) => respondApproval(id, true)}
+          onReject={(id) => respondApproval(id, false)}
+        />
+      )}
 
       {/* Modals */}
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
