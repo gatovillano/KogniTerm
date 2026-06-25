@@ -17,6 +17,7 @@
   --color-primary-glow: rgba(99, 102, 241, 0.4);
 
   --animate-fade-in: fadeIn 0.4s ease-out forwards;
+  --animate-slide-in-right: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Custom Utilities */
@@ -80,6 +81,18 @@ body {
   }
 }
 
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* Markdown Styles */
 .markdown-content {
   font-size: 0.95rem;
@@ -87,6 +100,28 @@ body {
   /* Mayor legibilidad */
   color: #e4e4e7;
   /* Zinc 200 */
+}
+
+/* Reasoning/Thinking block — muted, secondary */
+.reasoning-text {
+  color: #52525b !important;
+  /* Zinc 600 */
+}
+
+.reasoning-text p,
+.reasoning-text li,
+.reasoning-text strong,
+.reasoning-text em,
+.reasoning-text h1,
+.reasoning-text h2,
+.reasoning-text h3 {
+  color: #52525b !important;
+  /* Zinc 600 */
+}
+
+.reasoning-text code {
+  color: #6366f1 !important;
+  opacity: 0.5;
 }
 
 .markdown-content>*:first-child {
