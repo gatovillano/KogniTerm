@@ -226,8 +226,9 @@ Estoy analizando la petición del usuario y decido usar tal herramienta...
 
     # Añadir reporte de estado de memoria al final del mensaje de sistema
     try:
-        memory_report = get_memory_status_report()
-        base_content += f"\n\n{memory_report}\n"
+        # memory_report = get_memory_status_report()
+        # base_content += f"\n\n{memory_report}\n"
+        pass
     except Exception as e:
         logger.warning(f"[Memory] No se pudo generar reporte de memoria: {e}")
     return SystemMessage(content=base_content)
@@ -729,10 +730,22 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
     except Exception as e:
         return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
 
-def call_task_tracker(llm_service: LLMService, action: str, agent_name: str = None, plan: list = None, task_index: int = None, status: str = None) -> str:
+def call_task_tracker(
+    llm_service: LLMService,
+    action: str,
+    agent_name: str = None,
+    plan: list = None,
+    task_index: int = None,
+    status: str = None,
+    updates: list = None,
+) -> str:
     """Convenience helper to invoke the bundled task_tracker skill.
 
     Ensures the skill is loaded, calls the tool and returns its textual output.
+
+    Para aplicar varias actualizaciones en una sola llamada, pasa ``updates``
+    con la lista ``[{"task_index": int, "status": str}, ...]`` junto con
+    ``action="update"``.
     """
     try:
         # Asegurar que la skill esté cargada
@@ -754,6 +767,8 @@ def call_task_tracker(llm_service: LLMService, action: str, agent_name: str = No
             args['task_index'] = task_index
         if status is not None:
             args['status'] = status
+        if updates is not None:
+            args['updates'] = updates
 
         # Preferir invoke wrapper si existe (SkillLoader lo inyecta)
         if hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):

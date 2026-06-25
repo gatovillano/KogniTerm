@@ -47,6 +47,7 @@ class ChatLogWidget(VerticalScroll):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._active_message_widget = None
+        self._last_tracker_widget = None
         self.can_focus = True
 
     def _get_available_width(self):
@@ -103,6 +104,7 @@ class ChatLogWidget(VerticalScroll):
 
     def write_user_message(self, text: str):
         """Escribe un mensaje de usuario con línea vertical izquierda."""
+        self._last_tracker_widget = None
         from rich.text import Text
         from rich.console import Console, Group
         
@@ -381,9 +383,35 @@ class ChatLogWidget(VerticalScroll):
 
         return _mount_tool_output(content, tool_name, language)
 
+    def write_task_tracker(self, panel):
+        """Escribe o actualiza el panel de seguimiento de tareas en el chat log."""
+        def _mount_or_update():
+            try:
+                # Comprobar si ya existe un widget de tracker anterior montado y activo
+                if hasattr(self, "_last_tracker_widget") and self._last_tracker_widget and self._last_tracker_widget.parent:
+                    # Centrar el mensaje envolviéndolo en Align.center
+                    self._last_tracker_widget.update(Padding(Align.center(panel), (1, 0)))
+                else:
+                    widget = MessageWidget(Padding(Align.center(panel), (1, 0)))
+                    self._last_tracker_widget = widget
+                    self.mount(widget)
+                self.scroll_end(animate=False)
+            except Exception as e:
+                logger.warning("ChatLogWidget.write_task_tracker: _mount_or_update falló: %s", e)
+
+        try:
+            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+                self.app.call_from_thread(_mount_or_update)
+                return
+        except Exception as e:
+            logger.warning("ChatLogWidget.write_task_tracker: call_from_thread falló: %s", e)
+
+        _mount_or_update()
+
     def clear(self):
         """Limpia el chat log."""
         # En VerticalScroll, para limpiar eliminamos los hijos
         for child in list(self.children):
             child.remove()
         self._active_message_widget = None
+        self._last_tracker_widget = None
