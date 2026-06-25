@@ -36,10 +36,17 @@ from pydantic import BaseModel, Field
 from kogniterm.core.llm_service import LLMService
 from kogniterm.server.session_pool import pool
 from kogniterm.server.config import server_config, ChannelConfig
-from kogniterm.server.channel_adapters import WebhookAdapter, SlackAdapter, CLIAdapter, TelegramAdapter
+from kogniterm.server.channel_adapters import (
+    WebhookAdapter,
+    SlackAdapter,
+    CLIAdapter,
+    TelegramAdapter,
+)
 
 logger = logging.getLogger("kogniterm.server.app")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 
 
 # ── Modelos Pydantic ───────────────────────────────────────────────────────────
@@ -47,7 +54,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 
 class MessageRequest(BaseModel):
     message: str = Field(..., description="Mensaje para el agente")
-    session_id: Optional[str] = Field(default=None, description="ID de sesión existente. Si es None, se crea una nueva.")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="ID de sesión existente. Si es None, se crea una nueva.",
+    )
 
 
 class LLMConfigRequest(BaseModel):
@@ -57,7 +67,14 @@ class LLMConfigRequest(BaseModel):
 
 
 class SessionCreateRequest(BaseModel):
-    session_id: Optional[str] = Field(default=None, description="ID personalizado. Si es None, se genera automáticamente.")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="ID personalizado. Si es None, se genera automáticamente.",
+    )
+
+
+class ThreadRenameRequest(BaseModel):
+    title: str = Field(..., description="Nuevo título para el hilo")
 
 
 class InterruptRequest(BaseModel):
@@ -108,14 +125,18 @@ async def lifespan(app: FastAPI):
 
     # Cargar LLMService en segundo plano para no colgar ni bloquear el inicio del servidor
     async def load_llm_service_background():
-        logger.info("⚙️  Cargando LLMService en segundo plano (evitando bloqueos en el arranque)...")
+        logger.info(
+            "⚙️  Cargando LLMService en segundo plano (evitando bloqueos en el arranque)..."
+        )
         try:
             # Ejecutar el constructor síncrono de LLMService en un hilo del pool para no bloquear el loop principal
             llm_service = await loop.run_in_executor(None, LLMService)
             pool.initialize(llm_service=llm_service, loop=loop)
             logger.info("✅ KogniTerm Server y LLMService listos en segundo plano.")
         except Exception as e:
-            logger.error(f"❌ Error crítico al inicializar LLMService en segundo plano: {e}")
+            logger.error(
+                f"❌ Error crítico al inicializar LLMService en segundo plano: {e}"
+            )
 
     asyncio.create_task(load_llm_service_background())
 
@@ -124,7 +145,7 @@ async def lifespan(app: FastAPI):
     for cfg in server_config.settings.channels:
         if cfg.enabled:
             logger.info(f"📡 Iniciando canal: {cfg.name} ({cfg.type})")
-            
+
             if cfg.type in ("telegram", "telegram_bot"):
                 token = cfg.params.get("token")
                 if token:
@@ -132,7 +153,9 @@ async def lifespan(app: FastAPI):
                     task = asyncio.create_task(adapter.start())
                     active_tasks.append((adapter, task))
                 else:
-                    logger.warning(f"⚠️ Canal Telegram '{cfg.name}' habilitado pero falta 'token' en params.")
+                    logger.warning(
+                        f"⚠️ Canal Telegram '{cfg.name}' habilitado pero falta 'token' en params."
+                    )
 
     logger.info("✅ KogniTerm Server listo.")
     yield
@@ -143,7 +166,7 @@ async def lifespan(app: FastAPI):
         if hasattr(adapter, "stop"):
             await adapter.stop()
         task.cancel()
-    
+
     pool._executor.shutdown(wait=False)
 
 
@@ -181,7 +204,9 @@ def create_app() -> FastAPI:
             "status": "online",
             "active_sessions": len(sessions),
             "sessions": sessions,
-            "configured_channels": [c.name for c in server_config.settings.channels if c.enabled]
+            "configured_channels": [
+                c.name for c in server_config.settings.channels if c.enabled
+            ],
         }
 
     # ── Gestión de Configuración (Canales) ──────────────────────────────────────
@@ -217,17 +242,28 @@ def create_app() -> FastAPI:
         """Devuelve la lista de modelos y proveedores disponibles, intentando obtenerlos dinámicamente si hay llaves/servicios configurados."""
         import httpx
         from kogniterm.terminal.config_manager import ConfigManager
-        
+
         cm = ConfigManager()
         google_key = cm.get_api_key("google") or os.environ.get("GOOGLE_API_KEY")
         openai_key = cm.get_api_key("openai") or os.environ.get("OPENAI_API_KEY")
-        openrouter_key = cm.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY")
-        anthropic_key = cm.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY")
+        openrouter_key = cm.get_api_key("openrouter") or os.environ.get(
+            "OPENROUTER_API_KEY"
+        )
+        anthropic_key = cm.get_api_key("anthropic") or os.environ.get(
+            "ANTHROPIC_API_KEY"
+        )
         ollama_base = os.environ.get("OLLAMA_API_BASE") or "http://127.0.0.1:11434"
 
         # Valores por defecto de respaldo (fallback)
-        google_models = ["gemini/gemini-1.5-flash", "gemini/gemini-1.5-pro", "gemini/gemini-2.0-flash-exp"]
-        openrouter_models = ["openrouter/google/gemini-2.0-flash-exp:free", "openrouter/openai/gpt-4o"]
+        google_models = [
+            "gemini/gemini-1.5-flash",
+            "gemini/gemini-1.5-pro",
+            "gemini/gemini-2.0-flash-exp",
+        ]
+        openrouter_models = [
+            "openrouter/google/gemini-2.0-flash-exp:free",
+            "openrouter/openai/gpt-4o",
+        ]
         openai_models = ["gpt-4o", "gpt-3.5-turbo"]
         anthropic_models = ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229"]
         ollama_models = ["ollama/llama3", "ollama/mistral"]
@@ -239,7 +275,10 @@ def create_app() -> FastAPI:
                 return
             try:
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}", timeout=2.0)
+                    resp = await client.get(
+                        f"https://generativelanguage.googleapis.com/v1beta/models?key={google_key}",
+                        timeout=2.0,
+                    )
                     if resp.status_code == 200:
                         data = resp.json()
                         fetched = []
@@ -247,7 +286,9 @@ def create_app() -> FastAPI:
                             m_name = m.get("name", "")
                             if m_name.startswith("models/"):
                                 m_name = m_name.replace("models/", "gemini/", 1)
-                            if m_name and ("gemini" in m_name or "text-embedding" in m_name):
+                            if m_name and (
+                                "gemini" in m_name or "text-embedding" in m_name
+                            ):
                                 fetched.append(m_name)
                         if fetched:
                             google_models = fetched
@@ -258,7 +299,9 @@ def create_app() -> FastAPI:
             nonlocal openrouter_models
             try:
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get("https://openrouter.ai/api/v1/models", timeout=3.0)
+                    resp = await client.get(
+                        "https://openrouter.ai/api/v1/models", timeout=3.0
+                    )
                     if resp.status_code == 200:
                         data = resp.json()
                         fetched = []
@@ -278,7 +321,9 @@ def create_app() -> FastAPI:
             try:
                 async with httpx.AsyncClient() as client:
                     headers = {"Authorization": f"Bearer {openai_key}"}
-                    resp = await client.get("https://api.openai.com/v1/models", headers=headers, timeout=2.0)
+                    resp = await client.get(
+                        "https://api.openai.com/v1/models", headers=headers, timeout=2.0
+                    )
                     if resp.status_code == 200:
                         data = resp.json()
                         fetched = []
@@ -299,9 +344,13 @@ def create_app() -> FastAPI:
                 async with httpx.AsyncClient() as client:
                     headers = {
                         "x-api-key": anthropic_key,
-                        "anthropic-version": "2023-06-01"
+                        "anthropic-version": "2023-06-01",
                     }
-                    resp = await client.get("https://api.anthropic.com/v1/models", headers=headers, timeout=2.0)
+                    resp = await client.get(
+                        "https://api.anthropic.com/v1/models",
+                        headers=headers,
+                        timeout=2.0,
+                    )
                     if resp.status_code == 200:
                         data = resp.json()
                         fetched = []
@@ -342,7 +391,9 @@ def create_app() -> FastAPI:
 
         async def fetch_kilocode():
             nonlocal kilocode_models
-            kilocode_key = cm.get_api_key("kilocode") or os.environ.get("KILOCODE_API_KEY")
+            kilocode_key = cm.get_api_key("kilocode") or os.environ.get(
+                "KILOCODE_API_KEY"
+            )
             if not kilocode_key:
                 return
             try:
@@ -350,16 +401,20 @@ def create_app() -> FastAPI:
                     resp = await client.get(
                         "https://api.kilo.ai/api/gateway/models",
                         headers={"Authorization": f"Bearer {kilocode_key}"},
-                        timeout=3.0
+                        timeout=3.0,
                     )
                     if resp.status_code == 200:
                         data = resp.json()
                         fetched = []
-                        model_list = data if isinstance(data, list) else data.get('models', data.get('data', []))
+                        model_list = (
+                            data
+                            if isinstance(data, list)
+                            else data.get("models", data.get("data", []))
+                        )
                         for m in model_list:
-                            model_id = m.get('id', m.get('model', ''))
+                            model_id = m.get("id", m.get("model", ""))
                             if model_id:
-                                if not model_id.startswith('kilocode/'):
+                                if not model_id.startswith("kilocode/"):
                                     model_id = f"kilocode/{model_id}"
                                 fetched.append(model_id)
                         if fetched:
@@ -375,7 +430,7 @@ def create_app() -> FastAPI:
             fetch_anthropic(),
             fetch_ollama(),
             fetch_kilocode(),
-            return_exceptions=True
+            return_exceptions=True,
         )
 
         return {
@@ -385,7 +440,11 @@ def create_app() -> FastAPI:
                 {"id": "openai", "name": "OpenAI", "models": openai_models},
                 {"id": "anthropic", "name": "Anthropic", "models": anthropic_models},
                 {"id": "ollama", "name": "Ollama Local", "models": ollama_models},
-                {"id": "kilocode", "name": "KiloCode Gateway", "models": kilocode_models}
+                {
+                    "id": "kilocode",
+                    "name": "KiloCode Gateway",
+                    "models": kilocode_models,
+                },
             ]
         }
 
@@ -394,10 +453,13 @@ def create_app() -> FastAPI:
     async def get_llm_config():
         """Obtiene la configuración actual del LLM (enmascarando keys)."""
         from kogniterm.terminal.config_manager import ConfigManager
+
         cm = ConfigManager()
-        
-        model = cm.get_config("default_model") or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash")
-        
+
+        model = cm.get_config("default_model") or os.environ.get(
+            "LITELLM_MODEL", "google/gemini-1.5-flash"
+        )
+
         # Detectar proveedor basado en el modelo
         provider = "google"
         model_lower = model.lower()
@@ -411,16 +473,18 @@ def create_app() -> FastAPI:
             provider = "ollama"
         elif "kilocode" in model_lower:
             provider = "kilocode"
-            
+
         raw_key = cm.get_api_key(provider) or ""
-        masked_key = f"{raw_key[:4]}...{raw_key[-4:]}" if len(raw_key) > 8 else "********"
-        
+        masked_key = (
+            f"{raw_key[:4]}...{raw_key[-4:]}" if len(raw_key) > 8 else "********"
+        )
+
         return {
             "provider": provider,
             "model": model,
             "api_key_masked": masked_key,
             "has_key": bool(raw_key),
-            "reasoning_effort": cm.get_config("reasoning_effort") or "medium"
+            "reasoning_effort": cm.get_config("reasoning_effort") or "medium",
         }
 
     @application.post("/api/config/llm", tags=["Configuración"])
@@ -428,12 +492,13 @@ def create_app() -> FastAPI:
     async def update_llm_config(req: LLMConfigRequest):
         """Actualiza el modelo y la API key del LLM en el ConfigManager."""
         from kogniterm.terminal.config_manager import ConfigManager
+
         cm = ConfigManager()
-        
+
         # Guardar el modelo por defecto si se proporcionó
         if req.model:
             cm.set_project_config("default_model", req.model)
-        
+
         # Guardar la API key si se proporcionó
         if req.api_key:
             # Intentar inferir el proveedor si no viene explícitamente
@@ -455,15 +520,19 @@ def create_app() -> FastAPI:
                 elif "kilocode" in model_lower:
                     provider = "kilocode"
                 else:
-                    provider = "litellm" # Fallback genérico
+                    provider = "litellm"  # Fallback genérico
 
             cm.set_api_key(provider, req.api_key)
-            
+
         # Recargar la configuración en el LLMService del pool si ya existe
         if pool._llm_service:
             pool._llm_service.reload_config()
-            
-        return {"status": "ok", "model": req.model, "provider": req.provider or "inferred/ignored"}
+
+        return {
+            "status": "ok",
+            "model": req.model,
+            "provider": req.provider or "inferred/ignored",
+        }
 
     # ── Utilidades Desktop (Ejecución y Archivos) ─────────────────────────────
 
@@ -473,12 +542,12 @@ def create_app() -> FastAPI:
         try:
             # Esperar a que el pool y el LLMService estén listos para evitar colisiones en ChromaDB al arranque
             await pool.wait_until_ready()
-            
+
             if pool._llm_service and pool._llm_service.vector_db_manager:
                 indexed = pool._llm_service.vector_db_manager.is_indexed()
             else:
                 indexed = False
-                
+
             return {"indexed": indexed, "path": os.getcwd()}
         except Exception as e:
             return {"indexed": False, "error": str(e), "path": os.getcwd()}
@@ -495,26 +564,29 @@ def create_app() -> FastAPI:
         try:
             from kogniterm.core.context.codebase_indexer import CodebaseIndexer
             from kogniterm.core.context.vector_db_manager import VectorDBManager
-            
+
             # Helper para enviar progreso si hay una sesión asociada
             def progress_callback(current, total, description):
                 if session_id:
                     s = pool.get(session_id)
                     if s:
-                        s.ui._push("indexing_progress", {
-                            "current": current,
-                            "total": total,
-                            "description": description,
-                            "percentage": int((current / total) * 100) if total > 0 else 0
-                        })
+                        s.ui._push(
+                            "indexing_progress",
+                            {
+                                "current": current,
+                                "total": total,
+                                "description": description,
+                                "percentage": int((current / total) * 100)
+                                if total > 0
+                                else 0,
+                            },
+                        )
 
             indexer = CodebaseIndexer(project_path)
             chunks = await indexer.index_project(
-                project_path,
-                show_progress=False,
-                progress_callback=progress_callback
+                project_path, show_progress=False, progress_callback=progress_callback
             )
-            
+
             if chunks:
                 if pool._llm_service and pool._llm_service.vector_db_manager:
                     vdb = pool._llm_service.vector_db_manager
@@ -525,7 +597,7 @@ def create_app() -> FastAPI:
                     vdb.clear_collection()
                     vdb.add_chunks(chunks)
                     vdb.close()
-                
+
                 if session_id:
                     s = pool.get(session_id)
                     if s:
@@ -535,7 +607,7 @@ def create_app() -> FastAPI:
                     s = pool.get(session_id)
                     if s:
                         s.ui._push("indexing_complete", {"chunks": 0})
-                        
+
         except Exception as e:
             logger.error(f"Error en tarea de indexación: {e}")
             if session_id:
@@ -555,33 +627,33 @@ def create_app() -> FastAPI:
                 return CommandResponse(output="", error="Empty command", exitCode=1)
 
             process = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
             return CommandResponse(
-                output=stdout.decode('utf-8') if stdout else "",
-                error=stderr.decode('utf-8') if stderr else "",
-                exitCode=process.returncode or 0
+                output=stdout.decode("utf-8") if stdout else "",
+                error=stderr.decode("utf-8") if stderr else "",
+                exitCode=process.returncode or 0,
             )
         except Exception as e:
             return CommandResponse(output="", error=str(e), exitCode=1)
 
-    @application.post("/api/files/list", response_model=DirectoryResponse, tags=["Desktop"])
+    @application.post(
+        "/api/files/list", response_model=DirectoryResponse, tags=["Desktop"]
+    )
     async def list_directory(request: DirectoryRequest):
         """Lista el contenido de un directorio."""
         try:
             path = os.path.abspath(request.path)
             items = []
             for entry in os.scandir(path):
-                if entry.name.startswith('.'):
+                if entry.name.startswith("."):
                     continue
                 item = FileItem(
                     name=entry.name,
                     path=entry.path,
                     isDirectory=entry.is_dir(),
-                    size=entry.stat().st_size if entry.is_file() else None
+                    size=entry.stat().st_size if entry.is_file() else None,
                 )
                 items.append(item)
             items.sort(key=lambda x: (not x.isDirectory, x.name.lower()))
@@ -603,7 +675,10 @@ def create_app() -> FastAPI:
         await pool.wait_until_ready()
         sid = req.session_id or pool.new_session_id()
         session = pool.get_or_create(sid)
-        return {"session_id": session.session_id, "created_at": session.created_at.isoformat()}
+        return {
+            "session_id": session.session_id,
+            "created_at": session.created_at.isoformat(),
+        }
 
     @application.delete("/sessions/{session_id}", tags=["Sesiones"])
     async def delete_session(session_id: str):
@@ -611,7 +686,9 @@ def create_app() -> FastAPI:
         await pool.wait_until_ready()
         deleted = pool.delete(session_id)
         if not deleted:
-            raise HTTPException(status_code=404, detail=f"Sesión '{session_id}' no encontrada.")
+            raise HTTPException(
+                status_code=404, detail=f"Sesión '{session_id}' no encontrada."
+            )
         return {"deleted": session_id}
 
     @application.post("/api/sessions/{session_id}/close", tags=["Sesiones"])
@@ -622,18 +699,64 @@ def create_app() -> FastAPI:
         if session:
             # Forzar guardado final por seguridad
             if session.session_manager:
-                session.session_manager.save_session(session_id, session.agent_state.messages)
+                session.session_manager.save_session(
+                    session_id, session.agent_state.messages
+                )
             logger.info(f"[Server] Sesión {session_id} cerrada correctamente.")
             return {"status": "closed", "session_id": session_id}
         return {"status": "not_found", "session_id": session_id}
+
+    # ── Gestión de Hilos de Chat (Threads) ─────────────────────────────────────
+
+    @application.get("/api/threads", tags=["Threads"])
+    async def list_threads():
+        """Lista todos los hilos guardados."""
+        await pool.wait_until_ready()
+        if pool._thread_manager:
+            return {"threads": pool._thread_manager.list_threads()}
+        return {"threads": []}
+
+    @application.post("/api/threads", tags=["Threads"], status_code=201)
+    async def create_thread(req: SessionCreateRequest = SessionCreateRequest()):
+        """Crea un hilo nuevo vacío."""
+        await pool.wait_until_ready()
+        sid = req.session_id or pool.new_session_id()
+        if pool._thread_manager:
+            metadata = pool._thread_manager.create_thread(thread_id=sid)
+            return {"thread_id": sid, "metadata": metadata}
+        return {"error": "ThreadManager no disponible"}
+
+    @application.delete("/api/threads/{thread_id}", tags=["Threads"])
+    async def delete_thread(thread_id: str):
+        """Elimina un hilo de chat."""
+        await pool.wait_until_ready()
+        if pool._thread_manager:
+            success = pool._thread_manager.delete_thread(thread_id)
+            if success:
+                # Si estaba en memoria, quitarlo
+                pool.delete(thread_id)
+                return {"deleted": thread_id}
+        raise HTTPException(
+            status_code=404, detail="Hilo no encontrado o error al eliminar"
+        )
+
+    @application.patch("/api/threads/{thread_id}", tags=["Threads"])
+    async def rename_thread(thread_id: str, req: ThreadRenameRequest):
+        """Renombra manualmente un hilo de chat."""
+        await pool.wait_until_ready()
+        if pool._thread_manager:
+            success = pool._thread_manager.rename_thread(thread_id, req.title)
+            if success:
+                return {"status": "ok", "thread_id": thread_id, "title": req.title}
+        raise HTTPException(status_code=404, detail="Hilo no encontrado")
 
     @application.post("/api/chat/message", tags=["Chat"])
     async def chat_message_compat(req: ChatMessageRequest):
         """Endpoint compatible con la aplicación desktop (simplified chat)."""
         await pool.wait_until_ready()
-        session_id = req.session_id or "tui-default"
+        session_id = req.session_id or f"rest-{uuid.uuid4().hex[:8]}"
         session = pool.get_or_create(session_id)
-        
+
         if session.is_running:
             raise HTTPException(status_code=409, detail="El agente ya está procesando.")
 
@@ -662,7 +785,7 @@ def create_app() -> FastAPI:
                 text_content.append(d.get("content", ""))
             else:
                 text_content.append(str(d))
-        
+
         full_text = "".join(text_content)
         return {"response": full_text}
 
@@ -677,7 +800,10 @@ def create_app() -> FastAPI:
         await pool.wait_until_ready()
         session = pool.get_or_create(session_id)
         if session.is_running:
-            raise HTTPException(status_code=409, detail="El agente ya está procesando un mensaje en esta sesión.")
+            raise HTTPException(
+                status_code=409,
+                detail="El agente ya está procesando un mensaje en esta sesión.",
+            )
 
         # Cola temporal para recolectar todos los eventos de esta invocación
         collected: list = []
@@ -713,7 +839,7 @@ def create_app() -> FastAPI:
         """
         Envía un mensaje y recibe la respuesta como Server-Sent Events.
         Ideal para integraciones web unidireccionales.
-        
+
         Parámetro: ?message=<texto>
         """
         await pool.wait_until_ready()
@@ -744,8 +870,9 @@ def create_app() -> FastAPI:
 
     @application.websocket("/ws/chat")
     async def websocket_chat_compat(websocket: WebSocket):
-        """Alias para /ws/tui-default usado por la app desktop."""
-        await websocket_chat(websocket, "tui-default")
+        """Crea una sesión nueva única por cada conexión desktop."""
+        unique_id = f"desktop-{uuid.uuid4().hex[:8]}"
+        await websocket_chat(websocket, unique_id)
 
     @application.websocket("/ws/{session_id}")
     async def websocket_chat(websocket: WebSocket, session_id: str):
@@ -769,50 +896,59 @@ def create_app() -> FastAPI:
           {"type": "pong",         "data": {},    "ts": "..."}  → respuesta keep-alive
         """
         await websocket.accept()
-        
+
         await pool.wait_until_ready()
-        
+
         # Reconocer cuando una sesión es nueva o existente
         is_new = session_id not in pool._sessions
         session = pool.get_or_create(session_id)
-        
-        logger.info(f"[WS] Cliente conectado a sesión {session_id} ({'NUEVA' if is_new else 'EXISTENTE'})")
+
+        logger.info(
+            f"[WS] Cliente conectado a sesión {session_id} ({'NUEVA' if is_new else 'EXISTENTE'})"
+        )
 
         from kogniterm.terminal.config_manager import ConfigManager
+
         cm = ConfigManager()
         current_config = {
-            "model": cm.get_config("default_model") or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash"),
+            "model": cm.get_config("default_model")
+            or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash"),
         }
-
-        # Enviar estado inicial con configuración y metadatos de persistencia
-        await websocket.send_json({
-            "type": "connected",
-            "data": {
-                **session.to_dict(),
-                "config": current_config,
-                "is_new": is_new,
-                "persistent": True
-            },
-        })
 
         # Tarea A: relay de eventos del agente → cliente WS
         async def relay_events():
             try:
                 async for event in session.ui.events():
                     await websocket.send_json(event)
+            except WebSocketDisconnect:
+                logger.info(f"[WS:{session_id}] relay_events: cliente desconectado")
             except Exception as exc:
                 logger.warning(f"[WS:{session_id}] relay_events terminado: {exc}")
 
         relay_task = asyncio.create_task(relay_events())
 
-        # Tarea B: recibir mensajes del cliente
+        # Tarea B: enviar estado inicial y recibir mensajes del cliente
         try:
+            # Enviar estado inicial con configuración y metadatos de persistencia
+            await websocket.send_json(
+                {
+                    "type": "connected",
+                    "data": {
+                        **session.to_dict(),
+                        "config": current_config,
+                        "is_new": is_new,
+                        "persistent": True,
+                    },
+                }
+            )
             while True:
                 raw = await websocket.receive_text()
                 try:
                     data = json.loads(raw)
                 except json.JSONDecodeError:
-                    await websocket.send_json({"type": "error", "data": "JSON inválido."})
+                    await websocket.send_json(
+                        {"type": "error", "data": "JSON inválido."}
+                    )
                     continue
 
                 msg_type = data.get("type", "message")
@@ -821,31 +957,35 @@ def create_app() -> FastAPI:
                     text = data.get("text", "").strip()
                     if not text:
                         continue
-                    if session.is_running:
-                        await websocket.send_json({
-                            "type": "error",
-                            "data": "El agente ya está procesando. Usa 'interrupt' primero."
-                        })
-                        continue
-                    # Ejecutar el agente en background sin bloquear el loop WS
                     asyncio.create_task(session.send(text, pool._executor))
 
                 elif msg_type == "interrupt":
                     session.interrupt()
-                    await websocket.send_json({"type": "info", "data": "Interrupción enviada."})
+                    await websocket.send_json(
+                        {"type": "info", "data": "Interrupción enviada."}
+                    )
 
                 elif msg_type == "start_indexing":
                     asyncio.create_task(run_indexing_task(session_id))
-                    await websocket.send_json({"type": "info", "data": "Indexación iniciada."})
+                    await websocket.send_json(
+                        {"type": "info", "data": "Indexación iniciada."}
+                    )
 
                 elif msg_type == "approval_response":
                     request_id = data.get("id")
                     approved = data.get("approved", False)
                     if request_id:
                         session.ui.handle_approval_response(request_id, approved)
-                        await websocket.send_json({"type": "info", "data": f"Aprobación procesada para {request_id}."})
+                        await websocket.send_json(
+                            {
+                                "type": "info",
+                                "data": f"Aprobación procesada para {request_id}.",
+                            }
+                        )
                     else:
-                        await websocket.send_json({"type": "error", "data": "Falta ID de aprobación."})
+                        await websocket.send_json(
+                            {"type": "error", "data": "Falta ID de aprobación."}
+                        )
 
                 elif msg_type == "terminal_input":
                     text = data.get("text", "")
@@ -856,7 +996,12 @@ def create_app() -> FastAPI:
                     await websocket.send_json({"type": "pong", "data": {}})
 
                 else:
-                    await websocket.send_json({"type": "error", "data": f"Tipo de mensaje desconocido: {msg_type}"})
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "data": f"Tipo de mensaje desconocido: {msg_type}",
+                        }
+                    )
 
         except WebSocketDisconnect:
             logger.info(f"[WS] Cliente desconectado de sesión {session_id}")
@@ -876,6 +1021,7 @@ app = create_app()
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
+
 
 def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False):
     """Lanza el servidor KogniTerm."""
