@@ -421,3 +421,11 @@ git tag --sort=-version:refname
     - **Solución**: Se amplió la condición en [llm_service.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/llm_service.py) para que aplique el bypass de secuencia estricta 1:1 a cualquier modelo cuyo nombre contenga `"gemini"`, garantizando la compatibilidad total de llamadas a herramientas tanto en Antigravity como en Google AI Studio.
 
 
+---
+## [Unreleased]
+### 🔥 Desimplementación del sandbox de procesos (bwrap)
+- **Eliminado `_wrap_in_sandbox` y la detección de `bwrap`**: El wrapper de procesos en `SkillManager` con soporte para `bubblewrap` (bwrap) y fallback `subprocess + resource` se eliminó por completo. El código nunca funcionó fuera de entornos sin restricciones de user namespaces (Ubuntu 24.04+, WSL2, Docker, distros con AppArmor endurecido), y el aislamiento real que aportaba era marginal porque el script original vivía dentro del `--bind` del workspace.
+- **`sandbox_required` fuera del schema**: Se quitó el campo del dataclass `Skill`, de `tool_registry`, de `get_tool`, de `get_available_tools`, de `get_skill_info`, de `get_tools_for_llm`, del migrador (`SkillMigrator._needs_sandbox` y la línea del frontmatter generado) y de los `SKILL.md` bundled (`execute-command`, `pc-interaction`, `python-executor`) y de workspace.
+- **Tests actualizados**: `test_sandboxed_tool_wrapping` se renombró a `test_high_security_tool_passthrough` y verifica que `get_tool` retorna la función original sin envolver.
+- **`get_tool` ahora es un lookup directo**: ya no decide enrutamiento por `security_level`/`sandbox_required`. El aislamiento para tools que lo necesiten debe aplicarse en el caller (`CommandApprovalHandler` / `command_executor`).
+- **Bug colateral arreglado**: Faltaba `Optional` en el `import` de `typing` en `skill_migrator.py`; se añadió.

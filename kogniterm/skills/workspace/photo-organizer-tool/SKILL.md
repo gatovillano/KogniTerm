@@ -8,7 +8,6 @@ description: "Organiza fotograf\xEDas en carpetas por fecha de modificaci\xF3n"
 name: photo-organizer-tool
 required_permissions:
 - filesystem
-sandbox_required: false
 security_level: standard
 tags:
 - autonomous

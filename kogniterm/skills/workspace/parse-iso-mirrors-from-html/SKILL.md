@@ -9,7 +9,6 @@ description: "Parsea una p\xE1gina HTML de directorio de mirrors y extrae URLs d
 name: parse-iso-mirrors-from-html
 required_permissions:
 - filesystem
-sandbox_required: false
 security_level: standard
 tags:
 - autonomous

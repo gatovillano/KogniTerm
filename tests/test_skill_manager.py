@@ -50,7 +50,7 @@ required_permissions: ["execute"]
 security_level: "medium"
 allowlist: false
 auto_approve: false
-sandbox_required: false
+---
 ---
 
 # Instrucciones
@@ -176,7 +176,7 @@ required_permissions: []
 security_level: "low"
 allowlist: false
 auto_approve: false
-sandbox_required: false
+---
 ---
 """)
 
@@ -196,7 +196,7 @@ required_permissions: []
 security_level: "low"
 allowlist: false
 auto_approve: false
-sandbox_required: false
+---
 ---
 """)
 
@@ -232,7 +232,7 @@ required_permissions: []
 security_level: "low"
 allowlist: false
 auto_approve: false
-sandbox_required: false
+---
 ---
 """)
 
@@ -274,7 +274,6 @@ denied-tools: []
 security_level: "low"
 allowlist: false
 auto_approve: false
-sandbox_required: false
 ---
 
 # Instrucciones
@@ -313,7 +312,7 @@ required_permissions: []
 security_level: "low"
 allowlist: false
 auto_approve: false
-sandbox_required: false
+---
 ---
 """)
 
@@ -357,7 +356,7 @@ required_permissions: ["execute"]
 security_level: "medium"
 allowlist: false
 auto_approve: false
-sandbox_required: false
+---
 ---
 """)
 
@@ -403,7 +402,7 @@ required_permissions: []
 security_level: "low"
 allowlist: false
 auto_approve: false
-sandbox_required: false
+---
 ---
 """)
 

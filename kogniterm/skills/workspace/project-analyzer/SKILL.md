@@ -10,7 +10,6 @@ description: "Analiza un directorio de proyectos y resume informaci\xF3n clave l
 name: project-analyzer
 required_permissions:
 - filesystem
-sandbox_required: false
 security_level: standard
 tags:
 - autonomous

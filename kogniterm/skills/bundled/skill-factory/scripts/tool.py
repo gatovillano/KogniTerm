@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 def skill_factory(
     skill_name: str, 
     description: str, 
-    tool_code: str, 
     instructions: str,
+    tool_code: Optional[str] = None, 
     version: str = "1.0.0",
     scope: str = "workspace"
 ) -> str:
@@ -59,7 +59,6 @@ def skill_factory(
             "security_level": "standard",
             "allowlist": False,
             "auto_approve": True,
-            "sandbox_required": False,
             "resources": [],
             "assets": [],
             "metadata": {"format": "agent-skills-compatible"}
@@ -69,7 +68,8 @@ def skill_factory(
         
         # 4. Escribir archivos
         (skill_path / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
-        (scripts_path / "tool.py").write_text(tool_code, encoding="utf-8")
+        if tool_code:
+            (scripts_path / "tool.py").write_text(tool_code, encoding="utf-8")
         references_path.mkdir(exist_ok=True)
         assets_path.mkdir(exist_ok=True)
         resources_path.mkdir(exist_ok=True)
@@ -127,6 +127,6 @@ tool_schema = {
                 "default": "workspace"
             }
         },
-        "required": ["skill_name", "description", "tool_code", "instructions"]
+        "required": ["skill_name", "description", "instructions"]
     }
 }

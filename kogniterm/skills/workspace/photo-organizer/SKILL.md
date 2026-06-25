@@ -9,7 +9,6 @@ description: "Organiza fotograf\xEDas en carpetas por a\xF1o/mes seg\xFAn fecha 
 name: photo-organizer
 required_permissions:
 - filesystem
-sandbox_required: false
 security_level: standard
 tags:
 - autonomous

@@ -8,7 +8,6 @@ description: "Organiza fotos por fecha de modificaci\xF3n"
 name: native-photo-organizer
 required_permissions:
 - filesystem
-sandbox_required: false
 security_level: standard
 tags:
 - autonomous

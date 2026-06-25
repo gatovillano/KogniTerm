@@ -10,7 +10,6 @@ description: "Skill de limpieza segura para proyectos. Identifica y elimina arch
 name: safe-cleanup
 required_permissions:
 - filesystem
-sandbox_required: false
 security_level: standard
 tags:
 - autonomous
