@@ -7,7 +7,8 @@ async def send_chat_message(message: str, workspace_id: str = None, session_id: 
     """
     Envía un mensaje de chat al backend centralizado y retorna la respuesta.
     """
-    sid = session_id or "tui-default"
+    from kogniterm.terminal.tui.tui_app import _DEFAULT_SESSION_ID
+    sid = session_id or _DEFAULT_SESSION_ID
     payload = {"message": message, "session_id": sid}
     if workspace_id:
         payload["workspace_id"] = workspace_id

@@ -32,6 +32,7 @@ class TerminalUI:
         self.is_tty = sys.stdout.isatty()
         self.console = console or Console(theme=get_kogniterm_theme())
         self.prompt_session = PromptSession()
+        self.interrupt_queue = queue.Queue()
 
         if not self.is_tty:
             # For non-tty (dumb) terminals, disable color and terminal features

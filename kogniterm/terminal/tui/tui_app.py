@@ -3,10 +3,22 @@ import os
 import queue
 import json
 import logging
+import uuid
 from typing import Any, Optional
 from textual.app import App, ComposeResult
 from textual import work
-from textual.widgets import Input, ListView, ListItem, Label, Button, Static, TextArea, RichLog, TabbedContent, TabPane
+from textual.widgets import (
+    Input,
+    ListView,
+    ListItem,
+    Label,
+    Button,
+    Static,
+    TextArea,
+    RichLog,
+    TabbedContent,
+    TabPane,
+)
 from textual.containers import Vertical, Horizontal
 from textual import events
 from langchain_core.messages import HumanMessage
@@ -16,7 +28,9 @@ logger = logging.getLogger(__name__)
 
 # URL del servidor KogniTerm (puede sobreescribirse con KOGNITERM_SERVER_URL)
 _DEFAULT_SERVER_URL = os.environ.get("KOGNITERM_SERVER_URL", "ws://127.0.0.1:8765")
-_DEFAULT_SESSION_ID = os.environ.get("KOGNITERM_SESSION_ID", "tui-default")
+_DEFAULT_SESSION_ID = os.environ.get(
+    "KOGNITERM_SESSION_ID", f"tui-{uuid.uuid4().hex[:8]}"
+)
 
 
 try:
@@ -48,7 +62,9 @@ try:
 except Exception:
     ToolOutputWidget = None
 try:
-    from kogniterm.terminal.tui.components.command_approval_modal import CommandApprovalModal
+    from kogniterm.terminal.tui.components.command_approval_modal import (
+        CommandApprovalModal,
+    )
 except Exception:
     CommandApprovalModal = None
 try:
@@ -67,7 +83,7 @@ from rich.text import Text
 # ─── Modal de confirmación para indexación ─────────────────────────────────────
 class IndexingConfirmModal(ModalScreen[bool]):
     """Modal simple con botones Sí/No."""
-    
+
     CSS = """
     IndexingConfirmModal {
         align: center middle;
@@ -107,12 +123,12 @@ class IndexingConfirmModal(ModalScreen[bool]):
         min-width: 14;
     }
     """
-    
+
     def __init__(self, title: str, message: str):
         super().__init__()
         self._title = title
         self._message = message
-    
+
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-box"):
             yield Static(self._title, id="modal-title")
@@ -120,13 +136,13 @@ class IndexingConfirmModal(ModalScreen[bool]):
             with Horizontal(id="modal-buttons"):
                 yield Button("Sí", id="btn-yes", variant="success")
                 yield Button("No", id="btn-no", variant="error")
-    
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-yes":
             self.dismiss(True)
         else:
             self.dismiss(False)
-    
+
     def on_key(self, event: events.Key) -> None:
         if event.key in ("y", "Y", "enter"):
             self.dismiss(True)
@@ -143,32 +159,34 @@ class DummyConsole:
         self.legacy_windows = False
         self.encoding = "utf-8"
         from rich.console import Console
+
         _console = Console(width=80, height=24, force_terminal=True)
         self.options = _console.options
         self._live_stack = []
-        
+
     def print(self, *args, **kwargs):
         # Si estamos en modo live, ignoramos los prints regulares para evitar
         # inundar el chat log con estados intermedios. El streaming se maneja via update_live.
         if getattr(self, "_in_live", False):
             return
-            
+
         # Determinar si es un print con end="" (streaming)
         is_streaming = kwargs.get("end") == ""
-            
+
         # Support printing directly to the ChatLog instead of standard output
         for arg in args:
             if isinstance(arg, (str, bytes)):
                 from rich.text import Text
+
                 try:
                     if isinstance(arg, bytes):
-                        arg = arg.decode('utf-8')
+                        arg = arg.decode("utf-8")
                     # No usar markup en streaming para evitar problemas de parsing parcial
                     if not is_streaming:
                         arg = Text.from_markup(arg)
                 except Exception:
                     pass
-            
+
             if is_streaming:
                 self.tui_ui._safe_call(self.tui_ui.app.chat_log.write_stream, str(arg))
             else:
@@ -176,13 +194,13 @@ class DummyConsole:
 
     def set_live(self, live):
         self._in_live = True
-    
+
     def clear_live(self):
         self._in_live = False
 
     def update(self, *args, **kwargs):
         pass
-    
+
     def render(self, renderable, options=None):
         return []
 
@@ -195,24 +213,31 @@ class DummyConsole:
     @property
     def file(self):
         import io
+
         return io.StringIO()
+
 
 class TerminalPanel(Static):
     """Widget de panel de terminal que permite recibir el foco para interacción directa."""
+
     can_focus = True
-    
+
     def on_mount(self):
-        self.tooltip = "Haz clic o usa TAB para capturar teclado y enviar comandos directos"
+        self.tooltip = (
+            "Haz clic o usa TAB para capturar teclado y enviar comandos directos"
+        )
+
 
 class TextualTerminalUI:
     """Adaptador para que la lógica existente escriba en el ChatLog Textual."""
+
     def __init__(self, textual_app):
         self.app = textual_app
         self.interrupt_queue = queue.Queue()
         self.console = DummyConsole(self)
         self.kb = None
         self.is_tui = True
-        
+
     def _safe_call(self, func, *args, **kwargs):
         """Call a function safely depending on whether we are in the main thread or not."""
         if threading.current_thread() is threading.main_thread():
@@ -231,7 +256,15 @@ class TextualTerminalUI:
         except Exception:
             return self.app.chat_log
 
-    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False, **kwargs):
+    def print_message(
+        self,
+        message: str,
+        style: str = "",
+        is_user_message: bool = False,
+        status: str = None,
+        use_bubble: bool = False,
+        **kwargs,
+    ):
         panel_id = kwargs.get("panel_id")
         target_log = self._get_chat_log(panel_id)
         if is_user_message:
@@ -240,7 +273,8 @@ class TextualTerminalUI:
             # Si el mensaje contiene markup Rich (ej. [#color]texto[/#color]), lo convertimos
             # a un objeto Text para que RichLog (que tiene markup=False) lo renderice correctamente.
             from rich.text import Text
-            if isinstance(message, str) and ('[' in message and ']' in message):
+
+            if isinstance(message, str) and ("[" in message and "]" in message):
                 try:
                     renderable = Text.from_markup(message)
                     self._safe_call(target_log.write_message, renderable)
@@ -260,31 +294,34 @@ class TextualTerminalUI:
         """Imprime contenido en streaming directamente al chat log con manejo de cursor."""
         if not content:
             return
-            
+
         panel_id = kwargs.get("panel_id")
         if panel_id:
+
             def _update_panel():
                 try:
                     panel = self._get_chat_log(panel_id)
                     # ChatLogWidget (VerticalScroll) usa write_stream; Static/ToolOutputWidget usa update
                     from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+
                     if isinstance(panel, ChatLogWidget):
                         panel.write_stream(content)
                     elif hasattr(panel, "update"):
                         panel.update(content)
                 except Exception:
                     pass
+
             self._safe_call(_update_panel)
             return
-            
+
         # Limpiar el cursor previo si existe antes de escribir nuevo texto
         if self.app._cursor_active:
-             # RichLog no permite borrar caracteres individuales fácilmente,
-             # pero podemos escribir el contenido nuevo y el cursor se moverá al final.
-             pass
+            # RichLog no permite borrar caracteres individuales fácilmente,
+            # pero podemos escribir el contenido nuevo y el cursor se moverá al final.
+            pass
 
         self._safe_call(self.app.chat_log.write_stream, content)
-        
+
         # El cursor se redibujará en el siguiente tick del timer si está activo
 
     def update_live(self, renderable, **kwargs):
@@ -296,9 +333,13 @@ class TextualTerminalUI:
         """Actualiza específicamente la terminal con soporte de cursor."""
         # Optional panel routing if supported
         command = kwargs.get("command", tool_name)
-        self._safe_call(self.app.update_terminal_output, tool_name, output, command=command)
+        self._safe_call(
+            self.app.update_terminal_output, tool_name, output, command=command
+        )
 
-    def update_tool_display(self, tool_name: str, output: str, command: str = "", max_lines=None, **kwargs):
+    def update_tool_display(
+        self, tool_name: str, output: str, command: str = "", max_lines=None, **kwargs
+    ):
         """Escribe la salida final de una herramienta en el chat log de la TUI o de un panel."""
         if not output or not getattr(self, "app", None):
             return
@@ -312,7 +353,10 @@ class TextualTerminalUI:
             self.app._last_terminal_output = output
             if getattr(self.app, "_tool_panel_explicitly_shown", False):
                 display_command = command or tool_name
-                self.app.update_live_display(("__TERMINAL__", tool_name, output, display_command), panel_id="tool_display")
+                self.app.update_live_display(
+                    ("__TERMINAL__", tool_name, output, display_command),
+                    panel_id="tool_display",
+                )
 
         self._safe_call(_save_and_update)
 
@@ -347,6 +391,7 @@ class TextualTerminalUI:
                         panel.stop_stream()
                 except Exception:
                     pass
+
             self._safe_call(_stop)
             return
         self._safe_call(self.app.hide_live_display)
@@ -357,33 +402,46 @@ class TextualTerminalUI:
         """
         self._safe_call(self.app._resume_spinner)
 
-    def print_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = "", **kwargs):
+    def print_tool_notification(
+        self, tool_name: str, action_desc: str = "", skill_name: str = "", **kwargs
+    ):
         """Muestra notificación de herramienta ejecutándose, alineada a la izquierda o en panel."""
         panel_id = kwargs.get("panel_id")
         target_log = self._get_chat_log(panel_id)
-        self._safe_call(target_log.write_tool_notification, tool_name, action_desc, skill_name)
+        self._safe_call(
+            target_log.write_tool_notification, tool_name, action_desc, skill_name
+        )
 
     def print_success_box(self, message: str, title: str = "Éxito", **kwargs):
         panel_id = kwargs.get("panel_id")
         target_log = self._get_chat_log(panel_id)
-        self._safe_call(target_log.write_message, f"✅ [box] **{title}**: {message}", style="green")
+        self._safe_call(
+            target_log.write_message, f"✅ [box] **{title}**: {message}", style="green"
+        )
 
     def print_error_box(self, message: str, title: str = "Error", **kwargs):
         panel_id = kwargs.get("panel_id")
         target_log = self._get_chat_log(panel_id)
-        self._safe_call(target_log.write_message, f"❌ [box] **{title}**: {message}", style="red")
+        self._safe_call(
+            target_log.write_message, f"❌ [box] **{title}**: {message}", style="red"
+        )
 
     def print_warning_box(self, message: str, title: str = "Advertencia", **kwargs):
         panel_id = kwargs.get("panel_id")
         target_log = self._get_chat_log(panel_id)
-        self._safe_call(target_log.write_message, f"⚠️ [box] **{title}**: {message}", style="yellow")
+        self._safe_call(
+            target_log.write_message, f"⚠️ [box] **{title}**: {message}", style="yellow"
+        )
 
     def print_status(self, message: str, spinner_style: str = "dots"):
         import contextlib
+
         @contextlib.contextmanager
-        def dummy_status(): yield
+        def dummy_status():
+            yield
+
         return dummy_status()
-        
+
     def print_confirmation_panel(self, content, title, border_style):
         self._safe_call(self.app.chat_log.write_message, f"⚠️ [Confirma] {title}")
 
@@ -399,14 +457,19 @@ class TextualTerminalUI:
 
     async def ask_radiolist_async(self, title, text, values, default=None):
         from .components.settings_modals import TextualRadioListModal
-        return await self.app.push_screen_wait(TextualRadioListModal(title, text, values, default))
+
+        return await self.app.push_screen_wait(
+            TextualRadioListModal(title, text, values, default)
+        )
 
     async def ask_input_async(self, title, text, password=False):
         from .components.settings_modals import TextualInputModal
+
         return await self.app.push_screen_wait(TextualInputModal(title, text, password))
 
     async def ask_message_async(self, title, text):
         from .components.settings_modals import TextualMessageModal
+
         return await self.app.push_screen_wait(TextualMessageModal(title, text))
 
     def ask_approval_sync(
@@ -444,9 +507,11 @@ class TextualTerminalUI:
 
     def clear_chat(self):
         """Limpia visualmente el chat log y vuelve a mostrar el banner de bienvenida."""
+
         def _do_clear():
             self.app.chat_log.clear()
             self._do_print_banner()
+
         self._safe_call(_do_clear)
 
     def print_welcome_banner(self):
@@ -470,12 +535,13 @@ class TextualTerminalUI:
         widget_w = log.size.width
         if widget_w <= 0:
             import shutil
+
             widget_w = shutil.get_terminal_size().columns
         # El RichLog tiene padding: 0 1, descontar 2 cols (1 cada lado)
         available_w = max(widget_w - 2, 20)
 
         # Medir el ancho del banner (la línea más larga)
-        banner_lines = banner_text.split('\n')
+        banner_lines = banner_text.split("\n")
         banner_w = max(len(line) for line in banner_lines)
 
         # Calcular el padding izquierdo para centrar
@@ -498,10 +564,12 @@ class TextualTerminalUI:
         log.write("")
         log.scroll_end(animate=False)
 
+
 class QueueDisplay(Static):
     """
     Muestra la cola de mensajes que están esperando a ser procesados.
     """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.display = False
@@ -513,26 +581,27 @@ class QueueDisplay(Static):
             self.display = False
         else:
             self.display = True
-            
+
             # Limitar número de mensajes mostrados si hay demasiados
             max_show = 3
             display_msgs = messages[:max_show]
-            
+
             # El mensaje en cursiva con un emoji de reloj de arena al inicio
             content = "\n".join(f"⏳ [italic]{m}[/italic]" for m in display_msgs)
-            
+
             if len(messages) > max_show:
                 content += f"\n [dim]... y {len(messages) - max_show} más[/dim]"
-                
+
             self.update(content)
+
 
 class KogniTermTUI(App):
     """Aplicación principal de Textual para KogniTerm."""
-    
+
     # El ratón se activa por defecto para permitir interacciones con botones.
     # Se puede desactivar con %mouse para permitir selección nativa de la terminal.
     mouse_support = True
-    
+
     CSS = """
     Screen {
         background: #1e1e1e;
@@ -858,7 +927,14 @@ class KogniTermTUI(App):
     }
     """
 
-    def __init__(self, llm_service=None, command_executor=None, agent_state=None, workspace_directory=None, **kwargs):
+    def __init__(
+        self,
+        llm_service=None,
+        command_executor=None,
+        agent_state=None,
+        workspace_directory=None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.llm_service = llm_service
         self.command_executor = command_executor
@@ -866,7 +942,7 @@ class KogniTermTUI(App):
         self.workspace_directory = workspace_directory
         self.tui_ui = TextualTerminalUI(self)
         self._splash_visible = True  # controla si el splash está activo
-        
+
         # Asignar el terminal_ui después de inicializarlo
         if self.command_executor:
             self.command_executor.terminal_ui = self.tui_ui
@@ -880,20 +956,28 @@ class KogniTermTUI(App):
         self._spinner_frame = 0
         self._spinner_timer = None
         self._last_live_renderable = None
-        self._spinner_paused = False  # Flag para saber si el spinner fue pausado por streaming
-        
+        self._spinner_paused = (
+            False  # Flag para saber si el spinner fue pausado por streaming
+        )
+
         try:
             from kogniterm.core.session_manager import SessionManager
-            self.session_manager = SessionManager(self.workspace_directory or os.getcwd())
+
+            self.session_manager = SessionManager(
+                self.workspace_directory or os.getcwd()
+            )
         except Exception:
             self.session_manager = None
-        
+
         try:
             from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
-            self.meta_command_processor = MetaCommandProcessor(self.llm_service, self.agent_state, self.tui_ui, self)
+
+            self.meta_command_processor = MetaCommandProcessor(
+                self.llm_service, self.agent_state, self.tui_ui, self
+            )
         except Exception:
             self.meta_command_processor = None
-        
+
         # Inicializar CommandApprovalHandler solo si el componente está disponible
         try:
             if CommandApprovalHandler is not None:
@@ -903,15 +987,21 @@ class KogniTermTUI(App):
                     None,
                     self.tui_ui,
                     self.agent_state,
-                    self.llm_service.get_tool("file_update") if self.llm_service else None,
-                    self.llm_service.get_tool("advanced_file_editor") if self.llm_service else None,
-                    self.llm_service.get_tool("file_operations") if self.llm_service else None
+                    self.llm_service.get_tool("file_update")
+                    if self.llm_service
+                    else None,
+                    self.llm_service.get_tool("advanced_file_editor")
+                    if self.llm_service
+                    else None,
+                    self.llm_service.get_tool("file_operations")
+                    if self.llm_service
+                    else None,
                 )
             else:
                 self.command_approval_handler = None
         except Exception:
             self.command_approval_handler = None
-        
+
         # Inicializar AgentInteractionManager si está disponible
         try:
             if AgentInteractionManager is not None:
@@ -920,13 +1010,13 @@ class KogniTermTUI(App):
                     self.agent_state,
                     self.tui_ui,
                     self.tui_ui.get_interrupt_queue() if self.tui_ui else None,
-                    self.command_approval_handler
+                    self.command_approval_handler,
                 )
             else:
                 self.agent_interaction_manager = None
         except Exception:
             self.agent_interaction_manager = None
-        
+
         # Atributos para interactividad de terminal y cursor
         self.interactive_executor = None
         self._cursor_active = False
@@ -955,6 +1045,7 @@ class KogniTermTUI(App):
     def _build_splash_title(self) -> str:
         """Retorna el título ASCII para el splash centrado como markup Rich."""
         from kogniterm.terminal.themes import ColorPalette
+
         c = ColorPalette.PRIMARY
         lines = [
             "░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█",
@@ -963,22 +1054,21 @@ class KogniTermTUI(App):
         ]
         return "\n".join(f"[{c}]{line}[/{c}]" for line in lines)
 
-
     def compose(self) -> ComposeResult:
         from textual.widgets import Static
         from textual.containers import Vertical
-        
+
         # ── Base layer: chat interface ──────────────────────
         with Vertical(id="chat_container"):
             self.chat_log = ChatLogWidget(id="chat_log")
             yield self.chat_log
-            
+
         self.approval_container = Vertical(id="approval_container")
         yield self.approval_container
-        
+
         self.command_popup = ListView(id="command_popup")
         yield self.command_popup
-        
+
         with Vertical(id="bottom_container"):
             # Panel de queue (mensajes en espera)
             self.queue_display = QueueDisplay(id="queue_display")
@@ -1002,7 +1092,9 @@ class KogniTermTUI(App):
                     self.live_display_coder = ChatLogWidget(id="live_display_coder")
                     yield self.live_display_coder
                 with TabPane("DeepResearcher", id="tab_researcher"):
-                    self.live_display_researcher = ChatLogWidget(id="live_display_researcher")
+                    self.live_display_researcher = ChatLogWidget(
+                        id="live_display_researcher"
+                    )
                     yield self.live_display_researcher
 
             # Nota: tracker_container se yield fuera de bottom_container (ver abajo)
@@ -1044,31 +1136,40 @@ class KogniTermTUI(App):
         """Actualiza la información en la barra de estado inferior y el splash."""
         if hasattr(self, "status_footer"):
             self.status_footer.update_model(model_name)
-            
+
         # También actualizar el splash si está visible
         try:
             model_info = self.query_one("#splash_model_info", Static)
             display_model = model_name.split("/")[-1]
             from kogniterm.terminal.themes import ColorPalette
-            model_info.update(f"[{ColorPalette.TEXT_PRIMARY}]{display_model}[/{ColorPalette.TEXT_PRIMARY}]")
+
+            model_info.update(
+                f"[{ColorPalette.TEXT_PRIMARY}]{display_model}[/{ColorPalette.TEXT_PRIMARY}]"
+            )
         except Exception:
             pass
 
     def on_mount(self):
         import asyncio
+
         self.loop = asyncio.get_running_loop()
-        
+
         from kogniterm.terminal.config_manager import ConfigManager
+
         config_manager = ConfigManager()
         saved_theme = config_manager.get_config("theme") or "default"
         self.apply_theme(saved_theme, persist=False)
         # Actualizar info del modelo en el splash y enfocar el input del splash
         self.call_after_refresh(self._setup_splash)
-        
+
         # El ratón se maneja en el mount para asegurar que las secuencias se envíen.
         # force_on/off evita spam de mensajes en el inicio.
-        self.call_after_refresh(lambda: self.action_toggle_mouse(force_on=self.mouse_support, force_off=not self.mouse_support))
-        
+        self.call_after_refresh(
+            lambda: self.action_toggle_mouse(
+                force_on=self.mouse_support, force_off=not self.mouse_support
+            )
+        )
+
         # Check if workspace needs indexing and prompt user
         self.call_after_refresh(self._check_workspace_index)
 
@@ -1084,6 +1185,7 @@ class KogniTermTUI(App):
         el modo servidor iniciando el cliente WebSocket persistente.
         """
         from kogniterm.terminal.tui.ws_client import probe_server, TUIWebSocketClient
+
         available = await probe_server(self._server_url)
         if not available:
             logger.info("[Híbrido] Servidor no disponible. Usando modo local.")
@@ -1118,15 +1220,16 @@ class KogniTermTUI(App):
             self.workspace_directory = os.getcwd()
         try:
             from kogniterm.core.context.vector_db_manager import VectorDBManager
+
             vdb = VectorDBManager(self.workspace_directory)
             if not vdb.is_indexed():
                 # Show confirmation modal
                 self.push_screen(
                     IndexingConfirmModal(
                         title="Inicializar contexto del proyecto",
-                        message="¿Desea inicializar el espacio de trabajo para este proyecto? Esto generará la memoria de contexto (.kogniterm/llm_context.md) mediante investigación autónoma e indexará el código para búsquedas inteligentes. (Equivale a ejecutar el comando /init)"
+                        message="¿Desea inicializar el espacio de trabajo para este proyecto? Esto generará la memoria de contexto (.kogniterm/llm_context.md) mediante investigación autónoma e indexará el código para búsquedas inteligentes. (Equivale a ejecutar el comando /init)",
                     ),
-                    self._on_indexing_confirmation
+                    self._on_indexing_confirmation,
                 )
             vdb.close()
         except Exception as e:
@@ -1148,29 +1251,35 @@ class KogniTermTUI(App):
             try:
                 self._start_deep_research_investigation(force=False)
             except Exception as e:
-                logger.error(f"Error starting deep research from modal confirmation: {e}")
+                logger.error(
+                    f"Error starting deep research from modal confirmation: {e}"
+                )
 
     def _start_indexing(self):
         """Begin the indexing process."""
+
         # Mostrar barra de progreso en la parte inferior
         def show_ui():
             try:
                 self.query_one("#indexing_progress_container").display = True
-                self.query_one("#indexing_label").update("[#9ca3af]Indexando...[/#9ca3af]")
+                self.query_one("#indexing_label").update(
+                    "[#9ca3af]Indexando...[/#9ca3af]"
+                )
                 self.query_one("#indexing_bar").update("")
             except Exception as e:
                 logger.error(f"Error showing indexing progress: {e}")
-        
+
         show_ui()  # Llamada directa en el hilo principal (no requiere call_from_thread)
         self.run_worker(self._do_indexing)
 
     def call_from_thread(self, callback, *args, **kwargs):
         """Thread-safe and main-thread-safe version of call_from_thread.
-        
+
         If called from the main thread / app thread, it schedules the callback
         using call_next. Otherwise, it delegates to super().call_from_thread.
         """
         import threading
+
         if (
             threading.current_thread() is threading.main_thread()
             or getattr(self, "_thread_id", None) == threading.get_ident()
@@ -1188,14 +1297,16 @@ class KogniTermTUI(App):
         project_path = self.workspace_directory
         try:
             from kogniterm.core.context.codebase_indexer import CodebaseIndexer
+
             indexer = CodebaseIndexer(project_path)
             chunks = await indexer.index_project(
                 project_path,
                 show_progress=False,
-                progress_callback=self._indexing_progress_callback
+                progress_callback=self._indexing_progress_callback,
             )
             if chunks:
                 from kogniterm.core.context.vector_db_manager import VectorDBManager
+
                 vdb = VectorDBManager(project_path)
                 vdb.clear_collection()
                 vdb.add_chunks(chunks)
@@ -1214,6 +1325,7 @@ class KogniTermTUI(App):
 
     def _show_indexing_progress(self, current: int, total: int, description: str):
         """Update the progress bar at the bottom of the screen."""
+
         def update_ui():
             try:
                 self.query_one("#indexing_progress_container").display = True
@@ -1222,41 +1334,54 @@ class KogniTermTUI(App):
                 # Barra visual: ■■■■■■░░░░
                 filled = pct // 10
                 empty = 10 - filled
-                bar_text = f"{'[#3b82f6]■[/#3b82f6]' * filled}{'[#374151]░[/#374151]' * empty}"
+                bar_text = (
+                    f"{'[#3b82f6]■[/#3b82f6]' * filled}{'[#374151]░[/#374151]' * empty}"
+                )
                 label.update(f"Indexando {bar_text} {pct}%  {description}")
             except Exception as e:
                 logger.error(f"Error updating indexing progress UI: {e}")
-        
+
         self._call_on_app_thread(update_ui)
 
     def _indexing_complete(self, num_chunks: int):
         """Called when indexing completes."""
+
         def complete_ui():
             try:
                 self.query_one("#indexing_progress_container").display = True
                 label = self.query_one("#indexing_label")
                 if num_chunks > 0:
-                    label.update("[green]■■■■■■■■■■ 100%  Indexación completada.[/green]")
+                    label.update(
+                        "[green]■■■■■■■■■■ 100%  Indexación completada.[/green]"
+                    )
                 else:
-                    label.update("[yellow]Indexación completada: no se encontraron archivos relevantes.[/yellow]")
+                    label.update(
+                        "[yellow]Indexación completada: no se encontraron archivos relevantes.[/yellow]"
+                    )
             except Exception as e:
                 logger.error(f"Error updating indexing completion UI: {e}")
-        
-        self._call_on_app_thread(complete_ui)        
+
+        self._call_on_app_thread(complete_ui)
+
         # Ocultar después de 3 segundos
         def hide():
             import time
+
             time.sleep(3)
+
             def hide_ui():
                 try:
                     self.query_one("#indexing_progress_container").display = False
                 except Exception:
                     pass
+
             self._call_on_app_thread(hide_ui)
+
         threading.Thread(target=hide, daemon=True).start()
 
     def _indexing_failed(self, error_msg: str):
         """Called when indexing fails."""
+
         def fail_ui():
             try:
                 self.query_one("#indexing_progress_container").display = True
@@ -1264,29 +1389,35 @@ class KogniTermTUI(App):
                 label.update(f"[red]Error en la indexación: {error_msg}[/red]")
             except Exception as e:
                 logger.error(f"Error updating indexing failure UI: {e}")
-        
+
         self._call_on_app_thread(fail_ui)
-        
+
         def hide():
             import time
+
             time.sleep(5)
+
             def hide_ui():
                 try:
                     self.query_one("#indexing_progress_container").display = False
                 except Exception:
                     pass
+
             self._call_on_app_thread(hide_ui)
+
         threading.Thread(target=hide, daemon=True).start()
 
     @work(thread=True)
     def _start_deep_research_investigation(self, force: bool = False):
         """Worker that runs the DeepResearcher in the background."""
         try:
-            self.tui_ui.print_message("🤖 Iniciando investigación local con DeepResearcher...", style="yellow")
-            
+            self.tui_ui.print_message(
+                "🤖 Iniciando investigación local con DeepResearcher...", style="yellow"
+            )
+
             # 1. Asegurar que las herramientas críticas estén cargadas en el LLMService
-            if hasattr(self.llm_service, 'skill_manager'):
-                for skill in ['file_operations', 'codebase_search', 'task_tracker']:
+            if hasattr(self.llm_service, "skill_manager"):
+                for skill in ["file_operations", "codebase_search", "task_tracker"]:
                     try:
                         if skill not in self.llm_service.skill_manager.loaded_skills:
                             self.llm_service.skill_manager.load_skill(skill)
@@ -1295,12 +1426,13 @@ class KogniTermTUI(App):
 
             # 2. Crear el DeepResearcher
             from kogniterm.core.agents.deep_researcher import create_deep_researcher
+
             app = create_deep_researcher(
                 llm_service=self.llm_service,
                 terminal_ui=self.tui_ui,
-                interrupt_queue=self.tui_ui.interrupt_queue
+                interrupt_queue=self.tui_ui.interrupt_queue,
             )
-            
+
             # 3. Formular la consulta
             query = (
                 "Realiza una investigación profunda y exhaustiva del proyecto local para generar su Memoria Contextual. "
@@ -1312,56 +1444,91 @@ class KogniTermTUI(App):
                 "3. ## Comandos del Proyecto: comandos útiles de bash/npm/pytest para instalación, ejecución y pruebas.\n"
                 "4. ## Convenciones y Reglas de Desarrollo: estilo de código, patrones de diseño, decisiones y reglas obligatorias."
             )
-            
+
             from langchain_core.messages import HumanMessage
             from kogniterm.core.agents.deep_researcher import DeepResearchState
-            
+
             initial_state = DeepResearchState()
             initial_state.messages = [HumanMessage(content=query)]
-            
+
             # Ejecutar el grafo de LangGraph
             final_state = app.invoke(initial_state)
-            
+
             # 4. Procesar el resultado
-            if final_state and 'messages' in final_state and final_state['messages']:
-                last_msg = final_state['messages'][-1]
-                content = getattr(last_msg, 'content', '')
+            if final_state and "messages" in final_state and final_state["messages"]:
+                last_msg = final_state["messages"][-1]
+                content = getattr(last_msg, "content", "")
                 if content:
                     # Limpiar marcadores de pensamiento/razonamiento
                     import re
+
                     cleaned_content = content.strip()
-                    cleaned_content = re.sub(r'<thought>.*?</thought>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
-                    cleaned_content = re.sub(r'<thinking>.*?</thinking>', '', cleaned_content, flags=re.DOTALL | re.IGNORECASE)
-                    cleaned_content = cleaned_content.replace('__THINKING__:', '')
-                    cleaned_content = cleaned_content.replace('__THINKING__', '')
+                    cleaned_content = re.sub(
+                        r"<thought>.*?</thought>",
+                        "",
+                        cleaned_content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    cleaned_content = re.sub(
+                        r"<thinking>.*?</thinking>",
+                        "",
+                        cleaned_content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    cleaned_content = cleaned_content.replace("__THINKING__:", "")
+                    cleaned_content = cleaned_content.replace("__THINKING__", "")
                     cleaned_content = cleaned_content.strip()
-                    
+
                     if cleaned_content:
                         if cleaned_content.startswith("## 🔬 Informe de Deep Research"):
-                            cleaned_content = cleaned_content.replace("## 🔬 Informe de Deep Research\n\n", "")
-                        elif cleaned_content.startswith("## 🔬 Informe de Investigación"):
-                            cleaned_content = cleaned_content.replace("## 🔬 Informe de Investigación\n\n", "")
-                            
+                            cleaned_content = cleaned_content.replace(
+                                "## 🔬 Informe de Deep Research\n\n", ""
+                            )
+                        elif cleaned_content.startswith(
+                            "## 🔬 Informe de Investigación"
+                        ):
+                            cleaned_content = cleaned_content.replace(
+                                "## 🔬 Informe de Investigación\n\n", ""
+                            )
+
                         header = "<!-- Generado por KogniTerm DeepResearcher -->\n"
-                        if not (cleaned_content.startswith("# Memoria Contextual") or cleaned_content.startswith("<!--")):
+                        if not (
+                            cleaned_content.startswith("# Memoria Contextual")
+                            or cleaned_content.startswith("<!--")
+                        ):
                             cleaned_content = header + cleaned_content
-                        
+
                         # Escribir la memoria local
-                        from kogniterm.core.context.project_memory_builder import ProjectMemoryBuilder
+                        from kogniterm.core.context.project_memory_builder import (
+                            ProjectMemoryBuilder,
+                        )
+
                         builder = ProjectMemoryBuilder(self.workspace_directory)
                         builder.write_memory_file(cleaned_content)
-                        
-                        self.tui_ui.print_message("✅ Memoria contextual del proyecto guardada exitosamente en .kogniterm/llm_context.md", style="green")
-                        self.tui_ui.print_message("✨ ¡Inicialización completada con éxito!", style="bold green")
+
+                        self.tui_ui.print_message(
+                            "✅ Memoria contextual del proyecto guardada exitosamente en .kogniterm/llm_context.md",
+                            style="green",
+                        )
+                        self.tui_ui.print_message(
+                            "✨ ¡Inicialización completada con éxito!",
+                            style="bold green",
+                        )
                         return
-            
-            self.tui_ui.print_message("⚠️ DeepResearcher finalizó sin generar un reporte válido.", style="yellow")
-            
+
+            self.tui_ui.print_message(
+                "⚠️ DeepResearcher finalizó sin generar un reporte válido.",
+                style="yellow",
+            )
+
         except Exception as e:
             import traceback
+
             error_trace = traceback.format_exc()
             logger.error(f"Error executing DeepResearcher in TUI: {e}\n{error_trace}")
-            self.tui_ui.print_message(f"❌ Error durante la investigación de DeepResearcher: {e}", style="red")
+            self.tui_ui.print_message(
+                f"❌ Error durante la investigación de DeepResearcher: {e}", style="red"
+            )
 
     def action_toggle_mouse(self, force_off: bool = False, force_on: bool = False):
         """Alterna el soporte de ratón en tiempo de ejecución o lo fuerza."""
@@ -1378,12 +1545,17 @@ class KogniTermTUI(App):
             # que no soportan Shift+Click, permitimos este toggle.
             if not force_on and not force_off:
                 status = "ACTIVADO" if self.mouse_support else "DESACTIVADO"
-                self.tui_ui.print_message(f"🖱️ Ratón {status} (Selección nativa habilitada si está desactivado)", style="cyan")
+                self.tui_ui.print_message(
+                    f"🖱️ Ratón {status} (Selección nativa habilitada si está desactivado)",
+                    style="cyan",
+                )
         except Exception:
             pass
+
     def _setup_splash(self):
         """Configura el splash tras el primer layout (dimensiones y colores reales)."""
         from kogniterm.terminal.themes import ColorPalette
+
         p = ColorPalette
 
         # Actualizar título con el color actual del tema
@@ -1406,9 +1578,7 @@ class KogniTermTUI(App):
             model_info.styles.background = p.GRAY_800
             # Mostrar modo y modelo
             display_model = self.llm_service.model_name.split("/")[-1]
-            model_info.update(
-                f"[{p.TEXT_PRIMARY}]{display_model}[/{p.TEXT_PRIMARY}]"
-            )
+            model_info.update(f"[{p.TEXT_PRIMARY}]{display_model}[/{p.TEXT_PRIMARY}]")
         except Exception:
             pass
 
@@ -1442,18 +1612,18 @@ class KogniTermTUI(App):
 
         # Obtener el suggester para acceder a las listas cacheadas
         suggester = getattr(event.input, "suggester", None)
-        
+
         # Determinar qué estamos buscando basándonos en el último carácter o palabra
         words = value.split()
         if not words:
             self.command_popup.display = False
             self._completion_input = None
             return
-            
+
         current_word = words[-1]
         trigger = None
         search_term = ""
-        
+
         stripped = value.lstrip()
         if stripped.startswith("%"):
             trigger = "%"
@@ -1467,38 +1637,100 @@ class KogniTermTUI(App):
         elif ":" in current_word:
             trigger = ":"
             search_term = current_word.split(":")[-1]
-            
+
         if trigger:
             self.command_popup.display = True
             self._completion_input = event.input  # Guardar referencia al input
             await self.command_popup.clear()
-            
+
             # Posicionar el popup horizontalmente donde está el cursor del input
             self._reposition_popup(event.input, value)
-            
+
             matches = []
             if trigger in ("%", "/"):
                 if trigger == "%":
-                    commands = ["%help", "%models", "%provider", "%agy-login", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
+                    commands = [
+                        "%help",
+                        "%models",
+                        "%provider",
+                        "%agy-login",
+                        "%reset",
+                        "%undo",
+                        "%compress",
+                        "%theme",
+                        "%init",
+                        "%keys",
+                        "%session",
+                        "%resume",
+                        "%salir",
+                        "%mouse",
+                        "%embeddings",
+                        "%tema",
+                        "%exit",
+                        "%quit",
+                        "%skills",
+                        "%instructions",
+                        "%insights",
+                        "%reasoning",
+                        "%summarize",
+                        "%summarymodel",
+                    ]
                 else:
-                    commands = ["/help", "/models", "/provider", "/agy-login", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
+                    commands = [
+                        "/help",
+                        "/models",
+                        "/provider",
+                        "/agy-login",
+                        "/reset",
+                        "/undo",
+                        "/compress",
+                        "/theme",
+                        "/init",
+                        "/keys",
+                        "/session",
+                        "/resume",
+                        "/salir",
+                        "/mouse",
+                        "/embeddings",
+                        "/tema",
+                        "/exit",
+                        "/quit",
+                        "/skills",
+                        "/instructions",
+                        "/insights",
+                        "/reasoning",
+                        "/summarize",
+                        "/summarymodel",
+                    ]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
-                from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
+                from kogniterm.terminal.tui.components.status_footer import (
+                    KogniTermSuggester,
+                )
+
                 if isinstance(suggester, KogniTermSuggester):
                     files = suggester.cached_files_list
-                    matches = [f for f in files if search_term.lower() in f.lower()][:15] # Limitar a 15
+                    matches = [f for f in files if search_term.lower() in f.lower()][
+                        :15
+                    ]  # Limitar a 15
             elif trigger == ":" and suggester:
-                from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
+                from kogniterm.terminal.tui.components.status_footer import (
+                    KogniTermSuggester,
+                )
+
                 if isinstance(suggester, KogniTermSuggester):
                     containers = getattr(suggester, "_cached_containers", []) or []
                     # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
-                    matches = [c for c in containers if search_term.lower() in c['name'].lower()][:12]  # Limitar a 12
+                    matches = [
+                        c
+                        for c in containers
+                        if search_term.lower() in c["name"].lower()
+                    ][:12]  # Limitar a 12
 
             # Si hay un único match y es exacto, no mostrar autocompletado
             if len(matches) == 1:
                 match = matches[0]
-                match_text = match['name'] if isinstance(match, dict) else match
+                match_text = match["name"] if isinstance(match, dict) else match
                 if match_text.lower() == search_term.lower():
                     matches = []
 
@@ -1506,14 +1738,14 @@ class KogniTermTUI(App):
                 # match puede ser string (comandos %) o dict (contenedores)
                 if isinstance(match, dict):
                     display = f"{match['name']} ({match['status']})"
-                    command_text = match['name']
+                    command_text = match["name"]
                 else:
                     display = match
                     command_text = match
                 item = ListItem(Label(display))
                 item.command_text = command_text
                 self.command_popup.append(item)
-                
+
             if not matches:
                 self.command_popup.display = False
                 self._completion_input = None
@@ -1531,18 +1763,18 @@ class KogniTermTUI(App):
 
         # Obtener el suggester para acceder a las listas cacheadas
         suggester = getattr(event.text_area, "suggester", None)
-        
+
         # Determinar qué estamos buscando basándonos en el último carácter o palabra
         words = value.split()
         if not words:
             self.command_popup.display = False
             self._completion_input = None
             return
-            
+
         current_word = words[-1]
         trigger = None
         search_term = ""
-        
+
         stripped = value.lstrip()
         if stripped.startswith("%"):
             trigger = "%"
@@ -1556,38 +1788,100 @@ class KogniTermTUI(App):
         elif ":" in current_word:
             trigger = ":"
             search_term = current_word.split(":")[-1]
-            
+
         if trigger:
             self.command_popup.display = True
             self._completion_input = event.text_area  # Guardar referencia al input
             await self.command_popup.clear()
-            
+
             # Posicionar el popup horizontalmente donde está el cursor del input
             self._reposition_popup(event.text_area, value)
-            
+
             matches = []
             if trigger in ("%", "/"):
                 if trigger == "%":
-                    commands = ["%help", "%models", "%provider", "%agy-login", "%reset", "%undo", "%compress", "%theme", "%init", "%keys", "%session", "%resume", "%salir", "%mouse", "%embeddings", "%tema", "%exit", "%quit", "%skills", "%instructions", "%insights", "%reasoning", "%summarize", "%summarymodel"]
+                    commands = [
+                        "%help",
+                        "%models",
+                        "%provider",
+                        "%agy-login",
+                        "%reset",
+                        "%undo",
+                        "%compress",
+                        "%theme",
+                        "%init",
+                        "%keys",
+                        "%session",
+                        "%resume",
+                        "%salir",
+                        "%mouse",
+                        "%embeddings",
+                        "%tema",
+                        "%exit",
+                        "%quit",
+                        "%skills",
+                        "%instructions",
+                        "%insights",
+                        "%reasoning",
+                        "%summarize",
+                        "%summarymodel",
+                    ]
                 else:
-                    commands = ["/help", "/models", "/provider", "/agy-login", "/reset", "/undo", "/compress", "/theme", "/init", "/keys", "/session", "/resume", "/salir", "/mouse", "/embeddings", "/tema", "/exit", "/quit", "/skills", "/instructions", "/insights", "/reasoning", "/summarize", "/summarymodel"]
+                    commands = [
+                        "/help",
+                        "/models",
+                        "/provider",
+                        "/agy-login",
+                        "/reset",
+                        "/undo",
+                        "/compress",
+                        "/theme",
+                        "/init",
+                        "/keys",
+                        "/session",
+                        "/resume",
+                        "/salir",
+                        "/mouse",
+                        "/embeddings",
+                        "/tema",
+                        "/exit",
+                        "/quit",
+                        "/skills",
+                        "/instructions",
+                        "/insights",
+                        "/reasoning",
+                        "/summarize",
+                        "/summarymodel",
+                    ]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
-                from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
+                from kogniterm.terminal.tui.components.status_footer import (
+                    KogniTermSuggester,
+                )
+
                 if isinstance(suggester, KogniTermSuggester):
                     files = suggester.cached_files_list
-                    matches = [f for f in files if search_term.lower() in f.lower()][:15] # Limitar a 15
+                    matches = [f for f in files if search_term.lower() in f.lower()][
+                        :15
+                    ]  # Limitar a 15
             elif trigger == ":" and suggester:
-                from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
+                from kogniterm.terminal.tui.components.status_footer import (
+                    KogniTermSuggester,
+                )
+
                 if isinstance(suggester, KogniTermSuggester):
                     containers = getattr(suggester, "_cached_containers", []) or []
                     # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
-                    matches = [c for c in containers if search_term.lower() in c['name'].lower()][:12]  # Limitar a 12
+                    matches = [
+                        c
+                        for c in containers
+                        if search_term.lower() in c["name"].lower()
+                    ][:12]  # Limitar a 12
 
             # Si hay un único match y es exacto, no mostrar autocompletado
             if len(matches) == 1:
                 match = matches[0]
-                match_text = match['name'] if isinstance(match, dict) else match
+                match_text = match["name"] if isinstance(match, dict) else match
                 if match_text.lower() == search_term.lower():
                     matches = []
 
@@ -1595,14 +1889,14 @@ class KogniTermTUI(App):
                 # match puede ser string (comandos %) o dict (contenedores)
                 if isinstance(match, dict):
                     display = f"{match['name']} ({match['status']})"
-                    command_text = match['name']
+                    command_text = match["name"]
                 else:
                     display = match
                     command_text = match
                 item = ListItem(Label(display))
                 item.command_text = command_text
                 self.command_popup.append(item)
-                
+
             if not matches:
                 self.command_popup.display = False
                 self._completion_input = None
@@ -1634,7 +1928,9 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-    def _apply_completion(self, selected_text: str, input_widget: Input, current_val: str):
+    def _apply_completion(
+        self, selected_text: str, input_widget: Input, current_val: str
+    ):
         """Aplica la completación al input y cierra el popup."""
         if current_val.lstrip().startswith("%"):
             input_widget.value = selected_text + " "
@@ -1676,15 +1972,20 @@ class KogniTermTUI(App):
         # Importación local para evitar circulares
         try:
             from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+
             focused_widget = self.focused
-            is_terminal_focused = isinstance(focused_widget, (TerminalPanel, ToolOutputWidget))
+            is_terminal_focused = isinstance(
+                focused_widget, (TerminalPanel, ToolOutputWidget)
+            )
         except ImportError:
             is_terminal_focused = False
             focused_widget = None
 
         is_interactive_mode = False
         if focused_widget and is_terminal_focused:
-            if (self.command_executor and self.command_executor.process) or (self._server_mode and self.interactive_executor):
+            if (self.command_executor and self.command_executor.process) or (
+                self._server_mode and self.interactive_executor
+            ):
                 is_interactive_mode = True
 
         if is_interactive_mode:
@@ -1695,7 +1996,7 @@ class KogniTermTUI(App):
                 except:
                     pass
                 return
-            
+
             # Mapeo de teclas de Textual a secuencias PTY
             key_map = {
                 "right": "\x1b[C",
@@ -1706,13 +2007,13 @@ class KogniTermTUI(App):
                 "pageup": "\x1b[5~",
                 "pagedown": "\x1b[6~",
             }
-            
+
             # Manejar Ctrl+Letra
             if event.key.startswith("ctrl+"):
                 char = event.key.split("+")[1]
                 if len(char) == 1:
                     # 'a' es 1, 'b' es 2... 'z' es 26
-                    code = ord(char.lower()) - ord('a') + 1
+                    code = ord(char.lower()) - ord("a") + 1
                     self.interactive_executor.write_input(bytes([code]))
                     event.prevent_default()
                     return
@@ -1725,15 +2026,27 @@ class KogniTermTUI(App):
 
         if event.key == "escape":
             if self.is_processing:
-                if self._server_mode and self._ws_client and self._ws_client.is_connected:
+                if (
+                    self._server_mode
+                    and self._ws_client
+                    and self._ws_client.is_connected
+                ):
                     # Modo servidor: enviar interrupción al backend
-                    asyncio.run_coroutine_threadsafe(
-                        self._ws_client.send_interrupt(), self.loop
-                    )
+                    # Usar call_later de Textual para programar la coroutine de
+                    # forma segura en el event loop, evitando excepciones silenciosas.
+                    self.call_later(self._ws_client.send_interrupt)
+                    # También señalar la cola local como respaldo por si el
+                    # WebSocket tarda en entregar la señal al hilo del agente.
+                    try:
+                        self.tui_ui.get_interrupt_queue().put_nowait(True)
+                    except Exception:
+                        pass
                 else:
                     # Modo local: usar la cola de interrupción estándar
                     self.tui_ui.get_interrupt_queue().put(True)
-                self.tui_ui.print_message("⏳ Solicitando interrupción...", style="yellow")
+                self.tui_ui.print_message(
+                    "⏳ Solicitando interrupción...", style="yellow"
+                )
                 event.prevent_default()
                 return
             elif self.command_popup.display:
@@ -1761,7 +2074,9 @@ class KogniTermTUI(App):
                             except:
                                 input_widget = None
                         if input_widget and hasattr(input_widget, "value"):
-                            self._apply_completion(selected_text, input_widget, input_widget.value)
+                            self._apply_completion(
+                                selected_text, input_widget, input_widget.value
+                            )
                         event.prevent_default()
             elif event.key == "up":
                 self.command_popup.action_cursor_up()
@@ -1773,7 +2088,7 @@ class KogniTermTUI(App):
                         selected_text = item.command_text
                         input_widget = self.focused
                         current_val = input_widget.value
-                        
+
                         # Determinar si estamos reemplazando una palabra parcial (@ o :)
                         # o si es un comando mágico (%)
                         if current_val.lstrip().startswith("%"):
@@ -1785,13 +2100,15 @@ class KogniTermTUI(App):
                             if words:
                                 last_word = words[-1]
                                 prefix = ""
-                                if "@" in last_word: prefix = last_word.split("@")[0] + "@"
-                                elif ":" in last_word: prefix = last_word.split(":")[0] + ":"
-                                
+                                if "@" in last_word:
+                                    prefix = last_word.split("@")[0] + "@"
+                                elif ":" in last_word:
+                                    prefix = last_word.split(":")[0] + ":"
+
                                 # Reconstruir el valor
                                 words[-1] = prefix + selected_text
                                 input_widget.value = " ".join(words) + " "
-                        
+
                         input_widget.cursor_position = len(input_widget.value)
                         input_widget.focus()
                     self.command_popup.display = False
@@ -1801,41 +2118,48 @@ class KogniTermTUI(App):
         user_input = event.value
         if not user_input.strip():
             return
-        
+
         # Si el submit viene del splash, transición al modo chat
         if event.input.id == "splash_chat_input" or self._splash_visible:
             # Añadir al historial persistente ANTES de cambiar de pantalla
             if hasattr(event.input, "add_to_history"):
                 event.input.add_to_history(user_input.strip())
-            
+
             # Sincronizar historial desde el almacenamiento persistente
             try:
                 main_input = self.query_one("#chat_input", ChatInput)
                 main_input.refresh_history()
             except:
                 pass
-            
+
             event.input.value = ""
             self._transition_to_chat(user_input)
             return
-        
+
         # Para el chat normal, añadir al historial
         if hasattr(event.input, "add_to_history"):
             event.input.add_to_history(user_input.strip())
-        
+
         # Redirigir input si el foco está en una terminal O si el modo interactivo está forzado
         is_interact_mode = self._cursor_active
         try:
             from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
-            is_terminal_focused = isinstance(self.focused, (TerminalPanel, ToolOutputWidget))
+
+            is_terminal_focused = isinstance(
+                self.focused, (TerminalPanel, ToolOutputWidget)
+            )
         except:
             is_terminal_focused = False
 
-        if (is_interact_mode or is_terminal_focused) and self.command_executor and self.command_executor.process:
+        if (
+            (is_interact_mode or is_terminal_focused)
+            and self.command_executor
+            and self.command_executor.process
+        ):
             self.command_executor.write_input(user_input + "\n")
             event.input.value = ""
             return
-        
+
         # (El fallback anterior fue removido para evitar secuestro de input con shell persistente)
 
         event.input.value = ""
@@ -1845,15 +2169,15 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-        
         # Bloquear nuevo input si ya hay una petición en curso
         # PERO permitir encolar mensajes para mejor UX
         if self.is_processing:
             self._input_queue.append(user_input)
             if hasattr(self, "queue_display"):
                 self.queue_display.update_queue(self._input_queue)
+            self.tui_ui.interrupt_queue.put_nowait(True)
             return
-        
+
         self.run_worker(self._handle_input_async(user_input))
 
     # Algunos widgets (p.ej. `ChatInput`) emiten su propio `Submitted` message
@@ -1886,7 +2210,7 @@ class KogniTermTUI(App):
     async def _handle_input_async(self, user_input: str):
         """Procesa la entrada del usuario de forma asíncrona en un worker."""
         self.chat_log.write_user_message(user_input)
-        
+
         if await self.meta_command_processor.process_meta_command(user_input):
             return
 
@@ -1899,33 +2223,33 @@ class KogniTermTUI(App):
 
     def apply_theme(self, theme_name: str, persist: bool = True):
         """Aplica un tema visual a la aplicación Textual.
-        
+
         Args:
             theme_name: Nombre del tema a aplicar.
             persist: Si True, guarda el tema en config global. Usar False al
                      cargar al inicio para no sobreescribir la preferencia guardada.
         """
         from kogniterm.terminal.themes import ColorPalette, set_kogniterm_theme
-        
+
         # 1. Aplicar tema a nivel de lógica (paleta global)
         set_kogniterm_theme(theme_name)
         p = ColorPalette
-        
+
         # 2. Textual native dark mode (afecta a los widgets nativos)
-        self.dark = (theme_name != "light")
-        
+        self.dark = theme_name != "light"
+
         # 3. Aplicar colores a contenedores principales
         bg_color = p.GRAY_900 if self.dark else p.PRIMARY_LIGHTEST
-        
+
         self.screen.styles.background = bg_color
         self.styles.background = bg_color
-        
+
         try:
             chat_container = self.query_one("#chat_container")
             chat_container.styles.background = bg_color
         except Exception:
             pass
-        
+
         # 4. Estilizar el LOG y sus SCROLLBARS
         log = self.chat_log
         log.styles.background = "transparent"
@@ -1933,7 +2257,7 @@ class KogniTermTUI(App):
         log.styles.scrollbar_color = p.GRAY_600
         log.styles.scrollbar_color_hover = p.PRIMARY
         log.styles.scrollbar_color_active = p.PRIMARY_LIGHT
-        
+
         # 5. Estilizar contenedores secundarios
         self.approval_container.styles.background = bg_color
         self.live_display.styles.background = bg_color
@@ -1945,7 +2269,7 @@ class KogniTermTUI(App):
 
         bottom_container = self.query_one("#bottom_container")
         bottom_container.styles.background = bg_color
-        
+
         input_bg = p.GRAY_800 if self.dark else p.GRAY_200
 
         # 6. Estilizar el INPUT CONTAINER
@@ -1956,14 +2280,14 @@ class KogniTermTUI(App):
             input_container.styles.border_left = ("tall", p.PRIMARY)
         except Exception:
             pass
-        
+
         # 7. Estilizar todos los inputs
         for inp in self.query(ChatInput):
             inp.styles.color = p.TEXT_PRIMARY
             inp.styles.background = "transparent"
             inp.show_cursor_line = False
             inp.cursor_line_style = ""
-            
+
         # 8. Estilizar STATUS FOOTER
         for sf in self.query(StatusFooter):
             sf.styles.background = "transparent"
@@ -1975,9 +2299,15 @@ class KogniTermTUI(App):
         if self._splash_visible:
             try:
                 self.query_one("#splash_overlay").styles.background = bg_color
-                self.query_one("#splash_input_row").styles.border_left = ("tall", p.PRIMARY)
+                self.query_one("#splash_input_row").styles.border_left = (
+                    "tall",
+                    p.PRIMARY,
+                )
                 self.query_one("#splash_input_row").styles.background = p.GRAY_800
-                self.query_one("#splash_model_info").styles.border_left = ("tall", p.PRIMARY)
+                self.query_one("#splash_model_info").styles.border_left = (
+                    "tall",
+                    p.PRIMARY,
+                )
                 self.query_one("#splash_model_info").styles.background = p.GRAY_800
                 self.query_one("#splash_title").update(self._build_splash_title())
             except Exception:
@@ -1986,6 +2316,7 @@ class KogniTermTUI(App):
         # 10. Persistir solo si el usuario eligió activamente el tema
         if persist:
             from kogniterm.terminal.config_manager import ConfigManager
+
             cm = ConfigManager()
             # Guardar en config global
             cm.set_global_config("theme", theme_name)
@@ -1993,7 +2324,7 @@ class KogniTermTUI(App):
             # evitar que override silenciosamente la preferencia del usuario
             if cm.PROJECT_CONFIG_FILE.exists():
                 cm.set_project_config("theme", theme_name)
-        
+
         # 11. Forzar refresh
         self.refresh()
 
@@ -2009,17 +2340,20 @@ class KogniTermTUI(App):
                 pass
         self.chat_log.write_stream(content)
 
-
     # Frames del spinner braille animado
     SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     def _start_spinner(self):
         """Inicia la animación del spinner en live_display (ejecutar desde main thread)."""
         from kogniterm.terminal.themes import ColorPalette
+
         self._spinner_frame = 0
-        self.live_display.display = True # Asegurar que sea visible
+        self.live_display.display = True  # Asegurar que sea visible
         self.live_display.update(
-            Text(f"{self.SPINNER_FRAMES[0]} Procesando...", style=f"bold {ColorPalette.PRIMARY}")
+            Text(
+                f"{self.SPINNER_FRAMES[0]} Procesando...",
+                style=f"bold {ColorPalette.PRIMARY}",
+            )
         )
         if self._spinner_timer:
             self._spinner_timer.stop()
@@ -2039,8 +2373,9 @@ class KogniTermTUI(App):
 
         self._spinner_frame = (self._spinner_frame + 1) % len(self.SPINNER_FRAMES)
         from kogniterm.terminal.themes import ColorPalette
+
         frame = self.SPINNER_FRAMES[self._spinner_frame]
-        
+
         # Asegurar visibilidad si estamos animando
         if not self.live_display.display:
             self.live_display.display = True
@@ -2054,14 +2389,14 @@ class KogniTermTUI(App):
         if self._spinner_timer:
             self._spinner_timer.stop()
             self._spinner_timer = None
-        
+
         # Ocultar el live_display si no estamos en modo interactivo (terminal)
         if not self._cursor_active:
             self.live_display.display = False
-            
+
         # Cuando se detiene el spinner, finalizamos cualquier stream en el log
         self.chat_log.stop_stream()
-        
+
         # Enfocar el input principal para permitir seguir escribiendo tras el fin de la respuesta
         # Solo lo hacemos si no estamos en un modo que requiera foco en otro lado (como terminal interactiva)
         if not self._cursor_active:
@@ -2087,13 +2422,13 @@ class KogniTermTUI(App):
         """Activa o desactiva el simulador de cursor en el chat log."""
         self.interactive_executor = executor if active else None
         self._cursor_active = active
-        
+
         # Cambiar placeholder del input para indicar modo
         try:
             chat_input = self.query_one(ChatInput)
             if active:
                 chat_input.placeholder = "Terminal Interactiva (Escribe abajo o HAZ CLIC en el panel para modo directo)..."
-                chat_input.styles.color = "#10b981" # Verde esmeralda para modo activo
+                chat_input.styles.color = "#10b981"  # Verde esmeralda para modo activo
                 self.live_display.add_class("interactive")
             else:
                 chat_input.placeholder = "Escribe un mensaje..."
@@ -2113,12 +2448,14 @@ class KogniTermTUI(App):
         """Actualiza el parpadeo del cursor redibujando la terminal."""
         if not self._cursor_active:
             return
-            
+
         self._cursor_frame = (self._cursor_frame + 1) % 2
-        
+
         # Redibujar la terminal con el nuevo estado del frame si hay algo guardado
         if self._last_terminal_tool_name:
-            self.update_terminal_output(self._last_terminal_tool_name, self._last_terminal_output)
+            self.update_terminal_output(
+                self._last_terminal_tool_name, self._last_terminal_output
+            )
 
     @work(thread=True)
     def process_agent_request(self, user_input: str):
@@ -2132,64 +2469,82 @@ class KogniTermTUI(App):
             while True:
                 try:
                     # Invoke agent synchronously in this thread
-                    final_state = self.agent_interaction_manager.invoke_agent(user_input)
+                    final_state = self.agent_interaction_manager.invoke_agent(
+                        user_input
+                    )
                 except Exception as e:
                     import traceback
+
                     error_trace = traceback.format_exc()
                     logger.error(f"Error crítico en invoke_agent: {e}\n{error_trace}")
-                    self.tui_ui.print_message(f"❌ Error crítico al invocar al agente: {str(e)}", style="bold red")
+                    self.tui_ui.print_message(
+                        f"❌ Error crítico al invocar al agente: {str(e)}",
+                        style="bold red",
+                    )
                     break
-                
-                self.agent_state.messages = final_state.get('messages', self.agent_state.messages)
-                self.agent_state.command_to_confirm = final_state.get('command_to_confirm')
+
+                self.agent_state.messages = final_state.get(
+                    "messages", self.agent_state.messages
+                )
+                self.agent_state.command_to_confirm = final_state.get(
+                    "command_to_confirm"
+                )
                 # También recuperar el tool_call_id para poder crear el ToolMessage correcto
-                tool_call_id_for_cmd = final_state.get('tool_call_id_to_confirm') or 'execute_command'
+                tool_call_id_for_cmd = (
+                    final_state.get("tool_call_id_to_confirm") or "execute_command"
+                )
                 # 2. SECCIÓN DE CONFIRMACIONES (Bash y Skills)
                 # -------------------------------------------------------------
-                
+
                 # Caso A: Comando de terminal (Bash)
                 if self.agent_state.command_to_confirm:
                     command = self.agent_state.command_to_confirm
-                    
+
                     # Bloquear el hilo worker hasta que el usuario decida en la TUI
                     approved = self.ask_for_approval_sync(
                         message=f"¿Ejecutar comando: {command}?",
                         title="Confirmación de Comando",
                         diff_content=command,
-                        file_path="bash"
+                        file_path="bash",
                     )
-                    
+
                     if command:
-                    # Llamada síncrona al handler (corre en el worker thread)
+                        # Llamada síncrona al handler (corre en el worker thread)
                         self.command_approval_handler.handle_command_approval(
-                            command_to_execute=command,
-                            auto_approve=approved
+                            command_to_execute=command, auto_approve=approved
                         )
                     # El handler ya se encarga de actualizar el estado del agente
-                
+
                     # Limpiar estado de confirmación tras procesar
                     self.agent_state.command_to_confirm = None
                     self.agent_state.tool_call_id_to_confirm = None
-                    
+
                     # Si fue aprobado, imprimir advertencia visual de que se completó
                     if not approved:
-                        self.tui_ui.print_warning_box("Comando cancelado por el usuario.")
-                    
+                        self.tui_ui.print_warning_box(
+                            "Comando cancelado por el usuario."
+                        )
+
                     user_input = None
-                    continue # Volver al inicio del bucle para que el agente procese el resultado
+                    continue  # Volver al inicio del bucle para que el agente procese el resultado
 
                 # Caso B: Confirmación de Skill (file_operations, advanced_file_editor, etc.)
-                elif self.agent_state.tool_pending_confirmation or self.agent_state.file_update_diff_pending_confirmation:
+                elif (
+                    self.agent_state.tool_pending_confirmation
+                    or self.agent_state.file_update_diff_pending_confirmation
+                ):
                     tool_name = self.agent_state.tool_pending_confirmation
                     diff_info = self.agent_state.file_update_diff_pending_confirmation
-                    
+
                     # Extraer info del diff
                     message = "Confirmación de herramienta requerida."
                     diff_content = None
                     file_path = None
-                    
+
                     if isinstance(diff_info, dict):
-                        message = diff_info.get("action_description", diff_info.get("message", message))
+                        message = diff_info.get(
+                            "action_description", diff_info.get("message", message)
+                        )
                         diff_content = diff_info.get("diff")
                         file_path = diff_info.get("path")
                     elif isinstance(diff_info, str):
@@ -2200,36 +2555,48 @@ class KogniTermTUI(App):
                         message=message,
                         title=f"Confirmación: {tool_name}",
                         diff_content=diff_content,
-                        file_path=file_path
+                        file_path=file_path,
                     )
-                    
+
                     # Llamar al handler síncrono desde el hilo worker
                     self.command_approval_handler.handle_command_approval(
-                        command_to_execute="", # No es un comando bash
-                        raw_tool_output=diff_info if isinstance(diff_info, dict) else {"status": "requires_confirmation", "diff": diff_content, "path": file_path, "operation": tool_name},
+                        command_to_execute="",  # No es un comando bash
+                        raw_tool_output=diff_info
+                        if isinstance(diff_info, dict)
+                        else {
+                            "status": "requires_confirmation",
+                            "diff": diff_content,
+                            "path": file_path,
+                            "operation": tool_name,
+                        },
                         auto_approve=approved,
                         tool_name=tool_name,
-                        original_tool_args=self.agent_state.tool_args_pending_confirmation
+                        original_tool_args=self.agent_state.tool_args_pending_confirmation,
                     )
-                    
+
                     # Limpiar estado de confirmación
                     self.agent_state.reset_tool_confirmation()
                     self.agent_state.tool_call_id_to_confirm = None
-                    
+
                     if not approved:
-                        self.tui_ui.print_warning_box("Acción cancelada por el usuario.")
-                    
+                        self.tui_ui.print_warning_box(
+                            "Acción cancelada por el usuario."
+                        )
+
                     user_input = None
-                    continue # Volver al inicio del bucle
-                
+                    continue  # Volver al inicio del bucle
+
                 # Sin confirmaciones pendientes: salir del loop
                 break
         except Exception as e:
             import traceback
+
             error_trace = traceback.format_exc()
             logger.error(f"Error fatal en process_agent_request: {e}\n{error_trace}")
             # Mostrar error al usuario
-            self.tui_ui.print_message(f"❌ Error fatal en el hilo del agente: {str(e)}", style="bold red")
+            self.tui_ui.print_message(
+                f"❌ Error fatal en el hilo del agente: {str(e)}", style="bold red"
+            )
         finally:
             self.is_processing = False
             # Asegurar que el spinner se detenga siempre al terminar
@@ -2249,10 +2616,11 @@ class KogniTermTUI(App):
     async def push_screen_wait(self, screen) -> Any:
         """Helper asíncrono para pushear una pantalla y esperar su resultado."""
         future = asyncio.get_running_loop().create_future()
+
         def callback(result: Any) -> None:
             if not future.done():
                 future.set_result(result)
-        
+
         self.call_after_refresh(lambda: self.push_screen(screen, callback))
         return await future
 
@@ -2268,6 +2636,7 @@ class KogniTermTUI(App):
             return True
 
         from .components.inline_approval import InlineApprovalWidget
+
         future = asyncio.get_event_loop().create_future()
 
         def mount_widget():
@@ -2276,28 +2645,35 @@ class KogniTermTUI(App):
                 title=title,
                 diff_content=diff_content or None,
                 file_path=file_path or None,
-                callback=lambda result: future.set_result(result) if not future.done() else None,
+                callback=lambda result: (
+                    future.set_result(result) if not future.done() else None
+                ),
             )
             if hasattr(self, "approval_container"):
                 self.approval_container.mount(widget)
             else:
                 self.mount(widget)
-            
+
             self.chat_log.scroll_end(animate=False)
             widget.focus()
 
         # Puesto que es asíncrono y se llama desde el loop, podemos montar directo
         mount_widget()
-        
+
         raw_result = await future
         if raw_result == "accept_all":
             self._auto_approve_all = True
         return raw_result in ("accept", "accept_all")
 
-    async def ask_for_input_async(self, title: str, text: str, password: bool = False) -> str:
+    async def ask_for_input_async(
+        self, title: str, text: str, password: bool = False
+    ) -> str:
         """Versión asíncrona de ask_for_input que no bloquea el event loop."""
         from .components.settings_modals import TextualInputModal
-        return await self.push_screen_wait(TextualInputModal(title, text, password=password))
+
+        return await self.push_screen_wait(
+            TextualInputModal(title, text, password=password)
+        )
 
     def ask_for_approval_sync(
         self,
@@ -2327,14 +2703,16 @@ class KogniTermTUI(App):
                 title=title,
                 diff_content=diff_content or None,
                 file_path=file_path or None,
-                callback=lambda result: future.set_result(result) if not future.done() else None,
+                callback=lambda result: (
+                    future.set_result(result) if not future.done() else None
+                ),
             )
             # Montar en approval_container para que aparezca después del log
             if hasattr(self, "approval_container"):
                 self.approval_container.mount(widget)
             else:
-                self.mount(widget) # Fallback retrocompatible
-            
+                self.mount(widget)  # Fallback retrocompatible
+
             self.chat_log.scroll_end(animate=False)
             # Enfocar el widget para que capture teclado
             widget.focus()
@@ -2356,14 +2734,21 @@ class KogniTermTUI(App):
     def ask_for_input_sync(self, title: str, text: str, password: bool = False) -> str:
         """Helper para pedir una entrada de texto mediante Modal de forma síncrona."""
         import concurrent.futures
+
         future = concurrent.futures.Future()
-        
+
         def push_screen_callback():
             from .components.settings_modals import TextualInputModal
+
             def result_callback(result: str):
                 future.set_result(result)
-            self.call_after_refresh(lambda: self.push_screen(TextualInputModal(title, text, password=password), result_callback))
-            
+
+            self.call_after_refresh(
+                lambda: self.push_screen(
+                    TextualInputModal(title, text, password=password), result_callback
+                )
+            )
+
         if (
             threading.current_thread() is threading.main_thread()
             or getattr(self, "_thread_id", None) == threading.get_ident()
@@ -2377,35 +2762,35 @@ class KogniTermTUI(App):
     def add_agent_tab(self, agent_id: str, title: str) -> ChatLogWidget:
         """Añade dinámicamente una pestaña para un subagente y retorna su ChatLogWidget."""
         tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
-        
+
         # Verificar si ya existe
         try:
             widget = self.query_one(f"#live_display_{agent_id}", ChatLogWidget)
             return widget
         except Exception:
             pass
-            
+
         widget = ChatLogWidget(id=f"live_display_{agent_id}")
         pane = TabPane(title, widget, id=f"pane_{agent_id}")
-        
+
         # add_pane debe ejecutarse en el thread principal
         if threading.current_thread() is threading.main_thread():
             tabbed_content.add_pane(pane)
         else:
             self.call_from_thread(tabbed_content.add_pane, pane)
-            
+
         return widget
 
     def remove_agent_tab(self, agent_id: str):
         """Elimina una pestaña de subagente por su id."""
         tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
-        
+
         def _remove():
             try:
                 tabbed_content.remove_pane(f"pane_{agent_id}")
             except Exception:
                 pass
-                
+
         if threading.current_thread() is threading.main_thread():
             _remove()
         else:
@@ -2420,6 +2805,7 @@ class KogniTermTUI(App):
                 # explícitamente por el usuario con Ctrl+O (action_toggle_tool_panel)
                 # Manejo especial para terminales en paneles dedicados
                 from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+
                 if isinstance(renderable, tuple) and renderable[0] == "__TERMINAL__":
                     tool_name = renderable[1]
                     output = renderable[2]
@@ -2452,16 +2838,17 @@ class KogniTermTUI(App):
             self.chat_log.scroll_end(animate=False)
         except Exception:
             pass
-        
 
-    def update_terminal_output(self, tool_name: str, output: str, show_cursor: bool = None, command: str = ""):
+    def update_terminal_output(
+        self, tool_name: str, output: str, show_cursor: bool = None, command: str = ""
+    ):
         """
         Actualiza el panel de terminal con soporte para cursor parpadeante.
         """
         # Guardar para el timer de parpadeo
         self._last_terminal_tool_name = tool_name
         self._last_terminal_output = output
-        
+
         if show_cursor is None:
             # Pestañeo: visible en frame 0, invisible en frame 1
             show_cursor = self._cursor_active and (self._cursor_frame == 0)
@@ -2476,11 +2863,16 @@ class KogniTermTUI(App):
         # Pasamos el output crudo con una tupla marcadora para que ChatLogWidget instancie el ToolOutputWidget
         # Tupla de 4 elementos: (__TERMINAL__, tool_name, output, display_command)
         # Siempre enviamos al panel tool_display, independientemente de si está visible
-        self.update_live_display(("__TERMINAL__", tool_name, output, display_command), panel_id="tool_display")
-        
+        self.update_live_display(
+            ("__TERMINAL__", tool_name, output, display_command),
+            panel_id="tool_display",
+        )
+
         # Si el panel de herramientas no está visible, lo enviamos al chat log para visualización inline
         if not getattr(self, "_tool_panel_explicitly_shown", False):
-            self.update_live_display(("__TERMINAL__", tool_name, output, display_command))
+            self.update_live_display(
+                ("__TERMINAL__", tool_name, output, display_command)
+            )
 
     def update_task_tracker(self, agent_plans: dict):
         """Muestra el estado de las tareas en el flujo de chat usando un panel verde."""
@@ -2492,14 +2884,24 @@ class KogniTermTUI(App):
         from rich.console import Group
         from rich.panel import Panel
         from kogniterm.terminal.themes import ColorPalette
+        from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
 
-        blocks = []
+        # Obtener todos los ChatLogWidgets en la aplicación
+        all_logs = list(self.query(ChatLogWidget))
+
+        # Agrupar los bloques de tareas por su ChatLogWidget destino
+        log_to_blocks = {}
+
         for agent_name, tasks in agent_plans.items():
-            if not tasks or all(task.get("status") == "done" for task in tasks):
+            if not tasks:
                 continue
 
-            header = Text.from_markup(f"[bold {ColorPalette.SECONDARY}]● {agent_name}[/bold {ColorPalette.SECONDARY}]")
-            table = Table(expand=True, box=None, show_header=False, padding=(0, 1), title=None)
+            header = Text.from_markup(
+                f"[bold {ColorPalette.SECONDARY}]● {agent_name}[/bold {ColorPalette.SECONDARY}]"
+            )
+            table = Table(
+                expand=True, box=None, show_header=False, padding=(0, 1), title=None
+            )
             table.add_column("Status")
             table.add_column("Task")
 
@@ -2519,28 +2921,48 @@ class KogniTermTUI(App):
 
                 table.add_row(status_icon, f"[{style}]{task_text}[/]")
 
-            blocks.append(Group(header, table))
+            block = Group(header, table)
 
-        if blocks:
-            panel = Panel(
-                Group(*blocks),
-                border_style="green",
-                title="[bold green]Task Tracker[/bold green]",
-                title_align="left",
-                expand=True
-            )
-            from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
-            # Filtrar por .display para no escribir en ChatLogWidget de TabPane inactivos
-            # (deep_coder, deep_researcher, dinámicos) que existen en el DOM pero están ocultos.
-            for log_widget in self.query(ChatLogWidget):
-                if log_widget.display:
+            # Buscar el ChatLogWidget correspondiente a este agente
+            target_log = None
+            normalized_name = agent_name.lower().replace(" ", "_")
+            for log_widget in all_logs:
+                widget_id = (log_widget.id or "").lower()
+                if widget_id != "chat_log" and (
+                    normalized_name in widget_id or widget_id in normalized_name
+                ):
+                    target_log = log_widget
+                    break
+
+            if not target_log:
+                target_log = self.chat_log
+
+            if target_log not in log_to_blocks:
+                log_to_blocks[target_log] = []
+            log_to_blocks[target_log].append(block)
+
+        # Para cada log_widget, construir y escribir/actualizar su panel
+        for log_widget, blocks in log_to_blocks.items():
+            if blocks:
+                panel = Panel(
+                    Group(*blocks),
+                    border_style="green",
+                    title="[bold green]Task Tracker[/bold green]",
+                    title_align="left",
+                    expand=True,
+                )
+                if hasattr(log_widget, "write_task_tracker"):
+                    log_widget.write_task_tracker(panel)
+                else:
                     log_widget.write_message(panel)
 
     def action_toggle_tool_panel(self):
         """Alterna la visibilidad del panel de herramientas (tool_display) manualmente."""
-        self._tool_panel_explicitly_shown = not getattr(self, "_tool_panel_explicitly_shown", False)
+        self._tool_panel_explicitly_shown = not getattr(
+            self, "_tool_panel_explicitly_shown", False
+        )
         self.tool_display.display = self._tool_panel_explicitly_shown
-        
+
         if self.tool_display.display:
             # Si se acaba de mostrar y tenemos salida de herramienta anterior guardada,
             # la cargamos en el panel de herramientas para que no esté vacío.
@@ -2548,14 +2970,20 @@ class KogniTermTUI(App):
                 tool_name = self._last_terminal_tool_name or "Terminal"
                 command = "bash" if tool_name == "execute_command" else tool_name
                 if hasattr(self.tool_display, "update_content"):
-                    self.tool_display.update_content(self._last_terminal_output, command=command)
+                    self.tool_display.update_content(
+                        self._last_terminal_output, command=command
+                    )
                 else:
                     self.tool_display.update(self._last_terminal_output)
             else:
                 if hasattr(self.tool_display, "update_content"):
-                    self.tool_display.update_content("No hay salida de herramientas disponible aún.", command="Ayuda")
+                    self.tool_display.update_content(
+                        "No hay salida de herramientas disponible aún.", command="Ayuda"
+                    )
                 else:
-                    self.tool_display.update("No hay salida de herramientas disponible aún.")
+                    self.tool_display.update(
+                        "No hay salida de herramientas disponible aún."
+                    )
             # Enfocar el panel si es visible para permitir scrolling con teclado
             self.tool_display.focus()
         else:
@@ -2570,7 +2998,7 @@ class KogniTermTUI(App):
         """Finaliza el streaming en el chat log."""
         # Asegurar que el spinner se detenga
         self._stop_spinner()
-        
+
         # Ocultar paneles dedicados si estaban visibles
         try:
             if not getattr(self, "_tool_panel_explicitly_shown", False):
@@ -2578,16 +3006,16 @@ class KogniTermTUI(App):
             self.live_display.display = False
         except Exception:
             pass
-            
+
         # NOTA: Ya no movemos contenido del live_display al log porque EL STREAMING SUCEDE EN EL LOG.
         # Solo marcamos el fin del stream actual en el ChatLogWidget.
         self.chat_log.stop_stream()
-        
+
         self._last_live_renderable = None
-        
+
         # Reset de estado de terminal para evitar fugas visuales
         self._last_terminal_tool_name = ""
         self._last_terminal_output = ""
-        
+
         # Scroll al final
         self.chat_log.scroll_end(animate=False)

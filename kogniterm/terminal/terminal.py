@@ -226,8 +226,9 @@ def main():
         # Notificar al servidor que la sesión TUI cerró
         try:
             import httpx
+            from kogniterm.terminal.tui.tui_app import _DEFAULT_SESSION_ID
             # Usamos un request síncrono para asegurar que se ejecute antes de salir
-            httpx.post("http://127.0.0.1:8765/api/sessions/tui-default/close", timeout=2.0)
+            httpx.post(f"http://127.0.0.1:8765/api/sessions/{_DEFAULT_SESSION_ID}/close", timeout=2.0)
         except Exception as e:
             logger.warning(f"No se pudo notificar el cierre de sesión al servidor: {e}")
 
