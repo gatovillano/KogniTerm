@@ -1,3 +1,8 @@
+---
+name: advanced-file-editor
+description: Herramienta profesional de edición de archivos con múltiples estrategias, operaciones por lote y rollback automático.
+category: file_operations
+---
 # Advanced File Editor - Herramienta Profesional de Edición
 
 ## Descripción
