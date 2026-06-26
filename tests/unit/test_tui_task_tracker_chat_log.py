@@ -96,22 +96,25 @@ async def test_update_task_tracker_routes_to_correct_log():
     """
     Verifica que update_task_tracker rutea correctamente los planes de cada agente
     al ChatLogWidget que corresponde según su ID, y el resto al chat_log principal.
+    Usa pestañas dinámicas (nueva arquitectura).
     """
     llm_service = MagicMock()
     llm_service.model_name = "test-model"
     app = KogniTermTUI(llm_service=llm_service)
 
     async with app.run_test() as pilot:
-        # Parchear write_task_tracker en los widgets que ya están en el DOM
-        coder_log = app.query_one("#live_display_coder", ChatLogWidget)
-        researcher_log = app.query_one("#live_display_researcher", ChatLogWidget)
+        # Crear pestañas dinámicas para los agentes (nueva arquitectura)
+        coder_log = app.add_agent_tab("agent_panel_coder_0", "Coder")
+        researcher_log = app.add_agent_tab("agent_panel_researcher_1", "Researcher")
+        await pilot.pause()
+
         main_log = app.chat_log
 
         coder_log.write_task_tracker = MagicMock()
         researcher_log.write_task_tracker = MagicMock()
         main_log.write_task_tracker = MagicMock()
 
-        # Planes para: Coder → live_display_coder, Researcher → live_display_researcher,
+        # Planes para: Coder → agent_panel_coder_0, Researcher → agent_panel_researcher_1,
         # MainAgent → sin coincidencia → chat_log
         agent_plans = {
             "Coder": [{"task": "escribir tests", "status": "in-progress"}],
@@ -123,9 +126,9 @@ async def test_update_task_tracker_routes_to_correct_log():
         await pilot.pause()
 
         assert coder_log.write_task_tracker.called, \
-            "El plan de 'Coder' debe rutearse a live_display_coder"
+            "El plan de 'Coder' debe rutearse al panel del Coder"
         assert researcher_log.write_task_tracker.called, \
-            "El plan de 'Researcher' debe rutearse a live_display_researcher"
+            "El plan de 'Researcher' debe rutearse al panel del Researcher"
         assert main_log.write_task_tracker.called, \
             "El plan de 'MainAgent' (sin coincidencia) debe ir al chat_log principal"
 

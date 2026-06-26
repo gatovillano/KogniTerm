@@ -1085,17 +1085,9 @@ class KogniTermTUI(App):
             self.live_display = TerminalPanel(id="live_display")
             yield self.live_display
 
-            # Contenedor para paneles paralelos (inactivo por defecto)
-            # Contenedor para paneles paralelos con pestañas (inactivo por defecto)
-            with TabbedContent(id="parallel_agents_container"):
-                with TabPane("DeepCoder", id="tab_coder"):
-                    self.live_display_coder = ChatLogWidget(id="live_display_coder")
-                    yield self.live_display_coder
-                with TabPane("DeepResearcher", id="tab_researcher"):
-                    self.live_display_researcher = ChatLogWidget(
-                        id="live_display_researcher"
-                    )
-                    yield self.live_display_researcher
+            # Contenedor para paneles paralelos con pestañas (vacío por defecto,
+            # se puebla dinámicamente por call_agents_parallel)
+            yield TabbedContent(id="parallel_agents_container")
 
             # Nota: tracker_container se yield fuera de bottom_container (ver abajo)
 
@@ -2795,6 +2787,28 @@ class KogniTermTUI(App):
             _remove()
         else:
             self.call_from_thread(_remove)
+
+    # ── Gestión de contenedor paralelo ──────────────────────────────────────
+
+    def activate_parallel_container(self) -> None:
+        """Muestra el TabbedContent de agentes paralelos."""
+        try:
+            self.query_one("#bottom_container").display = True
+        except Exception:
+            pass
+        try:
+            self.query_one("#parallel_agents_container").display = True
+        except Exception:
+            pass
+        self.refresh(layout=True)
+
+    def deactivate_parallel_container(self) -> None:
+        """Oculta el TabbedContent de agentes paralelos."""
+        try:
+            self.query_one("#parallel_agents_container").display = False
+        except Exception:
+            pass
+        self.refresh(layout=True)
 
     def update_live_display(self, renderable, panel_id=None):
         """Actualiza el widget de streaming en tiempo real directamente en el chat log."""
