@@ -899,6 +899,35 @@ class SkillManager:
         config, _ = self.validator._parse_skill_file(skill_path / 'SKILL.md')
         self.skills[skill_name] = Skill(path=skill_path, **(config or {}))
 
+    def register_tool(self, tool_instance: Any):
+        """Registra dinámicamente una herramienta individual en el gestor."""
+        tool_name = getattr(tool_instance, 'name', tool_instance.__class__.__name__)
+        # Asegurar nombre único
+        unique_name = self._get_unique_tool_name(tool_name, "dynamic")
+        if unique_name != tool_name and hasattr(tool_instance, 'name'):
+            try:
+                setattr(tool_instance, 'name', unique_name)
+            except Exception:
+                pass
+
+        # Asegurar método invoke para compatibilidad con LangChain
+        if not hasattr(tool_instance, 'invoke'):
+            def create_invoke(func):
+                def invoke(input_data=None, config=None, **kwargs):
+                    if isinstance(input_data, dict):
+                        return func(**input_data)
+                    return func(**kwargs)
+                return invoke
+            tool_instance.invoke = create_invoke(tool_instance)
+
+        self.tool_registry[unique_name] = {
+            'tool': tool_instance,
+            'skill': 'dynamic',
+            'security_level': 'low',
+            'permissions': []
+        }
+        logger.info(f"Herramienta dinámica registrada en SkillManager: {unique_name}")
+
     def get_tool(self, tool_name: str) -> Optional[Any]:
         """Obtiene la instancia de una herramienta por nombre.
 
