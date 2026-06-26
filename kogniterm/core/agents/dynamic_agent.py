@@ -10,55 +10,69 @@ from kogniterm.core.agents.tool_executor import ToolExecutor, should_continue
 
 logger = logging.getLogger(__name__)
 
+
 def call_dynamic_model_node(
-    state: AgentState, 
-    llm_service: LLMService, 
-    system_prompt: str, 
-    terminal_ui: Optional[Any] = None, 
-    interrupt_queue: Optional[queue.Queue] = None
+    state: AgentState,
+    llm_service: LLMService,
+    system_prompt: str,
+    terminal_ui: Optional[Any] = None,
+    interrupt_queue: Optional[queue.Queue] = None,
 ):
-    """Nodo de ejecución para invocar el LLM con un prompt del sistema dinámico."""
+    if state.completed:
+        logger.info(
+            "DynamicAgent: Ya completado (completed flag). Saltando llamada al modelo."
+        )
+        from langchain_core.messages import AIMessage
+
+        if not state.messages or not isinstance(state.messages[-1], AIMessage):
+            state.messages.append(
+                AIMessage(content="Proceso finalizado a través de complete_task.")
+            )
+        return {"messages": state.messages, "completed": True}
+
     logger.info("DynamicAgent: Ejecutando nodo call_model...")
     return BaseAgentNode.call_model(
         state=state,
         llm_service=llm_service,
         system_prompt=system_prompt,
         terminal_ui=terminal_ui,
-        interrupt_queue=interrupt_queue
+        interrupt_queue=interrupt_queue,
     )
 
+
 def create_dynamic_agent(
-    llm_service: LLMService, 
-    system_prompt: str, 
-    terminal_ui: Optional[Any] = None, 
-    interrupt_queue: Optional[queue.Queue] = None
+    llm_service: LLMService,
+    system_prompt: str,
+    terminal_ui: Optional[Any] = None,
+    interrupt_queue: Optional[queue.Queue] = None,
 ):
     """Construye y compila un grafo LangGraph genérico para un agente dinámico bajo demanda."""
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("call_model", functools.partial(
-        call_dynamic_model_node, 
-        llm_service=llm_service, 
-        system_prompt=system_prompt, 
-        terminal_ui=terminal_ui, 
-        interrupt_queue=interrupt_queue
-    ))
-    workflow.add_node("execute_tool", functools.partial(
-        ToolExecutor.execute_tool_node, 
-        llm_service=llm_service, 
-        terminal_ui=terminal_ui, 
-        interrupt_queue=interrupt_queue
-    ))
+    workflow.add_node(
+        "call_model",
+        functools.partial(
+            call_dynamic_model_node,
+            llm_service=llm_service,
+            system_prompt=system_prompt,
+            terminal_ui=terminal_ui,
+            interrupt_queue=interrupt_queue,
+        ),
+    )
+    workflow.add_node(
+        "execute_tool",
+        functools.partial(
+            ToolExecutor.execute_tool_node,
+            llm_service=llm_service,
+            terminal_ui=terminal_ui,
+            interrupt_queue=interrupt_queue,
+        ),
+    )
 
     workflow.set_entry_point("call_model")
 
     workflow.add_conditional_edges(
-        "call_model",
-        should_continue,
-        {
-            "execute_tool": "execute_tool",
-            END: END
-        }
+        "call_model", should_continue, {"execute_tool": "execute_tool", END: END}
     )
 
     workflow.add_edge("execute_tool", "call_model")

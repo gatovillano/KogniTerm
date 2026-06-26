@@ -6,6 +6,7 @@ Soporta N agentes simultáneos con visualización en pestañas en la TUI.
 Cada agente puede ser de tipo predefinido (code_agent, researcher_agent)
 o dinámico con un system_prompt personalizado.
 """
+
 import os
 import logging
 import threading
@@ -22,11 +23,10 @@ console = Console()
 # Límite de recursión configurable
 AGENT_RECURSION_LIMIT = int(os.getenv("RESEARCHER_RECURSION_LIMIT", "1000"))
 
-AUTONOMY_DIALOG_TEXT = (
-    "Los agentes operarán de forma autónoma y no solicitarán autorización para aplicar cambios."
-)
+AUTONOMY_DIALOG_TEXT = "Los agentes operarán de forma autónoma y no solicitarán autorización para aplicar cambios."
 
 # ─── Proxy de UI por panel ────────────────────────────────────────────────────
+
 
 class ParallelPanelUI:
     """
@@ -48,7 +48,9 @@ class ParallelPanelUI:
     @property
     def _is_server_mode(self) -> bool:
         """True cuando original_ui es un ServerUI (modo WS), no una TUI Textual."""
-        return hasattr(self.original_ui, "_push") and not hasattr(self.original_ui, "query_one")
+        return hasattr(self.original_ui, "_push") and not hasattr(
+            self.original_ui, "query_one"
+        )
 
     def _get_panel(self):
         """Retorna el ChatLogWidget de esta pestaña (modo TUI local)."""
@@ -84,12 +86,15 @@ class ParallelPanelUI:
         if self._is_server_mode:
             if isinstance(renderable, str):
                 self.original_ui._push(
-                    "live_update", {"thinking": "", "response": renderable}, agent_id=self.panel_id
+                    "live_update",
+                    {"thinking": "", "response": renderable},
+                    agent_id=self.panel_id,
                 )
             return
         panel = self._get_panel()
         if panel is None:
             return
+
         def _do():
             if hasattr(panel, "write_stream"):
                 panel.write_stream(renderable)
@@ -97,6 +102,7 @@ class ParallelPanelUI:
                 panel.update(renderable)
             if hasattr(panel, "scroll_end"):
                 panel.scroll_end(animate=False)
+
         self._schedule(_do)
 
     def stop_live(self, **kwargs):
@@ -108,8 +114,15 @@ class ParallelPanelUI:
             self._schedule(panel.stop_stream)
         self._accumulated_text = ""
 
-    def print_message(self, message: str, style: str = "", is_user_message: bool = False,
-                      status: str = None, use_bubble: bool = False, **kwargs):
+    def print_message(
+        self,
+        message: str,
+        style: str = "",
+        is_user_message: bool = False,
+        status: str = None,
+        use_bubble: bool = False,
+        **kwargs,
+    ):
         if self._is_server_mode:
             self.original_ui._push("message", {"text": message}, agent_id=self.panel_id)
             return
@@ -117,27 +130,33 @@ class ParallelPanelUI:
         if panel and hasattr(panel, "write_agent_message"):
             self._schedule(panel.write_agent_message, message)
 
-    def print_tool_notification(self, tool_name: str, action_desc: str = "",
-                                skill_name: str = "", **kwargs):
+    def print_tool_notification(
+        self, tool_name: str, action_desc: str = "", skill_name: str = "", **kwargs
+    ):
         if self._is_server_mode:
             self.original_ui._push(
-                "tool_call", {"name": tool_name, "description": action_desc, "skill": skill_name},
+                "tool_call",
+                {"name": tool_name, "description": action_desc, "skill": skill_name},
                 agent_id=self.panel_id,
             )
             return
         panel = self._get_panel()
         if panel and hasattr(panel, "write_tool_notification"):
-            self._schedule(panel.write_tool_notification, tool_name, action_desc, skill_name)
+            self._schedule(
+                panel.write_tool_notification, tool_name, action_desc, skill_name
+            )
 
-    def update_terminal_output(self, tool_name: str, output: str,
-                               command: str = "", **kwargs):
+    def update_terminal_output(
+        self, tool_name: str, output: str, command: str = "", **kwargs
+    ):
         if not output:
             return
         if self._is_server_mode:
             msg = f"\n**$ {command or tool_name}**\n```\n{output}\n```"
             self._accumulated_text += msg
             self.original_ui._push(
-                "live_update", {"thinking": "", "response": self._accumulated_text},
+                "live_update",
+                {"thinking": "", "response": self._accumulated_text},
                 agent_id=self.panel_id,
             )
             return
@@ -146,8 +165,9 @@ class ParallelPanelUI:
             chunk = ("__TERMINAL__", tool_name, output, command or tool_name)
             self._schedule(panel.write_stream, chunk)
 
-    def update_tool_display(self, tool_name: str, output: str,
-                            command: str = "", **kwargs):
+    def update_tool_display(
+        self, tool_name: str, output: str, command: str = "", **kwargs
+    ):
         self.update_terminal_output(tool_name, output, command, **kwargs)
 
     def print_success_box(self, message: str, title: str = "Éxito", **kwargs):
@@ -165,8 +185,9 @@ class ParallelPanelUI:
 
     # ── Delegación genérica ───────────────────────────────────────────────────
 
-    def ask_approval_sync(self, message: str, title: str = "Aprobación Requerida",
-                          **kwargs) -> bool:
+    def ask_approval_sync(
+        self, message: str, title: str = "Aprobación Requerida", **kwargs
+    ) -> bool:
         if self.original_ui:
             method = getattr(self.original_ui, "ask_approval_sync", None)
             if method:
@@ -203,10 +224,12 @@ class ParallelPanelUI:
 
 # ─── Funciones auxiliares ─────────────────────────────────────────────────────
 
+
 def _get_agent_chat_log(app: Any, pid: str):
     """Busca el ChatLogWidget correspondiente a pid, tolerando prefijo live_display_."""
     try:
         from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+
         if hasattr(app, "query_one"):
             try:
                 return app.query_one(f"#{pid}", ChatLogWidget)
@@ -257,19 +280,28 @@ def _is_server_mode(terminal_ui: Any) -> bool:
 
 # ─── Motor de creación de agente por tipo ────────────────────────────────────
 
-def _build_agent_graph(agent_type: str, system_prompt: Optional[str],
-                       llm_service: Any, agent_ui: Any, interrupt_queue: Any):
+
+def _build_agent_graph(
+    agent_type: str,
+    system_prompt: Optional[str],
+    llm_service: Any,
+    agent_ui: Any,
+    interrupt_queue: Any,
+):
     """Instancia el grafo LangGraph correcto según el tipo de agente solicitado."""
     if agent_type == "code_agent":
         from kogniterm.core.agents.deep_coder import create_deep_coder
+
         return create_deep_coder(llm_service, agent_ui, interrupt_queue)
 
     if agent_type == "researcher_agent":
         from kogniterm.core.agents.deep_researcher import create_deep_researcher
+
         return create_deep_researcher(llm_service, agent_ui, interrupt_queue)
 
     # Agente dinámico con prompt personalizado
     from kogniterm.core.agents.dynamic_agent import create_dynamic_agent
+
     prompt = system_prompt or (
         f"Eres un agente especializado ({agent_type}). "
         "Realiza la tarea indicada de forma autónoma y precisa."
@@ -278,6 +310,7 @@ def _build_agent_graph(agent_type: str, system_prompt: Optional[str],
 
 
 # ─── Función principal ────────────────────────────────────────────────────────
+
 
 def call_agents_parallel(
     agents: List[Dict[str, str]],
@@ -315,7 +348,7 @@ def call_agents_parallel(
     # ── Registrar herramienta de finalización complete_task ──────────────────
     from langchain_core.tools import tool
     from typing import Optional, Any
-    
+
     @tool
     def complete_task(result: str, delegation_context: Optional[Any] = None) -> str:
         """
@@ -326,7 +359,10 @@ def call_agents_parallel(
         if delegation_context is not None:
             delegation_context.metadata["result"] = result
             delegation_context.metadata["completed"] = True
-            logger.info("complete_task: Resultado registrado para subagente %s", delegation_context.agent_id)
+            logger.info(
+                "complete_task: Resultado registrado para subagente %s",
+                delegation_context.agent_id,
+            )
         else:
             logger.warning("complete_task: Invocado sin delegation_context")
         return "Resultado registrado con éxito. El proceso ha sido finalizado."
@@ -349,7 +385,9 @@ def call_agents_parallel(
 
     logger.info(
         "call_agents_parallel: %d agentes | server_mode=%s | tui_local=%s",
-        len(agents), server_mode, is_tui_local,
+        len(agents),
+        server_mode,
+        is_tui_local,
     )
 
     # ── Solicitar consentimiento ──────────────────────────────────────────────
@@ -396,17 +434,26 @@ def call_agents_parallel(
         parent_id = "parallel_orchestrator"
 
         # Registrar subagente en el manager de delegación
-        if llm_service and hasattr(llm_service, "delegation_manager") and llm_service.delegation_manager:
+        if (
+            llm_service
+            and hasattr(llm_service, "delegation_manager")
+            and llm_service.delegation_manager
+        ):
             try:
                 child_ctx = llm_service.delegation_manager.register_agent(
-                    agent_id=child_id,
-                    parent_id=parent_id,
-                    role=AgentRole.LEAF
+                    agent_id=child_id, parent_id=parent_id, role=AgentRole.LEAF
                 )
-                if hasattr(llm_service, "heartbeat_monitor") and llm_service.heartbeat_monitor:
-                    llm_service.heartbeat_monitor.update_heartbeat(child_id, threshold=300.0)
+                if (
+                    hasattr(llm_service, "heartbeat_monitor")
+                    and llm_service.heartbeat_monitor
+                ):
+                    llm_service.heartbeat_monitor.update_heartbeat(
+                        child_id, threshold=300.0
+                    )
             except Exception as e:
-                logger.error("run_agent[%s]: No se pudo registrar delegación: %s", name, e)
+                logger.error(
+                    "run_agent[%s]: No se pudo registrar delegación: %s", name, e
+                )
 
         try:
             from kogniterm.core.agent_state import AgentState
@@ -416,7 +463,7 @@ def call_agents_parallel(
                 "---\n"
                 "⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️\n"
                 f"Tu PRIMERA acción DEBE ser inicializar el task_tracker con:\n"
-                f"  task_tracker(action=\"init\", agent_name=\"{name}\", plan=[\"paso 1\", \"paso 2\", ...])\n"
+                f'  task_tracker(action="init", agent_name="{name}", plan=["paso 1", "paso 2", ...])\n'
                 "Actualiza el estado de cada paso a medida que avanzas.\n\n"
                 "🏁 **PROTOCOLO OBLIGATORIO: finalización** 🏁\n"
                 "Cuando completes el objetivo asignado, DEBES llamar obligatoriamente a la herramienta `complete_task` "
@@ -452,28 +499,40 @@ def call_agents_parallel(
                     config={"recursion_limit": AGENT_RECURSION_LIMIT},
                 )
             finally:
-                # Restaurar contexto previo
                 if child_ctx:
                     llm_service.current_delegation_context = old_ctx
 
-            # Extraer resultado usando el mecanismo de entrega robusta (complete_task)
-            status_emoji = "✅"
-            if child_ctx and child_ctx.metadata.get("completed"):
+            if final_state.get("completed"):
+                result = final_state.get("result", "Sin respuesta")
+                logger.info(
+                    "run_agent[%s]: Finalizado exitosamente vía completed flag.", name
+                )
+                status_emoji = "✅"
+            elif child_ctx and child_ctx.metadata.get("completed"):
                 result = child_ctx.metadata.get("result", "Sin respuesta")
-                logger.info("run_agent[%s]: Finalizado exitosamente vía complete_task.", name)
+                logger.info(
+                    "run_agent[%s]: Finalizado exitosamente vía complete_task.", name
+                )
+                status_emoji = "✅"
             else:
                 msgs = final_state.get("messages", [])
                 result = msgs[-1].content if msgs else "Sin respuesta"
-                logger.info("run_agent[%s]: Finalizado (sin llamar a complete_task).", name)
+                logger.info(
+                    "run_agent[%s]: Finalizado (sin llamar a complete_task).", name
+                )
                 status_emoji = "🏁"
-                
+
             # Actualizar el título de la pestaña con el estado
             if agent_ui and hasattr(agent_ui, "update_agent_tab_title"):
                 try:
                     agent_ui.update_agent_tab_title(panel_id, f"{name} {status_emoji}")
                 except Exception as ex:
-                    logger.warning("No se pudo actualizar el título de la pestaña para %s: %s", name, ex)
-                    
+                    logger.warning(
+                        "No se pudo actualizar el título de la pestaña para %s: %s",
+                        name,
+                        ex,
+                    )
+
             return result
 
         except Exception as e:
@@ -532,6 +591,7 @@ def call_agents_parallel(
 
 
 # ─── Gestión de paneles TUI ───────────────────────────────────────────────────
+
 
 def _activate_parallel_container(
     agents: List[Dict],
