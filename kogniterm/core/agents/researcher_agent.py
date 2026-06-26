@@ -104,6 +104,12 @@ Estoy analizando el código para responder la consulta...
 
 def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM (ResearcherAgent)."""
+    if state.delegation_context and getattr(state.delegation_context, "metadata", {}).get("completed"):
+        logger.info("El agente investigador ya completó su proceso a través de complete_task. Saltando llamada al modelo.")
+        if not state.messages or not isinstance(state.messages[-1], AIMessage):
+            state.messages.append(AIMessage(content="Proceso finalizado a través de complete_task."))
+        return {"messages": state.messages}
+
     messages = [get_system_message(llm_service)] + state.messages
     
     full_response_content = ""

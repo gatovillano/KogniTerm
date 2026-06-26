@@ -166,6 +166,12 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
 
 def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
     """Llama al LLM (CodeAgent) con soporte para TUI/CLI."""
+    if state.delegation_context and getattr(state.delegation_context, "metadata", {}).get("completed"):
+        logger.info("El agente de código ya completó su proceso a través de complete_task. Saltando llamada al modelo.")
+        if not state.messages or not isinstance(state.messages[-1], AIMessage):
+            state.messages.append(AIMessage(content="Proceso finalizado a través de complete_task."))
+        return {"messages": state.messages}
+
     current_console = terminal_ui.console if terminal_ui else console
     is_tui = getattr(terminal_ui, "is_tui", False)
 
