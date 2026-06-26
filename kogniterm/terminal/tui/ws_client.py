@@ -476,15 +476,25 @@ class TUIWebSocketClient:
 
     def _get_chat_log(self, agent_id: str = None):
         """Retorna el ChatLogWidget para el agente indicado.
-        
-        Si agent_id es None o no se encuentra el panel, devuelve el chat_log principal.
+
+        Primero busca como atributo directo (compatibilidad con mocks y versiones
+        anteriores), luego intenta localizar el widget dinámico via query_one.
+        Si no lo encuentra, devuelve el chat_log principal.
         """
         if not agent_id:
             return self._app.chat_log
-        # Los paneles de agentes paralelos son atributos directos de la app
-        panel_attr = agent_id  # e.g. "live_display_coder"
-        if hasattr(self._app, panel_attr):
-            return getattr(self._app, panel_attr)
+
+        # 1. Atributo directo en la app (compatibilidad backward)
+        if hasattr(self._app, agent_id):
+            return getattr(self._app, agent_id)
+
+        # 2. Widget dinámico creado por add_agent_tab (ID = agent_id)
+        try:
+            from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+            return self._app.query_one(f"#{agent_id}", ChatLogWidget)
+        except Exception:
+            pass
+
         return self._app.chat_log
 
     def _get_stream_accumulator(self, agent_id: str = None) -> str:
@@ -501,21 +511,36 @@ class TUIWebSocketClient:
 
     def _show_agent_panel(self, agent_id: str, title: str = ""):
         """Muestra el contenedor de paneles paralelos y activa la pestaña del agente.
-        
+
+        Crea la pestaña dinámicamente si no existe (soporte para agent_ids arbitrarios).
         Se debe ejecutar en el hilo principal de Textual.
         """
         try:
-            container = self._app.query_one("#parallel_agents_container")
-            if not container.display:
-                container.display = True
-            # Activar la pestaña correspondiente
-            # agent_id es algo como "live_display_coder" → tab_id es "tab_coder"
-            tab_suffix = agent_id.replace("live_display_", "")
-            tab_id = f"tab_{tab_suffix}"
+            # Mostrar el contenedor
+            if hasattr(self._app, "activate_parallel_container"):
+                self._app.activate_parallel_container()
+            else:
+                try:
+                    container = self._app.query_one("#parallel_agents_container")
+                    if not container.display:
+                        container.display = True
+                except Exception:
+                    pass
+
+            # Crear pestaña si no existe todavía
+            if hasattr(self._app, "add_agent_tab"):
+                effective_title = title or agent_id
+                self._app.add_agent_tab(agent_id, effective_title)
+
+            # Activar la pestaña: el id del TabPane es "pane_{agent_id}"
             try:
-                container.active = tab_id
+                from textual.widgets import TabbedContent
+                container = self._app.query_one("#parallel_agents_container", TabbedContent)
+                pane_id = f"pane_{agent_id}"
+                container.active = pane_id
             except Exception:
                 pass
+
         except Exception as e:
             logger.warning(f"[WS] Error mostrando panel del agente {agent_id}: {e}")
 

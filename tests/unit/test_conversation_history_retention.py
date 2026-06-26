@@ -8,7 +8,7 @@ from kogniterm.core.agents.base_agent import BaseAgentNode
 from kogniterm.core.history_manager import HistoryManager
 from kogniterm.core.llm_service import LLMService
 from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
-from kogniterm.skills.bundled.file_operations.scripts.file_editor import advanced_file_editor
+from kogniterm.skills.bundled.file-operations.scripts.file_editor import advanced_file_editor
 
 
 @pytest.fixture

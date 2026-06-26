@@ -1,168 +1,42 @@
 """
 Skill: call_agents_parallel
-Herramienta para invocar a DeepCoder y DeepResearcher en paralelo
+Herramienta para invocar múltiples agentes especializados en paralelo.
+
+Soporta N agentes simultáneos con visualización en pestañas en la TUI.
+Cada agente puede ser de tipo predefinido (code_agent, researcher_agent)
+o dinámico con un system_prompt personalizado.
 """
 import os
 import logging
 import threading
-from typing import Any
+import concurrent.futures
+import time
+import uuid
+from typing import Any, List, Dict, Optional
+
 from rich.console import Console
 
 logger = logging.getLogger(__name__)
 console = Console()
 
-RESEARCHER_RECURSION_LIMIT = int(os.getenv("RESEARCHER_RECURSION_LIMIT", "1000"))
+# Límite de recursión configurable
+AGENT_RECURSION_LIMIT = int(os.getenv("RESEARCHER_RECURSION_LIMIT", "1000"))
+
 AUTONOMY_DIALOG_TEXT = (
-    "Si se determina aplicar cambios y ejecutar comandos los agentes "
-    "serán autónomos y no solicitaran autorización"
+    "Los agentes operarán de forma autónoma y no solicitarán autorización para aplicar cambios."
 )
 
-
-def _request_autonomous_execution(agent_label: str, terminal_ui: Any = None) -> bool:
-    """Solicita consentimiento para arrancar agentes profundos en modo autónomo."""
-    if terminal_ui and hasattr(terminal_ui, "ask_deep_agent_autonomy_sync"):
-        return bool(terminal_ui.ask_deep_agent_autonomy_sync(agent_label))
-
-    if terminal_ui and hasattr(terminal_ui, "ask_approval_sync"):
-        return bool(
-            terminal_ui.ask_approval_sync(
-                message=AUTONOMY_DIALOG_TEXT,
-                title=f"Autonomía de {agent_label}",
-            )
-        )
-
-    return True
-
-class TerminalUIProxy:
-    def __init__(self, original_ui, panel_id):
-        self.original_ui = original_ui
-        self.panel_id = panel_id
-        # Use the original UI's console (e.g., TextualTerminalUI.DummyConsole)
-        # so live/stream contexts target the TUI panels instead of stdout.
-        self.console = getattr(original_ui, "console", console)
-        self.is_tui = bool(getattr(original_ui, "is_tui", False))
-        self.interrupt_queue = getattr(original_ui, "interrupt_queue", None)
-
-    def _call_forward(self, method_name: str, *args, **kwargs):
-        """Forward a UI call to the original UI, injecting panel_id when supported.
-
-        Adds debug logging and a fallback to try calling the same method on
-        `original_ui.app` (Textual app) when the primary call fails.
-        """
-        if self.original_ui is None:
-            logger.debug("TerminalUIProxy: no original_ui to forward %s", method_name)
-            return None
-
-        # Prefer the attribute on the original UI
-        if hasattr(self.original_ui, method_name):
-            target = self.original_ui
-        # Fallback: sometimes the textual App is wrapped in `.app`
-        elif hasattr(self.original_ui, "app") and hasattr(self.original_ui.app, method_name):
-            target = self.original_ui.app
-        else:
-            logger.debug("TerminalUIProxy: neither original_ui nor original_ui.app expose %s", method_name)
-            return None
-
-        method = getattr(target, method_name)
-        try:
-            import inspect
-            sig = inspect.signature(method)
-            call_kwargs = dict(kwargs)
-            if "panel_id" in sig.parameters and "panel_id" not in call_kwargs:
-                call_kwargs["panel_id"] = self.panel_id
-
-            # Filtrar kwargs no soportados por la firma para evitar TypeError.
-            accepted = {k: v for k, v in call_kwargs.items() if k in sig.parameters}
-            logger.debug("TerminalUIProxy: calling %s on %s args=%s kwargs=%s", method_name, type(target).__name__, args, accepted)
-            return method(*args, **accepted)
-        except Exception as exc:
-            logger.exception("TerminalUIProxy: error calling %s on %s: %s", method_name, type(target).__name__, exc)
-            # Last-ditch attempt: call without signature filtering
-            try:
-                return method(*args, **kwargs)
-            except Exception:
-                logger.exception("TerminalUIProxy: final fallback failed for %s", method_name)
-                return None
-        
-    def __getattr__(self, name):
-        # Delegate attribute access to the original UI when possible.
-        # __getattr__ is only called when the normal attribute lookup fails,
-        # so this safely proxies missing attributes to the wrapped UI.
-        if self.original_ui is None:
-            return lambda *args, **kwargs: None
-        return getattr(self.original_ui, name)
-        
-    def print_stream(self, text: str):
-        return self._call_forward("print_stream", text)
-        
-    def write_stream_to_chat(self, content: str):
-        return self._call_forward("write_stream_to_chat", content)
-        
-    def update_live(self, renderable):
-        return self._call_forward("update_live", renderable)
-        
-    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False):
-        return self._call_forward(
-            "print_message",
-            message,
-            style,
-            is_user_message,
-            status,
-            use_bubble,
-        )
-
-    def print_tool_notification(self, tool_name: str, action_desc: str = ""):
-        return self._call_forward("print_tool_notification", tool_name, action_desc)
-
-    def print_success_box(self, message: str, title: str = "Éxito"):
-        return self._call_forward("print_success_box", message, title)
-        
-    def print_error_box(self, message: str, title: str = "Error"):
-        return self._call_forward("print_error_box", message, title)
-
-    def print_warning_box(self, message: str, title: str = "Advertencia"):
-        return self._call_forward("print_warning_box", message, title)
-        
-    def update_terminal_output(self, tool_name: str, output: str, command: str = "", show_cursor: bool = None):
-        return self._call_forward(
-            "update_terminal_output",
-            tool_name,
-            output,
-            command,
-            show_cursor=show_cursor,
-        )
-
-    def update_tool_display(self, tool_name: str, output: str, command: str = "", max_lines: int | None = None):
-        return self._call_forward(
-            "update_tool_display",
-            tool_name,
-            output,
-            command,
-            max_lines=max_lines,
-        )
-        
-    def stop_live(self):
-        return self._call_forward("stop_live")
-    
-    def put(self, message):
-        if self.original_ui is not None and hasattr(self.original_ui, 'put'):
-            return self.original_ui.put(message)
-        logger.warning(f"TerminalUIProxy: put() no disponible en original_ui")
-
-    def put_nowait(self, message):
-        if self.original_ui is not None and hasattr(self.original_ui, 'put_nowait'):
-            return self.original_ui.put_nowait(message)
-        logger.warning(f"TerminalUIProxy: put_nowait() no disponible en original_ui")
-
+# ─── Proxy de UI por panel ────────────────────────────────────────────────────
 
 class ParallelPanelUI:
-    """Concrete wrapper that forces calls to the TUI with an explicit panel_id.
-
-    En LOCAL mode (TUI directa sin WS) accede directamente a los widgets Textual.
-    En SERVER mode (TUI conectada via WS) enruta via _push() con agent_id para
-    que los eventos lleguen al panel correcto a través del WebSocket.
     """
-    def __init__(self, original_ui, panel_id):
+    Wrapper de terminal_ui que redirige todo el output de un agente al
+    ChatLogWidget de su pestaña asignada en el TabbedContent.
+
+    Soporta tanto modo TUI local (Textual directo) como modo servidor (WS).
+    """
+
+    def __init__(self, original_ui: Any, panel_id: str):
         self.original_ui = original_ui
         self.panel_id = panel_id
         self.console = getattr(original_ui, "console", console)
@@ -170,516 +44,564 @@ class ParallelPanelUI:
         self.interrupt_queue = getattr(original_ui, "interrupt_queue", None)
         self.app = getattr(original_ui, "app", original_ui)
         self._accumulated_text = ""
-        self._last_update_time = 0
-        self._update_interval = 0.05  # 50ms (20 FPS max)
 
     @property
     def _is_server_mode(self) -> bool:
         """True cuando original_ui es un ServerUI (modo WS), no una TUI Textual."""
-        return hasattr(self.original_ui, '_push') and not hasattr(self.original_ui, 'query_one')
+        return hasattr(self.original_ui, "_push") and not hasattr(self.original_ui, "query_one")
 
-    def _safe_call_app(self, method_name, *args, **kwargs):
+    def _get_panel(self):
+        """Retorna el ChatLogWidget de esta pestaña (modo TUI local)."""
         try:
-            # Forzar panel_id en todos los casos
-            kwargs["panel_id"] = self.panel_id
-            
-            if hasattr(self.original_ui, method_name):
-                method = getattr(self.original_ui, method_name)
-                return method(*args, **kwargs)
-            if hasattr(self.app, method_name):
-                method = getattr(self.app, method_name)
-                return method(*args, **kwargs)
-        except Exception:
-            logger.exception("ParallelPanelUI: error calling %s", method_name)
-        return None
-
-    def _get_tui_panel(self):
-        """Retorna el widget ChatLogWidget del panel en modo TUI local."""
-        try:
-            # Primero intentar obtenerlo como atributo directo de la app (más rápido y seguro)
-            if hasattr(self.app, self.panel_id):
-                return getattr(self.app, self.panel_id)
-            if hasattr(self.app, 'query_one'):
+            if hasattr(self.app, "query_one"):
                 return self.app.query_one(f"#{self.panel_id}")
-        except Exception as e:
-            logger.exception("ParallelPanelUI: Error querying panel %s: %s", self.panel_id, e)
+        except Exception:
+            pass
         return None
 
-    def update_live(self, renderable, **kwargs):
-        """Update the panel with the given renderable."""
-        if self._is_server_mode:
-            # En modo servidor enviamos como live_update con agent_id
-            if isinstance(renderable, str):
-                self.original_ui._push("live_update", {"thinking": "", "response": renderable}, agent_id=self.panel_id)
-            elif isinstance(renderable, tuple):
-                self.original_ui._push("live_update", {"thinking": "", "response": str(renderable)}, agent_id=self.panel_id)
-            else:
-                try:
-                    from io import StringIO
-                    from rich.console import Console as RichConsole
-                    buf = StringIO()
-                    c = RichConsole(file=buf, force_terminal=False, no_color=True, width=120)
-                    c.print(renderable)
-                    self.original_ui._push("live_update", {"thinking": "", "response": buf.getvalue()}, agent_id=self.panel_id)
-                except Exception:
-                    pass
-            return
-
-        # Modo TUI local: acceso directo al widget
-        def _update():
-            try:
-                panel = self._get_tui_panel()
-                if panel is None:
-                    logger.warning("ParallelPanelUI: Panel %s not found in TUI application", self.panel_id)
-                    return
-                if hasattr(panel, "write_stream"):
-                    panel.write_stream(renderable)
-                elif hasattr(panel, "update"):
-                    panel.update(renderable)
-                if hasattr(panel, "scroll_end"):
-                    panel.scroll_end(animate=False)
-            except Exception as e:
-                logger.exception("ParallelPanelUI: Error during panel %s _update: %s", self.panel_id, e)
-        
+    def _schedule(self, fn, *args, **kwargs):
+        """Llama a fn desde cualquier hilo de forma segura."""
         if threading.current_thread() is threading.main_thread():
-            _update()
+            fn(*args, **kwargs)
         else:
             try:
-                self.app.call_from_thread(_update)
+                self.app.call_from_thread(fn, *args, **kwargs)
             except Exception as e:
-                logger.exception("ParallelPanelUI: Error scheduling call_from_thread: %s", e)
+                logger.debug("ParallelPanelUI._schedule: %s", e)
 
-    def stop_live(self, *args, **kwargs):
-        """Called by the agent when a node finishes streaming."""
-        if self._is_server_mode:
-            self.original_ui._push("live_stop", {}, agent_id=self.panel_id)
-            self._accumulated_text = ""
-            return
+    # ── Métodos de streaming ──────────────────────────────────────────────────
 
-        # Modo TUI local
-        def _stop():
-            try:
-                panel = self._get_tui_panel()
-                if panel and hasattr(panel, "stop_stream"):
-                    panel.stop_stream()
-            except Exception as e:
-                logger.exception("ParallelPanelUI: Error stopping stream: %s", e)
-
-        if threading.current_thread() is threading.main_thread():
-            _stop()
-        else:
-            try:
-                self.app.call_from_thread(_stop)
-            except Exception as e:
-                logger.exception("ParallelPanelUI: Error scheduling call_from_thread: %s", e)
-        self._accumulated_text = ""
-
-    def write_stream_to_chat(self, *args, **kwargs):
-        return self._safe_call_app("write_stream_to_chat", *args, **kwargs)
-
-    def print_stream(self, text: str):
+    def print_stream(self, text: str, **kwargs):
         if not text:
             return
-        logger.info(f"ParallelPanelUI.print_stream: received text chunk for {self.panel_id}: {repr(text[:30])}")
         self._accumulated_text += text
-
         if self._is_server_mode:
-            # En modo servidor: enviar como evento stream con agent_id
             self.original_ui._push("stream", text, agent_id=self.panel_id)
             return
+        panel = self._get_panel()
+        if panel and hasattr(panel, "write_stream"):
+            self._schedule(panel.write_stream, text)
 
-        # Modo TUI local: actualizar el panel directamente
-        return self.update_live(self._accumulated_text)
+    def write_stream_to_chat(self, content: str, **kwargs):
+        self.print_stream(content, **kwargs)
 
-    def print_message(self, message: str, style: str = "", is_user_message: bool = False, status: str = None, use_bubble: bool = False):
+    def update_live(self, renderable, **kwargs):
+        if self._is_server_mode:
+            if isinstance(renderable, str):
+                self.original_ui._push(
+                    "live_update", {"thinking": "", "response": renderable}, agent_id=self.panel_id
+                )
+            return
+        panel = self._get_panel()
+        if panel is None:
+            return
+        def _do():
+            if hasattr(panel, "write_stream"):
+                panel.write_stream(renderable)
+            elif hasattr(panel, "update"):
+                panel.update(renderable)
+            if hasattr(panel, "scroll_end"):
+                panel.scroll_end(animate=False)
+        self._schedule(_do)
+
+    def stop_live(self, **kwargs):
+        if self._is_server_mode:
+            self.original_ui._push("live_stop", {}, agent_id=self.panel_id)
+            return
+        panel = self._get_panel()
+        if panel and hasattr(panel, "stop_stream"):
+            self._schedule(panel.stop_stream)
+        self._accumulated_text = ""
+
+    def print_message(self, message: str, style: str = "", is_user_message: bool = False,
+                      status: str = None, use_bubble: bool = False, **kwargs):
         if self._is_server_mode:
             self.original_ui._push("message", {"text": message}, agent_id=self.panel_id)
             return
-        return self._call_forward(
-            "print_message",
-            message,
-            style,
-            is_user_message,
-            status,
-            use_bubble,
-        )
+        panel = self._get_panel()
+        if panel and hasattr(panel, "write_agent_message"):
+            self._schedule(panel.write_agent_message, message)
 
-    def update_terminal_output(self, tool_name: str, output: str, command: str = "", **kwargs):
+    def print_tool_notification(self, tool_name: str, action_desc: str = "",
+                                skill_name: str = "", **kwargs):
+        if self._is_server_mode:
+            self.original_ui._push(
+                "tool_call", {"name": tool_name, "description": action_desc, "skill": skill_name},
+                agent_id=self.panel_id,
+            )
+            return
+        panel = self._get_panel()
+        if panel and hasattr(panel, "write_tool_notification"):
+            self._schedule(panel.write_tool_notification, tool_name, action_desc, skill_name)
+
+    def update_terminal_output(self, tool_name: str, output: str,
+                               command: str = "", **kwargs):
         if not output:
             return
         if self._is_server_mode:
-            # Acumular y enviar como live_update
             msg = f"\n**$ {command or tool_name}**\n```\n{output}\n```"
             self._accumulated_text += msg
-            self.original_ui._push("live_update", {"thinking": "", "response": self._accumulated_text}, agent_id=self.panel_id)
+            self.original_ui._push(
+                "live_update", {"thinking": "", "response": self._accumulated_text},
+                agent_id=self.panel_id,
+            )
             return
-        # Acumular la salida de la herramienta en el historial del panel
-        msg = f"\n\n**$ {command or tool_name}**\n```bash\n{output}\n```\n"
-        self._accumulated_text += msg
-        return self.update_live(self._accumulated_text)
+        panel = self._get_panel()
+        if panel and hasattr(panel, "write_stream"):
+            chunk = ("__TERMINAL__", tool_name, output, command or tool_name)
+            self._schedule(panel.write_stream, chunk)
 
-    def update_tool_display(self, *args, **kwargs):
-        return self.update_terminal_output(*args, **kwargs)
+    def update_tool_display(self, tool_name: str, output: str,
+                            command: str = "", **kwargs):
+        self.update_terminal_output(tool_name, output, command, **kwargs)
 
-    def print_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = "", **kwargs):
-        if self._is_server_mode:
-            self.original_ui._push("tool_call", {"name": tool_name, "description": action_desc, "skill": skill_name}, agent_id=self.panel_id)
-            return
-        # Acumular la notificación en el historial
-        msg = f"\n**⚙ {skill_name or tool_name}**"
-        if action_desc:
-            msg += f": *{action_desc}*"
-        self._accumulated_text += msg + "\n"
-        return self.update_live(self._accumulated_text)
+    def print_success_box(self, message: str, title: str = "Éxito", **kwargs):
+        self.print_message(f"✅ **{title}**: {message}", **kwargs)
 
-    def _call_forward(self, method_name: str, *args, **kwargs):
-        """Delegar al original_ui en modo TUI local."""
-        if self.original_ui is None:
-            return None
-        if hasattr(self.original_ui, method_name):
-            target = self.original_ui
-        elif hasattr(self.app, method_name):
-            target = self.app
-        else:
-            return None
-        method = getattr(target, method_name)
-        try:
-            import inspect
-            sig = inspect.signature(method)
-            call_kwargs = dict(kwargs)
-            if "panel_id" not in call_kwargs:
-                call_kwargs["panel_id"] = self.panel_id
-            
-            # Si el método acepta **kwargs (VAR_KEYWORD), pasamos todos los argumentos
-            has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-            if has_var_keyword:
-                accepted = call_kwargs
-            else:
-                accepted = {k: v for k, v in call_kwargs.items() if k in sig.parameters}
-            return method(*args, **accepted)
-        except Exception:
-            try:
-                return method(*args, **kwargs)
-            except Exception:
-                return None
+    def print_error_box(self, message: str, title: str = "Error", **kwargs):
+        self.print_message(f"❌ **{title}**: {message}", **kwargs)
+
+    def print_warning_box(self, message: str, title: str = "Advertencia", **kwargs):
+        self.print_message(f"⚠️ **{title}**: {message}", **kwargs)
+
+    def update_task_tracker(self, *args, **kwargs):
+        if self.original_ui and hasattr(self.original_ui, "update_task_tracker"):
+            self.original_ui.update_task_tracker(*args, **kwargs)
+
+    # ── Delegación genérica ───────────────────────────────────────────────────
+
+    def ask_approval_sync(self, message: str, title: str = "Aprobación Requerida",
+                          **kwargs) -> bool:
+        if self.original_ui:
+            method = getattr(self.original_ui, "ask_approval_sync", None)
+            if method:
+                return method(message=message, title=title, **kwargs)
+        return True
+
+    def ask_deep_agent_autonomy_sync(self, agent_label: str) -> bool:
+        if self.original_ui:
+            method = getattr(self.original_ui, "ask_deep_agent_autonomy_sync", None)
+            if method:
+                return method(agent_label)
+        return True
+
+    def get_interrupt_queue(self):
+        if self.original_ui:
+            method = getattr(self.original_ui, "get_interrupt_queue", None)
+            if method:
+                return method()
+        return self.interrupt_queue
 
     def put(self, message):
-        if self.original_ui is not None and hasattr(self.original_ui, 'put'):
+        if self.original_ui and hasattr(self.original_ui, "put"):
             return self.original_ui.put(message)
 
     def put_nowait(self, message):
-        if self.original_ui is not None and hasattr(self.original_ui, 'put_nowait'):
+        if self.original_ui and hasattr(self.original_ui, "put_nowait"):
             return self.original_ui.put_nowait(message)
 
     def __getattr__(self, name):
-        if self.original_ui is None:
-            return lambda *args, **kwargs: None
-        return getattr(self.original_ui, name)
+        if self.original_ui is not None:
+            return getattr(self.original_ui, name)
+        return lambda *a, **kw: None
 
-def call_agents_parallel(task_coder: str, task_researcher: str, llm_service: Any = None, terminal_ui: Any = None, interrupt_queue: Any = None, approval_handler: Any = None) -> str:
-    """Invoca ambos agentes en paralelo"""
-    from kogniterm.core.agents.deep_coder import create_deep_coder
-    from kogniterm.core.agents.deep_researcher import create_deep_researcher
-    from kogniterm.core.agent_state import AgentState
-    from langchain_core.messages import HumanMessage
-    import concurrent.futures
 
-    console.print("\n[bold green]Iniciando agentes en PARALELO[/bold green]")
+# ─── Funciones auxiliares ─────────────────────────────────────────────────────
 
-    # Resolver terminal_ui / interrupt_queue desde llm_service si no fueron inyectados.
+def _request_autonomous_execution(agent_label: str, terminal_ui: Any = None) -> bool:
+    """Solicita consentimiento antes de iniciar un agente en modo autónomo."""
+    if terminal_ui and hasattr(terminal_ui, "ask_deep_agent_autonomy_sync"):
+        return bool(terminal_ui.ask_deep_agent_autonomy_sync(agent_label))
+    if terminal_ui and hasattr(terminal_ui, "ask_approval_sync"):
+        return bool(
+            terminal_ui.ask_approval_sync(
+                message=AUTONOMY_DIALOG_TEXT,
+                title=f"Autonomía de {agent_label}",
+            )
+        )
+    return True
+
+
+def _resolve_tui_app(ui_obj: Any):
+    """Obtiene la instancia App de Textual desde un posible wrapper."""
+    current = ui_obj
+    visited = set()
+    for _ in range(4):
+        if current is None:
+            return None
+        marker = id(current)
+        if marker in visited:
+            break
+        visited.add(marker)
+        if hasattr(current, "query_one") and hasattr(current, "call_from_thread"):
+            return current
+        if hasattr(current, "app"):
+            current = getattr(current, "app")
+            continue
+        break
+    return None
+
+
+def _is_server_mode(terminal_ui: Any) -> bool:
+    return hasattr(terminal_ui, "_push") and not hasattr(terminal_ui, "query_one")
+
+
+# ─── Motor de creación de agente por tipo ────────────────────────────────────
+
+def _build_agent_graph(agent_type: str, system_prompt: Optional[str],
+                       llm_service: Any, agent_ui: Any, interrupt_queue: Any):
+    """Instancia el grafo LangGraph correcto según el tipo de agente solicitado."""
+    if agent_type == "code_agent":
+        from kogniterm.core.agents.deep_coder import create_deep_coder
+        return create_deep_coder(llm_service, agent_ui, interrupt_queue)
+
+    if agent_type == "researcher_agent":
+        from kogniterm.core.agents.deep_researcher import create_deep_researcher
+        return create_deep_researcher(llm_service, agent_ui, interrupt_queue)
+
+    # Agente dinámico con prompt personalizado
+    from kogniterm.core.agents.dynamic_agent import create_dynamic_agent
+    prompt = system_prompt or (
+        f"Eres un agente especializado ({agent_type}). "
+        "Realiza la tarea indicada de forma autónoma y precisa."
+    )
+    return create_dynamic_agent(llm_service, prompt, agent_ui, interrupt_queue)
+
+
+# ─── Función principal ────────────────────────────────────────────────────────
+
+def call_agents_parallel(
+    agents: List[Dict[str, str]],
+    llm_service: Any = None,
+    terminal_ui: Any = None,
+    interrupt_queue: Any = None,
+    approval_handler: Any = None,
+) -> str:
+    """
+    Invoca múltiples agentes especializados en paralelo.
+
+    Cada elemento de `agents` es un dict con:
+        - name  (str): Nombre descriptivo del agente (ej. "Investigador")
+        - task  (str): Tarea asignada
+        - type  (str, opcional): "code_agent" | "researcher_agent" | cualquier rol dinámico.
+                                  Por defecto "researcher_agent".
+        - system_prompt (str, opcional): Prompt del sistema para agentes dinámicos.
+
+    Args:
+        agents: Lista de especificaciones de agentes.
+        llm_service: Servicio LLM compartido.
+        terminal_ui: Interfaz de terminal / TUI.
+        interrupt_queue: Cola de interrupciones.
+        approval_handler: Manejador de aprobaciones.
+
+    Returns:
+        str: XML con los resultados de cada agente.
+    """
     import queue as _queue
+    from langchain_core.messages import HumanMessage as _HumanMessage
+
+    if not agents:
+        return "Error: No se especificaron agentes para ejecutar."
+
+    # ── Resolver terminal_ui / interrupt_queue ────────────────────────────────
     if terminal_ui is None and llm_service is not None:
         terminal_ui = getattr(llm_service, "terminal_ui", None)
     if interrupt_queue is None and llm_service is not None:
         interrupt_queue = getattr(llm_service, "interrupt_queue", None)
-    # Garantizar un objeto queue válido para evitar KeyboardHandler con None
     if interrupt_queue is None:
         interrupt_queue = _queue.Queue()
 
-    logger.debug("call_agents_parallel: terminal_ui=%s interrupt_queue_set=%s", type(terminal_ui).__name__ if terminal_ui else None, bool(interrupt_queue))
+    server_mode = _is_server_mode(terminal_ui)
+    is_tui_local = (not server_mode) and bool(getattr(terminal_ui, "is_tui", False))
+    target_app = _resolve_tui_app(terminal_ui) if is_tui_local else None
 
-    coder_authorized = _request_autonomous_execution("DeepCoder", terminal_ui)
-    researcher_authorized = _request_autonomous_execution("DeepResearcher", terminal_ui)
+    logger.info(
+        "call_agents_parallel: %d agentes | server_mode=%s | tui_local=%s",
+        len(agents), server_mode, is_tui_local,
+    )
 
-    if not coder_authorized and not researcher_authorized:
+    # ── Solicitar consentimiento ──────────────────────────────────────────────
+    authorized = []
+    for spec in agents:
+        label = spec.get("name", spec.get("type", "Agente"))
+        if _request_autonomous_execution(label, terminal_ui):
+            authorized.append(spec)
+        else:
+            logger.info("call_agents_parallel: %s cancelado por el usuario.", label)
+
+    if not authorized:
         return "Ejecución paralela cancelada por el usuario."
-    
-    def _resolve_tui_app(ui_obj: Any):
-        """Obtiene la instancia App de Textual desde un posible wrapper."""
-        current = ui_obj
-        visited = set()
-        for _ in range(4):
-            if current is None:
-                return None
-            marker = id(current)
-            if marker in visited:
-                break
-            visited.add(marker)
-            if hasattr(current, "query_one") and hasattr(current, "call_from_thread"):
-                return current
-            if hasattr(current, "app"):
-                current = getattr(current, "app")
-                continue
-            break
-        return None
 
-    # Activar layout de paneles paralelos
-    is_server_mode = hasattr(terminal_ui, '_push') and not hasattr(terminal_ui, 'query_one')
+    # ── Construir panel_id determinista y único por agente ────────────────────
+    # Usamos un slug del nombre para que sea legible en las pestañas
+    def _panel_id(spec: Dict, index: int) -> str:
+        slug = spec.get("name", f"agent_{index}").lower()
+        slug = "".join(c if c.isalnum() else "_" for c in slug)[:20]
+        return f"agent_panel_{slug}_{index}"
 
-    if is_server_mode:
-        # Modo WS: notificar a la TUI via eventos WebSocket
+    panel_ids = [_panel_id(spec, i) for i, spec in enumerate(authorized)]
+
+    # ── Activar contenedor de pestañas en la TUI ─────────────────────────────
+    _activate_parallel_container(
+        authorized, panel_ids, terminal_ui, server_mode, is_tui_local, target_app
+    )
+
+    # ── Crear proxy de UI para cada agente ───────────────────────────────────
+    agent_uis = [ParallelPanelUI(terminal_ui, pid) for pid in panel_ids]
+
+    # ── Función de ejecución de un agente ─────────────────────────────────────
+    def run_agent(spec: Dict, agent_ui: ParallelPanelUI, panel_id: str) -> str:
+        name = spec.get("name", "Agente")
+        task = spec.get("task", "")
+        agent_type = spec.get("type", "researcher_agent")
+        system_prompt = spec.get("system_prompt")
+
         try:
-            terminal_ui.show_agent_panel("live_display_coder", "DeepCoder")
-            terminal_ui.show_agent_panel("live_display_researcher", "DeepResearcher")
+            from kogniterm.core.agent_state import AgentState
+
+            task_message = (
+                f"{task}\n\n"
+                "---\n"
+                "⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️\n"
+                f"Tu PRIMERA acción DEBE ser inicializar el task_tracker con:\n"
+                f"  task_tracker(action=\"init\", agent_name=\"{name}\", plan=[\"paso 1\", \"paso 2\", ...])\n"
+                "Actualiza el estado de cada paso a medida que avanzas."
+            )
+
+            agent_graph = _build_agent_graph(
+                agent_type, system_prompt, llm_service, agent_ui, interrupt_queue
+            )
+            initial_state = AgentState(
+                messages=[_HumanMessage(content=task_message)],
+                autonomous_approvals=True,
+            )
+            final_state = agent_graph.invoke(
+                initial_state,
+                config={"recursion_limit": AGENT_RECURSION_LIMIT},
+            )
+            msgs = final_state.get("messages", [])
+            result = msgs[-1].content if msgs else "Sin respuesta"
+            logger.info("run_agent[%s]: finalizado.", name)
+            return result
+
         except Exception as e:
-            logger.warning("No se pudieron emitir agent_panel_show events: %s", e)
-    elif terminal_ui and getattr(terminal_ui, "is_tui", False):
-        # Modo TUI local: activar paneles directamente
-        try:
-            target_app = _resolve_tui_app(terminal_ui)
-            if target_app is None:
-                raise RuntimeError("No se pudo resolver la app TUI")
-            
-            def _activate_panels():
-                """Se ejecuta en el hilo principal de Textual."""
-                try:
-                    # Mostrar el contenedor de paneles paralelos (TabbedContent)
-                    target_app.query_one("#bottom_container").display = True
-                    container = target_app.query_one("#parallel_agents_container")
-                    container.display = True
-                    try:
-                        target_app.query_one("#tracker_container").add_class("parallel-mode")
-                        target_app.query_one("#tracker_container").display = True
-                    except Exception:
-                        pass
+            logger.exception("run_agent[%s]: error: %s", name, e)
+            return f"Error en {name}: {e}"
 
-                    # NOTA: NO ocultamos #input_container ni StatusFooter
-                    # El usuario debe poder continuar interactuando con el agente principal
-
-                    # Inicializar pestañas con mensajes de bienvenida
-                    try:
-                        coder_panel = target_app.query_one("#live_display_coder")
-                        if hasattr(coder_panel, "write_stream"):
-                            coder_panel.write_stream("[bold cyan]⚡ DeepCoder iniciando...[/bold cyan]")
-                        coder_panel.border_title = "DeepCoder"
-                    except Exception:
-                        pass
-                    try:
-                        researcher_panel = target_app.query_one("#live_display_researcher")
-                        if hasattr(researcher_panel, "write_stream"):
-                            researcher_panel.write_stream("[bold magenta]🔍 DeepResearcher iniciando...[/bold magenta]")
-                        researcher_panel.border_title = "DeepResearcher"
-                    except Exception:
-                        pass
-
-                    # Ocultar paneles normales (solo los de thinking/tool, no el input)
-                    try:
-                        target_app.query_one("#live_display").display = False
-                    except Exception:
-                        pass
-                    try:
-                        target_app.query_one("#tool_display").display = False
-                    except Exception:
-                        pass
-                    
-                    target_app.refresh(layout=True)
-                except Exception as e:
-                    logger.warning("Error activando paneles: %s", e)
-            
-            if threading.current_thread() is threading.main_thread():
-                _activate_panels()
-            else:
-                target_app.call_from_thread(_activate_panels)
-            
-            logger.info("Esperando estabilización de TUI...")
-            import time
-            time.sleep(0.5)
-        except Exception as e:
-            logger.error("Error activando paneles paralelos: %s", e)
-    
-    # Crear UIs con panel_id para enrutamiento correcto
-    ui_coder = ParallelPanelUI(terminal_ui, "live_display_coder")
-    ui_researcher = ParallelPanelUI(terminal_ui, "live_display_researcher")
-    
-    logger.debug("Creando agentes...")
+    # ── Lanzar agentes en paralelo ────────────────────────────────────────────
+    results: Dict[str, str] = {}
     try:
-        # Forzar refresco de skills para asegurar que task_tracker sea detectado
-        if llm_service and hasattr(llm_service, 'skill_manager'):
-            logger.info("Refrescando skills para detectar task_tracker...")
-            llm_service.skill_manager.refresh_skills(force=True)
-
-        # Resetear task_tracker antes de cada sesión paralela
-        try:
-            tracker = llm_service.get_tool("task_tracker") if llm_service else None
-            if tracker and hasattr(tracker, "invoke"):
-                tracker.invoke(action="init", plan=[])  # Limpiar estado previo
-                logger.info("task_tracker reseteado para nueva sesión paralela")
-            else:
-                logger.error("No se pudo obtener la herramienta task_tracker")
-        except Exception as _te:
-            logger.warning("No se pudo resetear task_tracker: %s", _te)
-
-        agent_coder = create_deep_coder(llm_service, ui_coder, interrupt_queue) if coder_authorized else None
-        agent_researcher = create_deep_researcher(llm_service, ui_researcher, interrupt_queue) if researcher_authorized else None
-
-        from langchain_core.messages import HumanMessage as _HumanMessage
-
-        def run_coder():
-            """Ejecuta el agente coder y retorna su resultado final."""
-            if not coder_authorized:
-                return "DeepCoder cancelado por el usuario antes de iniciar el modo autónomo."
-            try:
-                logger.info("run_coder: iniciando ejecución")
-                task_message = (
-                    f"{task_coder}\n\n"
-                    "---\n"
-                    "⚠️⚠️⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️⚠️⚠️\n"
-                    "Tu PRIMERÍSIMA acción en el primer turno DEBE ser inicializar el "
-                    "task_tracker con tu plan de ejecución descompuesto:\n"
-                    "  task_tracker(action=\"init\", agent_name=\"Coder\", plan=[\"paso 1\", \"paso 2\", ...])\n"
-                    "Luego, a medida que avanzas, marca cada paso como 'in-progress' y luego como 'done' al completarlo. No hacerlo es considerado un fallo crítico."
-                )
-                initial_state = {
-                    "messages": [_HumanMessage(content=task_message)],
-                    "autonomous_approvals": True,
-                }
-                final_state = agent_coder.invoke(
-                    initial_state,
-                    config={"recursion_limit": 1000},
-                )
-                msgs = final_state.get("messages", [])
-                last = msgs[-1].content if msgs else "Sin respuesta"
-                logger.info("run_coder: finalizado")
-                return last
-            except Exception as e:
-                logger.exception("run_coder: error: %s", e)
-                return f"Error en DeepCoder: {e}"
-
-        def run_researcher():
-            """Ejecuta el agente researcher y retorna su resultado final."""
-            if not researcher_authorized:
-                return "DeepResearcher cancelado por el usuario antes de iniciar el modo autónomo."
-            try:
-                logger.info("run_researcher: iniciando ejecución")
-                task_message = (
-                    f"{task_researcher}\n\n"
-                    "---\n"
-                    "⚠️⚠️⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️⚠️⚠️\n"
-                    "Tu PRIMERÍSIMA acción en el primer turno DEBE ser inicializar el "
-                    "task_tracker con tu plan de investigación descompuesto en sub-preguntas:\n"
-                    "  task_tracker(action=\"init\", agent_name=\"Researcher\", plan=[\"sub-pregunta 1\", \"sub-pregunta 2\", ..., \"Síntesis final\"])\n"
-                    "Luego, a medida que avanzas, marca cada sub-pregunta como 'in-progress' y luego como 'done' al completarla. No hacerlo es considerado un fallo crítico."
-                )
-                initial_state = {
-                    "messages": [_HumanMessage(content=task_message)],
-                    "autonomous_approvals": True,
-                }
-                final_state = agent_researcher.invoke(
-                    initial_state,
-                    config={"recursion_limit": RESEARCHER_RECURSION_LIMIT},
-                )
-                msgs = final_state.get("messages", [])
-                last = msgs[-1].content if msgs else "Sin respuesta"
-                logger.info("run_researcher: finalizado")
-                return last
-            except Exception as e:
-                logger.exception("run_researcher: error: %s", e)
-                return f"Error en DeepResearcher: {e}"
-
-        # Iniciar hilos
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            f_coder = executor.submit(run_coder)
-            f_res = executor.submit(run_researcher)
-            
-            # Esperar resultados de forma individual y segura
-            results = {}
-            for future, name in [(f_coder, "Coder"), (f_res, "Researcher")]:
+        max_workers = min(len(authorized), 8)  # No más de 8 hilos simultáneos
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(run_agent, spec, agent_ui, pid): spec
+                for spec, agent_ui, pid in zip(authorized, agent_uis, panel_ids)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                spec = futures[future]
+                name = spec.get("name", "Agente")
                 try:
                     results[name] = future.result(timeout=600)
                 except Exception as e:
-                    logger.exception(f"Excepción en el hilo del agente {name}: {e}")
+                    logger.exception("Excepción en hilo de %s: %s", name, e)
                     results[name] = f"Error crítico en {name}: {e}"
-        
-        result_coder = results["Coder"]
-        result_res = results["Researcher"]
-
-        # Imprimir resumen en el log principal para que no se pierda la información si los paneles se cierran
-        if terminal_ui:
-            terminal_ui.print_message(f"🏁 **Misión Paralela Finalizada**\n\n**DeepCoder:**\n{result_coder}\n\n**DeepResearcher:**\n{result_res}")
 
     except Exception as e:
         logger.exception("Error general en call_agents_parallel: %s", e)
         return f"Error en ejecución paralela: {e}"
+
     finally:
-        # Consolidar: mover contenido de los paneles al chat log y ocultarlos
+        # ── Consolidar: mostrar resumen y desactivar paneles ─────────────────
+        _deactivate_parallel_container(
+            panel_ids, terminal_ui, server_mode, is_tui_local, target_app
+        )
+
+    # ── Construir resumen final en el chat log principal ─────────────────────
+    if terminal_ui:
+        summary_lines = ["🏁 **Misión Paralela Finalizada**\n"]
+        for name, result in results.items():
+            preview = result[:300] + "..." if len(result) > 300 else result
+            summary_lines.append(f"**{name}:**\n{preview}")
+        terminal_ui.print_message("\n\n".join(summary_lines))
+
+    # ── Retornar resultados en XML para el agente orquestador ────────────────
+    xml_parts = []
+    for name, result in results.items():
+        safe_name = name.replace(" ", "_").lower()
+        xml_parts.append(f"<{safe_name}_result>\n{result}\n</{safe_name}_result>")
+
+    return "\n\n".join(xml_parts)
+
+
+# ─── Gestión de paneles TUI ───────────────────────────────────────────────────
+
+def _activate_parallel_container(
+    agents: List[Dict],
+    panel_ids: List[str],
+    terminal_ui: Any,
+    server_mode: bool,
+    is_tui_local: bool,
+    target_app: Any,
+):
+    """Muestra el TabbedContent y crea una pestaña por agente."""
+    if server_mode:
+        for spec, pid in zip(agents, panel_ids):
+            try:
+                terminal_ui.show_agent_panel(pid, spec.get("name", pid))
+            except Exception as e:
+                logger.warning("show_agent_panel(%s): %s", pid, e)
+        return
+
+    if not (is_tui_local and target_app):
+        return
+
+    def _do():
         try:
-            if is_server_mode:
-                # Modo WS: notificar a la TUI via evento para ocultar paneles
-                try:
-                    terminal_ui.hide_agent_panels()
-                except Exception as e:
-                    logger.warning("No se pudo emitir agent_panel_hide: %s", e)
+            # Usar método de alto nivel si está disponible
+            if hasattr(target_app, "activate_parallel_container"):
+                target_app.activate_parallel_container()
             else:
-                target_app = _resolve_tui_app(terminal_ui)
-                if target_app:
-                    if hasattr(target_app, 'consolidate_parallel_panels'):
-                        target_app.consolidate_parallel_panels()
-                    else:
-                        def _deactivate_panels():
-                            try:
-                                container = target_app.query_one("#parallel_agents_container")
-                                container.display = False
-                                try:
-                                    target_app.query_one("#tracker_container").remove_class("parallel-mode")
-                                except Exception:
-                                    pass
-                                try:
-                                    target_app.query_one("#live_display").display = True
-                                except Exception:
-                                    pass
-                                try:
-                                    target_app.query_one("#tool_display").display = True
-                                except Exception:
-                                    pass
-                                # Restaurar input y footer (aunque no los hayamos ocultado, por si acaso)
-                                try:
-                                    target_app.query_one("#input_container").display = True
-                                except Exception:
-                                    pass
-                                try:
-                                    target_app.query_one("StatusFooter").display = True
-                                except Exception:
-                                    pass
-                                target_app.refresh(layout=True)
-                            except Exception:
-                                pass
-                        
-                        if threading.current_thread() is threading.main_thread():
-                            _deactivate_panels()
-                        else:
-                            import time
-                            time.sleep(2)
-                            target_app.call_from_thread(_deactivate_panels)
+                try:
+                    target_app.query_one("#bottom_container").display = True
+                except Exception:
+                    pass
+                try:
+                    target_app.query_one("#parallel_agents_container").display = True
+                except Exception:
+                    pass
+
+            # Crear una pestaña por agente
+            for spec, pid in zip(agents, panel_ids):
+                try:
+                    target_app.add_agent_tab(pid, spec.get("name", pid))
+                except Exception as e:
+                    logger.warning("add_agent_tab(%s): %s", pid, e)
+
+            target_app.refresh(layout=True)
+
+            # Escribir mensajes de bienvenida en cada panel
+            for spec, pid in zip(agents, panel_ids):
+                try:
+                    from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+                    panel = target_app.query_one(f"#{pid}", ChatLogWidget)
+                    name = spec.get("name", pid)
+                    agent_type = spec.get("type", "researcher_agent")
+                    emoji = "🧪" if "research" in agent_type else "💻"
+                    panel.write_stream(f"{emoji} [bold]{name}[/bold] iniciando...")
+                except Exception:
+                    pass
+
         except Exception as e:
-            logger.error(f"Error consolidando paneles paralelos: {e}")
-        
-    return f"<coder_analysis>\n{result_coder}\n</coder_analysis>\n\n<researcher_analysis>\n{result_res}\n</researcher_analysis>"
+            logger.warning("_activate_parallel_container._do: %s", e)
+
+    if threading.current_thread() is threading.main_thread():
+        _do()
+    else:
+        target_app.call_from_thread(_do)
+
+    # Pequeña pausa para que el layout se estabilice
+    time.sleep(0.5)
+
+
+def _deactivate_parallel_container(
+    panel_ids: List[str],
+    terminal_ui: Any,
+    server_mode: bool,
+    is_tui_local: bool,
+    target_app: Any,
+):
+    """Elimina las pestañas de agentes y oculta el contenedor paralelo."""
+    if server_mode:
+        try:
+            terminal_ui.hide_agent_panels()
+        except Exception as e:
+            logger.warning("hide_agent_panels: %s", e)
+        return
+
+    if not (is_tui_local and target_app):
+        return
+
+    def _do():
+        try:
+            # Esperar para que el usuario vea resultados finales
+            time.sleep(2)
+
+            # Eliminar pestañas dinámicas
+            for pid in panel_ids:
+                try:
+                    target_app.remove_agent_tab(pid)
+                except Exception as e:
+                    logger.debug("remove_agent_tab(%s): %s", pid, e)
+
+            # Ocultar el contenedor
+            if hasattr(target_app, "deactivate_parallel_container"):
+                target_app.deactivate_parallel_container()
+            else:
+                try:
+                    target_app.query_one("#parallel_agents_container").display = False
+                except Exception:
+                    pass
+                target_app.refresh(layout=True)
+
+        except Exception as e:
+            logger.warning("_deactivate_parallel_container._do: %s", e)
+
+    if threading.current_thread() is threading.main_thread():
+        _do()
+    else:
+        target_app.call_from_thread(_do)
+
+
+# ─── Schema de herramienta para el LLM ───────────────────────────────────────
 
 tool_schema = {
     "name": "call_agents_parallel",
-    "description": "Invoca a DeepCoder y DeepResearcher simultáneamente para acelerar el procesamiento paralelo de tareas complementarias.",
+    "description": (
+        "Invoca múltiples agentes especializados simultáneamente para acelerar el procesamiento "
+        "de tareas complejas. Cada agente trabaja en paralelo en su propio panel visual con pestañas. "
+        "Úsalo cuando necesitas delegar subtareas independientes a agentes especializados "
+        "(investigación, desarrollo, análisis, etc.) al mismo tiempo.\n\n"
+        "Tipos de agente disponibles:\n"
+        "- 'code_agent': Motor de desarrollo de software (DeepCoder). Ideal para escribir, "
+        "  editar y validar código.\n"
+        "- 'researcher_agent': Motor de investigación profunda (DeepResearcher). Ideal para "
+        "  leer archivos, analizar contexto, buscar información.\n"
+        "- Cualquier otro string: Agente dinámico genérico con el rol indicado. Usar junto "
+        "  con 'system_prompt' para personalizar su comportamiento."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
-            "task_coder": {
-                "type": "string",
-                "description": "La tarea específica que debe realizar el DeepCoder (desarrollo, edición de código, refactorización)."
-            },
-            "task_researcher": {
-                "type": "string",
-                "description": "La tarea específica que debe realizar el DeepResearcher (investigación, análisis de archivos, diseño)."
+            "agents": {
+                "type": "array",
+                "description": "Lista de agentes a invocar en paralelo. Mínimo 2, máximo 8.",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "required": ["name", "task"],
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Nombre descriptivo del agente (ej. 'Investigador', 'Desarrollador'). Se muestra como título de la pestaña en la TUI.",
+                        },
+                        "task": {
+                            "type": "string",
+                            "description": "Descripción detallada de la tarea asignada a este agente.",
+                        },
+                        "type": {
+                            "type": "string",
+                            "description": "Tipo de agente. Opciones: 'code_agent', 'researcher_agent', o cualquier rol personalizado.",
+                            "default": "researcher_agent",
+                        },
+                        "system_prompt": {
+                            "type": "string",
+                            "description": "Opcional. Prompt de sistema personalizado para agentes con type dinámico.",
+                        },
+                    },
+                },
             }
         },
-        "required": ["task_coder", "task_researcher"]
-    }
+        "required": ["agents"],
+    },
 }
