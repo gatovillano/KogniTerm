@@ -18,6 +18,49 @@ import os
 import re
 import time
 import py_compile
+import importlib.util
+from types import ModuleType
+from pathlib import Path as _Path
+
+
+def _load_file_ops_module(module_filename: str):
+    """
+    Carga dinámicamente un módulo de la skill 'file-operations' via importlib.
+    Necesario porque Python no puede importar paquetes con guiones en el nombre.
+    """
+    bundled_dir = _Path(__file__).resolve().parent.parent.parent / "skills" / "bundled"
+    scripts_dir = bundled_dir / "file-operations" / "scripts"
+
+    pkg_name = "_file_ops_scripts_pkg"
+    if pkg_name not in sys.modules:
+        parent_pkg = ModuleType(pkg_name)
+        parent_pkg.__path__ = [str(scripts_dir)]
+        sys.modules[pkg_name] = parent_pkg
+
+    utils_key = f"{pkg_name}._utils"
+    if utils_key not in sys.modules:
+        utils_spec = importlib.util.spec_from_file_location(
+            utils_key, str(scripts_dir / "_utils.py")
+        )
+        utils_mod = importlib.util.module_from_spec(utils_spec)
+        utils_mod.__package__ = pkg_name
+        sys.modules[utils_key] = utils_mod
+        utils_spec.loader.exec_module(utils_mod)
+
+    mod_key = f"{pkg_name}.{module_filename}"
+    if mod_key in sys.modules:
+        return sys.modules[mod_key]
+
+    mod_spec = importlib.util.spec_from_file_location(
+        mod_key,
+        str(scripts_dir / f"{module_filename}.py"),
+        submodule_search_locations=[str(scripts_dir)],
+    )
+    mod = importlib.util.module_from_spec(mod_spec)
+    mod.__package__ = pkg_name
+    sys.modules[mod_key] = mod
+    mod_spec.loader.exec_module(mod)
+    return mod
 
 from ..llm_service import LLMService
 from kogniterm.ui.terminal_ui import TerminalUI
@@ -979,15 +1022,15 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             # Determinar si es write o delete
                             operation = exception.tool_args.get("operation", "write_file")
                             if operation == "write_file":
-                                from kogniterm.skills.bundled.file_operations.scripts.tool import _write_file
-                                write_result = _write_file(
+                                _ft_mod = _load_file_ops_module("tool")
+                                write_result = _ft_mod._write_file(
                                     exception.tool_args.get("path", ""),
                                     exception.tool_args.get("content", "")
                                 )
                                 content = write_result
                             elif operation == "delete_file":
-                                from kogniterm.skills.bundled.file_operations.scripts.tool import _delete_file
-                                delete_result = _delete_file(
+                                _ft_mod = _load_file_ops_module("tool")
+                                delete_result = _ft_mod._delete_file(
                                     exception.tool_args.get("path", "")
                                 )
                                 content = delete_result

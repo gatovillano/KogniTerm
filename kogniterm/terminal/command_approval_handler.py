@@ -18,6 +18,58 @@ from rich.syntax import Syntax # ¡Nueva importación!
 from rich.console import Group # ¡Nueva importación!
 
 import uuid # Importar uuid
+import importlib.util
+import sys
+from types import ModuleType
+from pathlib import Path as _Path
+
+
+def _load_file_ops_module(module_filename: str):
+    """
+    Carga dinámicamente un módulo de la skill 'file-operations' via importlib.
+    Necesario porque Python no puede importar paquetes con guiones en el nombre.
+
+    Args:
+        module_filename: nombre del archivo .py dentro de scripts/
+                         (ej. 'file_editor', 'file_write', 'file_management', 'tool')
+    Returns:
+        El módulo cargado.
+    """
+    bundled_dir = _Path(__file__).resolve().parent.parent / "skills" / "bundled"
+    scripts_dir = bundled_dir / "file-operations" / "scripts"
+
+    # Nombre de paquete virtual para que las importaciones relativas funcionen
+    pkg_name = "_file_ops_scripts_pkg"
+    if pkg_name not in sys.modules:
+        parent_pkg = ModuleType(pkg_name)
+        parent_pkg.__path__ = [str(scripts_dir)]
+        sys.modules[pkg_name] = parent_pkg
+
+    # Cargar _utils si aún no está en sys.modules (dependencia compartida)
+    utils_key = f"{pkg_name}._utils"
+    if utils_key not in sys.modules:
+        utils_spec = importlib.util.spec_from_file_location(
+            utils_key, str(scripts_dir / "_utils.py")
+        )
+        utils_mod = importlib.util.module_from_spec(utils_spec)
+        utils_mod.__package__ = pkg_name
+        sys.modules[utils_key] = utils_mod
+        utils_spec.loader.exec_module(utils_mod)
+
+    mod_key = f"{pkg_name}.{module_filename}"
+    if mod_key in sys.modules:
+        return sys.modules[mod_key]
+
+    mod_spec = importlib.util.spec_from_file_location(
+        mod_key,
+        str(scripts_dir / f"{module_filename}.py"),
+        submodule_search_locations=[str(scripts_dir)],
+    )
+    mod = importlib.util.module_from_spec(mod_spec)
+    mod.__package__ = pkg_name
+    sys.modules[mod_key] = mod
+    mod_spec.loader.exec_module(mod)
+    return mod
 
 # Importar DiffRenderer para visualización mejorada de diffs
 from kogniterm.utils.diff_renderer import DiffRenderer
@@ -460,8 +512,8 @@ class CommandApprovalHandler:
 
                     advanced_tool = self.advanced_file_editor_tool
                     if advanced_tool is None:
-                        from kogniterm.skills.bundled.file_operations.scripts.file_editor import advanced_file_editor
-                        advanced_tool = advanced_file_editor
+                        _fe_mod = _load_file_ops_module("file_editor")
+                        advanced_tool = _fe_mod.advanced_file_editor
 
                     advanced_result = self._invoke_tool_for_confirmation(advanced_tool, args_to_pass)
                     normalized_result = self._normalize_tool_result(advanced_result)
@@ -473,27 +525,27 @@ class CommandApprovalHandler:
                     args_to_pass["confirm"] = True
                     
                     if tool_name == "sophisticated_editor_tool":
-                        from kogniterm.skills.bundled.file_operations.scripts.file_editor import sophisticated_editor_tool
-                        file_ops_result = sophisticated_editor_tool(**args_to_pass)
+                        _fe_mod = _load_file_ops_module("file_editor")
+                        file_ops_result = _fe_mod.sophisticated_editor_tool(**args_to_pass)
                     elif tool_name == "write_file_tool":
-                        from kogniterm.skills.bundled.file_operations.scripts.file_write import write_file_tool
-                        file_ops_result = write_file_tool(**args_to_pass)
+                        _fw_mod = _load_file_ops_module("file_write")
+                        file_ops_result = _fw_mod.write_file_tool(**args_to_pass)
                     elif tool_name == "append_file_tool":
-                        from kogniterm.skills.bundled.file_operations.scripts.file_write import append_file_tool
-                        file_ops_result = append_file_tool(**args_to_pass)
+                        _fw_mod = _load_file_ops_module("file_write")
+                        file_ops_result = _fw_mod.append_file_tool(**args_to_pass)
                     elif tool_name == "delete_file_tool" or (tool_name in ["file_operations", "file_operations_tool"] and original_tool_args.get("operation") == "delete_file"):
-                        from kogniterm.skills.bundled.file_operations.scripts.file_management import delete_file_tool
-                        file_ops_result = delete_file_tool(**args_to_pass)
+                        _fm_mod = _load_file_ops_module("file_management")
+                        file_ops_result = _fm_mod.delete_file_tool(**args_to_pass)
                     elif tool_name == "move_file_tool":
-                        from kogniterm.skills.bundled.file_operations.scripts.file_management import move_file_tool
-                        file_ops_result = move_file_tool(**args_to_pass)
+                        _fm_mod = _load_file_ops_module("file_management")
+                        file_ops_result = _fm_mod.move_file_tool(**args_to_pass)
                     elif tool_name == "copy_file_tool":
-                        from kogniterm.skills.bundled.file_operations.scripts.file_management import copy_file_tool
-                        file_ops_result = copy_file_tool(**args_to_pass)
+                        _fm_mod = _load_file_ops_module("file_management")
+                        file_ops_result = _fm_mod.copy_file_tool(**args_to_pass)
                     else:
                         # Fallback for old file_operations tool
-                        from kogniterm.skills.bundled.file_operations.scripts.file_write import write_file_tool
-                        file_ops_result = write_file_tool(
+                        _fw_mod = _load_file_ops_module("file_write")
+                        file_ops_result = _fw_mod.write_file_tool(
                             args_to_pass.get("path", file_path),
                             args_to_pass.get("content", ""),
                             confirm=True
