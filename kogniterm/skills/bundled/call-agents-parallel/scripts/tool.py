@@ -52,12 +52,7 @@ class ParallelPanelUI:
 
     def _get_panel(self):
         """Retorna el ChatLogWidget de esta pestaña (modo TUI local)."""
-        try:
-            if hasattr(self.app, "query_one"):
-                return self.app.query_one(f"#{self.panel_id}")
-        except Exception:
-            pass
-        return None
+        return _get_agent_chat_log(self.app, self.panel_id)
 
     def _schedule(self, fn, *args, **kwargs):
         """Llama a fn desde cualquier hilo de forma segura."""
@@ -207,6 +202,20 @@ class ParallelPanelUI:
 
 
 # ─── Funciones auxiliares ─────────────────────────────────────────────────────
+
+def _get_agent_chat_log(app: Any, pid: str):
+    """Busca el ChatLogWidget correspondiente a pid, tolerando prefijo live_display_."""
+    try:
+        from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+        if hasattr(app, "query_one"):
+            try:
+                return app.query_one(f"#{pid}", ChatLogWidget)
+            except Exception:
+                return app.query_one(f"#live_display_{pid}", ChatLogWidget)
+    except Exception:
+        pass
+    return None
+
 
 def _request_autonomous_execution(agent_label: str, terminal_ui: Any = None) -> bool:
     """Solicita consentimiento antes de iniciar un agente en modo autónomo."""
@@ -482,12 +491,12 @@ def _activate_parallel_container(
             # Escribir mensajes de bienvenida en cada panel
             for spec, pid in zip(agents, panel_ids):
                 try:
-                    from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
-                    panel = target_app.query_one(f"#{pid}", ChatLogWidget)
-                    name = spec.get("name", pid)
-                    agent_type = spec.get("type", "researcher_agent")
-                    emoji = "🧪" if "research" in agent_type else "💻"
-                    panel.write_stream(f"{emoji} [bold]{name}[/bold] iniciando...")
+                    panel = _get_agent_chat_log(target_app, pid)
+                    if panel is not None:
+                        name = spec.get("name", pid)
+                        agent_type = spec.get("type", "researcher_agent")
+                        emoji = "🧪" if "research" in agent_type else "💻"
+                        panel.write_stream(f"{emoji} [bold]{name}[/bold] iniciando...")
                 except Exception:
                     pass
 

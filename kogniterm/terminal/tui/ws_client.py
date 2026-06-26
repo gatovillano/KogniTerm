@@ -491,7 +491,10 @@ class TUIWebSocketClient:
         # 2. Widget dinámico creado por add_agent_tab (ID = agent_id)
         try:
             from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
-            return self._app.query_one(f"#{agent_id}", ChatLogWidget)
+            try:
+                return self._app.query_one(f"#{agent_id}", ChatLogWidget)
+            except Exception:
+                return self._app.query_one(f"#live_display_{agent_id}", ChatLogWidget)
         except Exception:
             pass
 
