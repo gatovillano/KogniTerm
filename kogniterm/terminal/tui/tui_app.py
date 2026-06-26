@@ -2751,9 +2751,15 @@ class KogniTermTUI(App):
 
         return future.result()
 
+    @staticmethod
+    def _pane_id(agent_id: str) -> str:
+        """Genera un ID de TabPane seguro para Textual (sin guiones bajos)."""
+        return f"pane-{agent_id.replace('_', '-')}"
+
     def add_agent_tab(self, agent_id: str, title: str) -> ChatLogWidget:
         """Añade dinámicamente una pestaña para un subagente y retorna su ChatLogWidget."""
         tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
+        pane_id = self._pane_id(agent_id)
 
         # Verificar si ya existe
         try:
@@ -2763,7 +2769,7 @@ class KogniTermTUI(App):
             pass
 
         widget = ChatLogWidget(id=f"live_display_{agent_id}")
-        pane = TabPane(title, widget, id=f"pane_{agent_id}")
+        pane = TabPane(title, widget, id=pane_id)
 
         # add_pane debe ejecutarse en el thread principal
         if threading.current_thread() is threading.main_thread():
@@ -2776,10 +2782,11 @@ class KogniTermTUI(App):
     def remove_agent_tab(self, agent_id: str):
         """Elimina una pestaña de subagente por su id."""
         tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
+        pane_id = self._pane_id(agent_id)
 
         def _remove():
             try:
-                tabbed_content.remove_pane(f"pane_{agent_id}")
+                tabbed_content.remove_pane(pane_id)
             except Exception:
                 pass
 
@@ -2791,14 +2798,15 @@ class KogniTermTUI(App):
     def update_agent_tab_title(self, agent_id: str, new_title: str):
         """Actualiza el título visible de una pestaña de subagente."""
         tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
+        pane_id = self._pane_id(agent_id)
 
         def _update():
             try:
-                pane = tabbed_content.get_pane(f"pane_{agent_id}")
+                pane = tabbed_content.get_pane(pane_id)
                 pane.title = new_title
                 # Buscar el widget Tab correspondiente para cambiar su label
                 for tab in tabbed_content.query("Tab"):
-                    if tab.id == f"tab-pane_{agent_id}" or getattr(tab, "pane_id", None) == f"pane_{agent_id}":
+                    if tab.id == f"tab-{pane_id}" or getattr(tab, "pane_id", None) == pane_id:
                         tab.label = new_title
                         break
             except Exception as e:
@@ -2809,7 +2817,6 @@ class KogniTermTUI(App):
         else:
             self.call_from_thread(_update)
 
-    # ── Gestión de contenedor paralelo ──────────────────────────────────────
 
     def activate_parallel_container(self) -> None:
         """Muestra el TabbedContent de agentes paralelos."""
