@@ -2788,6 +2788,27 @@ class KogniTermTUI(App):
         else:
             self.call_from_thread(_remove)
 
+    def update_agent_tab_title(self, agent_id: str, new_title: str):
+        """Actualiza el título visible de una pestaña de subagente."""
+        tabbed_content = self.query_one("#parallel_agents_container", TabbedContent)
+
+        def _update():
+            try:
+                pane = tabbed_content.get_pane(f"pane_{agent_id}")
+                pane.title = new_title
+                # Buscar el widget Tab correspondiente para cambiar su label
+                for tab in tabbed_content.query("Tab"):
+                    if tab.id == f"tab-pane_{agent_id}" or getattr(tab, "pane_id", None) == f"pane_{agent_id}":
+                        tab.label = new_title
+                        break
+            except Exception as e:
+                logger.warning("No se pudo actualizar el título de la pestaña %s: %s", agent_id, e)
+
+        if threading.current_thread() is threading.main_thread():
+            _update()
+        else:
+            self.call_from_thread(_update)
+
     # ── Gestión de contenedor paralelo ──────────────────────────────────────
 
     def activate_parallel_container(self) -> None:

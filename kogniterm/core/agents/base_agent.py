@@ -42,6 +42,19 @@ class BaseAgentNode:
         """
         state.stop_requested = False
         console = terminal_ui.console if terminal_ui else Console()
+        
+        # Salida temprana si el agente ya marcó finalización con la herramienta complete_task
+        if state.delegation_context and getattr(state.delegation_context, "metadata", {}).get("completed"):
+            logger.info("El agente ya completó su proceso a través de complete_task. Saltando llamada al modelo.")
+            if not state.messages or not isinstance(state.messages[-1], AIMessage):
+                state.add_message(AIMessage(content="Proceso finalizado a través de complete_task."))
+            return {
+                "messages": state.messages,
+                "command_to_confirm": None,
+                "tool_call_id_to_confirm": None,
+                "critical_loop_detected": False
+            }
+
         call_model_t0 = time.perf_counter()
         
         # 1. Detección de Bucles

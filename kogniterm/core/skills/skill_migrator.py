@@ -6,14 +6,14 @@ en skills con estructura completa (SKILL.md, scripts/, references/).
 """
 
 import ast
-import inspect
+import logging
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Tuple, Optional
 import yaml
-import re
-from datetime import datetime
 
 from .skill_manager import SkillValidator, Skill
+
+logger = logging.getLogger(__name__)
 
 
 class SkillMigrator:
@@ -467,7 +467,6 @@ def migrate_tools_cli():
     import logging
 
     logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
 
     parser = argparse.ArgumentParser(description='Migra herramientas legacy a skills')
     parser.add_argument(

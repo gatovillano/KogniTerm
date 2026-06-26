@@ -312,6 +312,29 @@ def call_agents_parallel(
     if not agents:
         return "Error: No se especificaron agentes para ejecutar."
 
+    # ── Registrar herramienta de finalización complete_task ──────────────────
+    from langchain_core.tools import tool
+    from typing import Optional, Any
+    
+    @tool
+    def complete_task(result: str, delegation_context: Optional[Any] = None) -> str:
+        """
+        Entrega el resultado final de la tarea asignada y finaliza el proceso de este agente.
+        Úsala de forma obligatoria cuando hayas completado el objetivo asignado.
+        El argumento 'result' debe contener el reporte o código final detallado de tu trabajo.
+        """
+        if delegation_context is not None:
+            delegation_context.metadata["result"] = result
+            delegation_context.metadata["completed"] = True
+            logger.info("complete_task: Resultado registrado para subagente %s", delegation_context.agent_id)
+        else:
+            logger.warning("complete_task: Invocado sin delegation_context")
+        return "Resultado registrado con éxito. El proceso ha sido finalizado."
+
+    if llm_service is not None and "complete_task" not in llm_service.tool_map:
+        llm_service.register_tool(complete_task)
+        llm_service.sync_tools()
+
     # ── Resolver terminal_ui / interrupt_queue ────────────────────────────────
     if terminal_ui is None and llm_service is not None:
         terminal_ui = getattr(llm_service, "terminal_ui", None)
@@ -365,6 +388,26 @@ def call_agents_parallel(
         agent_type = spec.get("type", "researcher_agent")
         system_prompt = spec.get("system_prompt")
 
+        import uuid
+        from kogniterm.core.delegation.agent_roles import AgentRole
+
+        child_ctx = None
+        child_id = f"child_{name}_{uuid.uuid4().hex[:8]}"
+        parent_id = "parallel_orchestrator"
+
+        # Registrar subagente en el manager de delegación
+        if llm_service and hasattr(llm_service, "delegation_manager") and llm_service.delegation_manager:
+            try:
+                child_ctx = llm_service.delegation_manager.register_agent(
+                    agent_id=child_id,
+                    parent_id=parent_id,
+                    role=AgentRole.LEAF
+                )
+                if hasattr(llm_service, "heartbeat_monitor") and llm_service.heartbeat_monitor:
+                    llm_service.heartbeat_monitor.update_heartbeat(child_id, threshold=300.0)
+            except Exception as e:
+                logger.error("run_agent[%s]: No se pudo registrar delegación: %s", name, e)
+
         try:
             from kogniterm.core.agent_state import AgentState
 
@@ -374,8 +417,19 @@ def call_agents_parallel(
                 "⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️\n"
                 f"Tu PRIMERA acción DEBE ser inicializar el task_tracker con:\n"
                 f"  task_tracker(action=\"init\", agent_name=\"{name}\", plan=[\"paso 1\", \"paso 2\", ...])\n"
-                "Actualiza el estado de cada paso a medida que avanzas."
+                "Actualiza el estado de cada paso a medida que avanzas.\n\n"
+                "🏁 **PROTOCOLO OBLIGATORIO: finalización** 🏁\n"
+                "Cuando completes el objetivo asignado, DEBES llamar obligatoriamente a la herramienta `complete_task` "
+                "con el resultado final y detallado de tu trabajo. Esto cerrará tu proceso de forma limpia y robusta."
             )
+
+            # Inyectar instrucciones de complete_task en el prompt del sistema si existe
+            if system_prompt:
+                system_prompt = (
+                    f"{system_prompt}\n\n"
+                    "🏁 **IMPORTANTE**: Cuando completes tu tarea, usa la herramienta `complete_task` para entregar tus resultados "
+                    "y terminar tu flujo de ejecución limpia."
+                )
 
             agent_graph = _build_agent_graph(
                 agent_type, system_prompt, llm_service, agent_ui, interrupt_queue
@@ -384,17 +438,52 @@ def call_agents_parallel(
                 messages=[_HumanMessage(content=task_message)],
                 autonomous_approvals=True,
             )
-            final_state = agent_graph.invoke(
-                initial_state,
-                config={"recursion_limit": AGENT_RECURSION_LIMIT},
-            )
-            msgs = final_state.get("messages", [])
-            result = msgs[-1].content if msgs else "Sin respuesta"
-            logger.info("run_agent[%s]: finalizado.", name)
+            if child_ctx:
+                initial_state.delegation_context = child_ctx
+
+            # Configurar el contexto local para que llm_service.invoke() lo conozca en este hilo
+            old_ctx = getattr(llm_service, "current_delegation_context", None)
+            if child_ctx:
+                llm_service.current_delegation_context = child_ctx
+
+            try:
+                final_state = agent_graph.invoke(
+                    initial_state,
+                    config={"recursion_limit": AGENT_RECURSION_LIMIT},
+                )
+            finally:
+                # Restaurar contexto previo
+                if child_ctx:
+                    llm_service.current_delegation_context = old_ctx
+
+            # Extraer resultado usando el mecanismo de entrega robusta (complete_task)
+            status_emoji = "✅"
+            if child_ctx and child_ctx.metadata.get("completed"):
+                result = child_ctx.metadata.get("result", "Sin respuesta")
+                logger.info("run_agent[%s]: Finalizado exitosamente vía complete_task.", name)
+            else:
+                msgs = final_state.get("messages", [])
+                result = msgs[-1].content if msgs else "Sin respuesta"
+                logger.info("run_agent[%s]: Finalizado (sin llamar a complete_task).", name)
+                status_emoji = "🏁"
+                
+            # Actualizar el título de la pestaña con el estado
+            if agent_ui and hasattr(agent_ui, "update_agent_tab_title"):
+                try:
+                    agent_ui.update_agent_tab_title(panel_id, f"{name} {status_emoji}")
+                except Exception as ex:
+                    logger.warning("No se pudo actualizar el título de la pestaña para %s: %s", name, ex)
+                    
             return result
 
         except Exception as e:
             logger.exception("run_agent[%s]: error: %s", name, e)
+            # Actualizar el título de la pestaña con error
+            if agent_ui and hasattr(agent_ui, "update_agent_tab_title"):
+                try:
+                    agent_ui.update_agent_tab_title(panel_id, f"{name} ❌")
+                except Exception:
+                    pass
             return f"Error en {name}: {e}"
 
     # ── Lanzar agentes en paralelo ────────────────────────────────────────────
