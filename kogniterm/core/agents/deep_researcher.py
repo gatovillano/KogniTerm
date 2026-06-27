@@ -412,10 +412,13 @@ def synthesis_node(
 
     # Recolectar la respuesta y filtrar razonamiento
     full_content = ""
+    final_ai_message = None
 
     for part in response:
         if isinstance(part, AIMessage):
             final_ai_message = part
+            if not full_content and part.content and isinstance(part.content, str):
+                full_content = part.content
         elif isinstance(part, str):
             # Filtrar explícitamente contenido de pensamiento
             if not part.startswith("__THINKING__:") and not part.startswith(
@@ -440,6 +443,9 @@ def synthesis_node(
                             (0, 0),
                         )
                     )
+
+    if not full_content and final_ai_message and final_ai_message.content:
+        full_content = str(final_ai_message.content)
 
     if not (terminal_ui and hasattr(terminal_ui, "update_live")):
         current_console.print(
