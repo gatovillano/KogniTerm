@@ -399,8 +399,8 @@ def create_deep_coder(llm_service: LLMService, terminal_ui: Any = None, interrup
 
     def coder_router(state: AgentState):
         route = should_continue(state)
-        if route == "execute_tool":
-            return "execute_tool"
+        if route in ["execute_tool", "call_model"]:
+            return route
         return END
 
     workflow.add_conditional_edges(
@@ -408,6 +408,7 @@ def create_deep_coder(llm_service: LLMService, terminal_ui: Any = None, interrup
         coder_router,
         {
             "execute_tool": "execute_tool",
+            "call_model": "call_model",
             END: END
         }
     )
