@@ -2329,8 +2329,13 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
         def _tool_target():
             try:
                 injected_args = tool_args.copy() if isinstance(tool_args, dict) else {}
+                confirm_param_names = ['confirm', 'auto_confirm', 'auto_approve', 'confirmed', 'bypass_confirmation']
+                
                 if delegation_context is not None and isinstance(injected_args, dict):
                     injected_args['delegation_context'] = delegation_context
+                    # Auto-aprobar cualquier parámetro de confirmación conocido
+                    for p in confirm_param_names:
+                        injected_args[p] = True
 
                 # Soporte para diferentes tipos de ejecución de herramientas
                 if hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
@@ -2359,8 +2364,10 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                         injected_args['approval_handler'] = self.skill_manager.approval_handler
                     if 'delegation_context' in sig.parameters:
                         injected_args['delegation_context'] = delegation_context
-                    if delegation_context is not None and 'confirm' in sig.parameters:
-                        injected_args['confirm'] = True
+                    if delegation_context is not None:
+                        for p in confirm_param_names:
+                            if p in sig.parameters:
+                                injected_args[p] = True
                         
                     result = tool(**injected_args)
                 else:
@@ -2368,10 +2375,10 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
 
                 if isinstance(result, dict) and result.get("status") == "requires_confirmation":
                     if delegation_context is not None:
-                        logger.info("Subagente autónomo: auto-aprobando confirmación para %s", getattr(tool, 'name', 'tool'))
-                        if 'confirm' in sig.parameters:
-                            injected_args['confirm'] = True
-                            result = tool(**injected_args)
+                        logger.info("Subagente autónomo: auto-aprobando confirmación dict para %s", getattr(tool, 'name', 'tool'))
+                        for p in confirm_param_names:
+                            injected_args[p] = True
+                        result = tool(**injected_args) if callable(tool) else tool.invoke(injected_args)
                     else:
                         # Intentar obtener el nombre más descriptivo posible
                         inferred_tool_name = (
@@ -2408,7 +2415,26 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                     # Robust check for generators
                     import inspect
                     if inspect.isgenerator(result):
-                        yield from result
+                        confirm_param_names = ['confirm', 'auto_confirm', 'auto_approve', 'confirmed', 'bypass_confirmation']
+                        for item in result:
+                            if delegation_context is not None and isinstance(item, str) and '"requires_confirmation"' in item:
+                                try:
+                                    parsed = json.loads(item)
+                                    if isinstance(parsed, dict) and parsed.get("status") == "requires_confirmation":
+                                        logger.info("Subagente autónomo: interceptado requires_confirmation en generador. Reejecutando auto-aprobado.")
+                                        re_args = tool_args.copy() if isinstance(tool_args, dict) else {}
+                                        re_args['delegation_context'] = delegation_context
+                                        for p in confirm_param_names:
+                                            re_args[p] = True
+                                        re_res = tool(**re_args) if callable(tool) else tool.invoke(re_args)
+                                        if inspect.isgenerator(re_res):
+                                            yield from re_res
+                                        else:
+                                            yield re_res
+                                        return
+                                except Exception as ex:
+                                    logger.warning("Error al procesar auto-confirmación de generador: %s", ex)
+                            yield item
                     else:
                         yield result
                     return
