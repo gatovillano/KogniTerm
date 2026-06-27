@@ -406,21 +406,50 @@ class AntigravityClient:
                 def convert_schema(schema):
                     if not isinstance(schema, dict):
                         return schema
+                    
+                    disallowed_keys = {
+                        "$schema", "$ref", "title", "default", "additionalProperties",
+                        "examples", "definitions", "$defs", "markdownDescription",
+                        "allOf", "anyOf", "oneOf", "const", "format", "id"
+                    }
+                    
                     new_schema = {}
                     for k, v in schema.items():
-                        if k == "type" and isinstance(v, str):
-                            new_schema[k] = v.upper()
+                        if k in disallowed_keys:
+                            continue
+                            
+                        if k == "type":
+                            if isinstance(v, str):
+                                new_schema["type"] = v.upper()
+                            elif isinstance(v, list):
+                                non_null = [t for t in v if isinstance(t, str) and t.lower() != "null"]
+                                new_schema["type"] = non_null[0].upper() if non_null else "STRING"
+                            else:
+                                new_schema["type"] = "STRING"
+                        elif k == "properties" and isinstance(v, dict):
+                            new_schema["properties"] = {pk: convert_schema(pv) for pk, pv in v.items()}
+                        elif k == "items":
+                            if isinstance(v, dict):
+                                new_schema["items"] = convert_schema(v)
+                            elif isinstance(v, list) and v:
+                                new_schema["items"] = convert_schema(v[0])
                         elif isinstance(v, dict):
                             new_schema[k] = convert_schema(v)
                         elif isinstance(v, list):
                             new_schema[k] = [convert_schema(item) if isinstance(item, dict) else item for item in v]
                         else:
                             new_schema[k] = v
+                            
+                    if "properties" in new_schema and "type" not in new_schema:
+                        new_schema["type"] = "OBJECT"
+                    if "items" in new_schema and "type" not in new_schema:
+                        new_schema["type"] = "ARRAY"
+                        
                     return new_schema
                 
                 decl = {
                     "name": fn.get("name"),
-                    "description": fn.get("description"),
+                    "description": fn.get("description") or "",
                     "parameters": convert_schema(fn.get("parameters", {}))
                 }
                 function_declarations.append(decl)
