@@ -1086,8 +1086,8 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
             else:
                 # Procesamiento especializado para agentes paralelos (DeepCoder/Researcher)
-                if "<coder_analysis>" in content or "<researcher_analysis>" in content:
-                    clean_content = f"--- RESULTADOS DE AGENTES PARALELOS ---\n\n{content}\n\n--- FIN DE RESULTADOS ---\n\n[SISTEMA: Estos son los resultados consolidados de tus sub-agentes (Coder y Researcher). Analízalos profesionalmente como KogniTerm, sin adoptar sus roles.]"
+                if "<coder_analysis>" in content or "<researcher_analysis>" in content or "<parallel_agents_results>" in content:
+                    clean_content = f"--- RESULTADOS DE AGENTES PARALELOS ---\n\n{content}\n\n--- FIN DE RESULTADOS ---\n\n[SISTEMA: Estos son los resultados consolidados de tus sub-agentes. Analízalos profesionalmente como KogniTerm, sin adoptar sus roles.]"
                 else:
                     # Limpieza estándar para herramientas normales
                     clean_content = content.replace("## 🔬 Informe de Deep Research", "").strip()

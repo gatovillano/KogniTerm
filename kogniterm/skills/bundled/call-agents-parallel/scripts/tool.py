@@ -568,9 +568,9 @@ def call_agents_parallel(
                     pass
             return f"Error en {name}: {e}"
 
-    # ── Lanzar agentes en paralelo (Asíncrono en Segundo Plano) ─────────────
+    # ── Lanzar agentes en paralelo y esperar a que finalicen ──────────────────
     
-    async def _run_and_notify(spec, agent_ui, pid):
+    async def _run_single_agent(spec, agent_ui, pid):
         name = spec.get("name", "Agente")
         try:
             res = await run_agent_async(spec, agent_ui, pid)
@@ -578,27 +578,18 @@ def call_agents_parallel(
             logger.exception("Excepción en tarea asíncrona de %s: %s", name, e)
             res = f"Error crítico en {name}: {e}"
         
-        # Notificar al usuario visualmente
+        # Notificar al usuario visualmente en la TUI
         if terminal_ui:
-            terminal_ui.print_message(f"🏁 **Agente en Segundo Plano ({name}) completó su tarea:**\n{res}")
-        
-        # Notificar al Bash Agent para que reciba la respuesta asíncronamente
-        if llm_service and hasattr(llm_service, "history_manager"):
-            from langchain_core.messages import SystemMessage
-            msg = SystemMessage(content=f"[Evento Asíncrono] El agente paralelo '{name}' ha completado su tarea en segundo plano con el siguiente resultado:\n{res}")
-            llm_service.history_manager.append_message(msg)
-            # Intentar forzar la notificación para despertar el modo interactivo si es aplicable
-            if terminal_ui and hasattr(terminal_ui, "app") and hasattr(terminal_ui.app, "_input_queue"):
-                pass # Por seguridad, evitamos interactuar directamente con _input_queue para evitar colisiones
+            terminal_ui.print_message(f"🏁 **Agente ({name}) completó su tarea:**\n{res}")
             
         return name, res
 
-    async def _run_all_background():
+    async def _run_all_parallel():
         tasks = []
         for spec, agent_ui, pid in zip(authorized, agent_uis, panel_ids):
-            tasks.append(asyncio.create_task(_run_and_notify(spec, agent_ui, pid)))
+            tasks.append(asyncio.create_task(_run_single_agent(spec, agent_ui, pid)))
         
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Consolidar: mostrar resumen y desactivar paneles al finalizar todos
         try:
@@ -606,11 +597,12 @@ def call_agents_parallel(
                 panel_ids, terminal_ui, server_mode, is_tui_local, target_app
             )
             if terminal_ui:
-                terminal_ui.print_message("🏁 **Todas las misiones paralelas en segundo plano han finalizado**")
+                terminal_ui.print_message("🏁 **Todas las misiones paralelas han finalizado**")
         except Exception as e:
             logger.exception("Error al desactivar el contenedor de agentes: %s", e)
+            
+        return results
 
-    # Iniciar la tarea de orquestación en background y NO bloquear el Bash Agent
     try:
         try:
             loop = asyncio.get_running_loop()
@@ -618,23 +610,32 @@ def call_agents_parallel(
             loop = None
             
         if loop and loop.is_running():
-            loop.create_task(_run_all_background())
+            import nest_asyncio
+            nest_asyncio.apply()
+            results = loop.run_until_complete(_run_all_parallel())
         else:
-            def thread_target():
-                # Correr un loop de asyncio en un nuevo thread
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                new_loop.run_until_complete(_run_all_background())
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                results = new_loop.run_until_complete(_run_all_parallel())
+            finally:
                 new_loop.close()
-                
-            import threading
-            threading.Thread(target=thread_target, daemon=True).start()
 
     except Exception as e:
-        logger.exception("Error general al lanzar agentes asíncronos: %s", e)
-        return f"Error al lanzar ejecución paralela: {e}"
+        logger.exception("Error general al ejecutar agentes paralelos: %s", e)
+        return f"Error al ejecutar agentes paralelos: {e}"
 
-    return "Agentes iniciados en segundo plano. El Bash Agent sigue operativo. Se recibirán los resultados asíncronamente a medida que finalicen."
+    # Construir informe XML estructurado para el agente orquestador (BashAgent)
+    output_blocks = ["<parallel_agents_results>"]
+    for item in results:
+        if isinstance(item, Exception):
+            output_blocks.append(f"  <agent name='Desconocido' status='error'>{item}</agent>")
+        else:
+            name, res = item
+            output_blocks.append(f"  <agent name='{name}'>\n{res}\n  </agent>")
+    output_blocks.append("</parallel_agents_results>")
+    
+    return "\n".join(output_blocks)
 
 
 # ─── Gestión de paneles TUI ───────────────────────────────────────────────────
