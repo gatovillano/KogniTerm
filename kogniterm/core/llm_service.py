@@ -682,7 +682,7 @@ class LLMService:
                     serialized_tool_calls.append(serialized_tc)
                 
                 if not content or not str(content).strip():
-                    msg["content"] = "Ejecutando herramientas..."
+                    msg["content"] = ""
                 
                 msg["tool_calls"] = serialized_tool_calls
             
@@ -1668,7 +1668,7 @@ class LLMService:
                 
                 if final_tool_calls:
                     if not full_response_content or not full_response_content.strip():
-                        full_response_content = "Ejecutando herramientas..."
+                        full_response_content = ""
                     
                     # Extraer thought_signature de final_tool_calls para evitar errores de validación de LangChain
                     thought_signatures = {}
@@ -1837,7 +1837,7 @@ class LLMService:
                                 "args": args
                             })
                         if not full_response_content or not full_response_content.strip():
-                            full_response_content = "Ejecutando herramientas..."
+                            full_response_content = ""
                         yield AIMessage(
                             content=full_response_content, 
                             tool_calls=formatted_tool_calls,
@@ -1852,7 +1852,7 @@ class LLMService:
                         if enhanced_tool_calls:
                             # Si encontramos tool calls en el texto, crear AIMessage con ellos
                             if not full_response_content.strip():
-                                full_response_content = "Ejecutando herramientas..."
+                                full_response_content = ""
                             yield AIMessage(
                                 content=full_response_content, 
                                 tool_calls=enhanced_tool_calls,
@@ -1950,7 +1950,7 @@ class LLMService:
                                         "args": args
                                     })
                                 if not full_response_content or not full_response_content.strip():
-                                    full_response_content = "Ejecutando herramientas..."
+                                    full_response_content = ""
                                 yield AIMessage(content=full_response_content, tool_calls=formatted_tool_calls)
                             else:
                                 # NUEVA LÓGICA: Si no hay tool_calls nativos, verificar si el contenido contiene tool calls en texto
@@ -1961,7 +1961,7 @@ class LLMService:
                                 if enhanced_tool_calls:
                                     # Si encontramos tool calls en el texto, crear AIMessage con ellos
                                     if not full_response_content.strip():
-                                        full_response_content = "Ejecutando herramientas..."
+                                        full_response_content = ""
                                     yield AIMessage(content=full_response_content, tool_calls=enhanced_tool_calls)
                                 else:
                                     if not full_response_content.strip():

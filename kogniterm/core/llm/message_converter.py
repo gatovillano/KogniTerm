@@ -153,7 +153,7 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
                 })
             
             if not content or not str(content).strip():
-                msg["content"] = "Ejecutando herramientas..."
+                msg["content"] = ""
             msg["tool_calls"] = serialized_tool_calls
         
         return msg
