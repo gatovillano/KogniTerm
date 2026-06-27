@@ -72,7 +72,7 @@ def create_dynamic_agent(
     workflow.set_entry_point("call_model")
 
     workflow.add_conditional_edges(
-        "call_model", should_continue, {"execute_tool": "execute_tool", END: END}
+        "call_model", should_continue, {"execute_tool": "execute_tool", "call_model": "call_model", END: END}
     )
 
     workflow.add_edge("execute_tool", "call_model")

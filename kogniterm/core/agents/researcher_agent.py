@@ -327,6 +327,7 @@ def create_researcher_agent(llm_service: LLMService, terminal_ui: TerminalUI, in
         should_continue,
         {
             "execute_tool": "execute_tool",
+            "call_model": "call_model",
             END: END
         }
     )
