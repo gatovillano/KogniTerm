@@ -304,8 +304,9 @@ def _build_agent_graph(
     from kogniterm.core.agents.dynamic_agent import create_dynamic_agent
 
     prompt = system_prompt or (
-        f"Eres un agente especializado ({agent_type}). "
-        "Realiza la tarea indicada de forma autónoma y precisa."
+        f"Eres un agente especializado experto en '{agent_type}'. "
+        "Realiza la tarea asignada de forma totalmente autónoma, exhaustiva y precisa. "
+        "Tu único interlocutor es el Orquestador Principal. Entrega siempre tus hallazgos completos y detallados."
     )
     return create_dynamic_agent(llm_service, prompt, agent_ui, interrupt_queue)
 
@@ -469,21 +470,18 @@ def call_agents_parallel(
             task_message = (
                 f"{task}\n\n"
                 "---\n"
-                "⚠️ **PROTOCOLO OBLIGATORIO: task_tracker** ⚠️\n"
-                f"Tu PRIMERA acción DEBE ser inicializar el task_tracker con:\n"
-                f'  task_tracker(action="init", agent_name="{name}", plan=["paso 1", "paso 2", ...])\n'
-                "Actualiza el estado de cada paso a medida que avanzas.\n\n"
-                "🏁 **PROTOCOLO OBLIGATORIO: finalización** 🏁\n"
-                "Cuando completes el objetivo asignado, DEBES llamar obligatoriamente a la herramienta `complete_task` "
-                "con el resultado final y detallado de tu trabajo. Esto cerrará tu proceso de forma limpia y robusta."
+                "⚠️ **REGLAS CRÍTICAS DE SUB-AGENTE AUTÓNOMO** ⚠️\n"
+                "1. **NO INTERACTÚAS CON EL USUARIO**: Tu único receptor es el Orquestador Principal. NUNCA hagas preguntas al usuario ni le ofrezcas guardar archivos 'si lo desea'. Toma decisiones y ejecuta todas las herramientas necesarias de forma autónoma.\n"
+                "2. **task_tracker**: Tu PRIMERA acción DEBE ser inicializar `task_tracker(action='init', agent_name='{name}', plan=[...])` y actualizar su estado.\n"
+                "3. 🏁 **FINALIZACIÓN COMPLETA CON `complete_task`**: Cuando completes la tarea, DEBES invocar la herramienta `complete_task(result=...)`.\n"
+                "   **REGLA DE ENTREGABLE**: El argumento `result` DEBE contener el INFORME TÉCNICO COMPLETO, EXHAUSTIVO Y DETALLADO de tu trabajo (código completo, hallazgos, análisis de archivos, etc.). NUNCA envíes frases breves, ni digas 'el informe ya fue entregado', ni omitas información."
             )
 
             # Inyectar instrucciones de complete_task en el prompt del sistema si existe
             if system_prompt:
                 system_prompt = (
                     f"{system_prompt}\n\n"
-                    "🏁 **IMPORTANTE**: Cuando completes tu tarea, usa la herramienta `complete_task` para entregar tus resultados "
-                    "y terminar tu flujo de ejecución limpia."
+                    "🏁 **IMPORTANTE**: Eres un subagente autónomo. Entrega SIEMPRE tu informe técnico completo y detallado dentro del parámetro `result` de la herramienta `complete_task`."
                 )
 
             agent_graph = _build_agent_graph(
