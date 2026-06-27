@@ -2331,11 +2331,38 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                 injected_args = tool_args.copy() if isinstance(tool_args, dict) else {}
                 confirm_param_names = ['confirm', 'auto_confirm', 'auto_approve', 'confirmed', 'bypass_confirmation']
                 
-                if delegation_context is not None and isinstance(injected_args, dict):
-                    injected_args['delegation_context'] = delegation_context
-                    # Auto-aprobar cualquier parámetro de confirmación conocido
-                    for p in confirm_param_names:
-                        injected_args[p] = True
+                if isinstance(injected_args, dict):
+                    # Extraer la función subyacente real (incluso en LangChain StructuredTool)
+                    target_func = getattr(tool, 'func', tool)
+                    if hasattr(tool, 'run') and callable(getattr(tool, 'run')):
+                        target_func = tool.run
+                    
+                    import inspect
+                    try:
+                        sig = inspect.signature(target_func)
+                    except Exception:
+                        sig = None
+
+                    if sig:
+                        if 'llm_service' in sig.parameters and ('llm_service' not in injected_args or injected_args['llm_service'] is None):
+                            injected_args['llm_service'] = self
+                        if 'terminal_ui' in sig.parameters and ('terminal_ui' not in injected_args or injected_args['terminal_ui'] is None):
+                            injected_args['terminal_ui'] = terminal_ui or getattr(self, 'terminal_ui', None)
+                        if 'interrupt_queue' in sig.parameters and ('interrupt_queue' not in injected_args or injected_args['interrupt_queue'] is None):
+                            injected_args['interrupt_queue'] = getattr(self, 'interrupt_queue', None)
+                        if 'approval_handler' in sig.parameters and hasattr(self, 'skill_manager') and hasattr(self.skill_manager, 'approval_handler'):
+                            injected_args['approval_handler'] = self.skill_manager.approval_handler
+                        if 'delegation_context' in sig.parameters and delegation_context is not None:
+                            injected_args['delegation_context'] = delegation_context
+                        if delegation_context is not None:
+                            for p in confirm_param_names:
+                                if p in sig.parameters:
+                                    injected_args[p] = True
+                    else:
+                        if delegation_context is not None:
+                            injected_args['delegation_context'] = delegation_context
+                            for p in confirm_param_names:
+                                injected_args[p] = True
 
                 # Soporte para diferentes tipos de ejecución de herramientas
                 if hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
@@ -2350,25 +2377,6 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                         clean_args = {k: v for k, v in injected_args.items() if k != 'delegation_context'} if isinstance(injected_args, dict) else injected_args
                         result = tool.run(**clean_args)
                 elif callable(tool):
-                    # Funciones directas (común en el sistema de skills)
-                    import inspect
-                    sig = inspect.signature(tool)
-                    
-                    if 'llm_service' in sig.parameters:
-                        injected_args['llm_service'] = self
-                    if 'terminal_ui' in sig.parameters:
-                        injected_args['terminal_ui'] = terminal_ui or getattr(self, 'terminal_ui', None)
-                    if 'interrupt_queue' in sig.parameters:
-                        injected_args['interrupt_queue'] = getattr(self, 'interrupt_queue', None)
-                    if 'approval_handler' in sig.parameters and hasattr(self, 'skill_manager') and hasattr(self.skill_manager, 'approval_handler'):
-                        injected_args['approval_handler'] = self.skill_manager.approval_handler
-                    if 'delegation_context' in sig.parameters:
-                        injected_args['delegation_context'] = delegation_context
-                    if delegation_context is not None:
-                        for p in confirm_param_names:
-                            if p in sig.parameters:
-                                injected_args[p] = True
-                        
                     result = tool(**injected_args)
                 else:
                     raise Exception(f"La herramienta '{getattr(tool, 'name', tool.__class__.__name__)}' no es ejecutable.")
