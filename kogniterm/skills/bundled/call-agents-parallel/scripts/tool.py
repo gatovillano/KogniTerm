@@ -10,6 +10,7 @@ o dinámico con un system_prompt personalizado.
 import os
 import logging
 import threading
+import asyncio
 import concurrent.futures
 import time
 import uuid
@@ -419,8 +420,8 @@ def call_agents_parallel(
     # ── Crear proxy de UI para cada agente ───────────────────────────────────
     agent_uis = [ParallelPanelUI(terminal_ui, pid) for pid in panel_ids]
 
-    # ── Función de ejecución de un agente ─────────────────────────────────────
-    def run_agent(spec: Dict, agent_ui: ParallelPanelUI, panel_id: str) -> str:
+    # ── Función de ejecución de un agente (Asíncrona) ────────────────────────
+    async def run_agent_async(spec: Dict, agent_ui: ParallelPanelUI, panel_id: str) -> str:
         name = spec.get("name", "Agente")
         task = spec.get("task", "")
         agent_type = spec.get("type", "researcher_agent")
@@ -494,7 +495,7 @@ def call_agents_parallel(
                 llm_service.current_delegation_context = child_ctx
 
             try:
-                final_state = agent_graph.invoke(
+                final_state = await agent_graph.ainvoke(
                     initial_state,
                     config={"recursion_limit": AGENT_RECURSION_LIMIT},
                 )
@@ -545,23 +546,37 @@ def call_agents_parallel(
                     pass
             return f"Error en {name}: {e}"
 
-    # ── Lanzar agentes en paralelo ────────────────────────────────────────────
+    # ── Lanzar agentes en paralelo (Asíncrono) ────────────────────────────────
     results: Dict[str, str] = {}
     try:
-        max_workers = min(len(authorized), 8)  # No más de 8 hilos simultáneos
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(run_agent, spec, agent_ui, pid): spec
-                for spec, agent_ui, pid in zip(authorized, agent_uis, panel_ids)
-            }
-            for future in concurrent.futures.as_completed(futures):
-                spec = futures[future]
-                name = spec.get("name", "Agente")
-                try:
-                    results[name] = future.result(timeout=600)
-                except Exception as e:
-                    logger.exception("Excepción en hilo de %s: %s", name, e)
-                    results[name] = f"Error crítico en {name}: {e}"
+        async def _run_all():
+            tasks = []
+            names = []
+            for spec, agent_ui, pid in zip(authorized, agent_uis, panel_ids):
+                names.append(spec.get("name", "Agente"))
+                tasks.append(asyncio.create_task(run_agent_async(spec, agent_ui, pid)))
+            
+            res_list = await asyncio.gather(*tasks, return_exceptions=True)
+            for name, res in zip(names, res_list):
+                if isinstance(res, Exception):
+                    logger.exception("Excepción en tarea asíncrona de %s: %s", name, res)
+                    results[name] = f"Error crítico en {name}: {res}"
+                else:
+                    results[name] = res
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+            
+        if loop and loop.is_running():
+            # Si ya hay un loop, usamos un thread para no bloquear (útil si esta herramienta es llamada sincrónicamente desde un async handler, aunque Langchain envuelve todo en hilos)
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(asyncio.run, _run_all())
+                future.result(timeout=600)
+        else:
+            asyncio.run(_run_all())
 
     except Exception as e:
         logger.exception("Error general en call_agents_parallel: %s", e)
@@ -657,8 +672,8 @@ def _activate_parallel_container(
     else:
         target_app.call_from_thread(_do)
 
-    # Pequeña pausa para que el layout se estabilice
-    time.sleep(0.5)
+    # Pequeña pausa para estabilizar UI
+    time.sleep(0.1)
 
 
 def _deactivate_parallel_container(
@@ -682,7 +697,7 @@ def _deactivate_parallel_container(
     def _do():
         try:
             # Esperar para que el usuario vea resultados finales
-            time.sleep(2)
+            time.sleep(0.5)
 
             # Eliminar pestañas dinámicas
             for pid in panel_ids:

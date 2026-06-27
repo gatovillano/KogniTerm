@@ -429,3 +429,56 @@ git tag --sort=-version:refname
 - **Tests actualizados**: `test_sandboxed_tool_wrapping` se renombró a `test_high_security_tool_passthrough` y verifica que `get_tool` retorna la función original sin envolver.
 - **`get_tool` ahora es un lookup directo**: ya no decide enrutamiento por `security_level`/`sandbox_required`. El aislamiento para tools que lo necesiten debe aplicarse en el caller (`CommandApprovalHandler` / `command_executor`).
 - **Bug colateral arreglado**: Faltaba `Optional` en el `import` de `typing` en `skill_migrator.py`; se añadió.
+
+---
+
+## [Unreleased] - 2026-02-20
+
+### 🔬 Investigación Exhaustiva del Código KogniTerm
+
+**Investigador:** KogniTerm DeepResearcher (BashAgent)
+**Estado:** ✅ Completada
+
+#### Resumen
+Investigación completa del código fuente de KogniTerm utilizando lectura directa de archivos y búsqueda semántica en el codebase. Se analizaron los componentes críticos de seguridad, arquitectura, sistema de skills y deuda técnica.
+
+#### � Hallazgos de Seguridad Crítica (8)
+1. **Credenciales hardcodeadas** en `core/antigravity_client.py` — OAuth Google client_id/client_secret ofuscados con base64 inverso trivial
+2. **Python executor sin sandbox real** — Kernel de Jupyter con acceso total al sistema sin aislamiento
+3. **Bypass de lista blanca** — `_is_command_safe()` no maneja `$(...)`, backticks, pipes encubiertos, here-docs, `LD_PRELOAD`
+4. **PTY persistente sin aislamiento** — `bash --login` mantiene estado entre comandos permitiendo inyección
+5. **API keys en JSON plano** — Almacenamiento sin cifrado en `~/.kogniterm/config.json`
+6. **CORS completamente abierto** — `allow_origins=["*"]` con credenciales habilitadas
+7. **Endpoint /api/execute sin autenticación** — Ejecuta comandos sin verificar identidad
+8. **WebSocket sin autenticación** — Conexión abierta sin verificación
+
+#### � Hallazgos Arquitectónicos
+- Arquitectura de 4 capas: Presentación → Negocio → Skills → Infraestructura
+- 25+ skills con sistema de discovery JIT y 5 niveles de seguridad
+- Componentes core: LLMService (2416 líneas), HistoryManager (1038 líneas), CommandExecutor (325 líneas)
+- Patrones: Strategy, Observer, Factory, Registry, Plugin/JIT Loading
+
+#### 🟠 Deuda Técnica Identificada
+- 2 archivos .backup en repositorio (`llm_service.py.backup`, `agent_state.py.backup`)
+- Código duplicado en TUI (`on_input_changed`/`on_text_area_changed`)
+- Cobertura de tests < 10%, sin tests de integración
+- ~40% de funciones con docstrings
+- Race conditions en `session_pool.py` y `command_approval_handler.py`
+- llm_service.py y skill_manager.py son candidatos urgentes a refactorización (>1300 líneas cada uno)
+
+#### 🔵 Sistema de Skills
+- SkillManager con sandboxing via bubblewrap (bwrap) para skills marcadas
+- Permisos inferidos del nombre, no verificados en runtime
+- SkillMigrator con mapeo de seguridad por keywords
+
+#### Recomendaciones Prioritarias
+1. Eliminar credenciales hardcodeadas de antigravity_client.py
+2. Implementar sandbox real para python_executor
+3. Reemplazar lista blanca estática por parser AST de bash
+4. Usar `bash --norc --noprofile` en lugar de `bash --login`
+5. Cifrar credenciales en reposo
+6. Agregar autenticación al servidor FastAPI
+7. Cerrar CORS a dominios específicos
+8. Tests unitarios para componentes críticos
+9. Eliminar archivos .backup del repositorio
+10. Refactorizar archivos >1000 líneas
