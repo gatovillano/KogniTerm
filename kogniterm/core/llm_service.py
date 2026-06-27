@@ -2328,28 +2328,26 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
         """Invoca una herramienta en un hilo separado, permitiendo la interrupción."""
         def _tool_target():
             try:
+                injected_args = tool_args.copy() if isinstance(tool_args, dict) else {}
+                if delegation_context is not None and isinstance(injected_args, dict):
+                    injected_args['delegation_context'] = delegation_context
+
                 # Soporte para diferentes tipos de ejecución de herramientas
-                if hasattr(tool, '_run'):
-                    # Herramientas BaseTool de LangChain
-                    import inspect
-                    sig = inspect.signature(tool._run)
-                    if 'delegation_context' in sig.parameters:
-                        result = tool._run(**tool_args, delegation_context=delegation_context)
-                    else:
-                        result = tool._run(**tool_args)
-                elif hasattr(tool, 'run'):
-                    # Objetos con método run
+                if hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
+                    # Método estándar e idóneo para LangChain BaseTool / StructuredTool
+                    result = tool.invoke(injected_args)
+                elif hasattr(tool, 'run') and callable(getattr(tool, 'run')):
                     import inspect
                     sig = inspect.signature(tool.run)
                     if 'delegation_context' in sig.parameters:
-                        result = tool.run(**tool_args, delegation_context=delegation_context)
+                        result = tool.run(**injected_args)
                     else:
-                        result = tool.run(**tool_args)
+                        clean_args = {k: v for k, v in injected_args.items() if k != 'delegation_context'} if isinstance(injected_args, dict) else injected_args
+                        result = tool.run(**clean_args)
                 elif callable(tool):
                     # Funciones directas (común en el sistema de skills)
                     import inspect
                     sig = inspect.signature(tool)
-                    injected_args = tool_args.copy()
                     
                     if 'llm_service' in sig.parameters:
                         injected_args['llm_service'] = self
