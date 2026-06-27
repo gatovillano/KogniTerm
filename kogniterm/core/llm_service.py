@@ -1002,17 +1002,19 @@ class LLMService:
         if system_message:
             system_contents.append(system_message)
             
-        # Añadir instrucción de confirmación si no está presente
-        tool_confirmation_instruction = (
-            "**INSTRUCCIÓN CRÍTICA PARA HERRAMIENTAS Y CONFIRMACIÓN:**\n"
-            "1. Cuando recibas un ToolMessage con un `status: \"requires_confirmation\"`, la herramienta está PENDIENTE. DEBES ESPERAR al usuario. NO generes nuevas tool_calls ni texto hasta la confirmación.\n"
-            "2. NO.envíes ToolMessages con `confirm: True`. La confirmación la hace el usuario directamente en la interfaz, no tú.\n"
-            "3. Simplemente espera a que el usuario confirme o niegue a través de la interfaz.\n"
-            "4. Si el usuario aprueba, la herramienta se ejecutará automáticamente.\n"
-            "5. NO generes texto ni intentes confirmar tú mismo.\n"
-        )
-        if not any(tool_confirmation_instruction in sc for sc in system_contents):
-            system_contents.append(tool_confirmation_instruction)
+        # Añadir instrucción de confirmación solo si no estamos en modo subagente delegado
+        is_subagent = getattr(self, "current_delegation_context", None) is not None
+        if not is_subagent:
+            tool_confirmation_instruction = (
+                "**INSTRUCCIÓN CRÍTICA PARA HERRAMIENTAS Y CONFIRMACIÓN:**\n"
+                "1. Cuando recibas un ToolMessage con un `status: \"requires_confirmation\"`, la herramienta está PENDIENTE. DEBES ESPERAR al usuario. NO generes nuevas tool_calls ni texto hasta la confirmación.\n"
+                "2. NO envíes ToolMessages con `confirm: True`. La confirmación la hace el usuario directamente en la interfaz, no tú.\n"
+                "3. Simplemente espera a que el usuario confirme o niegue a través de la interfaz.\n"
+                "4. Si el usuario aprueba, la herramienta se ejecutará automáticamente.\n"
+                "5. NO generes texto ni intentes confirmar tú mismo.\n"
+            )
+            if not any(tool_confirmation_instruction in sc for sc in system_contents):
+                system_contents.append(tool_confirmation_instruction)
 
         # Añadir el mensaje de contexto del espacio de trabajo si está inicializado y no está en el historial
         workspace_context_message = self._build_llm_context_message()
