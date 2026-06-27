@@ -429,7 +429,7 @@ class LLMService:
             for match in re.finditer(pat, clean_text, re.IGNORECASE):
                 tool_name = match.group(1).strip()
                 # El nombre debe existir en el mapa de herramientas
-                if tool_name in self.tool_map or tool_name.lower() in self.tool_map or tool_name in ['call_agent', 'think', 'execute_command']:
+                if tool_name in self.tool_map or tool_name.lower() in self.tool_map or tool_name in ['call_agent', 'execute_command']:
                     search_start = match.end()
                     json_start = clean_text.find('{', search_start)
                     # El JSON debe estar cerca del nombre
@@ -454,7 +454,7 @@ class LLMService:
                                 name = data.get(name_key)
                                 args = data.get("args") or data.get("arguments") or data.get("parameters") or {}
                                 
-                                if isinstance(name, str) and (name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'think', 'execute_command']):
+                                if isinstance(name, str) and (name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'execute_command']):
                                     tool_calls.append({"id": self._generate_short_id(), "name": name, "args": args if isinstance(args, dict) else {}})
                                     i += len(json_str)
                                     continue
@@ -481,7 +481,7 @@ class LLMService:
         for match in re.finditer(legacy_pattern, clean_text, re.DOTALL):
             name = match.group(1)
             # Solo aceptar funciones que estén en el tool_map o sean comandos conocidos
-            if name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'think', 'execute_command']:
+            if name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'execute_command']:
                 # Evitar funciones comunes de Python
                 if name.lower() not in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'range', 'open']:
                     try:
