@@ -216,9 +216,14 @@ class AntigravityClient:
                 try:
                     resp_obj = json.loads(content)
                     if not isinstance(resp_obj, dict):
-                        resp_obj = {"result": content}
+                        resp_obj = {"output": str(content)}
+                    elif "output" not in resp_obj and "error" not in resp_obj:
+                        if "result" in resp_obj:
+                            resp_obj = {"output": resp_obj["result"]}
+                        else:
+                            resp_obj = {"output": resp_obj}
                 except Exception:
-                    resp_obj = {"result": content}
+                    resp_obj = {"output": str(content)}
                 
                 fn_resp = {
                     "functionResponse": {
