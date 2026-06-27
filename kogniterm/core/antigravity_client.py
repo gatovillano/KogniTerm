@@ -9,6 +9,13 @@ from typing import Generator, Union, Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
+ANTIGRAVITY_SYSTEM_INSTRUCTION = (
+    "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding."
+    "You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question."
+    "**Absolute paths only**"
+    "**Proactiveness**"
+)
+
 class AntigravityClient:
     """
     Cliente y puente de integración para interactuar con la API interna de Google Antigravity
@@ -161,6 +168,8 @@ class AntigravityClient:
                         thought_sig = getattr(tc, "thought_signature", None) or (
                             tc.get("thought_signature") if isinstance(tc, dict) else None
                         )
+                        if not thought_sig:
+                            thought_sig = "skip_thought_signature_validator"
                         tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
                         fc_part = {
                             "functionCall": {
@@ -495,7 +504,7 @@ class AntigravityClient:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream" if stream else "application/json",
-            "User-Agent": "antigravity/2.0.0 linux/amd64",
+            "User-Agent": "antigravity/hub/2.1.4 linux/amd64",
             "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
             "Client-Metadata": '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}'
         }
@@ -503,10 +512,24 @@ class AntigravityClient:
         request_payload = {
             "contents": contents
         }
-        if system_instruction:
-            request_payload["systemInstruction"] = system_instruction
+        
+        # Formatear systemInstruction con role="user" e inyectar ANTIGRAVITY_SYSTEM_INSTRUCTION para Gemini 3+ / Claude
+        model_lower = model.lower()
+        sys_parts = [{"text": ANTIGRAVITY_SYSTEM_INSTRUCTION}]
+        if system_instruction and isinstance(system_instruction, dict):
+            sys_parts.extend(system_instruction.get("parts", []))
+        request_payload["systemInstruction"] = {
+            "role": "user",
+            "parts": sys_parts
+        }
+
         if gemini_tools:
             request_payload["tools"] = gemini_tools
+            request_payload["toolConfig"] = {
+                "functionCallingConfig": {
+                    "mode": "VALIDATED"
+                }
+            }
         
         generation_config = {}
         if temperature is not None:
@@ -516,7 +539,6 @@ class AntigravityClient:
         # razonamiento nativo, excluyendo los modelos 1.5 que no lo soportan. Esto permite
         # que realicen la etapa de razonamiento nativa del LLM en lugar de actuar
         # de forma errática con herramientas.
-        model_lower = model.lower()
         supports_thinking = ("gemini" in model_lower and not "1.5" in model_lower)
         if supports_thinking:
             # Detect if it's a Gemini 3+ model (future-proof)
@@ -538,9 +560,10 @@ class AntigravityClient:
                     thinking_level_upper = "MEDIUM"
                     
                 generation_config["thinkingConfig"] = {
+                    "includeThoughts": True,
                     "thinkingLevel": thinking_level_upper
                 }
-                logger.info(f"Enabling thinkingConfig with thinkingLevel {thinking_level_upper} for Gemini 3+ model {model}")
+                logger.info(f"Enabling thinkingConfig with includeThoughts=True and thinkingLevel {thinking_level_upper} for Gemini 3+ model {model}")
             else:
                 # For Gemini 2.5 / 2.0, use thinkingBudget
                 budget_str = os.getenv("KOGNITERM_THINKING_BUDGET")
@@ -549,9 +572,10 @@ class AntigravityClient:
                 except ValueError:
                     budget = 2048
                 generation_config["thinkingConfig"] = {
+                    "includeThoughts": True,
                     "thinkingBudget": budget
                 }
-                logger.info(f"Enabling thinkingConfig with thinkingBudget {budget} for Gemini 2.x model {model}")
+                logger.info(f"Enabling thinkingConfig with includeThoughts=True and thinkingBudget {budget} for Gemini 2.x model {model}")
 
         if generation_config:
             request_payload["generationConfig"] = generation_config
