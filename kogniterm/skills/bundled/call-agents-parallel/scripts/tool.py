@@ -704,7 +704,7 @@ def _activate_parallel_container(
                         name = spec.get("name", pid)
                         agent_type = spec.get("type", "researcher_agent")
                         emoji = "🧪" if "research" in agent_type else "💻"
-                        panel.write_stream(f"{emoji} [bold]{name}[/bold] iniciando...")
+                        panel.write_stream(f"{emoji} **{name}** iniciando...")
                 except Exception:
                     pass
 
