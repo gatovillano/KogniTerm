@@ -292,11 +292,19 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
 
 def should_continue(state: AgentState) -> str:
     """Decide si el agente debe continuar."""
+    from langgraph.graph import END
+    if getattr(state, "completed", False):
+        return END
+
     last_message = state.messages[-1]
     
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         return "execute_tool"
     elif isinstance(last_message, ToolMessage):
+        return "call_model"
+    
+    is_autonomous = getattr(state, "autonomous_approvals", False) or getattr(state, "delegation_context", None) is not None
+    if is_autonomous and not getattr(state, "completed", False):
         return "call_model"
     
     # Debugging: Mostrar por qué se detiene

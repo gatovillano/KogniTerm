@@ -785,8 +785,8 @@ def execute_tool_node(
 
 def should_continue(state: AgentState) -> str:
     """Decide si el agente debe continuar."""
-    # Si se detectó un bucle crítico, terminar el flujo inmediatamente
-    if state.critical_loop_detected:
+    from langgraph.graph import END
+    if state.completed or state.critical_loop_detected:
         return END
 
     last_message = state.messages[-1]
@@ -798,8 +798,12 @@ def should_continue(state: AgentState) -> str:
         return "execute_tool"
     elif isinstance(last_message, ToolMessage):
         return "call_model"
-    else:
-        return END
+    
+    is_autonomous = getattr(state, "autonomous_approvals", False) or getattr(state, "delegation_context", None) is not None
+    if is_autonomous and not state.completed:
+        return "call_model"
+
+    return END
 
 
 # --- Construcción del Grafo ---
