@@ -537,7 +537,16 @@ def call_agents_parallel(
                 status_emoji = "✅"
             else:
                 msgs = final_state.get("messages", [])
-                result = msgs[-1].content if msgs else "Sin respuesta"
+                result = "Sin respuesta"
+                if msgs:
+                    # Buscar el último AIMessage con contenido sustancial (ignorando placeholders de streaming)
+                    for m in reversed(msgs):
+                        content_str = str(getattr(m, "content", "") or "").strip()
+                        if content_str and content_str != "Ejecutando herramientas..." and not content_str.startswith("Proceso finalizado") and len(content_str) > 5:
+                            result = content_str
+                            break
+                    if result == "Sin respuesta":
+                        result = str(msgs[-1].content) if msgs[-1].content else "Sin respuesta"
                 logger.info(
                     "run_agent[%s]: Finalizado (sin llamar a complete_task).", name
                 )
