@@ -431,7 +431,7 @@ def call_agents_parallel(
     async def run_agent_async(spec: Dict, agent_ui: ParallelPanelUI, panel_id: str) -> str:
         name = spec.get("name", "Agente")
         task = spec.get("task", "")
-        agent_type = spec.get("type", "researcher_agent")
+        agent_type = spec.get("type") or spec.get("name", "dynamic_agent")
         system_prompt = spec.get("system_prompt")
 
         import uuid
@@ -810,8 +810,7 @@ tool_schema = {
                         },
                         "type": {
                             "type": "string",
-                            "description": "Tipo de agente. Opciones: 'code_agent', 'researcher_agent', o cualquier rol personalizado.",
-                            "default": "researcher_agent",
+                            "description": "Tipo o rol especializado del agente. Opciones predefinidas: 'code_agent' (DeepCoder), 'researcher_agent' (DeepResearcher), o cualquier otro rol dinámico específico como 'security_expert', 'tester', 'architect', etc.",
                         },
                         "system_prompt": {
                             "type": "string",
