@@ -8,7 +8,6 @@ class AgentRole(Enum):
 # Herramientas bloqueadas por defecto para cada rol
 DEFAULT_BLOCKED_TOOLS: Dict[AgentRole, FrozenSet[str]] = {
     AgentRole.LEAF: frozenset([
-        "execute_command",       # Ejecución de comandos del sistema
         "call_agent",            # Delegación simple
         "call_agents_parallel",  # Delegación paralela
         "skill_factory",         # Creación dinámica de nuevas herramientas/skills

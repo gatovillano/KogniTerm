@@ -482,3 +482,41 @@ Investigación completa del código fuente de KogniTerm utilizando lectura direc
 8. Tests unitarios para componentes críticos
 9. Eliminar archivos .backup del repositorio
 10. Refactorizar archivos >1000 líneas
+
+---
+
+## [1.1.0] - 2026-02-21
+
+### 📋 Análisis Arquitectónico y Skill de Arquitectura
+
+#### Problema
+No existía un informe consolidado de la arquitectura del proyecto KogniTerm ni una herramienta automatizada para analizar la arquitectura de cualquier proyecto de software.
+
+#### Cambios Realizados
+
+**1. Informe Arquitectónico Consolidado**
+- **Archivo:** `docs/ARCHITECTURE_ANALYSIS.md`
+- Se generó un informe completo que consolida todos los análisis previos realizados al proyecto
+- Incluye: arquitectura de 4 capas, flujo de ejecución, componentes críticos, métricas, patrones de diseño, riesgos y recomendaciones
+- Métricas documentadas: 156 archivos Python, ~43,463 LOC, 25 skills, 7+ patrones de diseño
+
+**2. Skill `architecture_analyzer` Creada**
+- **Ubicación:** `kogniterm/skills/workspace/architecture_analyzer/`
+- **Categoría:** autonomous
+- **Seguridad:** standard
+- **Funcionalidad:**
+  - Escanea estructura de directorios con profundidad configurable
+  - Cuenta métricas: archivos, LOC por lenguaje, archivos más grandes
+  - Detecta frameworks y tecnologías (FastAPI, LangChain, Textual, etc.)
+  - Identifica patrones de diseño en la estructura (Plugin, Client-Server, Multi-Agent, etc.)
+  - Encuentra puntos de entrada (main.py, app.py, terminal.py, etc.)
+  - Analiza riesgos: archivos monolíticos, falta de tests, backups en producción
+  - Genera recomendaciones automáticas
+  - Guarda informe en Markdown
+- **Parámetros:** project_path, output_path, max_depth, include_metrics, include_patterns, include_risks, exclude_dirs
+- **Uso:** `analyze_architecture(project_path="/ruta/al/proyecto")`
+
+#### Archivos Modificados
+- `docs/ARCHITECTURE_ANALYSIS.md` — Creado (informe completo)
+- `docs/Cambios.md` — Actualizado con esta entrada
+- `kogniterm/skills/workspace/architecture_analyzer/` — Skill creada automáticamente

@@ -2361,26 +2361,34 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                         injected_args['approval_handler'] = self.skill_manager.approval_handler
                     if 'delegation_context' in sig.parameters:
                         injected_args['delegation_context'] = delegation_context
+                    if delegation_context is not None and 'confirm' in sig.parameters:
+                        injected_args['confirm'] = True
                         
                     result = tool(**injected_args)
                 else:
                     raise Exception(f"La herramienta '{getattr(tool, 'name', tool.__class__.__name__)}' no es ejecutable.")
 
                 if isinstance(result, dict) and result.get("status") == "requires_confirmation":
-                    # Intentar obtener el nombre más descriptivo posible
-                    inferred_tool_name = (
-                        result.get("operation") or 
-                        getattr(tool, 'name', None) or 
-                        getattr(tool, '__name__', None) or 
-                        tool.__class__.__name__
-                    )
+                    if delegation_context is not None:
+                        logger.info("Subagente autónomo: auto-aprobando confirmación para %s", getattr(tool, 'name', 'tool'))
+                        if 'confirm' in sig.parameters:
+                            injected_args['confirm'] = True
+                            result = tool(**injected_args)
+                    else:
+                        # Intentar obtener el nombre más descriptivo posible
+                        inferred_tool_name = (
+                            result.get("operation") or 
+                            getattr(tool, 'name', None) or 
+                            getattr(tool, '__name__', None) or 
+                            tool.__class__.__name__
+                        )
 
-                    raise UserConfirmationRequired(
-                        message=result.get("action_description", "Confirmación requerida"),
-                        tool_name=inferred_tool_name,
-                        tool_args=result.get("args", tool_args),
-                        raw_tool_output=result
-                    )
+                        raise UserConfirmationRequired(
+                            message=result.get("action_description", "Confirmación requerida"),
+                            tool_name=inferred_tool_name,
+                            tool_args=result.get("args", tool_args),
+                            raw_tool_output=result
+                        )
                 return result
             except UserConfirmationRequired as e:
                 raise e

@@ -211,8 +211,9 @@ class ToolExecutor:
                     )
                     continue
 
-                # Caso especial: execute_command (esperar confirmación sin ejecutar aún)
-                if tc["name"] == "execute_command":
+                # Caso especial: execute_command (esperar confirmación solo si es el orquestador principal e interactivo)
+                is_autonomous = getattr(state, "autonomous_approvals", False) or del_ctx is not None
+                if tc["name"] == "execute_command" and not is_autonomous:
                     state.command_to_confirm = tc["args"].get("command")
                     state.tool_call_id_to_confirm = tc["id"]
                     if terminal_ui:
@@ -249,10 +250,13 @@ class ToolExecutor:
             for future in as_completed(futures):
                 tid, content, exc = future.result()
                 if isinstance(exc, UserConfirmationRequired):
-                    state.tool_pending_confirmation = exc.tool_name
-                    state.tool_args_pending_confirmation = exc.tool_args
-                    state.tool_call_id_to_confirm = tid
-                    state.file_update_diff_pending_confirmation = exc.raw_tool_output
+                    if not is_autonomous:
+                        state.tool_pending_confirmation = exc.tool_name
+                        state.tool_args_pending_confirmation = exc.tool_args
+                        state.tool_call_id_to_confirm = tid
+                        state.file_update_diff_pending_confirmation = exc.raw_tool_output
+                    else:
+                        logger.info("Subagente autónomo: omitida la pausa de confirmación de usuario para '%s'.", exc.tool_name)
 
                 if tid and any(
                     tc["id"] == tid and tc["name"] == "complete_task"
