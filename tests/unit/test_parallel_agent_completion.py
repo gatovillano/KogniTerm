@@ -173,14 +173,14 @@ def test_call_agents_parallel_result_extraction():
 
     mock_graph = MagicMock()
     
-    def mock_invoke(initial_state, config=None):
+    async def mock_ainvoke(initial_state, config=None):
         # El subagente simula llamar a la herramienta complete_task
         ctx = initial_state.delegation_context
         ctx.metadata["result"] = "Resultado exitoso del agente paralelo"
         ctx.metadata["completed"] = True
         return {"messages": [AIMessage(content="Proceso finalizado.")]}
         
-    mock_graph.invoke = mock_invoke
+    mock_graph.ainvoke = mock_ainvoke
 
     agents = [
         {"name": "ParallelCoder", "task": "Escribir código", "type": "code_agent"}
