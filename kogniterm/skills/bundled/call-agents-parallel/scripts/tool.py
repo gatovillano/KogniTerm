@@ -412,11 +412,12 @@ def call_agents_parallel(
         return "Ejecución paralela cancelada por el usuario."
 
     # ── Construir panel_id determinista y único por agente ────────────────────
-    # Usamos un slug del nombre para que sea legible en las pestañas
+    import uuid
+    run_hash = uuid.uuid4().hex[:6]
     def _panel_id(spec: Dict, index: int) -> str:
         slug = spec.get("name", f"agent_{index}").lower()
-        slug = "".join(c if c.isalnum() else "_" for c in slug)[:20]
-        return f"agent_panel_{slug}_{index}"
+        slug = "".join(c if c.isalnum() else "_" for c in slug)[:15]
+        return f"agent_panel_{slug}_{run_hash}_{index}"
 
     panel_ids = [_panel_id(spec, i) for i, spec in enumerate(authorized)]
 
