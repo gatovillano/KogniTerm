@@ -110,7 +110,7 @@ class StreamingExecutor:
                 
                 if final_tool_calls:
                     if not full_response_content.strip():
-                        full_response_content = "Ejecutando herramientas..."
+                        full_response_content = ""
                     yield AIMessage(
                         content=full_response_content,
                         tool_calls=final_tool_calls,
