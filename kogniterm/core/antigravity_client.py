@@ -24,6 +24,40 @@ class AntigravityClient:
     _access_token: Optional[str] = None
     _token_expiry: float = 0.0
     _project_id: Optional[str] = None
+    _session_id: Optional[str] = None
+    _agent_id: Optional[str] = None
+    _trajectory_id: Optional[str] = None
+    _step_index: int = 1
+    _last_request_time: float = 0.0
+
+    @classmethod
+    def get_session_envelope(cls, first_user_text: str = "") -> tuple:
+        import hashlib
+        now = time.time()
+        # Reset session if inactive for > 15 minutes
+        if not cls._session_id or (now - cls._last_request_time > 900):
+            if first_user_text:
+                digest = hashlib.sha256(first_user_text.encode("utf-8")).digest()
+                val = int.from_bytes(digest[:8], byteorder="big") & ((1 << 63) - 1)
+            else:
+                val = uuid.uuid4().int & ((1 << 63) - 1)
+            cls._session_id = f"-{val}"
+            cls._agent_id = str(uuid.uuid4())
+            cls._trajectory_id = str(uuid.uuid4())
+            cls._step_index = 2
+        else:
+            cls._step_index += 1
+
+        cls._last_request_time = now
+        step = cls._step_index
+        request_id = f"agent/{cls._agent_id}/{int(now * 1000)}/{cls._trajectory_id}/{step}"
+        labels = {
+            "last_step_index": str(step - 1),
+            "trajectory_id": cls._trajectory_id,
+            "used_claude": "false",
+            "used_claude_conservative": "false"
+        }
+        return cls._session_id, request_id, labels
 
     @classmethod
     def is_logged_in(cls) -> bool:
@@ -609,17 +643,25 @@ class AntigravityClient:
                     "includeThoughts": True,
                     "thinkingBudget": budget
                 }
-                logger.info(f"Enabling thinkingConfig with includeThoughts=True and thinkingBudget {budget} for Gemini 2.x model {model}")
-
         if generation_config:
             request_payload["generationConfig"] = generation_config
+
+        first_user_text = ""
+        for msg in messages:
+            if msg.get("role") == "user":
+                first_user_text = str(msg.get("content") or "")
+                break
+
+        session_id, request_id, labels = cls.get_session_envelope(first_user_text)
+        request_payload["sessionId"] = session_id
+        request_payload["labels"] = labels
 
         body = {
             "project": project_id,
             "model": model,
             "userAgent": "antigravity",
             "requestType": "agent",
-            "requestId": str(uuid.uuid4()),
+            "requestId": request_id,
             "request": request_payload
         }
 
