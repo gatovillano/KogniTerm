@@ -676,10 +676,23 @@ def _activate_parallel_container(
                 except Exception:
                     pass
 
-            # Crear una pestaña por agente
+            # Crear una pestaña por agente diferenciando nombres duplicados
+            name_counts = {}
+            for s in agents:
+                n = s.get("name", "Agente")
+                name_counts[n] = name_counts.get(n, 0) + 1
+
+            name_seen = {}
             for spec, pid in zip(agents, panel_ids):
+                raw_name = spec.get("name", pid)
+                if name_counts.get(raw_name, 0) > 1:
+                    name_seen[raw_name] = name_seen.get(raw_name, 0) + 1
+                    tab_title = f"{raw_name} #{name_seen[raw_name]}"
+                else:
+                    tab_title = raw_name
+
                 try:
-                    target_app.add_agent_tab(pid, spec.get("name", pid))
+                    target_app.add_agent_tab(pid, tab_title)
                 except Exception as e:
                     logger.warning("add_agent_tab(%s): %s", pid, e)
 
