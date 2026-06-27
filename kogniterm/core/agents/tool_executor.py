@@ -293,4 +293,12 @@ def should_continue(state: AgentState) -> str:
     last_message = state.messages[-1]
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
         return "execute_tool"
-    return "call_model" if isinstance(last_message, ToolMessage) else END
+    if isinstance(last_message, ToolMessage):
+        return "call_model"
+
+    is_autonomous = getattr(state, "autonomous_approvals", False) or getattr(state, "delegation_context", None) is not None
+    if is_autonomous and not state.completed:
+        logger.info("should_continue: Subagente autónomo emitió texto intermedio sin completarse. Continuando flujo call_model.")
+        return "call_model"
+
+    return END
