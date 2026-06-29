@@ -110,19 +110,13 @@ class KogniTermKernel:
             if msg_type == 'stream':
                 return content['text']
             elif msg_type == 'execute_result':
-                data_str = content.get('data', {}).get('text/plain', str(content.get('data')))
-                return f"{data_str}\n" if not data_str.endswith('\n') else data_str
+                data = content.get('data', {})
+                return data.get('text/plain', '')
             elif msg_type == 'error':
-                traceback_str = '\n'.join(content.get('traceback', []))
-                return f"Error ({content.get('ename')}): {content.get('evalue')}\n{traceback_str}\n"
+                return '\n'.join(content.get('traceback', []))
             elif msg_type == 'display_data':
                 data = content.get('data', {})
-                if 'image/png' in data:
-                    return "[IMAGEN PNG GENERADA]\n"
-                elif 'text/html' in data:
-                    return f"[HTML GENERADO]: {data['text/html'][:100]}...\n"
-                else:
-                    return f"Display Data: {str(data)}\n"
+                return data.get('text/plain', '')
             return ""
 
         while not self.execution_complete_event.is_set():
@@ -170,14 +164,7 @@ class KogniTermKernel:
                 yield err
                 break
         
-        if not accumulated_text.strip() and not self.current_execution_outputs:
-            success_msg = "Código ejecutado correctamente (sin salida)."
-            if terminal_ui and hasattr(terminal_ui, "update_terminal_output"):
-                try:
-                    terminal_ui.update_terminal_output("python_executor", success_msg, command=command_title)
-                except Exception:
-                    pass
-            yield success_msg
+
 
     def stop_kernel(self):
         """Detiene el kernel de forma segura."""
