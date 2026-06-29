@@ -347,16 +347,9 @@ class TextualTerminalUI:
         panel_id = kwargs.get("panel_id")
         target_log = self._get_chat_log(panel_id)
 
-        # Guardar en el app para que Ctrl+O pueda recuperarlo y actualizar dinámicamente si está visible
         def _save_and_update():
             self.app._last_terminal_tool_name = tool_name
             self.app._last_terminal_output = output
-            if getattr(self.app, "_tool_panel_explicitly_shown", False):
-                display_command = command or tool_name
-                self.app.update_live_display(
-                    ("__TERMINAL__", tool_name, output, display_command),
-                    panel_id="tool_display",
-                )
 
         self._safe_call(_save_and_update)
 
@@ -1039,7 +1032,6 @@ class KogniTermTUI(App):
 
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
-        ("ctrl+o", "toggle_tool_panel", "Toggle Tool Panel"),
     ]
 
     def _build_splash_title(self) -> str:
@@ -1073,13 +1065,6 @@ class KogniTermTUI(App):
             # Panel de queue (mensajes en espera)
             self.queue_display = QueueDisplay(id="queue_display")
             yield self.queue_display
-
-            # Panel de tools (terminal dedicada a herramientas) y panel principal de live
-            if ToolOutputWidget:
-                self.tool_display = ToolOutputWidget("", "Terminal", id="tool_display")
-            else:
-                self.tool_display = TerminalPanel(id="tool_display")
-            yield self.tool_display
 
             # live_display ahora es un TerminalPanel enfocalbe
             self.live_display = TerminalPanel(id="live_display")
@@ -2255,10 +2240,6 @@ class KogniTermTUI(App):
         self.live_display.styles.background = bg_color
         self.live_display.styles.color = p.TEXT_PRIMARY
 
-        tool_panel_bg = p.GRAY_800 if self.dark else p.GRAY_200
-        self.tool_display.styles.background = tool_panel_bg
-        self.tool_display.styles.color = p.TEXT_PRIMARY
-
         bottom_container = self.query_one("#bottom_container")
         bottom_container.styles.background = bg_color
 
@@ -2538,7 +2519,11 @@ class KogniTermTUI(App):
                             "action_description", diff_info.get("message", message)
                         )
                         diff_content = diff_info.get("diff")
+                        if not diff_content:
+                            diff_content = diff_info.get("code_preview") or diff_info.get("code") or (diff_info.get("args") or {}).get("code")
                         file_path = diff_info.get("path")
+                        if not file_path and (diff_info.get("operation") == "python_executor" or tool_name == "python_executor"):
+                            file_path = "python_script.py"
                     elif isinstance(diff_info, str):
                         diff_content = diff_info
 
@@ -2904,17 +2889,9 @@ class KogniTermTUI(App):
 
         # Pasamos el output crudo con una tupla marcadora para que ChatLogWidget instancie el ToolOutputWidget
         # Tupla de 4 elementos: (__TERMINAL__, tool_name, output, display_command)
-        # Siempre enviamos al panel tool_display, independientemente de si está visible
         self.update_live_display(
-            ("__TERMINAL__", tool_name, output, display_command),
-            panel_id="tool_display",
+            ("__TERMINAL__", tool_name, output, display_command)
         )
-
-        # Si el panel de herramientas no está visible, lo enviamos al chat log para visualización inline
-        if not getattr(self, "_tool_panel_explicitly_shown", False):
-            self.update_live_display(
-                ("__TERMINAL__", tool_name, output, display_command)
-            )
 
     def update_task_tracker(self, agent_plans: dict):
         """Muestra el estado de las tareas en el flujo de chat usando un panel verde."""
@@ -2999,42 +2976,8 @@ class KogniTermTUI(App):
                     log_widget.write_message(panel)
 
     def action_toggle_tool_panel(self):
-        """Alterna la visibilidad del panel de herramientas (tool_display) manualmente."""
-        self._tool_panel_explicitly_shown = not getattr(
-            self, "_tool_panel_explicitly_shown", False
-        )
-        self.tool_display.display = self._tool_panel_explicitly_shown
-
-        if self.tool_display.display:
-            # Si se acaba de mostrar y tenemos salida de herramienta anterior guardada,
-            # la cargamos en el panel de herramientas para que no esté vacío.
-            if self._last_terminal_output:
-                tool_name = self._last_terminal_tool_name or "Terminal"
-                command = "bash" if tool_name == "execute_command" else tool_name
-                if hasattr(self.tool_display, "update_content"):
-                    self.tool_display.update_content(
-                        self._last_terminal_output, command=command
-                    )
-                else:
-                    self.tool_display.update(self._last_terminal_output)
-            else:
-                if hasattr(self.tool_display, "update_content"):
-                    self.tool_display.update_content(
-                        "No hay salida de herramientas disponible aún.", command="Ayuda"
-                    )
-                else:
-                    self.tool_display.update(
-                        "No hay salida de herramientas disponible aún."
-                    )
-            # Enfocar el panel si es visible para permitir scrolling con teclado
-            self.tool_display.focus()
-        else:
-            # Si se oculta, devolver el foco a la entrada de chat
-            try:
-                chat_input = self.query_one("#chat_input", ChatInput)
-                chat_input.focus()
-            except Exception:
-                pass
+        """Método obsoleto de alternancia del panel de herramientas."""
+        pass
 
     def hide_live_display(self):
         """Finaliza el streaming en el chat log."""
@@ -3043,8 +2986,6 @@ class KogniTermTUI(App):
 
         # Ocultar paneles dedicados si estaban visibles
         try:
-            if not getattr(self, "_tool_panel_explicitly_shown", False):
-                self.tool_display.display = False
             self.live_display.display = False
         except Exception:
             pass

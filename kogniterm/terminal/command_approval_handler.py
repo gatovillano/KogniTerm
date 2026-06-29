@@ -71,6 +71,28 @@ def _load_file_ops_module(module_filename: str):
     mod_spec.loader.exec_module(mod)
     return mod
 
+
+def _load_bundled_skill_module(skill_folder_name: str, module_filename: str = "tool"):
+    """Carga dinámicamente un módulo de cualquier skill en bundled/."""
+    bundled_dir = _Path(__file__).resolve().parent.parent / "skills" / "bundled"
+    scripts_dir = bundled_dir / skill_folder_name / "scripts"
+    pkg_name = f"_{skill_folder_name.replace('-', '_')}_pkg"
+    if pkg_name not in sys.modules:
+        parent_pkg = ModuleType(pkg_name)
+        parent_pkg.__path__ = [str(scripts_dir)]
+        sys.modules[pkg_name] = parent_pkg
+    mod_key = f"{pkg_name}.{module_filename}"
+    if mod_key in sys.modules:
+        return sys.modules[mod_key]
+    mod_spec = importlib.util.spec_from_file_location(
+        mod_key, str(scripts_dir / f"{module_filename}.py")
+    )
+    mod = importlib.util.module_from_spec(mod_spec)
+    mod.__package__ = pkg_name
+    sys.modules[mod_key] = mod
+    mod_spec.loader.exec_module(mod)
+    return mod
+
 # Importar DiffRenderer para visualización mejorada de diffs
 from kogniterm.utils.diff_renderer import DiffRenderer
 from kogniterm.terminal.visual_components import create_terminal_output_panel
@@ -297,6 +319,29 @@ class CommandApprovalHandler:
                 
         return True
 
+    def _is_tool_safe(self, tool_name: Optional[str], tool_args: Optional[Dict[str, Any]]) -> bool:
+        """
+        Determina si una llamada a herramienta es segura para auto-aprobación (operaciones de lectura/inspección).
+        """
+        if not tool_name:
+            return False
+        
+        SAFE_TOOLS = {
+            'file_read_directory', 'codebase_search_tool', 'code_search',
+            'search_memory', 'memory_read', 'web_search', 'read_url',
+            'get_file_info', 'search_files', 'list_dir', 'list_directory'
+        }
+        if tool_name in SAFE_TOOLS:
+            return True
+
+        if tool_name == "file_operations":
+            args = tool_args or {}
+            action = args.get("action") or args.get("operation") or ""
+            if action in ["read_file", "read_file_tool", "list_directory", "get_file_info", "search_files"]:
+                return True
+
+        return False
+
     def handle_command_approval(self, command_to_execute: str, auto_approve: Optional[bool] = None,
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
                                  tool_name: Optional[str] = None, raw_tool_output: Optional[str] = None,
@@ -384,9 +429,12 @@ class CommandApprovalHandler:
         if auto_approve:
             run_action = True
         
-        # Verificar seguridad del comando si no está aprobado aún
-        if not run_action and command_to_execute and not is_plan_confirmation and not is_file_update_confirmation and not is_user_confirmation:
-            if self._is_command_safe(command_to_execute):
+        # Verificar seguridad del comando o herramienta si no está aprobado aún
+        if not run_action and not is_plan_confirmation and not is_file_update_confirmation and not is_user_confirmation:
+            if tool_name and self._is_tool_safe(tool_name, original_tool_args):
+                run_action = True
+                auto_approve = True
+            elif command_to_execute and self._is_command_safe(command_to_execute):
                 run_action = True
                 auto_approve = True # Marcar para feedback visual posterior
                 # self.terminal_ui.print_message(f"Comando '{command_to_execute}' considerado seguro. Auto-aprobando.", style="green")
@@ -542,17 +590,17 @@ class CommandApprovalHandler:
                     elif tool_name == "copy_file_tool":
                         _fm_mod = _load_file_ops_module("file_management")
                         file_ops_result = _fm_mod.copy_file_tool(**args_to_pass)
-                    else:
-                        # Fallback for old file_operations tool
-                        _fw_mod = _load_file_ops_module("file_write")
-                        file_ops_result = _fw_mod.write_file_tool(
-                            args_to_pass.get("path", file_path),
-                            args_to_pass.get("content", ""),
-                            confirm=True
-                        )
-
-                    tool_message_content = self._stringify_tool_result(file_ops_result)
-                    should_render_applied_diff = self._tool_result_succeeded(file_ops_result)
+                elif tool_name in ["python_executor", "python_executor_tool"]:
+                    args_to_pass = dict(original_tool_args)
+                    args_to_pass["auto_confirm"] = True
+                    args_to_pass["confirm"] = True
+                    _py_mod = _load_bundled_skill_module("python-executor", "tool")
+                    python_executor = _py_mod.python_executor
+                    chunks = []
+                    for chunk in python_executor(**args_to_pass):
+                        if chunk:
+                            chunks.append(str(chunk))
+                    tool_message_content = "".join(chunks)
 
                 if should_render_applied_diff:
                     self._print_applied_diff_in_history(

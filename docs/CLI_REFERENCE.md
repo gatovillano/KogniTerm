@@ -258,5 +258,3 @@ Una vez dentro de la interfaz interactiva, usa estos comandos con `/` o `%`:
 | `/compress` | Comprimir/resumir el historial actual |
 | `/agy-login` | Autenticar con Google Antigravity |
 | `esc` | Interrumpir la generación en curso |
-| `ctrl+o` | Mostrar/Ocultar panel de salida de herramientas |
-| `ctrl+b` | Mostrar/Ocultar panel de seguimiento de tareas |

@@ -251,10 +251,13 @@ class SkillLoader:
         if spec is None or spec.loader is None:
             raise ImportError(f"No se pudo cargar spec para {script_file}")
 
-        module = importlib.util.module_from_spec(spec)
-        module.__package__ = package_name
-        sys.modules[module_name] = module  # Registrar en sys.modules
-        spec.loader.exec_module(module)
+        if module_name in sys.modules:
+            module = sys.modules[module_name]
+        else:
+            module = importlib.util.module_from_spec(spec)
+            module.__package__ = package_name
+            sys.modules[module_name] = module  # Registrar en sys.modules
+            spec.loader.exec_module(module)
 
         # Buscar callables que sean herramientas
         tools = []
@@ -880,6 +883,16 @@ class SkillManager:
             self.skills[skill_name].loaded = False
             self.skills[skill_name].tools = []
 
+        # Remover módulos cargados de sys.modules para permitir recarga limpia
+        safe_skill_name = self._to_valid_module_part(skill_name)
+        prefix = f"{self.DYNAMIC_SKILLS_PACKAGE}.{safe_skill_name}"
+        modules_to_remove = [
+            name for name in list(sys.modules.keys())
+            if name == prefix or name.startswith(prefix + ".")
+        ]
+        for name in modules_to_remove:
+            sys.modules.pop(name, None)
+
         logger.info(f"Skill '{skill_name}' descargada ({len(to_remove)} herramientas removidas)")
 
     def reload_skill(self, skill_name: str) -> bool:
@@ -898,6 +911,9 @@ class SkillManager:
 
         config, _ = self.validator._parse_skill_file(skill_path / 'SKILL.md')
         self.skills[skill_name] = Skill(path=skill_path, **(config or {}))
+
+        # Volver a cargar la skill
+        return self.load_skill(skill_name)
 
     def register_tool(self, tool_instance: Any):
         """Registra dinámicamente una herramienta individual en el gestor."""
