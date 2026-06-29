@@ -75,3 +75,13 @@ Se modificaron los estilos en la interfaz TUI para permitir que la barra de entr
 
 
 
+---
+
+## 02-02-2026 Corrección: Spinner infinito en DeepResearcher después de finalizar investigación
+
+Se ha solucionado un bug visual en la TUI donde el spinner animado del `DeepResearcher` permanecía visible y animándose infinitamente después de que la investigación finalizaba.
+
+- **Punto 1**: Identificación de la causa raíz en `kogniterm/terminal/tui/components/chat_log.py`: el método `stop_stream()` solo limpiaba la referencia `_active_message_widget` pero no eliminaba el widget `AnimatedSpinnerWidget` del DOM, dejando su timer de animación (`set_interval(0.1, self.tick)`) activo indefinidamente.
+- **Punto 2**: Modificación de `ChatLogWidget.stop_stream()` para eliminar explícitamente el widget activo del DOM antes de poner la referencia a `None`, asegurando que el spinner se detenga completamente cuando finaliza el streaming.
+
+---
