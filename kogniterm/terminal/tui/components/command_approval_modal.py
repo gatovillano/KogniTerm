@@ -17,6 +17,7 @@ from textual.widgets import Label, Button, Static
 from textual import events
 from textual.reactive import reactive
 from rich.text import Text
+from rich.syntax import Syntax
 
 from kogniterm.terminal.themes import ColorPalette
 
@@ -294,12 +295,19 @@ class CommandApprovalModal(ModalScreen[bool]):
 
             # Área de contenido
             if has_diff:
-                # Diff coloreado
-                with ScrollableContainer(id="diff-scroll"):
-                    with Vertical(id="diff-container"):
-                        parsed = _parse_unified_diff(self.diff_content)
-                        for dl in parsed:
-                            yield _DiffLineWidget(dl)
+                is_bash = (self.file_path == "bash")
+                is_python = (self.file_path in ("python", "python_script.py") or "python" in (self.file_path or "").lower())
+                if is_bash or is_python:
+                    lang = "python" if is_python else "bash"
+                    with ScrollableContainer(id="diff-scroll"):
+                        yield Static(Syntax(self.diff_content, lang, theme="monokai", background_color="default"))
+                else:
+                    # Diff coloreado
+                    with ScrollableContainer(id="diff-scroll"):
+                        with Vertical(id="diff-container"):
+                            parsed = _parse_unified_diff(self.diff_content)
+                            for dl in parsed:
+                                yield _DiffLineWidget(dl)
             else:
                 # Mensaje plano
                 with Vertical(id="message-body"):

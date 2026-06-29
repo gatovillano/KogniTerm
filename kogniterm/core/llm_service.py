@@ -2427,21 +2427,37 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                     if inspect.isgenerator(result):
                         confirm_param_names = ['confirm', 'auto_confirm', 'auto_approve', 'confirmed', 'bypass_confirmation']
                         for item in result:
-                            if delegation_context is not None and isinstance(item, str) and '"requires_confirmation"' in item:
+                            if isinstance(item, str) and '"requires_confirmation"' in item:
                                 try:
                                     parsed = json.loads(item)
                                     if isinstance(parsed, dict) and parsed.get("status") == "requires_confirmation":
-                                        logger.info("Subagente autónomo: interceptado requires_confirmation en generador. Reejecutando auto-aprobado.")
-                                        re_args = tool_args.copy() if isinstance(tool_args, dict) else {}
-                                        re_args['delegation_context'] = delegation_context
-                                        for p in confirm_param_names:
-                                            re_args[p] = True
-                                        re_res = tool(**re_args) if callable(tool) else tool.invoke(re_args)
-                                        if inspect.isgenerator(re_res):
-                                            yield from re_res
+                                        if delegation_context is not None:
+                                            logger.info("Subagente autónomo: interceptado requires_confirmation en generador. Reejecutando auto-aprobado.")
+                                            re_args = tool_args.copy() if isinstance(tool_args, dict) else {}
+                                            re_args['delegation_context'] = delegation_context
+                                            for p in confirm_param_names:
+                                                re_args[p] = True
+                                            re_res = tool(**re_args) if callable(tool) else tool.invoke(re_args)
+                                            if inspect.isgenerator(re_res):
+                                                yield from re_res
+                                            else:
+                                                yield re_res
+                                            return
                                         else:
-                                            yield re_res
-                                        return
+                                            inferred_tool_name = (
+                                                parsed.get("operation") or 
+                                                getattr(tool, 'name', None) or 
+                                                getattr(tool, '__name__', None) or 
+                                                tool.__class__.__name__
+                                            )
+                                            raise UserConfirmationRequired(
+                                                message=parsed.get("action_description", "Confirmación requerida"),
+                                                tool_name=inferred_tool_name,
+                                                tool_args=parsed.get("args", tool_args),
+                                                raw_tool_output=parsed
+                                            )
+                                except UserConfirmationRequired as e:
+                                    raise e
                                 except Exception as ex:
                                     logger.warning("Error al procesar auto-confirmación de generador: %s", ex)
                             yield item

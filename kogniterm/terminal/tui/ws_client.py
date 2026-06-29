@@ -557,10 +557,6 @@ class TUIWebSocketClient:
                 self._app.query_one("#live_display").display = True
             except Exception:
                 pass
-            try:
-                self._app.query_one("#tool_display").display = True
-            except Exception:
-                pass
         except Exception as e:
             logger.warning(f"[WS] Error ocultando paneles paralelos: {e}")
 

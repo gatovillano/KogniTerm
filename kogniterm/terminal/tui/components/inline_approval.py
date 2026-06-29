@@ -298,10 +298,11 @@ class InlineApprovalWidget(Widget):
 
     def compose(self) -> ComposeResult:
         is_bash = (self._file_path == "bash")
+        is_python = (self._file_path in ("python", "python_script.py") or "python" in (self._file_path or "").lower())
         has_diff = bool(self._diff_content and self._diff_content.strip())
 
         # Título / Petición
-        icon = "🐚" if is_bash else "📄"
+        icon = "🐍" if is_python else ("🐚" if is_bash else "📄")
         header_text = f"{icon} {self._title}"
         if self._file_path and not is_bash:
             header_text += f" [dim]({self._file_path})[/dim]"
@@ -309,12 +310,11 @@ class InlineApprovalWidget(Widget):
         yield Label(header_text, id="ia-title-label", markup=True)
 
         # Contenido (Diff, Syntax o Mensaje)
-        if is_bash and has_diff:
-            # Para comandos, mostramos syntax highlighting directo
-            # Asegurarse de que el color de fondo de la sintaxis sea negro o transparente
+        if (is_bash or is_python) and has_diff:
+            # Para comandos y scripts de python, mostramos syntax highlighting directo
+            lang = "python" if is_python else "bash"
             with ScrollableContainer(id="ia-diff-scroll"):
-                 # Usar tema monokai pero con fondo predeterminado (negro/oscuro)
-                 yield Static(Syntax(self._diff_content, "bash", theme="monokai", background_color="default"), id="ia-bash-syntax")
+                 yield Static(Syntax(self._diff_content, lang, theme="monokai", background_color="default"), id="ia-bash-syntax")
         elif has_diff:
             # Diff de archivos real
             with ScrollableContainer(id="ia-diff-scroll"):

@@ -79,53 +79,105 @@ class KogniTermKernel:
                     print(f"Error en el listener iopub: {e}")
                 break
 
-    def execute_code(self, code):
-        """Ejecuta código en el kernel."""
-        if not self.kc:
-            return {"error": "El kernel no está iniciado."}
+    def execute_code(self, code, terminal_ui=None, command_title="python"):
+        """Ejecuta código en el kernel de forma síncrona manteniendo retrocompatibilidad."""
+        outputs = []
+        for _ in self.execute_code_stream(code, terminal_ui=terminal_ui, command_title=command_title):
+            pass
+        return {"result": self.current_execution_outputs}
 
-        # Limpiar salidas previas y resetear eventos
+    def execute_code_stream(self, code: str, terminal_ui: Any = None, command_title: str = "python") -> Generator[str, None, None]:
+        """Ejecuta código en el kernel y produce fragmentos formateados en tiempo real."""
+        if not self.kc:
+            yield "Error: El kernel no está iniciado."
+            return
+
         self.current_execution_outputs = []
         self.execution_complete_event.clear()
 
-        # Enviar el código al kernel para ejecutarlo
         try:
             msg_id = self.kc.execute(code)
             logger.info(f"Código enviado al kernel con msg_id: {msg_id}")
         except Exception as e:
-            return {"error": f"Error al enviar código al kernel: {e}"}
+            yield f"Error al enviar código al kernel: {e}"
+            return
 
         start_wait = time.time()
-        max_wait = 300 # 5 minutos de timeout por defecto para el kernel
-        
+        max_wait = 300
+        accumulated_text = ""
+
+        def _format_msg(msg_type, content):
+            if msg_type == 'stream':
+                return content['text']
+            elif msg_type == 'execute_result':
+                data_str = content.get('data', {}).get('text/plain', str(content.get('data')))
+                return f"{data_str}\n" if not data_str.endswith('\n') else data_str
+            elif msg_type == 'error':
+                traceback_str = '\n'.join(content.get('traceback', []))
+                return f"Error ({content.get('ename')}): {content.get('evalue')}\n{traceback_str}\n"
+            elif msg_type == 'display_data':
+                data = content.get('data', {})
+                if 'image/png' in data:
+                    return "[IMAGEN PNG GENERADA]\n"
+                elif 'text/html' in data:
+                    return f"[HTML GENERADO]: {data['text/html'][:100]}...\n"
+                else:
+                    return f"Display Data: {str(data)}\n"
+            return ""
+
         while not self.execution_complete_event.is_set():
-            # Comprobar timeout de seguridad total
             if time.time() - start_wait > max_wait:
-                self.current_execution_outputs.append({"type": "error", "ename": "Timeout", "evalue": f"El kernel de Jupyter no respondió después de {max_wait} segundos.", "traceback": []})
+                err_msg = f"\nTimeout: El kernel de Jupyter no respondió después de {max_wait} segundos.\n"
+                self.current_execution_outputs.append({"type": "error", "ename": "Timeout", "evalue": err_msg, "traceback": []})
+                accumulated_text += err_msg
+                if terminal_ui and hasattr(terminal_ui, "update_terminal_output"):
+                    try:
+                        terminal_ui.update_terminal_output("python_executor", accumulated_text, command=command_title)
+                    except Exception:
+                        pass
+                yield err_msg
                 break
-                
+
             try:
                 msg = self.output_queue.get(timeout=0.1)
                 msg_type = msg['header']['msg_type']
                 content = msg['content']
 
-                if msg_type == 'stream':
-                    self.current_execution_outputs.append({'type': 'stream', 'name': content['name'], 'text': content['text']})
-                elif msg_type == 'error':
-                    self.current_execution_outputs.append({'type': 'error', 'ename': content['ename'], 'evalue': content['evalue'], 'traceback': content['traceback']})
-                elif msg_type == 'execute_result':
-                    self.current_execution_outputs.append({'type': 'execute_result', 'data': content['data']})
-                elif msg_type == 'display_data':
-                    self.current_execution_outputs.append({'type': 'display_data', 'data': content['data']})
+                if msg_type in ('stream', 'error', 'execute_result', 'display_data'):
+                    if msg_type == 'stream':
+                        self.current_execution_outputs.append({'type': 'stream', 'name': content['name'], 'text': content['text']})
+                    elif msg_type == 'error':
+                        self.current_execution_outputs.append({'type': 'error', 'ename': content.get('ename'), 'evalue': content.get('evalue'), 'traceback': content.get('traceback', [])})
+                    elif msg_type == 'execute_result':
+                        self.current_execution_outputs.append({'type': 'execute_result', 'data': content.get('data')})
+                    elif msg_type == 'display_data':
+                        self.current_execution_outputs.append({'type': 'display_data', 'data': content.get('data')})
 
+                    chunk = _format_msg(msg_type, content)
+                    if chunk:
+                        accumulated_text += chunk
+                        if terminal_ui and hasattr(terminal_ui, "update_terminal_output"):
+                            try:
+                                terminal_ui.update_terminal_output("python_executor", accumulated_text, command=command_title)
+                            except Exception:
+                                pass
+                        yield chunk
             except queue.Empty:
                 continue
             except Exception as e:
-                self.current_execution_outputs.append({"error": f"Error al procesar mensaje de salida: {e}"})
+                err = f"Error al procesar mensaje de salida: {e}\n"
+                accumulated_text += err
+                yield err
                 break
         
-        logger.info(f"Ejecución de código completada (exitosa o via timeout).")
-        return {"result": self.current_execution_outputs}
+        if not accumulated_text.strip() and not self.current_execution_outputs:
+            success_msg = "Código ejecutado correctamente (sin salida)."
+            if terminal_ui and hasattr(terminal_ui, "update_terminal_output"):
+                try:
+                    terminal_ui.update_terminal_output("python_executor", success_msg, command=command_title)
+                except Exception:
+                    pass
+            yield success_msg
 
     def stop_kernel(self):
         """Detiene el kernel de forma segura."""
@@ -167,7 +219,7 @@ def _get_kernel_instance() -> Optional[KogniTermKernel]:
     return _kernel_instance
 
 
-def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = False) -> Generator[str, None, None]:
+def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = False, confirm: bool = False) -> Generator[str, None, None]:
     """
     Ejecuta código Python en un kernel de Jupyter.
 
@@ -175,6 +227,7 @@ def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = Fal
         code: El código Python a ejecutar
         terminal_ui: Interfaz de terminal para mostrar mensajes
         auto_confirm: Si True, ejecuta sin pedir confirmación
+        confirm: Alias de auto_confirm
 
     Yields:
         str: Resultados de la ejecución formateados
@@ -190,7 +243,7 @@ def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = Fal
 
     # Siempre usar el flujo de confirmación estándar como otras herramientas
     # El sistema de aprobación se encarga de verificar auto_approve_mode
-    if not auto_confirm:
+    if not auto_confirm and not confirm:
         # Devolver estado de confirmación requerida para que el sistema lo maneje
         yield json.dumps({
             "status": "requires_confirmation",
@@ -205,44 +258,9 @@ def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = Fal
         yield "Error: No se pudo iniciar el kernel de Jupyter."
         return
 
-    # Ejecutar el código
-    raw_output = kernel.execute_code(code)
-
-    # Formatear la salida
-    formatted_output = []
-    if "result" in raw_output:
-        for item in raw_output["result"]:
-            if item['type'] == 'stream':
-                output_line = f"Output ({item['name']}): {item['text']}"
-                formatted_output.append(output_line)
-            elif item['type'] == 'error':
-                traceback_str = '\n'.join(item['traceback'])
-                error_line = f"Error ({item['ename']}): {item['evalue']}\nTraceback:\n{traceback_str}"
-                formatted_output.append(error_line)
-            elif item['type'] == 'execute_result':
-                data_str = item['data'].get('text/plain', str(item['data']))
-                result_line = f"Result: {data_str}"
-                formatted_output.append(result_line)
-            elif item['type'] == 'display_data':
-                if 'image/png' in item['data']:
-                    display_line = "[IMAGEN PNG GENERADA]"
-                    formatted_output.append(display_line)
-                elif 'text/html' in item['data']:
-                    display_line = f"[HTML GENERADO]: {item['data']['text/html'][:100]}..."
-                    formatted_output.append(display_line)
-                else:
-                    display_line = f"Display Data: {str(item['data'])}"
-                    formatted_output.append(display_line)
-
-        if formatted_output:
-            final_output = "\n".join(formatted_output)
-            yield final_output
-        else:
-            yield "PythonExecutor: No se recibió salida discernible."
-    elif "error" in raw_output:
-        yield f"Error en el kernel de Python: {raw_output['error']}"
-    else:
-        yield "PythonExecutor: No se recibió salida discernible."
+    cmd_title = "python"
+    for chunk in kernel.execute_code_stream(code, terminal_ui=terminal_ui, command_title=cmd_title):
+        yield chunk
 
 
 # Función alternativa para ejecución síncrona
