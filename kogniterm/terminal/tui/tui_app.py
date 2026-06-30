@@ -1084,15 +1084,15 @@ class KogniTermTUI(App):
 
             # Nota: tracker_container se yield fuera de bottom_container (ver abajo)
 
-            # Barra de progreso de indexación (docked bottom, above input)
-            with Vertical(id="indexing_progress_container"):
-                yield Static("", id="indexing_label", markup=True)
-
             with Horizontal(id="input_container"):
                 self.chat_input = ChatInput(id="chat_input")
                 yield self.chat_input
             self.status_footer = StatusFooter(model_name=self.llm_service.model_name)
             yield self.status_footer
+
+        # Barra de progreso de indexación (docked bottom of screen)
+        with Vertical(id="indexing_progress_container"):
+            yield Static("", id="indexing_label", markup=True)
 
         # ── Splash overlay ──────────────────────────────────
         with Vertical(id="splash_overlay"):
