@@ -837,11 +837,6 @@ class KogniTermTUI(App):
         text-align: center;
         background: transparent;
     }
-    #indexing_bar {
-        width: 100%;
-        height: 1;
-        background: transparent;
-    }
 
     #live_display {
         /* Alinear texto al centro */
@@ -1090,7 +1085,6 @@ class KogniTermTUI(App):
 
             # Barra de progreso de indexación (docked bottom, above input)
             with Vertical(id="indexing_progress_container"):
-                yield Static("", id="indexing_bar", markup=True)
                 yield Static("", id="indexing_label", markup=True)
 
             with Horizontal(id="input_container"):
@@ -1254,7 +1248,6 @@ class KogniTermTUI(App):
                 self.query_one("#indexing_label").update(
                     "[#9ca3af]Indexando...[/#9ca3af]"
                 )
-                self.query_one("#indexing_bar").update("")
             except Exception as e:
                 logger.error(f"Error showing indexing progress: {e}")
 
