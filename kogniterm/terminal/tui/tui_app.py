@@ -822,6 +822,7 @@ class KogniTermTUI(App):
 
     /* ── BARRA DE PROGRESO DE INDEXACIÓN ────────── */
     #indexing_progress_container {
+        dock: bottom;
         height: 2;
         width: 85%;
         max-width: 180;
