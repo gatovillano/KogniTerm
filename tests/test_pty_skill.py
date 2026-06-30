@@ -3,7 +3,8 @@ import sys
 # Adicionar el directorio raíz al path para importar kogniterm
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from kogniterm.skills.bundled.execute_command.scripts.tool import execute_command
+from kogniterm.terminal.command_approval_handler import _load_bundled_skill_module
+execute_command = _load_bundled_skill_module("execute-command", "tool").execute_command
 
 def test_pty_output():
     print("Testing PTY output with 'ls --color=always'...")

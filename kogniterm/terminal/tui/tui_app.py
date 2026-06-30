@@ -579,12 +579,24 @@ class QueueDisplay(Static):
             max_show = 3
             display_msgs = messages[:max_show]
 
-            # El mensaje en cursiva con un emoji de reloj de arena al inicio
-            content = "\n".join(f"⏳ [italic]{m}[/italic]" for m in display_msgs)
+            # Truncar cada mensaje si es muy largo y reemplazar saltos de línea por espacios
+            max_len = 60
+            text_lines = []
+            for i, m in enumerate(display_msgs):
+                m_single = m.replace("\n", " ").replace("\r", "")
+                if len(m_single) > max_len:
+                    m_single = m_single[:max_len] + "..."
+
+                prefix = "⏳ En cola: " if i == 0 else "⏳ "
+                line_text = Text(prefix)
+                line_text.append(m_single, style="italic")
+                text_lines.append(line_text)
 
             if len(messages) > max_show:
-                content += f"\n [dim]... y {len(messages) - max_show} más[/dim]"
+                more_text = Text(f" ... y {len(messages) - max_show} más", style="dim")
+                text_lines.append(more_text)
 
+            content = Text("\n").join(text_lines)
             self.update(content)
 
 
