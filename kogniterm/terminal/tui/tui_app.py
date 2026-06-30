@@ -824,9 +824,7 @@ class KogniTermTUI(App):
     #indexing_progress_container {
         dock: bottom;
         height: 2;
-        width: 85%;
-        max-width: 180;
-        min-width: 60;
+        width: 100%;
         background: #11111b;
         border-top: solid #374151;
         display: none;
