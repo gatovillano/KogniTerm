@@ -319,12 +319,13 @@ class ChatLogWidget(VerticalScroll):
         _mount_or_update(renderable, is_terminal, is_spinner, tool_name, terminal_command)
 
     def stop_stream(self):
-        """Finaliza el streaming actual y elimina widgets activos del DOM."""
+        """Finaliza el streaming actual y elimina el spinner si estaba activo."""
         if self._active_message_widget:
-            try:
-                self._active_message_widget.remove()
-            except Exception:
-                pass
+            if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                try:
+                    self._active_message_widget.remove()
+                except Exception:
+                    pass
         self._active_message_widget = None
 
     def write_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = ""):
