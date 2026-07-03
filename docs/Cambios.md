@@ -520,3 +520,75 @@ No existía un informe consolidado de la arquitectura del proyecto KogniTerm ni 
 - `docs/ARCHITECTURE_ANALYSIS.md` — Creado (informe completo)
 - `docs/Cambios.md` — Actualizado con esta entrada
 - `kogniterm/skills/workspace/architecture_analyzer/` — Skill creada automáticamente
+
+---
+
+## [1.1.1] - 2026-07-03
+
+### 🔧 Corrección de Chat en Sesiones Desktop y Endpoint de Configuración
+
+#### Problema
+1. En las sesiones desktop de KogniTerm, el chat no funcionaba y se interrumpía inmediatamente con un log de `Interrupción solicitada`. Esto ocurría porque en `kogniterm/server/session_pool.py`, la función `send` establecía la bandera de ejecución `self.is_running = True` antes de comprobar `if self.is_running:`. Esto hacía que la comprobación fuera siempre verdadera, cancelando cualquier ejecución y encolando el mensaje.
+2. Al guardar configuraciones de modelos u otras opciones desde el modal de ajustes de la aplicación desktop, el servidor respondía con `422 Unprocessable Entity` porque FastAPI interpretaba el parámetro `req` de `/api/config/set` como un parámetro de consulta (query parameter) en lugar de un cuerpo de solicitud (request body).
+3. El modelo por defecto configurado en `.env` (`kilocode/openrouter/owl-alpha`) daba un error `404 Not Found` en OpenRouter al iniciar el agente.
+
+#### Cambios Realizados
+
+**1. Corrección del flujo lógico en SessionPool**
+- **Archivo:** `kogniterm/server/session_pool.py`
+- Se movió la verificación `if self.is_running:` al principio del bloque de bloqueo asíncrono, antes de establecer `self.is_running = True`, previniendo la interrupción inmediata y permitiendo el procesamiento normal del mensaje.
+
+**2. Corrección del Endpoint de Configuración**
+- **Archivo:** `kogniterm/server/app.py`
+- Se importó `Body` de `fastapi`.
+- Se actualizó el parámetro del endpoint `/api/config/set` a `req: SetConfigRequest = Body(...)` para forzar a FastAPI a procesar la solicitud como JSON body en lugar de query string.
+
+**3. Actualización de Modelo por Defecto**
+- **Archivo:** `.env`
+- Se actualizó `LITELLM_MODEL` a `'gemini/gemini-1.5-flash'` para utilizar un endpoint válido con la clave de API de Google provista.
+
+#### Archivos Modificados
+- [session_pool.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/session_pool.py)
+- [app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/app.py)
+- [.env](file:///home/gato/Proyectos/Gemini-Interpreter/.env)
+- [Cambios.md](file:///home/gato/Proyectos/Gemini-Interpreter/docs/Cambios.md)
+
+---
+
+## [1.1.2] - 2026-07-03
+
+### 💬 Persistencia de Hilos de Chat y Corrección de Títulos Automáticos en Desktop
+
+#### Problema
+1. Los hilos de chat creados y guardados en el backend no se cargaban en la aplicación desktop al cambiar de conversación o al iniciar la aplicación, mostrándose siempre vacíos. Esto sucedía porque no existía un endpoint para recuperar el historial de mensajes de un hilo individual, y la conexión WebSocket no enviaba los mensajes históricos en la inicialización de la sesión.
+2. Los hilos no se renombraban automáticamente o fallaban de forma silenciosa debido a:
+   - Filtro de mensajes deficiente en `generate_title_if_needed` que no excluía mensajes vacíos o de herramientas intermedias (como `task_tracker`).
+   - El cliente de Antigravity (`AntigravityClient.completion`) no devolvía objetos del tipo `SimpleNamespace` con la propiedad `.message` cuando `stream=False`, lo que causaba un error `'dict' object has no attribute 'message'` al intentar leer la respuesta del LLM para generar el título.
+3. La aplicación de escritorio siempre iniciaba con un ID de conversación aleatorio temporal, lo que generaba un hilo vacío cada vez que se abría o refrescaba, en lugar de cargar la conversación más reciente.
+
+#### Cambios Realizados
+
+**1. Servidor Backend (FastAPI)**
+- **Archivo:** `kogniterm/server/app.py`
+  - Se agregó el endpoint `GET /api/threads/{thread_id}/messages` para exponer el historial del hilo.
+  - Se implementó la función auxiliar `message_to_frontend_dict` para mapear los mensajes serializados de LangChain (`BaseMessage`) al formato que el frontend React requiere (`Message`).
+- **Archivo:** `kogniterm/core/thread_manager.py`
+  - Se optimizó `generate_title_if_needed` para robustecer el filtro de mensajes del prompt de renombrado (excluyendo mensajes de herramientas o vacíos) de modo que use los primeros mensajes donde el usuario y el asistente realmente interactúan.
+- **Archivo:** `kogniterm/core/antigravity_client.py`
+  - Se corrigió el método `completion` (rama `stream=False`) para envolver el objeto de mensaje y la lista de elecciones (`choices`) en instancias de `SimpleNamespace`, logrando compatibilidad con los accesos estilo objeto del LLMService.
+
+**2. Cliente Desktop (React / TypeScript)**
+- **Archivo:** `kogniterm-desktop/apps/desktop/src/hooks/useChat.ts`
+  - Se añadió la llamada fetch al nuevo endpoint de historial `/api/threads/{thread_id}/messages` en el hook `useChat` al cambiar de `threadId`.
+  - Se implementó una bandera `active` para evitar condiciones de carrera (race conditions) al cambiar rápidamente entre hilos de chat.
+- **Archivo:** `kogniterm-desktop/apps/desktop/src/App.tsx`
+  - Se actualizó el hook de efecto de montaje para que, al cargar la aplicación, recupere la lista de hilos y auto-seleccione el hilo más reciente en lugar de crear un ID temporal vacío.
+
+#### Archivos Modificados
+- [app.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/server/app.py)
+- [thread_manager.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/thread_manager.py)
+- [antigravity_client.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/antigravity_client.py)
+- [useChat.ts](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm-desktop/apps/desktop/src/hooks/useChat.ts)
+- [App.tsx](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm-desktop/apps/desktop/src/App.tsx)
+- [Cambios.md](file:///home/gato/Proyectos/Gemini-Interpreter/docs/Cambios.md)
+

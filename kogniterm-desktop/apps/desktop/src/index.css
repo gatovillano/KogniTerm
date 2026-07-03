@@ -288,3 +288,74 @@ body {
 .markdown-content tr:last-child td {
   border-bottom: none;
 }
+
+/* Custom Goose UI styling classes */
+
+/* Dark themes / color updates */
+.bg-app-dark {
+  background-color: #0e0e11;
+}
+
+.bg-sidebar-dark {
+  background-color: #151518;
+}
+
+.border-subtle {
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+/* User Message Pill */
+.user-msg-bubble {
+  background-color: #ffffff;
+  color: #18181b;
+  border-radius: 1.25rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.925rem;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  line-height: 1.5;
+  font-family: var(--font-sans);
+}
+
+/* Assistant text - no bubble border */
+.assistant-msg-text {
+  color: #e4e4e7;
+  font-size: 0.95rem;
+  line-height: 1.625;
+}
+
+/* Tool execution status block */
+.tool-status-badge {
+  background-color: #121c17;
+  border: 1px solid rgba(39, 58, 47, 0.5);
+  color: #34d399;
+  border-radius: 0.75rem;
+  padding: 0.6rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.775rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Collapsible thinking container */
+.thinking-collapsible {
+  border-left: 1px solid #27272a;
+  padding-left: 0.85rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Dark code card / generic dark outputs */
+.output-code-card {
+  background-color: #16161a;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.825rem;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+}

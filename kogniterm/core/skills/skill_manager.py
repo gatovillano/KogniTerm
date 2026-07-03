@@ -604,6 +604,9 @@ class SkillManager:
 
         # Registrar en diccionario
         for skill in discovered:
+            if skill.name in self.skills:
+                skill.loaded = self.skills[skill.name].loaded
+                skill.tools = self.skills[skill.name].tools
             self.skills[skill.name] = skill
 
         logger.info(f"Discovery completado: {len(discovered)} skills encontradas")

@@ -174,9 +174,27 @@ class ThreadManager:
             if not metadata or metadata.get("has_generated_title"):
                 return None
         
-        # Filtrar mensajes
-        human_msgs = [m.content for m in messages if isinstance(m, HumanMessage) and isinstance(m.content, str)]
-        ai_msgs = [m.content for m in messages if isinstance(m, AIMessage) and isinstance(m.content, str)]
+        # Filtrar mensajes de usuario con texto
+        human_msgs = []
+        for m in messages:
+            if isinstance(m, HumanMessage) or (hasattr(m, "type") and m.type == "human"):
+                content = m.content
+                if isinstance(content, list):
+                    text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+                    content = " ".join(text_parts)
+                if isinstance(content, str) and content.strip():
+                    human_msgs.append(content.strip())
+
+        # Filtrar mensajes de asistente con texto (evitando los que solo ejecutan herramientas o están vacíos)
+        ai_msgs = []
+        for m in messages:
+            if isinstance(m, AIMessage) or (hasattr(m, "type") and m.type == "ai"):
+                content = m.content
+                if isinstance(content, list):
+                    text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+                    content = " ".join(text_parts)
+                if isinstance(content, str) and content.strip():
+                    ai_msgs.append(content.strip())
         
         if not human_msgs or not ai_msgs:
             return None
@@ -200,7 +218,7 @@ class ThreadManager:
                     if "kilocode" in llm_service.model_name.lower():
                         extra_args["custom_llm_provider"] = "openai"
 
-                    response = llm_service.provider_manager.execute_with_fallback(
+                    response_gen = llm_service.provider_manager.execute_with_fallback(
                         model_name=llm_service.model_name,
                         messages=[{"role": "user", "content": prompt}],
                         stream=False,
@@ -211,6 +229,7 @@ class ThreadManager:
                         headers=getattr(llm_service, "headers", None),
                         **extra_args
                     )
+                    response = next(response_gen)
                 else:
                     from litellm import completion
                     api_key = getattr(llm_service, "api_key", None)

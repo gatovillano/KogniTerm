@@ -504,7 +504,7 @@ class CLIHandler:
             # Usar el adaptador de agent_skills existente
             import sys
             from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
+            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent-skills-adapter" / "scripts"))
             from tool import install_skill_pack_from_repo
 
             result = install_skill_pack_from_repo(
@@ -543,7 +543,7 @@ class CLIHandler:
         try:
             import sys
             from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
+            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent-skills-adapter" / "scripts"))
             from tool import search_skills_catalog
 
             result = search_skills_catalog(query=query, limit=10)
@@ -578,7 +578,7 @@ class CLIHandler:
         try:
             import sys
             from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent_skills_adapter" / "scripts"))
+            sys.path.insert(0, str(Path(__file__).parent.parent / "skills" / "bundled" / "agent-skills-adapter" / "scripts"))
             from tool import list_available_external_skills
 
             result = list_available_external_skills()

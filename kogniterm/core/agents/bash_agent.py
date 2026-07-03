@@ -1212,14 +1212,24 @@ CONVERSACIÓN:
 APRENDIZAJE:"""
 
     try:
-        from litellm import completion
-        response = completion(
-            model=llm_service.model_name,
-            messages=[{"role": "user", "content": learning_prompt}],
-            api_key=llm_service.api_key,
-            max_tokens=100,
-            temperature=0.3
-        )
+        if hasattr(llm_service, "use_multi_provider") and llm_service.use_multi_provider and getattr(llm_service, "provider_manager", None):
+            response_gen = llm_service.provider_manager.execute(
+                model_name=llm_service.model_name,
+                messages=[{"role": "user", "content": learning_prompt}],
+                stream=False,
+                temperature=0.3,
+                max_tokens=100
+            )
+            response = next(response_gen)
+        else:
+            from litellm import completion
+            response = completion(
+                model=llm_service.model_name,
+                messages=[{"role": "user", "content": learning_prompt}],
+                api_key=llm_service.api_key,
+                max_tokens=100,
+                temperature=0.3
+            )
         learned_text = response.choices[0].message.content.strip()
 
         if "NADA" not in learned_text.upper() and len(learned_text) > 8:
@@ -1245,7 +1255,8 @@ APRENDIZAJE:"""
                 if terminal_ui:
                     from kogniterm.terminal.themes import Icons
                     terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]", style="cyan")
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error en el nodo de aprendizaje del agente: {e}", exc_info=True)
         pass # Aprendizaje silencioso, no debe interrumpir el flujo principal
 
     return state

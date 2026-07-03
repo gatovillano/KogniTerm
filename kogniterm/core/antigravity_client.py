@@ -810,20 +810,26 @@ class AntigravityClient:
                         tc_dict["thought_signature"] = thought_sig
                     tool_calls.append(tc_dict)
 
-            choice = {
-                "message": {
-                    "role": "assistant",
-                    "content": text if text else None
-                },
-                "finish_reason": finish_reason
-            }
+            choice_ns = SimpleNamespace(
+                message=SimpleNamespace(
+                    role="assistant",
+                    content=text if text else None
+                ),
+                finish_reason=finish_reason
+            )
             if reasoning_text:
-                choice["message"]["reasoning_content"] = reasoning_text
+                choice_ns.message.reasoning_content = reasoning_text
             if tool_calls:
-                choice["message"]["tool_calls"] = tool_calls
+                choice_ns.message.tool_calls = [
+                    SimpleNamespace(
+                        id=tc.get("id"),
+                        type=tc.get("type"),
+                        function=SimpleNamespace(**tc.get("function"))
+                    ) if isinstance(tc, dict) else tc for tc in tool_calls
+                ]
 
             response_obj = {
-                "choices": [choice],
+                "choices": [choice_ns],
                 "model": model
             }
             return SimpleNamespace(**response_obj)

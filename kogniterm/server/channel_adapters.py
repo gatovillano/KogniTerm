@@ -546,10 +546,10 @@ class TelegramAdapter(ChannelAdapter):
 
     async def _handle_callback_query(self, update, context):
         query = update.callback_query
-        await query.answer()
         
         data = query.data
         if not data or ":" not in data:
+            await query.answer()
             return
             
         action, request_id = data.split(":", 1)
@@ -561,17 +561,26 @@ class TelegramAdapter(ChannelAdapter):
             session_id = f"telegram_{chat_id}"
             
         session = pool.get(session_id)
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
         if session:
             session.ui.handle_approval_response(request_id, approved)
+            await query.answer(text="✅ Aprobado" if approved else "❌ Denegado")
             
-            # Actualizar el mensaje de Telegram para remover los botones e indicar la decisión
-            status_text = "🟢 <b>Aprobado</b>" if approved else "🔴 <b>Denegado</b>"
-            orig_text = query.message.text_html
-            new_text = f"{orig_text}\n\n{status_text}"
+            # Actualizar el mensaje de Telegram para remover los botones e indicar la decisión en los botones
+            status_text = "🟢 Aprobado" if approved else "🔴 Denegado"
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(status_text, callback_data="none")]])
             try:
-                await query.edit_message_text(text=new_text, parse_mode='HTML', reply_markup=None)
+                await query.edit_message_reply_markup(reply_markup=reply_markup)
             except Exception as e:
-                logger.warning(f"No se pudo actualizar el mensaje de aprobación en Telegram: {e}")
+                logger.warning(f"No se pudo actualizar el markup de aprobación en Telegram: {e}")
+        else:
+            await query.answer(text="⚠️ Sesión expirada o inactiva")
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Sesión expirada", callback_data="none")]])
+            try:
+                await query.edit_message_reply_markup(reply_markup=reply_markup)
+            except Exception as e:
+                logger.warning(f"No se pudo actualizar el markup de expiración en Telegram: {e}")
 
     async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         import logging

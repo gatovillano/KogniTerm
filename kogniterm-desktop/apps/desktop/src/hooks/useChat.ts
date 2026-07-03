@@ -15,14 +15,25 @@ export function useChat(threadId: string | null) {
     const socketRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
-        if (!threadId) return;
-        
-        if (!threadId) return;
+        let active = true;
         
         setMessages([]); // Clear on switch
         setTaskPlans({}); // Clear task plans on switch
         setTerminalEntries([]); // Clear terminal on switch
         setPendingApproval(null); // Clear pending approvals
+
+        // Fetch thread messages from API
+        fetch(`http://127.0.0.1:8765/api/threads/${threadId}/messages`)
+            .then(res => {
+                if (res.ok) return res.json();
+                return { messages: [] };
+            })
+            .then(data => {
+                if (active && data.messages && data.messages.length > 0) {
+                    setMessages(data.messages);
+                }
+            })
+            .catch(err => console.error("Error loading messages:", err));
 
         const wsUrl = `ws://127.0.0.1:8765/ws/${threadId}`;
         const ws = new WebSocket(wsUrl);
@@ -239,6 +250,7 @@ export function useChat(threadId: string | null) {
         };
 
         return () => {
+            active = false;
             ws.close();
         };
     }, [threadId]);
