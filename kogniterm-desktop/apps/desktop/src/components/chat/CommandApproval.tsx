@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ShieldCheck, X, Check, Terminal, FileCode } from 'lucide-react';
+import { X, Check, Terminal, FileCode } from 'lucide-react';
 
 export interface ApprovalRequest {
     id: string;

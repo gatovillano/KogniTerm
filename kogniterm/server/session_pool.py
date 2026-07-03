@@ -159,7 +159,10 @@ class ServerUI(TerminalUI):
         )
         self._loop = loop
         self.session_id = session_id
-        # Cola asyncio — los consumidores (WS / SSE) la leen desde el loop principal
+        # Sistema de Broadcast: Múltiples colas activas
+        self._queues = []
+        self._queues_lock = threading.Lock()
+        # Cola legacy para compatibilidad
         self._async_queue: asyncio.Queue = asyncio.Queue()
         self.is_tui = True  # El agente usa rutas de "rich output"
         self.telegram_adapters = []
@@ -183,6 +186,12 @@ class ServerUI(TerminalUI):
         if agent_id:
             event["agent_id"] = agent_id
         try:
+            # Broadcast a todas las colas activas
+            with self._queues_lock:
+                for q in self._queues:
+                    self._loop.call_soon_threadsafe(q.put_nowait, event)
+
+            # Backwards compatibility: push a la cola legacy
             self._loop.call_soon_threadsafe(self._async_queue.put_nowait, event)
 
             # Broadcast a Telegram si es un mensaje de texto (solo agente principal)
@@ -441,11 +450,19 @@ class ServerUI(TerminalUI):
     # ── Consumer API ───────────────────────────────────────────────────────────
 
     async def events(self) -> AsyncIterator[dict]:
-        """Generador asíncrono: yield de eventos mientras la sesión está activa."""
-        while True:
-            event = await self._async_queue.get()
-            yield event
-            self._async_queue.task_done()
+        """Generador asíncrono: yield de eventos registrando una cola de broadcast por consumidor."""
+        q = asyncio.Queue()
+        with self._queues_lock:
+            self._queues.append(q)
+        try:
+            while True:
+                event = await q.get()
+                yield event
+                q.task_done()
+        finally:
+            with self._queues_lock:
+                if q in self._queues:
+                    self._queues.remove(q)
 
 
 # ── Sesión individual ──────────────────────────────────────────────────────────
@@ -594,6 +611,11 @@ class AgentSession:
         """
         async with self._agent_lock:
             self.last_activity = datetime.utcnow()
+            if self.is_running:
+                self._pending_messages.append(message)
+                self.interrupt()
+                return
+
             self.is_running = True
 
             # 1. Manejo de Meta-comandos en el Servidor
@@ -673,11 +695,6 @@ class AgentSession:
             if processed:
                 self.ui._push("done", {"session_id": self.session_id})
                 self.is_running = False
-                return
-
-            if self.is_running:
-                self._pending_messages.append(message)
-                self.interrupt()
                 return
 
             # 2. Flujo normal de agente

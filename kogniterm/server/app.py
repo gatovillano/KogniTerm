@@ -25,10 +25,10 @@ import os
 import shlex
 import uuid
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional, List
+from typing import AsyncIterator, Optional, List, Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -112,6 +112,16 @@ class ChatMessageRequest(BaseModel):
     workspace_id: Optional[str] = None
     session_id: Optional[str] = None
     thread_id: Optional[str] = None
+
+
+class SetConfigRequest(BaseModel):
+    key: str
+    value: Any
+    scope: str = "project"  # "project" o "global"
+
+
+class TelegramDetectRequest(BaseModel):
+    token: str
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
@@ -268,6 +278,21 @@ def create_app() -> FastAPI:
         anthropic_models = ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229"]
         ollama_models = ["ollama/llama3", "ollama/mistral"]
         kilocode_models = ["kilocode/kilo/auto", "kilocode/openai/gpt-4o"]
+        ollama_cloud_models = [
+            "ollama_cloud/llama3:70b",
+            "ollama_cloud/llama3:8b",
+            "ollama_cloud/mistral",
+            "ollama_cloud/mixtral",
+            "ollama_cloud/codellama",
+        ]
+        antigravity_models = [
+            "antigravity/gemini-3-flash",
+            "antigravity/gemini-3-pro",
+            "antigravity/gemini-2.5-flash",
+            "antigravity/gemini-2.5-pro",
+            "antigravity/gemini-1.5-pro",
+            "antigravity/gemini-1.5-flash",
+        ]
 
         async def fetch_google():
             nonlocal google_models
@@ -422,6 +447,50 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+        async def fetch_ollama_cloud():
+            nonlocal ollama_cloud_models
+            ollama_cloud_key = cm.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY")
+            ollama_cloud_base = os.environ.get("OLLAMA_CLOUD_API_BASE") or "https://ollama.com/v1"
+            if not ollama_cloud_key:
+                return
+            try:
+                async with httpx.AsyncClient() as client:
+                    headers = {"Authorization": f"Bearer {ollama_cloud_key}"}
+                    resp = await client.get(f"{ollama_cloud_base}/models", headers=headers, timeout=2.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        model_list = data if isinstance(data, list) else data.get("data", data.get("models", []))
+                        for m in model_list:
+                            m_id = m.get("id", m.get("name", ""))
+                            if m_id:
+                                if not m_id.startswith("ollama_cloud/"):
+                                    m_id = f"ollama_cloud/{m_id}"
+                                fetched.append(m_id)
+                        if fetched:
+                            ollama_cloud_models = fetched
+            except Exception:
+                pass
+
+        async def fetch_antigravity():
+            nonlocal antigravity_models
+            try:
+                from kogniterm.core.antigravity_client import AntigravityClient
+                loop = asyncio.get_event_loop()
+                models_tuples = await loop.run_in_executor(
+                    None, AntigravityClient.fetch_available_models
+                )
+                if models_tuples:
+                    fetched = []
+                    for model_id, label in models_tuples:
+                        if not model_id.startswith("antigravity/"):
+                            model_id = f"antigravity/{model_id}"
+                        fetched.append(model_id)
+                    if fetched:
+                        antigravity_models = fetched
+            except Exception:
+                pass
+
         # Ejecutar todas las consultas en paralelo
         await asyncio.gather(
             fetch_google(),
@@ -430,6 +499,8 @@ def create_app() -> FastAPI:
             fetch_anthropic(),
             fetch_ollama(),
             fetch_kilocode(),
+            fetch_ollama_cloud(),
+            fetch_antigravity(),
             return_exceptions=True,
         )
 
@@ -440,6 +511,8 @@ def create_app() -> FastAPI:
                 {"id": "openai", "name": "OpenAI", "models": openai_models},
                 {"id": "anthropic", "name": "Anthropic", "models": anthropic_models},
                 {"id": "ollama", "name": "Ollama Local", "models": ollama_models},
+                {"id": "ollama_cloud", "name": "Ollama Cloud", "models": ollama_cloud_models},
+                {"id": "antigravity", "name": "Google Antigravity", "models": antigravity_models},
                 {
                     "id": "kilocode",
                     "name": "KiloCode Gateway",
@@ -533,6 +606,125 @@ def create_app() -> FastAPI:
             "model": req.model,
             "provider": req.provider or "inferred/ignored",
         }
+
+    # ── Gestión de Configuración (Adicionales) ──────────────────────────────
+
+    @application.get("/api/config/all", tags=["Configuración"])
+    async def get_all_config():
+        """Obtiene la configuración global, de proyecto y combinada."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        global_conf = cm.load_global_config()
+        project_conf = cm.load_project_config()
+        merged_conf = cm.get_all_config()
+        
+        def mask_dict(d):
+            res = {}
+            for k, v in d.items():
+                if any(s in k.lower() for s in ("key", "token", "secret")):
+                    if v and len(str(v)) > 8:
+                        res[k] = f"{str(v)[:4]}...{str(v)[-4:]}"
+                    elif v:
+                        res[k] = "********"
+                    else:
+                        res[k] = ""
+                else:
+                    res[k] = v
+            return res
+            
+        return {
+            "global": mask_dict(global_conf),
+            "project": mask_dict(project_conf),
+            "merged": mask_dict(merged_conf),
+            "has_keys": {
+                k: bool(v) for k, v in merged_conf.items() if any(s in k.lower() for s in ("key", "token", "secret"))
+            }
+        }
+
+    @application.post("/api/config/set", tags=["Configuración"])
+    async def set_config_value(req: SetConfigRequest = Body(...)):
+        """Establece una variable de configuración en ámbito global o proyecto."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        
+        if req.scope == "global":
+            cm.set_global_config(req.key, req.value)
+        else:
+            cm.set_project_config(req.key, req.value)
+            
+        # Si cambia algo del LLM o modelo por defecto, recargar el servicio en el pool
+        if req.key in ("default_model", "reasoning_effort") or req.key.startswith("api_key_"):
+            if pool._llm_service:
+                pool._llm_service.reload_config()
+                
+        return {"status": "ok", "key": req.key, "scope": req.scope}
+
+    @application.post("/api/config/telegram/detect-chat-id", tags=["Configuración"])
+    async def detect_telegram_chat_id(req: TelegramDetectRequest):
+        """Busca el primer chat_id privado que interactúa con el bot en un timeout corto."""
+        from kogniterm.terminal.telegram_chatid_helper import get_first_private_chat_id
+        # Hacemos una llamada rápida con timeout de 15 segundos
+        loop = asyncio.get_event_loop()
+        chat_id = await loop.run_in_executor(
+            None, get_first_private_chat_id, req.token, 15
+        )
+        return {"chat_id": chat_id}
+
+    @application.get("/api/skills", tags=["Skills"])
+    async def get_skills():
+        """Lista todas las skills registradas clasificadas por su ámbito."""
+        await pool.wait_until_ready()
+        if not pool._llm_service or not pool._llm_service.skill_manager:
+            return {"skills": []}
+            
+        sm = pool._llm_service.skill_manager
+        try:
+            sm.discover_all_skills()
+        except Exception as e:
+            logger.error(f"Error descubriendo skills: {e}")
+            
+        result = []
+        for name, skill in sm.skills.items():
+            path_str = str(skill.path.resolve())
+            
+            # bundled (por defecto)
+            if hasattr(sm, 'bundled_path') and sm.bundled_path and (path_str.startswith(str(sm.bundled_path.resolve())) or (hasattr(sm, 'legacy_bundled_path') and sm.legacy_bundled_path and path_str.startswith(str(sm.legacy_bundled_path.resolve())))):
+                scope = "default"
+            # managed (creadas por el agente)
+            elif hasattr(sm, 'managed_path') and sm.managed_path and path_str.startswith(str(sm.managed_path.resolve())):
+                scope = "agent"
+            # global (globales)
+            elif (hasattr(sm, 'global_skills_path') and sm.global_skills_path and path_str.startswith(str(sm.global_skills_path.resolve()))) or (hasattr(sm, 'user_skills_path') and sm.user_skills_path and path_str.startswith(str(sm.user_skills_path.resolve()))):
+                scope = "global"
+            # workspace (del proyecto)
+            elif (hasattr(sm, 'workspace_path') and sm.workspace_path and path_str.startswith(str(sm.workspace_path.resolve()))) or (hasattr(sm, 'legacy_workspace_path') and sm.legacy_workspace_path and path_str.startswith(str(sm.legacy_workspace_path.resolve()))):
+                scope = "workspace"
+            else:
+                scope = "external"
+                
+            tools = []
+            for tool in skill.tools:
+                tools.append({
+                    "name": getattr(tool, 'name', tool.__class__.__name__),
+                    "description": getattr(tool, 'description', '')
+                })
+                
+            result.append({
+                "name": skill.name,
+                "version": skill.version,
+                "author": skill.author,
+                "description": skill.description,
+                "category": skill.category,
+                "scope": scope,
+                "path": path_str,
+                "security_level": skill.security_level,
+                "tags": skill.tags,
+                "dependencies": skill.dependencies,
+                "tools": tools,
+                "loaded": skill.loaded
+            })
+            
+        return {"skills": result}
 
     # ── Utilidades Desktop (Ejecución y Archivos) ─────────────────────────────
 
@@ -749,6 +941,69 @@ def create_app() -> FastAPI:
             if success:
                 return {"status": "ok", "thread_id": thread_id, "title": req.title}
         raise HTTPException(status_code=404, detail="Hilo no encontrado")
+
+    def message_to_frontend_dict(msg, index: int) -> dict:
+        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+        from datetime import datetime
+        
+        role = "system"
+        if isinstance(msg, HumanMessage) or (hasattr(msg, "type") and msg.type == "human"):
+            role = "user"
+        elif isinstance(msg, AIMessage) or (hasattr(msg, "type") and msg.type == "ai"):
+            role = "assistant"
+        elif isinstance(msg, SystemMessage) or (hasattr(msg, "type") and msg.type == "system"):
+            role = "system"
+        elif isinstance(msg, ToolMessage) or (hasattr(msg, "type") and msg.type == "tool"):
+            role = "tool"
+            
+        content = msg.content if msg.content is not None else ""
+        if isinstance(content, list):
+            text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
+            content = " ".join(text_parts)
+            
+        reasoning = ""
+        tool_calls = []
+        tool_call_id = None
+        
+        # Extraer tool_calls si es AIMessage
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                tool_calls.append({
+                    "id": tc.get("id") or str(index),
+                    "name": tc.get("name") or "Unknown Tool",
+                    "args": tc.get("args") or {}
+                })
+                
+        # Extraer tool_call_id si es ToolMessage
+        if hasattr(msg, "tool_call_id") and msg.tool_call_id:
+            tool_call_id = msg.tool_call_id
+            
+        # Buscar razonamiento en additional_kwargs
+        if hasattr(msg, "additional_kwargs") and msg.additional_kwargs:
+            reasoning = msg.additional_kwargs.get("reasoning_content") or msg.additional_kwargs.get("thought") or ""
+            
+        return {
+            "id": f"loaded-{index}",
+            "role": role,
+            "content": content,
+            "reasoning": reasoning,
+            "tool_calls": tool_calls,
+            "tool_call_id": tool_call_id,
+            "timestamp": int(datetime.utcnow().timestamp() * 1000)
+        }
+
+    @application.get("/api/threads/{thread_id}/messages", tags=["Threads"])
+    async def get_thread_messages(thread_id: str):
+        """Obtiene los mensajes de un hilo de chat en formato compatible con el frontend."""
+        await pool.wait_until_ready()
+        if pool._thread_manager:
+            messages = pool._thread_manager.load_thread_messages(thread_id)
+            if messages is not None:
+                frontend_messages = []
+                for i, msg in enumerate(messages):
+                    frontend_messages.append(message_to_frontend_dict(msg, i))
+                return {"messages": frontend_messages}
+        return {"messages": []}
 
     @application.post("/api/chat/message", tags=["Chat"])
     async def chat_message_compat(req: ChatMessageRequest):

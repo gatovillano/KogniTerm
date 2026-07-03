@@ -8,7 +8,7 @@ def test_telegram_config_wizard_saves_channel(tmp_path, monkeypatch):
     from kogniterm.terminal.cli import CLIHandler
 
     handler = CLIHandler()
-    input_values = iter(["telegram_ops", "y", "y"])
+    input_values = iter(["telegram_ops", "y", "y", "y"])
     secret_values = iter(["123456:ABCDEF"])
 
     handler.handle_telegram_config(
@@ -20,7 +20,7 @@ def test_telegram_config_wizard_saves_channel(tmp_path, monkeypatch):
 
     server_config_module = importlib.import_module("kogniterm.server.config")
     manager = server_config_module.ServerConfigManager()
-    telegram_channels = [channel for channel in manager.settings.channels if channel.type == "telegram"]
+    telegram_channels = [channel for channel in manager.settings.channels if channel.type == "telegram_bot"]
 
     assert len(telegram_channels) == 1
     assert telegram_channels[0].name == "telegram_ops"

@@ -136,8 +136,9 @@ def test_multi_provider_manager_routing(mock_completion):
     
     manager = MultiProviderManager()
     
-    # Mock is_logged_in to bypass checks
-    with patch.object(AntigravityClient, "is_logged_in", return_value=True):
+    # Mock is_logged_in and oauth token existence checks to bypass checks
+    with patch.object(AntigravityClient, "is_logged_in", return_value=True), \
+         patch("os.path.exists", side_effect=lambda path: True if "antigravity-oauth-token" in path else os.path.exists(path)):
         res = manager.execute(
             model_name="antigravity/gemini-3-flash",
             messages=[{"role": "user", "content": "Test"}],
