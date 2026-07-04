@@ -16,6 +16,12 @@ El método oficial y recomendado para instalar **KogniTerm** de forma global y m
 curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh | bash
 ```
 
+> [!IMPORTANT]
+> Si utilizas un shell no estándar (como `fish`) o tu entorno de terminal arroja el error `curl: (23) Failure writing output to destination`, descarga y ejecuta el instalador de forma directa con este comando:
+> ```bash
+> curl -fsSL -O https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh && bash install.sh && rm install.sh
+> ```
+
 Este script automatizado:
 1. Descargará los últimos cambios oficiales de GitHub.
 2. Configurarará un entorno virtual de Python aislado en `~/.kogniterm/venv`.
