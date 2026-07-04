@@ -26,7 +26,18 @@ GITHUB_REPO_URL="https://github.com/gatovillano/KogniTerm.git"
 
 # Limpiar pantalla y asegurar interactividad desde pipes (ej. curl | bash)
 clear
-exec < /dev/tty
+
+if [ ! -t 0 ]; then
+    # stdin no es una tty (es una tubería)
+    if [ -t 1 ] && [ -c /dev/tty ] && [ -r /dev/tty ]; then
+        exec < /dev/tty
+    else
+        echo -e "${RED}❌ Error: No se puede iniciar la instalación interactiva a través de una tubería en este entorno.${RESET}"
+        echo -e "Por favor, descarga y ejecuta el script directamente:"
+        echo -e "  ${BOLD}curl -fsSL -O https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh && bash install.sh${RESET}"
+        exit 1
+    fi
+fi
 
 print_banner() {
     echo -e "${CYAN}${BOLD}"
