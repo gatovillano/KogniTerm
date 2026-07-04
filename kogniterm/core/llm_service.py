@@ -1008,6 +1008,11 @@ class LLMService:
         # LiteLLM, api_key, api_base, headers, y el proveedor preferido.
         self.set_model(new_model)
 
+        # Recargar esfuerzo de razonamiento
+        effort = cm.get_config("reasoning_effort") or os.environ.get("KOGNITERM_REASONING_EFFORT")
+        if effort:
+            self.generation_params["reasoning_effort"] = effort
+
     def invoke(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True, include_tools: bool = True) -> Generator[Union[AIMessage, str], None, None]:
         """
         Invoca al modelo LLM con el historial proporcionado.

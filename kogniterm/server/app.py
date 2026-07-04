@@ -568,9 +568,22 @@ def create_app() -> FastAPI:
 
         cm = ConfigManager()
 
-        # Guardar el modelo por defecto si se proporcionó
+        # Guardar el modelo por defecto si se proporcionó, o si se especificó un proveedor
         if req.model:
             cm.set_project_config("default_model", req.model)
+        elif req.provider:
+            default_models = {
+                "google": "google/gemini-1.5-flash",
+                "openai": "openai/gpt-4o",
+                "anthropic": "anthropic/claude-3-5-sonnet-20240620",
+                "openrouter": "openrouter/google/gemini-2.5-flash",
+                "ollama": "ollama/llama3",
+                "kilocode": "kilocode/kilo/auto",
+                "litellm": "google/gemini-1.5-flash",
+            }
+            new_model = default_models.get(req.provider.lower())
+            if new_model:
+                cm.set_project_config("default_model", new_model)
 
         # Guardar la API key si se proporcionó
         if req.api_key:
