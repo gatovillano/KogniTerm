@@ -431,9 +431,11 @@ class ServerUI(TerminalUI):
 
     def handle_approval_response(self, request_id: str, approved: bool) -> None:
         """Recibe la respuesta de aprobación de la TUI o canal y despierta al thread o coroutina."""
+        logger.info(f"[{self.session_id}] handle_approval_response llamado para request_id={request_id}, approved={approved}")
         with self._pending_lock:
             # 1. Despertar thread worker síncrono si está bloqueado
             if request_id in self._pending_approvals:
+                logger.info(f"[{self.session_id}] Encontrado request_id={request_id} en _pending_approvals (síncrono). Despertando thread.")
                 event, _ = self._pending_approvals[request_id]
                 self._pending_approvals[request_id] = (event, approved)
                 event.set()
@@ -441,11 +443,15 @@ class ServerUI(TerminalUI):
 
             # 2. Despertar coroutinas asíncronas
             if request_id in self._pending_approvals_async:
+                logger.info(f"[{self.session_id}] Encontrado request_id={request_id} en _pending_approvals_async (asíncrono). Despertando coroutina.")
                 event, _ = self._pending_approvals_async[request_id]
                 self._pending_approvals_async[request_id] = (event, approved)
                 # Como handle_approval_response puede ser llamado desde el loop o un thread,
                 # usamos call_soon_threadsafe para setear el asyncio.Event de forma segura.
                 self._loop.call_soon_threadsafe(event.set)
+                return
+                
+        logger.warning(f"[{self.session_id}] Advertencia: request_id={request_id} no se encontró en las aprobaciones pendientes de esta sesión.")
 
     # ── Consumer API ───────────────────────────────────────────────────────────
 

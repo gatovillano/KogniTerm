@@ -548,6 +548,7 @@ class TelegramAdapter(ChannelAdapter):
         query = update.callback_query
         
         data = query.data
+        logger.info(f"[TelegramAdapter] Callback query recibido: {data}")
         if not data or ":" not in data:
             await query.answer()
             return
@@ -557,24 +558,30 @@ class TelegramAdapter(ChannelAdapter):
         
         chat_id = update.effective_chat.id
         session_id = self._chat_sessions.get(chat_id)
+        logger.info(f"[TelegramAdapter] chat_id={chat_id}, session_id cache={session_id}")
         if not session_id:
             session_id = f"telegram_{chat_id}"
             
         session = pool.get(session_id)
+        logger.info(f"[TelegramAdapter] Sesión obtenida directamente por ID '{session_id}': {session}")
         
         # Fallback: buscar la sesión activa que tiene esta aprobación pendiente en base al request_id
         if not session:
+            logger.info(f"[TelegramAdapter] Iniciando búsqueda fallback para request_id={request_id}")
             for s in list(pool._sessions.values()):
                 with s.ui._pending_lock:
+                    logger.info(f"[TelegramAdapter] Chequeando sesión '{s.session_id}' - pending_approvals: {list(s.ui._pending_approvals.keys())} - pending_approvals_async: {list(s.ui._pending_approvals_async.keys())}")
                     if request_id in s.ui._pending_approvals or request_id in s.ui._pending_approvals_async:
                         session = s
                         # Actualizar la sesión en el mapeo para futuras interacciones
                         self._chat_sessions[chat_id] = s.session_id
+                        logger.info(f"[TelegramAdapter] ¡Sesión encontrada por fallback! Asignada session_id: {s.session_id}")
                         break
                         
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         if session:
+            logger.info(f"[TelegramAdapter] Enviando respuesta a ServerUI.handle_approval_response para request_id={request_id}")
             session.ui.handle_approval_response(request_id, approved)
             await query.answer(text="✅ Aprobado" if approved else "❌ Denegado")
             
