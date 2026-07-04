@@ -592,3 +592,31 @@ No existía un informe consolidado de la arquitectura del proyecto KogniTerm ni 
 - [App.tsx](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm-desktop/apps/desktop/src/App.tsx)
 - [Cambios.md](file:///home/gato/Proyectos/Gemini-Interpreter/docs/Cambios.md)
 
+
+---
+
+## [0.6.18] - 2026-06-10
+
+### 🚀 Nueva Característica — Comando `kogniterm upgrade`
+
+#### Problema
+No existía una forma nativa de actualizar KogniTerm desde la propia aplicación. Los usuarios debían ejecutar manualmente el script `install.sh` o usar `git pull` + `pip install` en el directorio de instalación.
+
+#### Cambios Realizados
+
+**1. Comando `upgrade` integrado en CLI**
+- **Archivo:** `kogniterm/terminal/cli.py`
+- Se añadió el método `CLIHandler.handle_upgrade()` que implementa la lógica completa de actualización:
+  - **Detección automática de entorno**: Distingue entre instalación global (`~/.kogniterm`) y desarrollo local (directorio actual con `pyproject.toml`).
+  - **Preservación de cambios locales**: Si el usuario tiene modificaciones sin confirmar en el repo, se aplica `git stash` automáticamente antes de actualizar y se restaura con `git stash pop` después.
+  - **Sincronización con GitHub**: Ejecuta `git pull --no-rebase origin main` para traer los últimos cambios.
+  - **Actualización del entorno virtual**: Reinstala el paquete en modo editable (`pip install -e .`) dentro del `venv` detectado.
+  - **Validaciones previas**: Verifica disponibilidad de `git` y existencia del repositorio antes de proceder.
+- Se registró el subcomando `upgrade` en `run_cli()` para que sea ejecutable como `kogniterm upgrade`.
+
+**2. Documentación**
+- Se actualizó el registro de cambios con esta entrada en `docs/Cambios.md`.
+
+#### Archivos Modificados
+- [cli.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/cli.py)
+- [Cambios.md](file:///home/gato/Proyectos/Gemini-Interpreter/docs/Cambios.md)

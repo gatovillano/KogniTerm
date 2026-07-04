@@ -192,7 +192,7 @@ class LLMService:
         else:
             self.provider_manager = None
         
-        self.model_name = os.environ.get("LITELLM_MODEL", default_model)
+        self.model_name = config_manager.get_config("default_model") or os.environ.get("LITELLM_MODEL", default_model)
         # Validación de seguridad: si el modelo parece una API Key de Google, corregirlo
         if self.model_name.startswith("AIza"):
             logger.warning(f"Se detectó una API Key en LITELLM_MODEL ('{self.model_name[:8]}...'). Corrigiendo a '{default_model}'.")
@@ -329,6 +329,9 @@ class LLMService:
             auto_save_interval=self.auto_save_interval
         )
         self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
+        
+        # Robust model setup to configure LiteLLM global settings and preferred provider at start
+        self.set_model(self.model_name)
         
     @property
     def current_delegation_context(self):
@@ -832,12 +835,38 @@ class LLMService:
         # Invalidar caché de herramientas
         self.litellm_tools = None
         
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        
+        # Inferir proveedor basado en el nombre del modelo
+        provider = "google"
+        model_lower = model_name.lower()
+        if "openrouter" in model_lower:
+            provider = "openrouter"
+        elif "openai" in model_lower or "gpt" in model_lower or model_lower.startswith("o1") or model_lower.startswith("o3"):
+            provider = "openai"
+        elif "anthropic" in model_lower or "claude" in model_lower:
+            provider = "anthropic"
+        elif "ollama_cloud" in model_lower:
+            provider = "ollama_cloud"
+        elif "ollama" in model_lower:
+            provider = "ollama"
+        elif "kilocode" in model_lower:
+            provider = "kilocode"
+        elif "antigravity" in model_lower:
+            provider = "antigravity"
+        
+        # Actualizar proveedor preferido en MultiProviderManager
+        from kogniterm.core.multi_provider_manager import set_preferred_provider
+        set_preferred_provider(provider)
+        
         # Lógica de configuración específica por proveedor
-        if model_name.startswith("openrouter/"):
-            key = os.environ.get("OPENROUTER_API_KEY")
+        if provider == "openrouter":
+            key = cm.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
             if key:
                 self.api_key = key
                 os.environ["LITELLM_API_KEY"] = key
+                os.environ["OPENROUTER_API_KEY"] = key
             
             litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://openrouter.ai/api/v1"
             litellm.headers = {
@@ -846,27 +875,68 @@ class LLMService:
             }
             logger.info(f"🌐 Cambiado a OpenRouter: {model_name}")
             
-        elif model_name.startswith("gemini/"):
-            key = os.environ.get("GOOGLE_API_KEY")
+        elif provider == "google":
+            key = cm.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
             if key:
                 self.api_key = key
                 os.environ["LITELLM_API_KEY"] = key
                 os.environ["GEMINI_API_KEY"] = key
+                os.environ["GOOGLE_API_KEY"] = key
             
             litellm.api_base = None  # Crucial para que no intente usar OpenRouter
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a Google Nativo: {model_name}")
             
-        elif model_name.startswith("ollama/"):
+        elif provider == "openai":
+            key = cm.get_api_key("openai") or os.environ.get("OPENAI_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+                os.environ["OPENAI_API_KEY"] = key
+            
+            litellm.api_base = os.environ.get("LITELLM_API_BASE")
+            litellm.headers = {}
+            logger.info(f"🤖 Cambiado a OpenAI: {model_name}")
+
+        elif provider == "anthropic":
+            key = cm.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+                os.environ["ANTHROPIC_API_KEY"] = key
+            
+            litellm.api_base = os.environ.get("LITELLM_API_BASE")
+            litellm.headers = {}
+            logger.info(f"🤖 Cambiado a Anthropic: {model_name}")
+
+        elif provider == "kilocode":
+            key = cm.get_api_key("kilocode") or os.environ.get("KILOCODE_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+                os.environ["KILOCODE_API_KEY"] = key
+            
+            litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
+            litellm.headers = {}
+            logger.info(f"🤖 Cambiado a KiloCode: {model_name}")
+
+        elif provider == "antigravity":
+            self.api_key = "antigravity-session-token"
+            os.environ["LITELLM_API_KEY"] = self.api_key
+            litellm.api_base = None
+            litellm.headers = {}
+            logger.info(f"🚀 Cambiado a Antigravity: {model_name}")
+            
+        elif provider in ("ollama", "ollama_cloud"):
             # Configuración robusta para Ollama Local y Cloud
             api_base_local = os.environ.get("OLLAMA_API_BASE")
-            api_key_cloud = os.environ.get("OLLAMA_CLOUD_API_KEY")
-            api_key_local = os.environ.get("OLLAMA_API_KEY")
+            api_key_cloud = cm.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY")
+            api_key_local = cm.get_api_key("ollama") or os.environ.get("OLLAMA_API_KEY")
             target = (os.environ.get("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
 
             # Decidir si usar modo Cloud
             use_cloud = False
-            if target in ["cloud", "ollama_cloud"]:
+            if target in ["cloud", "ollama_cloud"] or provider == "ollama_cloud":
                 use_cloud = True
             elif target in ["local", "ollama"]:
                 use_cloud = False
@@ -934,37 +1004,9 @@ class LLMService:
             logger.warning(f"Se detectó una API Key en LITELLM_MODEL. Corrigiendo a '{default_model}'.")
             new_model = default_model
         
-        self.model_name = new_model
-        self.summary_model = self.model_name
-        
-        # Recargar API Key
-        if self.model_name.startswith("gemini/"):
-            self.api_key = cm.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
-        elif self.model_name.startswith("openrouter/"):
-            self.api_key = cm.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("LITELLM_API_KEY")
-        elif self.model_name.startswith("openai/"):
-            self.api_key = cm.get_api_key("openai") or os.environ.get("OPENAI_API_KEY") or os.environ.get("LITELLM_API_KEY")
-        elif self.model_name.startswith("anthropic/"):
-            self.api_key = cm.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LITELLM_API_KEY")
-        elif self.model_name.startswith("ollama_cloud/"):
-            self.api_key = cm.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY") or os.environ.get("LITELLM_API_KEY")
-        else:
-            # Fallback
-            self.api_key = (
-                cm.get_api_key("openrouter")
-                or cm.get_api_key("google")
-                or cm.get_api_key("openai")
-                or cm.get_api_key("anthropic")
-                or cm.get_api_key("ollama_cloud")
-                or os.environ.get("LITELLM_API_KEY")
-                or os.environ.get("OPENROUTER_API_KEY")
-                or os.environ.get("GOOGLE_API_KEY")
-                or os.environ.get("OPENAI_API_KEY")
-                or os.environ.get("ANTHROPIC_API_KEY")
-                or os.environ.get("OLLAMA_CLOUD_API_KEY")
-            )
-        
-        logger.info(f"LLMService: Configuración recargada. Nuevo modelo: {self.model_name}")
+        # Cambiar el modelo de manera robusta usando set_model, lo cual actualiza
+        # LiteLLM, api_key, api_base, headers, y el proveedor preferido.
+        self.set_model(new_model)
 
     def invoke(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True, include_tools: bool = True) -> Generator[Union[AIMessage, str], None, None]:
         """
