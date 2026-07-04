@@ -87,12 +87,12 @@
         <div class="hero-code-bar">
           <span class="hero-code-lang">bash</span>
           <button class="copy-btn" id="hero-copy-btn"
-            data-copy='bash -c "$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"'>
+            data-copy="curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh | bash">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             Copiar
           </button>
         </div>
-        <pre class="hero-code-content"><span class="sh-cmd">bash</span> <span class="sh-flag">-c</span> <span class="sh-str">"$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"</span></pre>
+        <pre class="hero-code-content"><span class="sh-cmd">curl</span> <span class="sh-flag">-fsSL</span> https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh | <span class="sh-cmd">bash</span></pre>
       </div>
 
       <div class="hero-stats">
@@ -278,12 +278,12 @@
         <div class="code-block">
           <div class="code-bar">
             <span class="code-lang">bash</span>
-            <button class="copy-btn" data-copy='bash -c "$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"' id="copy-script">
+            <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh | bash" id="copy-script">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               Copiar
             </button>
           </div>
-          <pre class="code-content"><span class="sh-cmd">bash</span> <span class="sh-flag">-c</span> <span class="sh-str">"$(curl -fsSL https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh)"</span></pre>
+          <pre class="code-content"><span class="sh-cmd">curl</span> <span class="sh-flag">-fsSL</span> https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh | <span class="sh-cmd">bash</span></pre>
         </div>
         <p class="install-note">El script instala el entorno virtual, configura tu PATH y te guía para añadir tus API keys.</p>
       </div>
