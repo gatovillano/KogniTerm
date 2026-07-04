@@ -220,8 +220,22 @@ def main():
     # Iniciar la aplicación TUI
     try:
         asyncio.run(_main_async())
-    except (RuntimeError, KeyboardInterrupt):
+    except KeyboardInterrupt:
         pass
+    except RuntimeError as e:
+        # Silenciar solo errores comunes del ciclo de vida de asyncio al interrumpir
+        if "loop" in str(e).lower() or "event loop" in str(e).lower():
+            pass
+        else:
+            print(f"❌ Error al iniciar KogniTerm: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error fatal al iniciar KogniTerm: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     finally:
         # Notificar al servidor que la sesión TUI cerró
         try:
