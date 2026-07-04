@@ -435,6 +435,96 @@ class CLIHandler:
         else:
             print(f"❌ Unknown keys command: {command}")
 
+    def handle_upgrade(self, args: List[str]):
+        """Handles 'upgrade' command to update KogniTerm from GitHub."""
+        import subprocess
+        import os
+        import sys
+        
+        # Determine paths
+        kogniterm_dir = os.path.expanduser("~/.kogniterm")
+        repo_dir = os.path.join(kogniterm_dir, "repo")
+        venv_dir = os.path.join(kogniterm_dir, "venv")
+        
+        # Check if we're in a local development environment
+        if os.path.exists("pyproject.toml") and os.path.isdir("kogniterm"):
+            print("📁 Detected local development environment in current directory.")
+            repo_dir = os.getcwd()
+            # Try to find venv
+            if os.path.isdir(".venv"):
+                venv_dir = os.path.join(os.getcwd(), ".venv")
+            elif os.path.isdir("venv"):
+                venv_dir = os.path.join(os.getcwd(), "venv")
+            else:
+                venv_dir = None
+        
+        # Check git command availability
+        if not shutil.which("git"):
+            print("❌ Error: 'git' is not installed on this system.")
+            return
+        
+        # Check git repository
+        git_dir = os.path.join(repo_dir, ".git")
+        if not os.path.exists(git_dir):
+            print(f"❌ Error: No git repository found at {repo_dir}")
+            print("   Please reinstall KogniTerm or run from the repository root.")
+            return
+        
+        os.chdir(repo_dir)
+        
+        # Stash local changes if any
+        stash_created = False
+        try:
+            result = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], 
+                                  capture_output=True, cwd=repo_dir)
+            if result.returncode != 0:
+                print("⚠️  Local changes detected. Stashing them temporarily...")
+                subprocess.run(["git", "stash"], check=True, cwd=repo_dir)
+                stash_created = True
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Error during git stash: {e}")
+            return
+        
+        # Pull updates
+        print("🔄 Syncing with remote repository...")
+        try:
+            subprocess.run(["git", "pull", "--no-rebase", "origin", "main"], 
+                         check=True, cwd=repo_dir)
+        except subprocess.CalledProcessError:
+            print("❌ Error during git pull.")
+            if stash_created:
+                subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+            return
+        
+        # Restore stashed changes
+        if stash_created:
+            print("📦 Restoring your local changes...")
+            subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+        
+        # Reinstall package
+        pip_cmd = None
+        if venv_dir and os.path.isdir(venv_dir):
+            if sys.platform == "win32":
+                pip_cmd = os.path.join(venv_dir, "Scripts", "pip")
+            else:
+                pip_cmd = os.path.join(venv_dir, "bin", "pip")
+        
+        if pip_cmd and os.path.exists(pip_cmd):
+            print("🔄 Updating virtual environment...")
+            install_source = repo_dir if repo_dir != os.getcwd() else "."
+            try:
+                subprocess.run([pip_cmd, "install", "-e", install_source], 
+                             check=True, cwd=repo_dir)
+            except subprocess.CalledProcessError:
+                print("❌ Error reinstalling the package.")
+                return
+        else:
+            print("⚠️  Virtual environment not found. Skipping pip install.")
+            print("   You may need to manually reinstall the package.")
+        
+        print("\n" + "="*80)
+        print("    🎉 KogniTerm has been successfully upgraded to the latest version!")
+        print("="*80 + "\n")
     def handle_skills(self, args: List[str]):
         """Handles 'skills' commands for installing/managing external skills."""
         if len(args) < 1:
@@ -720,6 +810,9 @@ def run_cli() -> bool:
         return True
     elif command == 'skills':
         handler.handle_skills(args)
+        return True
+    elif command == 'upgrade':
+        handler.handle_upgrade(args)
         return True
 
 
