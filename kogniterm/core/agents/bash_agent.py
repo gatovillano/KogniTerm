@@ -1230,7 +1230,8 @@ APRENDIZAJE:"""
                 max_tokens=100,
                 temperature=0.3
             )
-        learned_text = response.choices[0].message.content.strip()
+        content_val = response.choices[0].message.content if (response.choices and response.choices[0].message) else None
+        learned_text = content_val.strip() if content_val else "NADA"
 
         if "NADA" not in learned_text.upper() and len(learned_text) > 8:
             # Limpiar formato
