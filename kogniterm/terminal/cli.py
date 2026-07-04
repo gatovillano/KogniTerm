@@ -525,6 +525,51 @@ class CLIHandler:
         print("\n" + "="*80)
         print("    🎉 KogniTerm has been successfully upgraded to the latest version!")
         print("="*80 + "\n")
+
+    def handle_desktop(self, args: List[str]):
+        """Abre la versión desktop de KogniTerm."""
+        import subprocess
+        
+        # Determinar la ruta de kogniterm-desktop
+        kogniterm_dir = os.path.expanduser("~/.kogniterm")
+        repo_dir = os.path.join(kogniterm_dir, "repo")
+        
+        if os.path.exists("pyproject.toml") and os.path.isdir("kogniterm"):
+            repo_dir = os.getcwd()
+            
+        desktop_dir = os.path.join(repo_dir, "kogniterm-desktop")
+        
+        if not os.path.exists(desktop_dir):
+            # Buscar en el path alternativo si no está en repo_dir
+            alt_desktop_dir = os.path.expanduser("~/.kogniterm/repo/kogniterm-desktop")
+            if os.path.exists(alt_desktop_dir):
+                desktop_dir = alt_desktop_dir
+            else:
+                print(f"❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
+                print(f"   Se buscó en: {desktop_dir}")
+                print(f"   Y en: {alt_desktop_dir}")
+                return
+                
+        script_path = os.path.join(desktop_dir, "start-dev.sh")
+        if not os.path.exists(script_path):
+            print(f"❌ Error: No se encontró el script de inicio en {script_path}")
+            return
+            
+        print("🚀 Iniciando KogniTerm Desktop...")
+        # Asegurarse de que el script sea ejecutable
+        try:
+            os.chmod(script_path, 0o755)
+        except Exception:
+            pass
+            
+        try:
+            # Ejecutar el script start-dev.sh en su directorio de trabajo
+            # Usamos Popen para que corra en segundo plano y el CLI pueda retornar de inmediato
+            subprocess.Popen(["./start-dev.sh"], cwd=desktop_dir)
+            print("✨ Proceso de inicio lanzado en segundo plano.")
+        except Exception as e:
+            print(f"❌ Error al iniciar KogniTerm Desktop: {e}")
+
     def handle_skills(self, args: List[str]):
         """Handles 'skills' commands for installing/managing external skills."""
         if len(args) < 1:
@@ -813,6 +858,9 @@ def run_cli() -> bool:
         return True
     elif command == 'upgrade':
         handler.handle_upgrade(args)
+        return True
+    elif command == 'desktop':
+        handler.handle_desktop(args)
         return True
 
 
