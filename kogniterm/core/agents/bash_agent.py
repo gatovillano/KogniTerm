@@ -1274,10 +1274,10 @@ def should_continue(state: AgentState) -> str:
     
     # Si hay una herramienta o comando pendiente de confirmación, siempre terminamos el grafo aquí
     # para que la terminal o la UI puedan manejar la interacción.
-    if (state.command_to_confirm or 
-        state.file_update_diff_pending_confirmation or 
-        state.tool_pending_confirmation or 
-        state.tool_code_to_confirm):
+    if (state.command_to_confirm is not None or 
+        state.file_update_diff_pending_confirmation is not None or 
+        state.tool_pending_confirmation is not None or 
+        state.tool_code_to_confirm is not None):
         return END
 
     # Si el último mensaje del AI tiene tool_calls, ejecutar herramientas

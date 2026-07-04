@@ -1560,7 +1560,10 @@ class LLMService:
                             
                             # Acumular los argumentos asegurando que son strings
                             if getattr(tc.function, 'arguments', None) is not None:
-                                tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
+                                if "antigravity" in self.model_name.lower():
+                                    tool_calls[idx]["function"]["arguments"] = str(tc.function.arguments)
+                                else:
+                                    tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
 
 
             if self.stop_generation_flag:
@@ -1654,7 +1657,10 @@ class LLMService:
                                             if getattr(tc.function, 'name', None) is not None and tc.function.name:
                                                 tool_calls[idx]["function"]["name"] = tc.function.name
                                             if getattr(tc.function, 'arguments', None) is not None:
-                                                tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
+                                                if "antigravity" in self.model_name.lower():
+                                                    tool_calls[idx]["function"]["arguments"] = str(tc.function.arguments)
+                                                else:
+                                                    tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
 
                             # Si la continuación ya no termina por límite de tokens, salir del bucle de reintentos
                             if not (last_finish_reason and any(k in str(last_finish_reason).lower() for k in ("length","max","token"))):
@@ -1863,7 +1869,10 @@ class LLMService:
                                 if getattr(tc.function, 'name', None) is not None:
                                     tool_calls[tc.index]["function"]["name"] = tc.function.name
                                     if getattr(tc.function, 'arguments', None) is not None:
-                                        tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                                        if "antigravity" in self.model_name.lower():
+                                            tool_calls[tc.index]["function"]["arguments"] = tc.function.arguments
+                                        else:
+                                            tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
                     
                     # Procesar respuesta final del fallback
                     if self.stop_generation_flag:
@@ -1978,7 +1987,10 @@ class LLMService:
                                         if getattr(tc.function, 'name', None) is not None:
                                             tool_calls[tc.index]["function"]["name"] = tc.function.name
                                             if getattr(tc.function, 'arguments', None) is not None:
-                                                tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                                                if "antigravity" in self.model_name.lower():
+                                                    tool_calls[tc.index]["function"]["arguments"] = tc.function.arguments
+                                                else:
+                                                    tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
                             
                             # Procesar respuesta final del fallback ultra-minimalista
                             if self.stop_generation_flag:

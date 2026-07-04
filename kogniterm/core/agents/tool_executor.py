@@ -286,8 +286,8 @@ def should_continue(state: AgentState) -> str:
         return END
     if (
         state.critical_loop_detected
-        or state.command_to_confirm
-        or state.file_update_diff_pending_confirmation
+        or state.command_to_confirm is not None
+        or state.file_update_diff_pending_confirmation is not None
     ):
         return END
     last_message = state.messages[-1]

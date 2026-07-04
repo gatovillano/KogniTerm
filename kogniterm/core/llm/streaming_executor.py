@@ -95,7 +95,11 @@ class StreamingExecutor:
                             if getattr(tc.function, 'name', None) is not None and tc.function.name:
                                 tool_calls[idx]["function"]["name"] = tc.function.name
                             if getattr(tc.function, 'arguments', None) is not None:
-                                tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
+                                model_name = completion_kwargs.get("model", "")
+                                if model_name and "antigravity" in str(model_name).lower():
+                                    tool_calls[idx]["function"]["arguments"] = str(tc.function.arguments)
+                                else:
+                                    tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
 
             if self.stop_generation_flag:
                 yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
