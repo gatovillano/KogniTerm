@@ -35,6 +35,8 @@ if [ ! -t 0 ]; then
         echo -e "${RED}❌ Error: No se puede iniciar la instalación interactiva a través de una tubería en este entorno.${RESET}"
         echo -e "Por favor, descarga y ejecuta el script directamente:"
         echo -e "  ${BOLD}curl -fsSL -O https://raw.githubusercontent.com/gatovillano/KogniTerm/main/install.sh && bash install.sh${RESET}"
+        # Consumir el resto de stdin para evitar curl: (23) Failure writing output
+        cat > /dev/null
         exit 1
     fi
 fi
