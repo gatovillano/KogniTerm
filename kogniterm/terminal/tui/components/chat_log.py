@@ -273,12 +273,16 @@ class ChatLogWidget(VerticalScroll):
 
         def _mount_or_update(r, terminal_flag, spinner_flag, t_name, t_command=""):
             try:
+                is_new_widget = False
+                was_at_bottom = self.scroll_y >= self.max_scroll_y - 1
+
                 if spinner_flag:
                     if self._active_message_widget is None or not isinstance(self._active_message_widget, AnimatedSpinnerWidget):
                         if self._active_message_widget:
                             self._active_message_widget.remove()
                         self._active_message_widget = AnimatedSpinnerWidget(r)
                         self.mount(self._active_message_widget)
+                        is_new_widget = True
                     else:
                         if self._active_message_widget.text != r:
                             self._active_message_widget.text = r
@@ -291,6 +295,7 @@ class ChatLogWidget(VerticalScroll):
                         
                         self._active_message_widget = ToolOutputWidget("", t_name, command=t_command)
                         self.mount(self._active_message_widget)
+                        is_new_widget = True
                     
                     # ToolOutputWidget.update_content maneja la lógica de pyte
                     self._active_message_widget.update_content(r, command=t_command)
@@ -300,10 +305,12 @@ class ChatLogWidget(VerticalScroll):
                             self._active_message_widget.remove()
                         self._active_message_widget = MessageWidget(r)
                         self.mount(self._active_message_widget)
+                        is_new_widget = True
                     else:
                         self._active_message_widget.update(r)
                 
-                self.scroll_end(animate=False)
+                if is_new_widget or was_at_bottom:
+                    self.scroll_end(animate=False)
             except Exception as e:
                 import logging
                 logging.exception("ChatLogWidget: Error in _mount_or_update for %s: %s", self.id, e)
@@ -393,15 +400,19 @@ class ChatLogWidget(VerticalScroll):
         """Escribe o actualiza el panel de seguimiento de tareas en el chat log."""
         def _mount_or_update():
             try:
-                # Comprobar si ya existe un widget de tracker anterior montado y activo
-                if hasattr(self, "_last_tracker_widget") and self._last_tracker_widget and self._last_tracker_widget.parent:
+                is_new = not (hasattr(self, "_last_tracker_widget") and self._last_tracker_widget and self._last_tracker_widget.parent)
+                was_at_bottom = self.scroll_y >= self.max_scroll_y - 1
+
+                if not is_new:
                     # Centrar el mensaje envolviéndolo en Align.center
                     self._last_tracker_widget.update(Padding(Align.center(panel), (1, 0)))
                 else:
                     widget = MessageWidget(Padding(Align.center(panel), (1, 0)))
                     self._last_tracker_widget = widget
                     self.mount(widget)
-                self.scroll_end(animate=False)
+                
+                if is_new or was_at_bottom:
+                    self.scroll_end(animate=False)
             except Exception as e:
                 logger.warning("ChatLogWidget.write_task_tracker: _mount_or_update falló: %s", e)
 

@@ -197,7 +197,9 @@ class CommandExecutor:
                             if '\n' in search_buffer:
                                 first_line, rest = search_buffer.split('\n', 1)
                                 # Si la primera línea contiene el token del marcador, es definitivamente el eco
-                                if "##KOGNITERM_" in first_line:
+                                # (siempre que no sea exactamente el marcador de finalización limpio, lo que indicaría
+                                # que ECHO está desactivado y el primer output que recibimos es ya el fin del comando)
+                                if "##KOGNITERM_" in first_line and first_line.strip() != "##KOGNITERM_DONE_MARKER##":
                                     search_buffer = rest
                                 self._echo_filtered = True
                             elif len(search_buffer) < len(expected) + 64:

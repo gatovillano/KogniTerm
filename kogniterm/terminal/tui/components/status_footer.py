@@ -43,7 +43,10 @@ class StatusFooter(Static):
             left_text = f"🗂️ {current_dir}"
             
         display_model = self.model_name.split("/")[-1]
-        right_text = f"{display_model} 🤖"
+        server_active = getattr(self.app, "_server_mode", False)
+        mode_label = "[green]● Servidor[/]" if server_active else "[yellow]● Local[/]"
+        indicator = " [dim]⇥ Shift+Tab para auto-aceptar[/dim]"
+        right_text = f"{mode_label}  {display_model} 🤖{indicator}"
         
         yield Static(left_text, id="footer_left", markup=True)
         yield Static("", id="footer_middle", markup=True)
@@ -52,8 +55,17 @@ class StatusFooter(Static):
     def update_model(self, new_model: str):
         """Actualiza el nombre del modelo mostrado en el footer."""
         self.model_name = new_model
+        server_active = getattr(self.app, "_server_mode", False)
+        mode_label = "[green]● Servidor[/]" if server_active else "[yellow]● Local[/]"
         display_model = new_model.split("/")[-1]
-        right_text = f"{display_model} 🤖"
+        
+        if self._auto_approve_active:
+            from kogniterm.terminal.themes import ColorPalette
+            indicator = f" [bold {ColorPalette.SUCCESS}]⇥ Auto-aceptación ON[/]"
+        else:
+            indicator = f" [dim]⇥ Shift+Tab para auto-aceptar[/dim]"
+            
+        right_text = f"{mode_label}  {display_model} 🤖{indicator}"
         try:
             self.query_one("#footer_right", Static).update(right_text)
         except Exception:
@@ -68,14 +80,18 @@ class StatusFooter(Static):
         """Actualiza el indicador visual de auto-aceptación en el footer."""
         try:
             from kogniterm.terminal.themes import ColorPalette
+            server_active = getattr(self.app, "_server_mode", False)
+            mode_label = "[green]● Servidor[/]" if server_active else "[yellow]● Local[/]"
+            
             if self._auto_approve_active:
                 indicator = f" [bold {ColorPalette.SUCCESS}]⇥ Auto-aceptación ON[/]"
             else:
                 indicator = f" [dim]⇥ Shift+Tab para auto-aceptar[/dim]"
+                
             # Actualizar el footer derecho con el indicador
             footer_right = self.query_one("#footer_right", Static)
             display_model = self.model_name.split("/")[-1]
-            footer_right.update(f"{display_model} 🤖{indicator}")
+            footer_right.update(f"{mode_label}  {display_model} 🤖{indicator}")
         except Exception:
             pass
 

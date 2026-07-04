@@ -1,4 +1,5 @@
 from textual.widgets import Static
+from textual import events
 from rich.panel import Panel
 from rich.text import Text
 from rich.syntax import Syntax
@@ -60,7 +61,7 @@ class ToolOutputWidget(Static):
         
         # Virtual terminal state
         self.ncol = 80
-        self.nrow = 1000  # Historial extenso para comandos con mucha salida
+        self.nrow = 5000  # Historial extenso para comandos con mucha salida
         self._screen = pyte.Screen(self.ncol, self.nrow)
         self._stream = pyte.Stream(self._screen)
         
@@ -96,6 +97,47 @@ class ToolOutputWidget(Static):
     def on_blur(self) -> None:
         self.cursor_visible = False
         self.update(self._render_tool_output())
+
+    def on_key(self, event: events.Key) -> None:
+        # Si estamos en modo interactivo (cursor activo), permitimos que el contenedor/app maneje las teclas 
+        # para enviarlas al PTY, excepto combinaciones con Shift para scrollback
+        is_interactive = getattr(self.app, "_cursor_active", False)
+        
+        if is_interactive:
+            # En modo interactivo, solo respondemos a Shift+teclas para hacer scrollback
+            if event.key == "shift+pageup":
+                self.scroll_page_up(animate=False)
+                event.stop()
+            elif event.key == "shift+pagedown":
+                self.scroll_page_down(animate=False)
+                event.stop()
+            elif event.key == "shift+up":
+                self.scroll_up(animate=False)
+                event.stop()
+            elif event.key == "shift+down":
+                self.scroll_down(animate=False)
+                event.stop()
+            return
+
+        # Si NO estamos en modo interactivo, podemos usar teclas estándar para scroll
+        if event.key == "pageup":
+            self.scroll_page_up(animate=False)
+            event.stop()
+        elif event.key == "pagedown":
+            self.scroll_page_down(animate=False)
+            event.stop()
+        elif event.key == "up":
+            self.scroll_up(animate=False)
+            event.stop()
+        elif event.key == "down":
+            self.scroll_down(animate=False)
+            event.stop()
+        elif event.key == "home":
+            self.scroll_home(animate=False)
+            event.stop()
+        elif event.key == "end":
+            self.scroll_end(animate=False)
+            event.stop()
 
     def _toggle_cursor(self):
         if self.has_focus:
@@ -154,8 +196,14 @@ class ToolOutputWidget(Static):
             else:
                 renderable = self._render_pyte(data)
 
+        # Evitar dar tirones de scroll al final si el usuario ha subido manualmente para leer
+        # Consideramos que estaba al final si el scroll actual está al máximo de su rango (con un margen de tolerancia)
+        was_at_bottom = self.scroll_y >= self.max_scroll_y - 1
+
         self.update(renderable)
-        self.scroll_end(animate=False)
+
+        if was_at_bottom:
+            self.scroll_end(animate=False)
 
     # ─────────────────────────── Helpers ────────────────────────────────────
 

@@ -734,14 +734,17 @@ class AgentSession:
         procesando confirmaciones de comandos y de skills de la misma manera que la TUI local.
         """
         try:
+            is_first_iteration = True
             while True:
                 pending = self._drain_pending_messages()
                 if pending:
                     user_input = pending.pop(0)
                     self.ui._push("user_message", {"text": user_input})
                     self.agent_state.add_message(HumanMessage(content=user_input))
-                elif not user_input:
+                elif is_first_iteration and not user_input:
                     break
+
+                is_first_iteration = False
 
                 # 1. Invocar al agente
                 final_state = self.manager.invoke_agent(user_input)
