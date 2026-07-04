@@ -493,6 +493,7 @@ class TelegramAdapter(ChannelAdapter):
         self._draft_overflow: Dict[int, bool] = {}        # True cuando len > 4096
         self._thinking_active: Dict[int, bool] = {}       # chat_id -> pensando actualmente
         self._stream_active: Dict[int, bool] = {}         # chat_id -> streaming de respuesta activo
+        self._last_typing_sent: Dict[int, float] = {}     # chat_id -> monotonic() del último typing action
 
     async def start(self):
         """Inicia el bot de Telegram en modo non-blocking."""
@@ -526,6 +527,17 @@ class TelegramAdapter(ChannelAdapter):
         pool.delete(self.session_id)
         await update.message.reply_text("🛑 Sesión cerrada y memoria liberada.")
 
+    async def _send_typing_if_needed(self, chat_id: int) -> None:
+        """Envia la acción 'typing' a Telegram si han pasado más de 4 segundos desde el último envío."""
+        now = time.monotonic()
+        last = self._last_typing_sent.get(chat_id, 0.0)
+        if (now - last) > 4.0:
+            self._last_typing_sent[chat_id] = now
+            try:
+                await self.app.bot.send_chat_action(chat_id=chat_id, action="typing")
+            except Exception as e:
+                logger.warning(f"[TelegramAdapter] No se pudo enviar chat action typing: {e}")
+
     async def _handle_message(self, update, context):
         self._current_chat_id = update.effective_chat.id
         user_text = update.message.text
@@ -541,6 +553,8 @@ class TelegramAdapter(ChannelAdapter):
         self.session_id = self._chat_sessions[chat_id]
         # Forzar que el _session se reinicialice para este chat
         self._session = None
+        # Enviar indicador de escribiendo inmediatamente
+        await self._send_typing_if_needed(chat_id)
         # Enviar al agente
         await self.send_message(user_text)
 
@@ -654,6 +668,7 @@ class TelegramAdapter(ChannelAdapter):
 
             # Acumular chunks sin limpiar para no perder espacios internos
             self._stream_texts[chat_id] += d
+            await self._send_typing_if_needed(chat_id)
             await self._enqueue_draft(chat_id, self._stream_texts[chat_id])
             
         elif t == "live_update":
@@ -676,6 +691,7 @@ class TelegramAdapter(ChannelAdapter):
                 import html
                 # Envuelve el pensamiento en un bloque de cita (blockquote) de Telegram HTML
                 html_thinking = f"<blockquote><b>🤔 Pensando...</b>\n{html.escape(cleaned_thinking)}</blockquote>"
+                await self._send_typing_if_needed(chat_id)
                 await self._enqueue_draft(chat_id, html_thinking, is_html=True)
 
         elif t == "done":
@@ -732,6 +748,7 @@ class TelegramAdapter(ChannelAdapter):
             logger.info(f"[TelegramAdapter] Enviando inicio de herramienta a Telegram (chat_id={chat_id}): {tool_name}")
             import html
             escaped_tool = f"⚙️ <code>{html.escape(tool_name)}</code>..."
+            await self._send_typing_if_needed(chat_id)
             await self.app.bot.send_message(chat_id=chat_id, text=escaped_tool, parse_mode='HTML')
 
             # Resetear banderas de stream/pensamiento al ejecutar herramienta
@@ -779,6 +796,7 @@ class TelegramAdapter(ChannelAdapter):
             if cleaned:
                 logger.info(f"[TelegramAdapter] Enviando mensaje de texto a Telegram (chat_id={chat_id}): {cleaned[:50]}...")
                 html_msg = markdown_to_telegram_html(cleaned)
+                await self._send_typing_if_needed(chat_id)
                 await self.app.bot.send_message(chat_id=chat_id, text=html_msg, parse_mode='HTML')
 
     async def _enqueue_draft(self, chat_id: int, text: str, is_html: bool = False) -> None:

@@ -116,6 +116,24 @@ class TUIWebSocketClient:
 
     # ── Punto de entrada del bucle de conexión ──────────────────────────────────
 
+    def _handle_disconnect(self, reason: str = "") -> None:
+        """Maneja la desconexión del servidor y cambia al modo local."""
+        if self._connected or self._app._server_mode:
+            self._connected = False
+            self._app.call_from_thread(self._app.switch_to_local_mode)
+        else:
+            self._connected = False
+
+        if not self._stopped:
+            msg = f"⚠️  Conexión al servidor perdida. Reintentando en {_RECONNECT_DELAY:.0f}s…"
+            if reason:
+                logger.warning(f"[WS] Conexión perdida: {reason}")
+            self._app.call_from_thread(
+                self._app.tui_ui.print_message,
+                msg,
+                "yellow",
+            )
+
     async def run(self) -> None:
         """
         Bucle principal: conecta al WebSocket y reconecta automáticamente
@@ -124,18 +142,15 @@ class TUIWebSocketClient:
         while not self._stopped:
             try:
                 await self._connect_and_run()
+                if not self._stopped:
+                    self._handle_disconnect("Conexión cerrada limpiamente por el servidor.")
+                    await asyncio.sleep(_RECONNECT_DELAY)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 if self._stopped:
                     break
-                logger.warning(f"[WS] Conexión perdida: {exc}. Reintentando en {_RECONNECT_DELAY}s…")
-                self._connected = False
-                self._app.call_from_thread(
-                    self._app.tui_ui.print_message,
-                    f"⚠️  Conexión al servidor perdida. Reintentando en {_RECONNECT_DELAY:.0f}s…",
-                    "yellow",
-                )
+                self._handle_disconnect(str(exc))
                 await asyncio.sleep(_RECONNECT_DELAY)
 
     async def _connect_and_run(self) -> None:
@@ -156,12 +171,8 @@ class TUIWebSocketClient:
             self._connected = True
             logger.info("[WS] Conectado al servidor KogniTerm.")
 
-            # Mostrar indicador en la TUI
-            self._app.call_from_thread(
-                self._app.tui_ui.print_message,
-                "🔗 Conectado al servidor KogniTerm (modo servidor activo).",
-                "green",
-            )
+            # Cambiar a modo servidor en la TUI
+            self._app.call_from_thread(self._app.switch_to_server_mode)
 
             # Correr recepción y envío de forma concurrente
             receive_task = asyncio.create_task(self._receive_loop(ws))

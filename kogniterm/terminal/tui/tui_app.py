@@ -448,6 +448,22 @@ class TextualTerminalUI:
     def handle_resize(self):
         pass
 
+    def get_terminal_dimensions(self) -> tuple[int, int]:
+        """Retorna las dimensiones actuales del widget de chat/terminal."""
+        try:
+            log = self.app.chat_log
+            if log and log.size.width > 0:
+                # Restamos márgenes para evitar wrapping prematuro en Textual
+                cols = max(40, log.size.width - 2)
+                rows = max(12, log.size.height - 2)
+                return cols, rows
+        except Exception:
+            pass
+        # Fallback a shutil si no está disponible
+        import shutil
+        size = shutil.get_terminal_size(fallback=(120, 30))
+        return max(40, int(size.columns)), max(12, int(size.lines))
+
     async def ask_radiolist_async(self, title, text, values, default=None):
         from .components.settings_modals import TextualRadioListModal
 
@@ -1184,7 +1200,7 @@ class KogniTermTUI(App):
         if not self._ws_client or not self._ws_client.is_connected:
             # El servidor puede haberse desconectado; caer al modo local
             logger.warning("[Híbrido] WS no conectado. Fallback a modo local.")
-            self._server_mode = False
+            self.switch_to_local_mode()
             self.process_agent_request(text)
             return
 
@@ -1193,6 +1209,28 @@ class KogniTermTUI(App):
         self.is_processing = True
         self._start_spinner()
         await self._ws_client.send_message(text)
+
+    def switch_to_local_mode(self) -> None:
+        """Cambia la TUI al modo local autónomo."""
+        if self._server_mode:
+            self._server_mode = False
+            # Desactivar cursor de terminal interactiva si estuviera activo
+            self.set_terminal_cursor(False)
+            self.tui_ui.print_message(
+                "🔌 Conexión al servidor perdida. Cambiando al modo local autónomo.",
+                "yellow",
+            )
+            # Actualizar barra de estado con el modelo local
+            self.update_status_footer(self.llm_service.model_name)
+
+    def switch_to_server_mode(self) -> None:
+        """Cambia la TUI al modo servidor activo."""
+        if not self._server_mode:
+            self._server_mode = True
+            self.tui_ui.print_message(
+                "🔗 Conectado al servidor KogniTerm (modo servidor activo).",
+                "green",
+            )
 
     # ── Workspace indexing check ───────────────────────────────────────────────
 
@@ -2864,9 +2902,8 @@ class KogniTermTUI(App):
         # Opcional: auto-scroll si el usuario está cerca del final
         try:
             log = self.chat_log
-            current_scroll = log.scroll_position
-            # En VerticalScroll el scroll es algo diferente, pero scroll_end funciona igual
-            self.chat_log.scroll_end(animate=False)
+            if log.scroll_y >= log.max_scroll_y - 1:
+                log.scroll_end(animate=False)
         except Exception:
             pass
 
