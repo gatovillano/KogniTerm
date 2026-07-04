@@ -227,8 +227,20 @@ def main():
         try:
             import httpx
             from kogniterm.terminal.tui.tui_app import _DEFAULT_SESSION_ID
+            
+            server_url = os.environ.get("KOGNITERM_SERVER_URL")
+            if server_url:
+                if server_url.startswith("wss://"):
+                    base_url = server_url.replace("wss://", "https://", 1)
+                elif server_url.startswith("ws://"):
+                    base_url = server_url.replace("ws://", "http://", 1)
+                else:
+                    base_url = server_url
+            else:
+                base_url = "http://127.0.0.1:8765"
+                
             # Usamos un request síncrono para asegurar que se ejecute antes de salir
-            httpx.post(f"http://127.0.0.1:8765/api/sessions/{_DEFAULT_SESSION_ID}/close", timeout=2.0)
+            httpx.post(f"{base_url}/api/sessions/{_DEFAULT_SESSION_ID}/close", timeout=2.0)
         except Exception as e:
             logger.warning(f"No se pudo notificar el cierre de sesión al servidor: {e}")
 

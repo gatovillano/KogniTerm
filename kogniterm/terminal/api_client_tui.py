@@ -1,7 +1,17 @@
 import os
 import httpx
 
-API_BASE_URL = "http://127.0.0.1:8765"  # Sin /api, para coincidir con el backend real
+def _get_api_base_url() -> str:
+    server_url = os.environ.get("KOGNITERM_SERVER_URL")
+    if server_url:
+        if server_url.startswith("wss://"):
+            return server_url.replace("wss://", "https://", 1)
+        elif server_url.startswith("ws://"):
+            return server_url.replace("ws://", "http://", 1)
+        return server_url
+    return "http://127.0.0.1:8765"
+
+API_BASE_URL = _get_api_base_url()  # Sin /api, para coincidir con el backend real
 
 async def send_chat_message(message: str, workspace_id: str = None, session_id: str = None, thread_id: str = None):
     """
@@ -44,5 +54,12 @@ async def set_llm_config(model_name: str = None, provider: str = None, api_key: 
         payload["api_key"] = api_key
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{API_BASE_URL}/config/llm", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+async def set_config_value(key: str, value: str, scope: str = "global"):
+    payload = {"key": key, "value": value, "scope": scope}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{API_BASE_URL}/api/config/set", json=payload)
         resp.raise_for_status()
         return resp.json()

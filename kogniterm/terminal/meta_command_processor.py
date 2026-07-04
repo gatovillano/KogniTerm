@@ -107,6 +107,11 @@ class MetaCommandProcessor:
             self.terminal_ui.print_message(f"Conversation reset.", style="green")
             if hasattr(self.kogniterm_app, "session_manager") and self.kogniterm_app.session_manager:
                 self.kogniterm_app.session_manager.current_session_name = None
+            
+            # Notificar al servidor en modo híbrido/servidor
+            is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
+            if is_server_mode:
+                await self.kogniterm_app._send_to_server(user_input)
             return True
 
         if user_input.lower().strip() == '/undo':
@@ -116,6 +121,11 @@ class MetaCommandProcessor:
                 self.terminal_ui.print_message("Last interaction undone.", style="green")
             else:
                 self.terminal_ui.print_message("Nothing to undo.", style="yellow")
+            
+            # Si estamos en modo servidor, enviar también el comando al servidor
+            is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
+            if is_server_mode:
+                await self.kogniterm_app._send_to_server(user_input)
             return True
         
         if user_input.lower().strip().startswith('/init'):
@@ -782,6 +792,15 @@ Example: /autosave restore autosave_20250515_141530
             config_manager = ConfigManager()
             config_manager.set_global_config("reasoning_effort", selected_effort)
 
+            # Si estamos en modo servidor, enviar también el cambio al servidor
+            is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
+            if is_server_mode:
+                try:
+                    from kogniterm.terminal.api_client_tui import set_config_value
+                    await set_config_value("reasoning_effort", selected_effort, scope="global")
+                except Exception as ex:
+                    self.terminal_ui.print_message(f"⚠️ Error actualizando reasoning_effort en el servidor: {ex}", style="yellow")
+
             self.terminal_ui.print_message(
                 f"✅ Reasoning level updated to: {selected_effort}",
                 style="green"
@@ -1186,6 +1205,15 @@ Example: /autosave restore autosave_20250515_141530
                         config_manager = ConfigManager()
                         config_manager.set_global_config("default_model", selected_model)
                         
+                        # Si estamos en modo servidor, enviar también el cambio al servidor
+                        is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
+                        if is_server_mode:
+                            try:
+                                from kogniterm.terminal.api_client_tui import set_llm_config
+                                await set_llm_config(model_name=selected_model)
+                            except Exception as ex:
+                                self.terminal_ui.print_message(f"⚠️ Error actualizando modelo en el servidor: {ex}", style="yellow")
+
                         self.terminal_ui.print_message(f"✅ Model successfully changed to: {selected_model}", style="green")
                         # Actualizar footer si estamos en TUI
                         if hasattr(self.kogniterm_app, "update_status_footer"):
@@ -1450,6 +1478,16 @@ Example: /autosave restore autosave_20250515_141530
                     # Persistir en ConfigManager
                     config_manager = ConfigManager()
                     config_manager.set_global_config("default_model", new_model)
+
+                    # Si estamos en modo servidor, enviar también el cambio al servidor
+                    is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
+                    if is_server_mode:
+                        try:
+                            from kogniterm.terminal.api_client_tui import set_llm_config
+                            await set_llm_config(provider=selected_provider)
+                        except Exception as ex:
+                            self.terminal_ui.print_message(f"⚠️ Error actualizando proveedor en el servidor: {ex}", style="yellow")
+
                     self.terminal_ui.print_message(f"✅ Provider changed to {selected_provider.capitalize()}.", style="green")
                     # Actualizar footer si estamos en TUI
                     if hasattr(self.kogniterm_app, "update_status_footer"):
@@ -1730,6 +1768,25 @@ Example: /autosave restore autosave_20250515_141530
                             self.llm_service.api_key = new_val
                         elif selected_key == "GOOGLE_API_KEY" and "gemini" in self.llm_service.model_name:
                             self.llm_service.api_key = new_val
+                            
+                        # Si estamos en modo servidor, enviar también la API key al servidor
+                        is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
+                        if is_server_mode:
+                            try:
+                                from kogniterm.terminal.api_client_tui import set_llm_config
+                                provider_map = {
+                                    "GOOGLE_API_KEY": "google",
+                                    "OPENAI_API_KEY": "openai",
+                                    "ANTHROPIC_API_KEY": "anthropic",
+                                    "OPENROUTER_API_KEY": "openrouter",
+                                    "OLLAMA_CLOUD_API_KEY": "ollama_cloud",
+                                    "KILOCODE_API_KEY": "kilocode"
+                                }
+                                prov = provider_map.get(selected_key)
+                                if prov:
+                                    await set_llm_config(provider=prov, api_key=new_val)
+                            except Exception as ex:
+                                self.terminal_ui.print_message(f"⚠️ Error actualizando API key en el servidor: {ex}", style="yellow")
                             
                         key_len = len(new_val)
                         masked_preview = f"{new_val[:4]}...{new_val[-4:]}" if key_len > 8 else "****"

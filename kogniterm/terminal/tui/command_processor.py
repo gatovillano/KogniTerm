@@ -72,6 +72,9 @@ class TUICommandProcessor:
             
             if selected:
                 await set_llm_config(model_name=selected)
+                if self.app.llm_service:
+                    self.app.llm_service.set_model(selected)
+                self.app.update_status_footer(selected)
                 self.terminal_ui.print_message(f"✅ Modelo actualizado en el servidor: {selected}", style="green")
         except Exception as e:
             self.terminal_ui.print_message(f"❌ Error al obtener modelos: {e}", style="red")
@@ -95,6 +98,15 @@ class TUICommandProcessor:
         
         if selected:
             await set_llm_config(provider=selected)
+            try:
+                config = await get_llm_config()
+                new_model = config.get("model")
+                if new_model:
+                    if self.app.llm_service:
+                        self.app.llm_service.set_model(new_model)
+                    self.app.update_status_footer(new_model)
+            except Exception as ex:
+                logger.warning(f"Error al sincronizar modelo local tras cambio de proveedor: {ex}")
             self.terminal_ui.print_message(f"✅ Proveedor actualizado en el servidor: {selected}", style="green")
 
     async def _handle_keys(self):
