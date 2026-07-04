@@ -561,6 +561,17 @@ class TelegramAdapter(ChannelAdapter):
             session_id = f"telegram_{chat_id}"
             
         session = pool.get(session_id)
+        
+        # Fallback: buscar la sesión activa que tiene esta aprobación pendiente en base al request_id
+        if not session:
+            for s in list(pool._sessions.values()):
+                with s.ui._pending_lock:
+                    if request_id in s.ui._pending_approvals or request_id in s.ui._pending_approvals_async:
+                        session = s
+                        # Actualizar la sesión en el mapeo para futuras interacciones
+                        self._chat_sessions[chat_id] = s.session_id
+                        break
+                        
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
         if session:
@@ -603,6 +614,10 @@ class TelegramAdapter(ChannelAdapter):
         if not chat_id:
             logger.warning("[TelegramAdapter] No se pudo enviar el evento porque no se determinó el chat_id.")
             return
+
+        # Registrar el session_id para este chat_id para poder asociar callbacks
+        if session_id:
+            self._chat_sessions[chat_id] = session_id
         if not self.app:
             logger.warning("[TelegramAdapter] No se pudo enviar el evento porque self.app es None.")
             return
