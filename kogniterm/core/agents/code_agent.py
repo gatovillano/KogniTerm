@@ -796,7 +796,7 @@ def should_continue(state: AgentState) -> str:
 
     last_message = state.messages[-1]
 
-    if state.command_to_confirm or state.file_update_diff_pending_confirmation:
+    if state.command_to_confirm is not None or state.file_update_diff_pending_confirmation is not None:
         return END
 
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
