@@ -84,3 +84,34 @@ def test_learning_node_handles_exceptions_gracefully():
     # Assert
     assert result_state == state
     llm_service.provider_manager.execute.assert_called_once()
+
+
+def test_learning_node_handles_none_content_gracefully():
+    # Arrange
+    state = AgentState(messages=[
+        HumanMessage(content="hola"),
+        AIMessage(content="respuesta de prueba")
+    ])
+    
+    llm_service = MagicMock()
+    llm_service.model_name = "google/gemini-1.5-flash"
+    llm_service.use_multi_provider = True
+    
+    dummy_response = MagicMock()
+    # Simulate content being None (which triggers the AttributeError in original code)
+    dummy_response.choices = [
+        MagicMock(message=MagicMock(content=None))
+    ]
+    
+    def fake_execute(*args, **kwargs):
+        yield dummy_response
+        
+    llm_service.provider_manager.execute.side_effect = fake_execute
+
+    # Act
+    # Should not raise any exception (especially AttributeError on .strip())
+    result_state = learning_node(state, llm_service)
+
+    # Assert
+    assert result_state == state
+    llm_service.provider_manager.execute.assert_called_once()

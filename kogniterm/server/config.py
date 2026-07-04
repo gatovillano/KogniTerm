@@ -26,7 +26,7 @@ class ServerConfigManager:
     """
     Manages the server-specific configuration, allowing dynamic channel management.
     """
-    CONFIG_FILE = Path(os.getenv("KOGNITERM_SERVER_CONFIG_FILE", str(Path(".kogniterm") / "server_config.json")))
+    CONFIG_FILE = Path(os.getenv("KOGNITERM_SERVER_CONFIG_FILE", str(Path.home() / ".kogniterm" / "server_config.json")))
 
     def __init__(self):
         self.settings = self.load_config()

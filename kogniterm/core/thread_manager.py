@@ -247,8 +247,24 @@ class ThreadManager:
                         kwargs["custom_llm_provider"] = "openai"
                         
                     response = completion(**kwargs)
-                    
-                return response.choices[0].message.content.strip().strip('"\'')
+
+                # Extraer y normalizar el contenido del título de forma segura
+                content_val = None
+                if response:
+                    if hasattr(response, "choices") and response.choices:
+                        choice = response.choices[0]
+                        if hasattr(choice, "message") and choice.message:
+                            content_val = getattr(choice.message, "content", None)
+                    elif isinstance(response, dict):
+                        choices = response.get("choices", [])
+                        if choices:
+                            choice = choices[0]
+                            message = choice.get("message", {}) if isinstance(choice, dict) else getattr(choice, "message", None)
+                            content_val = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+
+                if isinstance(content_val, str):
+                    return content_val.strip().strip('"\'')
+                return None
                 
             new_title = await loop.run_in_executor(None, do_call)
             
