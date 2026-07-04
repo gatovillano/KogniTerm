@@ -890,8 +890,8 @@ def create_app() -> FastAPI:
         session = pool.get(session_id)
         if session:
             # Forzar guardado final por seguridad
-            if session.session_manager:
-                session.session_manager.save_session(
+            if session.thread_manager:
+                session.thread_manager.save_thread_messages(
                     session_id, session.agent_state.messages
                 )
             logger.info(f"[Server] Sesión {session_id} cerrada correctamente.")

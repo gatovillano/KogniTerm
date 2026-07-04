@@ -161,7 +161,7 @@ class CLIHandler:
             return
 
         print_fn("🤖 Asistente de configuración de bot de Telegram")
-        print_fn("   Los cambios se guardarán en .kogniterm/server_config.json")
+        print_fn(f"   Los cambios se guardarán en {ServerConfigManager.CONFIG_FILE}")
 
         default_name = current.name if current else "telegram_bot_default"
         default_token = current.params.get("token") if current else os.environ.get("TELEGRAM_BOT_TOKEN")
