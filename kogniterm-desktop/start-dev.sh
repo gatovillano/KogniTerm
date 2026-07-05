@@ -38,18 +38,35 @@ fi
 echo "✅ Dependencias verificadas"
 echo ""
 
+# Instalar dependencias de node_modules si no existen
+if [ ! -d "node_modules" ]; then
+    echo "📦 No se encontró node_modules. Instalando dependencias de Node.js..."
+    npm install
+    if [ $? -ne 0 ]; then
+        echo "❌ Error al instalar dependencias de Node.js"
+        exit 1
+    fi
+    echo "✅ Dependencias de Node.js instaladas"
+    echo ""
+fi
+
 # Iniciar backend en una nueva terminal
 echo "${BLUE}📡 Iniciando backend (KogniTerm Server)...${NC}"
+WORKSPACE_ARG=""
+if [ -n "$KOGNITERM_WORKSPACE" ]; then
+    WORKSPACE_ARG="--workspace \"$KOGNITERM_WORKSPACE\""
+fi
+
 if command_exists gnome-terminal; then
-    gnome-terminal -- bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash"
+    gnome-terminal -- bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash"
 elif command_exists konsole; then
-    konsole -e bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
+    konsole -e bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash" &
 elif command_exists xterm; then
-    xterm -e "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765; exec bash" &
+    xterm -e "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash" &
 else
     echo "⚠️  No se encontró un emulador de terminal compatible."
     echo "Por favor, ejecuta manualmente en otra terminal (desde la raíz del proyecto):"
-    echo "  source /home/gato/.kogniterm/venv/bin/activate && python3 -m kogniterm.server --port 8765"
+    echo "  source /home/gato/.kogniterm/venv/bin/activate && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG"
 fi
 
 # Función para esperar a que el backend esté listo

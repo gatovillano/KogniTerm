@@ -486,12 +486,22 @@ class AgentSession:
         llm_service: LLMService,
         loop: asyncio.AbstractEventLoop,
         thread_manager: Optional[ThreadManager] = None,
+        workspace_dir: Optional[str] = None,
     ):
         self.session_id = session_id
         self.created_at = datetime.utcnow()
         self.last_activity = datetime.utcnow()
-        self.thread_manager = thread_manager
         self.llm_service = llm_service
+
+        # Determinar el workspace_dir correcto
+        self.workspace_dir = workspace_dir or (thread_manager.workspace_dir if thread_manager else os.getcwd())
+
+        # Configurar thread_manager específico de este workspace si se proporciona
+        if workspace_dir:
+            from kogniterm.core.thread_manager import ThreadManager
+            self.thread_manager = ThreadManager(workspace_dir=workspace_dir)
+        else:
+            self.thread_manager = thread_manager
 
         # UI adapter (sin pantalla)
         self.ui = ServerUI(loop=loop, session_id=session_id)
@@ -550,6 +560,7 @@ class AgentSession:
         from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
 
         self.command_executor = CommandExecutor()
+        self.command_executor.workspace_directory = self.workspace_dir
         self.command_executor.terminal_ui = self.ui
 
         try:
@@ -733,7 +744,22 @@ class AgentSession:
         Ejecuta el bucle de interacción del agente de forma síncrona en el hilo worker,
         procesando confirmaciones de comandos y de skills de la misma manera que la TUI local.
         """
+        old_cwd = os.getcwd()
         try:
+            # Cambiar al workspace_dir de la sesión
+            if hasattr(self, "workspace_dir") and self.workspace_dir and os.path.exists(self.workspace_dir):
+                try:
+                    os.chdir(self.workspace_dir)
+                except Exception as e:
+                    logger.error(f"[Session:{self.session_id}] Error al cambiar de directorio a {self.workspace_dir}: {e}")
+
+            # Actualizar dinámicamente el workspace en el llm_service de la sesión
+            if self.llm_service and hasattr(self.llm_service, "update_workspace"):
+                try:
+                    self.llm_service.update_workspace(self.workspace_dir)
+                except Exception as e:
+                    logger.error(f"[Session:{self.session_id}] Error al actualizar el workspace en el LLMService: {e}")
+
             is_first_iteration = True
             while True:
                 pending = self._drain_pending_messages()
@@ -845,6 +871,11 @@ class AgentSession:
                 exc_info=True,
             )
             raise e
+        finally:
+            try:
+                os.chdir(old_cwd)
+            except Exception:
+                pass
 
     @property
     def message_count(self) -> int:
@@ -924,7 +955,7 @@ class SessionPool:
 
         loop.call_soon_threadsafe(set_event)
 
-    def get_or_create(self, session_id: str) -> AgentSession:
+    def get_or_create(self, session_id: str, workspace_dir: Optional[str] = None) -> AgentSession:
         """Obtiene una sesión existente o crea una nueva (thread-safe)."""
         with self._lock:
             if session_id not in self._sessions:
@@ -937,6 +968,7 @@ class SessionPool:
                     llm_service=self._llm_service,
                     loop=self._loop,
                     thread_manager=self._thread_manager,
+                    workspace_dir=workspace_dir,
                 )
             return self._sessions[session_id]
 

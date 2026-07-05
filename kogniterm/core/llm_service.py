@@ -330,8 +330,69 @@ class LLMService:
         )
         self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
         
-        # Robust model setup to configure LiteLLM global settings and preferred provider at start
         self.set_model(self.model_name)
+        
+    def update_workspace(self, workspace_dir: str):
+        """Actualiza el directorio del workspace dinámicamente."""
+        if not workspace_dir:
+            return
+        # Evitar re-inicializar si ya es la misma ruta
+        if getattr(self, "_current_workspace_dir", None) == workspace_dir:
+            return
+            
+        self._current_workspace_dir = workspace_dir
+        self.history_file_path = os.path.join(workspace_dir, ".kogniterm", "history.json")
+        
+        from .context.workspace_context import WorkspaceContext
+        self.workspace_context = WorkspaceContext(root_dir=workspace_dir)
+        
+        # Detener autoguardado anterior si existía
+        if hasattr(self, 'history_manager') and self.history_manager:
+            try:
+                self.history_manager.stop_auto_save()
+            except Exception:
+                pass
+
+        # Re-crear el HistoryManager con la nueva ruta
+        from .history_manager import HistoryManager
+        self.history_manager = HistoryManager(
+            history_file_path=self.history_file_path,
+            max_history_messages=self.max_history_messages,
+            max_history_chars=self.max_history_chars,
+            auto_save_interval=self.auto_save_interval
+        )
+
+        from .context.vector_db_manager import VectorDBManager
+        try:
+            if hasattr(self, 'vector_db_manager') and self.vector_db_manager:
+                self.vector_db_manager.close()
+            self.vector_db_manager = VectorDBManager(project_path=workspace_dir)
+        except Exception as e:
+            logger.error(f"⚠️ Error al re-inicializar ChromaDB en {workspace_dir}: {e}")
+            self.vector_db_manager = None
+
+        if hasattr(self, 'skill_manager') and self.skill_manager:
+            self.skill_manager.vector_db_manager = self.vector_db_manager
+            try:
+                self.skill_manager.discover_all_skills()
+                for skill_name in self.skill_manager.skills:
+                    self.skill_manager.load_skill(skill_name)
+                # Actualizar schemas y tool_map
+                self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in self.skill_manager.get_tools()]
+                self.tool_schemas = []
+                for tool in self.skill_manager.get_tools():
+                    schema = {}
+                    if hasattr(tool, 'args_schema') and tool.args_schema is not None:
+                        if hasattr(tool.args_schema, 'schema'):
+                            schema = tool.args_schema.schema()
+                        elif hasattr(tool.args_schema, 'model_json_schema'):
+                            schema = tool.args_schema.model_json_schema()
+                    elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
+                        schema = tool.parameters_schema
+                    self.tool_schemas.append(schema)
+                self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.skill_manager.get_tools()}
+            except Exception as e:
+                logger.error(f"⚠️ Error re-descubriendo skills en {workspace_dir}: {e}")
         
     @property
     def current_delegation_context(self):

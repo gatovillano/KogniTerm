@@ -71,6 +71,10 @@ class SessionCreateRequest(BaseModel):
         default=None,
         description="ID personalizado. Si es None, se genera automáticamente.",
     )
+    workspace_dir: Optional[str] = Field(
+        default=None,
+        description="Directorio de trabajo para el espacio de trabajo de la sesión.",
+    )
 
 
 class ThreadRenameRequest(BaseModel):
@@ -742,18 +746,31 @@ def create_app() -> FastAPI:
     # ── Utilidades Desktop (Ejecución y Archivos) ─────────────────────────────
 
     @application.get("/api/workspace/status", tags=["Desktop"])
-    async def workspace_status():
+    async def workspace_status(session_id: Optional[str] = None):
         """Obtiene el estado del workspace (indexación, etc)."""
         try:
             # Esperar a que el pool y el LLMService estén listos para evitar colisiones en ChromaDB al arranque
             await pool.wait_until_ready()
 
-            if pool._llm_service and pool._llm_service.vector_db_manager:
-                indexed = pool._llm_service.vector_db_manager.is_indexed()
-            else:
-                indexed = False
+            workspace_path = os.getcwd()
+            indexed = False
 
-            return {"indexed": indexed, "path": os.getcwd()}
+            if session_id:
+                s = pool.get(session_id)
+                if s and getattr(s, "workspace_dir", None):
+                    workspace_path = s.workspace_dir
+                    from kogniterm.core.context.vector_db_manager import VectorDBManager
+                    try:
+                        vdb = VectorDBManager(workspace_path)
+                        indexed = vdb.is_indexed()
+                        vdb.close()
+                    except Exception:
+                        pass
+            else:
+                if pool._llm_service and pool._llm_service.vector_db_manager:
+                    indexed = pool._llm_service.vector_db_manager.is_indexed()
+
+            return {"indexed": indexed, "path": workspace_path}
         except Exception as e:
             return {"indexed": False, "error": str(e), "path": os.getcwd()}
 
@@ -766,6 +783,10 @@ def create_app() -> FastAPI:
     async def run_indexing_task(session_id: Optional[str] = None):
         """Tarea de fondo para indexar el codebase."""
         project_path = os.getcwd()
+        if session_id:
+            s = pool.get(session_id)
+            if s and getattr(s, "workspace_dir", None):
+                project_path = s.workspace_dir
         try:
             from kogniterm.core.context.codebase_indexer import CodebaseIndexer
             from kogniterm.core.context.vector_db_manager import VectorDBManager
@@ -879,7 +900,7 @@ def create_app() -> FastAPI:
         """Crea una nueva sesión de agente y la mantiene en memoria."""
         await pool.wait_until_ready()
         sid = req.session_id or pool.new_session_id()
-        session = pool.get_or_create(sid)
+        session = pool.get_or_create(sid, workspace_dir=req.workspace_dir)
         return {
             "session_id": session.session_id,
             "created_at": session.created_at.isoformat(),
@@ -1137,13 +1158,13 @@ def create_app() -> FastAPI:
     # ── Canal WebSocket (bidireccional, streaming completo) ───────────────────
 
     @application.websocket("/ws/chat")
-    async def websocket_chat_compat(websocket: WebSocket):
+    async def websocket_chat_compat(websocket: WebSocket, workspace_dir: Optional[str] = None):
         """Crea una sesión nueva única por cada conexión desktop."""
         unique_id = f"desktop-{uuid.uuid4().hex[:8]}"
-        await websocket_chat(websocket, unique_id)
+        await websocket_chat(websocket, unique_id, workspace_dir=workspace_dir)
 
     @application.websocket("/ws/{session_id}")
-    async def websocket_chat(websocket: WebSocket, session_id: str):
+    async def websocket_chat(websocket: WebSocket, session_id: str, workspace_dir: Optional[str] = None):
         """
         Canal WebSocket bidireccional.
 
@@ -1169,7 +1190,7 @@ def create_app() -> FastAPI:
 
         # Reconocer cuando una sesión es nueva o existente
         is_new = session_id not in pool._sessions
-        session = pool.get_or_create(session_id)
+        session = pool.get_or_create(session_id, workspace_dir=workspace_dir)
 
         logger.info(
             f"[WS] Cliente conectado a sesión {session_id} ({'NUEVA' if is_new else 'EXISTENTE'})"
@@ -1291,8 +1312,26 @@ app = create_app()
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False):
+def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False, workspace: Optional[str] = None):
     """Lanza el servidor KogniTerm."""
+    import sys
+    
+    # Obtener el workspace del argumento o de la variable de entorno
+    target_workspace = workspace or os.environ.get("KOGNITERM_WORKSPACE")
+    if target_workspace:
+        target_workspace = os.path.abspath(os.path.expanduser(target_workspace))
+        if os.path.exists(target_workspace) and os.path.isdir(target_workspace):
+            # Asegurar que el directorio de inicio actual esté en sys.path para que
+            # las importaciones no se rompan tras cambiar el cwd
+            initial_cwd = os.path.abspath(os.getcwd())
+            if initial_cwd not in sys.path:
+                sys.path.insert(0, initial_cwd)
+                
+            os.chdir(target_workspace)
+            logger.info(f"📁 Directorio de trabajo cambiado a: {target_workspace}")
+        else:
+            logger.warning(f"⚠️  El directorio de trabajo especificado no existe o no es válido: {target_workspace}")
+
     uvicorn.run(
         "kogniterm.server.app:app",
         host=host,
@@ -1304,3 +1343,4 @@ def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False):
 
 if __name__ == "__main__":
     run_server()
+

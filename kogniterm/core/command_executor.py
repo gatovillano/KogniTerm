@@ -69,6 +69,7 @@ class CommandExecutor:
         """Initializes the CommandExecutor with process and PTY pipe setup."""
         self.process: Optional[subprocess.Popen] = None
         self.terminal_ui: Any = None # To be linked later
+        self.workspace_directory: Optional[str] = None
         # Pipe para inyectar entrada al PTY desde la TUI
         self._input_pipe_read, self._input_pipe_write = os.pipe()
         
@@ -286,7 +287,7 @@ class CommandExecutor:
             stderr=self._persistent_slave_fd,
             close_fds=True,
             preexec_fn=os.setsid,
-            cwd=cwd or os.getcwd(),
+            cwd=cwd or getattr(self, "workspace_directory", None) or os.getcwd(),
             env=os.environ.copy()
         )
         # Consumir el banner inicial del shell

@@ -626,7 +626,7 @@ class CommandApprovalHandler:
                     full_command_output = ""
 
                     execute_kwargs = {
-                        "cwd": os.getcwd(),
+                        "cwd": getattr(self.command_executor, "workspace_directory", None) or os.getcwd(),
                         "interrupt_queue": self.interrupt_queue,
                     }
                     if hasattr(self.terminal_ui, "get_terminal_dimensions"):

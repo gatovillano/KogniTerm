@@ -163,7 +163,10 @@ class TUIWebSocketClient:
                 "Ejecuta: pip install websockets"
             )
 
-        ws_url = f"{self._server_url}/ws/{self._session_id}"
+        import urllib.parse
+        workspace_dir = getattr(self._app, "workspace_directory", None) or os.getcwd()
+        encoded_workspace = urllib.parse.quote(workspace_dir)
+        ws_url = f"{self._server_url}/ws/{self._session_id}?workspace_dir={encoded_workspace}"
         logger.info(f"[WS] Conectando a {ws_url} …")
 
         async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
