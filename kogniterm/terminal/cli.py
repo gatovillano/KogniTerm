@@ -530,6 +530,9 @@ class CLIHandler:
         """Abre la versión desktop de KogniTerm."""
         import subprocess
         
+        # Guardar el directorio de trabajo original (el actual de la terminal del usuario)
+        original_cwd = os.getcwd()
+        
         # Determinar la ruta de kogniterm-desktop
         kogniterm_dir = os.path.expanduser("~/.kogniterm")
         repo_dir = os.path.join(kogniterm_dir, "repo")
@@ -565,7 +568,9 @@ class CLIHandler:
         try:
             # Ejecutar el script start-dev.sh en su directorio de trabajo
             # Usamos Popen para que corra en segundo plano y el CLI pueda retornar de inmediato
-            subprocess.Popen(["./start-dev.sh"], cwd=desktop_dir)
+            env = os.environ.copy()
+            env["KOGNITERM_WORKSPACE"] = original_cwd
+            subprocess.Popen(["./start-dev.sh"], cwd=desktop_dir, env=env)
             print("✨ Proceso de inicio lanzado en segundo plano.")
         except Exception as e:
             print(f"❌ Error al iniciar KogniTerm Desktop: {e}")

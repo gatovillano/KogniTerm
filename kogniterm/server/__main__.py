@@ -21,13 +21,15 @@ def main():
     parser.add_argument("--host", default="0.0.0.0", help="Host de escucha (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8765, help="Puerto (default: 8765)")
     parser.add_argument("--reload", action="store_true", help="Hot-reload (solo desarrollo)")
+    parser.add_argument("--workspace", "--cwd", default=None, help="Directorio de trabajo / workspace inicial")
     args = parser.parse_args()
 
     print(f"🚀 Iniciando KogniTerm Server en http://{args.host}:{args.port}")
     print(f"   Docs: http://localhost:{args.port}/docs")
     print(f"   WS:   ws://localhost:{args.port}/ws/<session_id>")
     print(f"   SSE:  http://localhost:{args.port}/sse/<session_id>?message=...")
-    run_server(host=args.host, port=args.port, reload=args.reload)
+    run_server(host=args.host, port=args.port, reload=args.reload, workspace=args.workspace)
+
 
 
 if __name__ == "__main__":
