@@ -9,11 +9,13 @@ logger = logging.getLogger(__name__)
 
 class VectorDBManager:
     _instance: Optional["VectorDBManager"] = None
+    _instances: dict[str, "VectorDBManager"] = {}
 
     def __init__(self, project_path: str):
         VectorDBManager._instance = self  # Guardar como singleton
-        self.project_path = project_path
-        self.db_path = os.path.join(project_path, ".kogniterm", "vector_db")
+        self.project_path = os.path.abspath(project_path)
+        VectorDBManager._instances[self.project_path] = self
+        self.db_path = os.path.join(self.project_path, ".kogniterm", "vector_db")
         self._ensure_db_dir()
         
         try:
@@ -24,11 +26,19 @@ class VectorDBManager:
 
     @classmethod
     def get_instance(cls) -> "VectorDBManager":
-        """Obtiene la instancia singleton, creándola si no existe."""
-        if cls._instance is None:
-            import os
-            cls._instance = cls(os.getcwd())
-        return cls._instance
+        """Obtiene la instancia correspondiente al workspace actual del contexto."""
+        cwd = None
+        try:
+            from kogniterm.server.session_pool import session_cwd_var
+            cwd = session_cwd_var.get()
+        except (ImportError, AttributeError):
+            pass
+        if not cwd:
+            cwd = os.getcwd()
+        cwd = os.path.abspath(cwd)
+        if cwd not in cls._instances:
+            cls._instances[cwd] = cls(cwd)
+        return cls._instances[cwd]
 
     @staticmethod
     def _is_corruption_error(exc: Exception) -> bool:

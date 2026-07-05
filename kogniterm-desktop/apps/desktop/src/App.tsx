@@ -86,19 +86,32 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Fetch initial working directory from backend
-    fetch('http://127.0.0.1:8765/api/files/list', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: '.' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.currentPath) {
-          setCurrentDir(data.currentPath);
-        }
+    const initWorkspace = async () => {
+      let path = '.';
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        path = await invoke<string>('get_cwd');
+        console.log("CWD desde Tauri obtenido en App:", path);
+      } catch (err) {
+        console.warn("No se pudo obtener el CWD de Tauri, usando por defecto:", err);
+      }
+
+      // Fetch initial working directory from backend using resolved path
+      fetch('http://127.0.0.1:8765/api/files/list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
       })
-      .catch(err => console.error("Failed to fetch initial CWD:", err));
+        .then(res => res.json())
+        .then(data => {
+          if (data.currentPath) {
+            setCurrentDir(data.currentPath);
+          }
+        })
+        .catch(err => console.error("Failed to fetch initial CWD:", err));
+    };
+
+    initWorkspace();
   }, []);
 
   // Handlers for Thread management

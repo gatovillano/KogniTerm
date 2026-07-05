@@ -18,6 +18,51 @@ import os
 from datetime import datetime
 from io import StringIO
 from typing import Any, AsyncIterator, Callable, Dict, Optional
+import contextvars
+import contextlib
+
+session_cwd_var = contextvars.ContextVar("session_cwd", default=None)
+
+_original_getcwd = os.getcwd
+_original_chdir = os.chdir
+
+def custom_getcwd():
+    cwd = session_cwd_var.get()
+    if cwd is not None:
+        return cwd
+    return _original_getcwd()
+
+def custom_chdir(path):
+    if session_cwd_var.get() is not None:
+        session_cwd_var.set(os.path.abspath(path))
+    else:
+        _original_chdir(path)
+
+os.getcwd = custom_getcwd
+os.chdir = custom_chdir
+
+@contextlib.contextmanager
+def session_context(cwd, llm_service=None, history_manager=None, workspace_context=None, vector_db_manager=None):
+    """Context manager for isolating session workspace and context."""
+    cwd = os.path.abspath(cwd)
+    cwd_token = session_cwd_var.set(cwd)
+    tokens = []
+    if llm_service:
+        llm_service._use_context_vars = True
+        tokens.append((llm_service._context_current_workspace_dir, llm_service._context_current_workspace_dir.set(cwd)))
+        tokens.append((llm_service._context_history_file_path, llm_service._context_history_file_path.set(os.path.join(cwd, ".kogniterm", "history.json"))))
+        if history_manager:
+            tokens.append((llm_service._context_history_manager, llm_service._context_history_manager.set(history_manager)))
+        if workspace_context:
+            tokens.append((llm_service._context_workspace_context, llm_service._context_workspace_context.set(workspace_context)))
+        if vector_db_manager:
+            tokens.append((llm_service._context_vector_db_manager, llm_service._context_vector_db_manager.set(vector_db_manager)))
+    try:
+        yield
+    finally:
+        session_cwd_var.reset(cwd_token)
+        for var, token in tokens:
+            var.reset(token)
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -495,13 +540,33 @@ class AgentSession:
 
         # Determinar el workspace_dir correcto
         self.workspace_dir = workspace_dir or (thread_manager.workspace_dir if thread_manager else os.getcwd())
+        self.workspace_dir = os.path.abspath(self.workspace_dir)
 
-        # Configurar thread_manager específico de este workspace si se proporciona
-        if workspace_dir:
-            from kogniterm.core.thread_manager import ThreadManager
-            self.thread_manager = ThreadManager(workspace_dir=workspace_dir)
-        else:
-            self.thread_manager = thread_manager
+        # Configurar thread_manager específico de este workspace
+        from kogniterm.core.thread_manager import ThreadManager
+        self.thread_manager = ThreadManager(workspace_dir=self.workspace_dir)
+
+        # Inicializar vector_db_manager para la sesión
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+        try:
+            self.vector_db_manager = VectorDBManager(project_path=self.workspace_dir)
+        except Exception:
+            self.vector_db_manager = None
+
+        # Inicializar history_manager para la sesión
+        from kogniterm.core.history_manager import HistoryManager
+        history_file_path = os.path.join(self.workspace_dir, ".kogniterm", "history.json")
+        self.history_manager = HistoryManager(
+            history_file_path=history_file_path,
+            max_history_messages=llm_service.max_history_messages,
+            max_history_chars=llm_service.max_history_chars,
+            tokenizer=llm_service.tokenizer,
+            auto_save_interval=llm_service.auto_save_interval
+        )
+
+        # Inicializar workspace_context para la sesión
+        from kogniterm.core.context.workspace_context import WorkspaceContext
+        self.workspace_context = WorkspaceContext(root_dir=self.workspace_dir)
 
         # UI adapter (sin pantalla)
         self.ui = ServerUI(loop=loop, session_id=session_id)
@@ -602,6 +667,47 @@ class AgentSession:
             )
 
         logger.info(f"[Session:{session_id}] Inicializada.")
+
+    def update_workspace_dir(self, workspace_dir: str) -> None:
+        """Actualiza dinámicamente el workspace_dir para esta sesión."""
+        if not workspace_dir:
+            return
+        workspace_dir = os.path.abspath(workspace_dir)
+        if self.workspace_dir == workspace_dir:
+            return
+
+        logger.info(f"[Session:{self.session_id}] Actualizando workspace_dir de {self.workspace_dir} a {workspace_dir}")
+        self.workspace_dir = workspace_dir
+
+        # Actualizar thread manager
+        from kogniterm.core.thread_manager import ThreadManager
+        self.thread_manager = ThreadManager(workspace_dir=workspace_dir)
+
+        # Actualizar vector_db_manager para la sesión
+        from kogniterm.core.context.vector_db_manager import VectorDBManager
+        try:
+            self.vector_db_manager = VectorDBManager(project_path=workspace_dir)
+        except Exception:
+            self.vector_db_manager = None
+
+        # Actualizar history_manager para la sesión
+        from kogniterm.core.history_manager import HistoryManager
+        history_file_path = os.path.join(workspace_dir, ".kogniterm", "history.json")
+        self.history_manager = HistoryManager(
+            history_file_path=history_file_path,
+            max_history_messages=self.llm_service.max_history_messages,
+            max_history_chars=self.llm_service.max_history_chars,
+            tokenizer=self.llm_service.tokenizer,
+            auto_save_interval=self.llm_service.auto_save_interval
+        )
+
+        # Actualizar workspace_context para la sesión
+        from kogniterm.core.context.workspace_context import WorkspaceContext
+        self.workspace_context = WorkspaceContext(root_dir=workspace_dir)
+
+        # Actualizar command_executor
+        if hasattr(self, "command_executor") and self.command_executor:
+            self.command_executor.workspace_directory = workspace_dir
 
     def interrupt(self) -> None:
         """Interrumpe la ejecución actual del agente en esta sesión."""
@@ -744,138 +850,145 @@ class AgentSession:
         Ejecuta el bucle de interacción del agente de forma síncrona en el hilo worker,
         procesando confirmaciones de comandos y de skills de la misma manera que la TUI local.
         """
-        old_cwd = os.getcwd()
-        try:
-            # Cambiar al workspace_dir de la sesión
-            if hasattr(self, "workspace_dir") and self.workspace_dir and os.path.exists(self.workspace_dir):
-                try:
-                    os.chdir(self.workspace_dir)
-                except Exception as e:
-                    logger.error(f"[Session:{self.session_id}] Error al cambiar de directorio a {self.workspace_dir}: {e}")
-
-            # Actualizar dinámicamente el workspace en el llm_service de la sesión
-            if self.llm_service and hasattr(self.llm_service, "update_workspace"):
-                try:
-                    self.llm_service.update_workspace(self.workspace_dir)
-                except Exception as e:
-                    logger.error(f"[Session:{self.session_id}] Error al actualizar el workspace en el LLMService: {e}")
-
-            is_first_iteration = True
-            while True:
-                pending = self._drain_pending_messages()
-                if pending:
-                    user_input = pending.pop(0)
-                    self.ui._push("user_message", {"text": user_input})
-                    self.agent_state.add_message(HumanMessage(content=user_input))
-                elif is_first_iteration and not user_input:
-                    break
-
-                is_first_iteration = False
-
-                # 1. Invocar al agente
-                final_state = self.manager.invoke_agent(user_input)
-
-                self.agent_state.messages = final_state.get(
-                    "messages", self.agent_state.messages
-                )
-                self.agent_state.command_to_confirm = final_state.get(
-                    "command_to_confirm"
-                )
-
-                # Caso A: Comando de terminal (Bash)
-                if self.agent_state.command_to_confirm:
-                    command = self.agent_state.command_to_confirm
-
-                    # Bloquear el hilo worker hasta que el usuario decida (TUI/WebSocket)
-                    approved = self.ui.ask_approval_sync(
-                        message=f"¿Ejecutar comando: {command}?",
-                        title="Confirmación de Comando",
-                        diff_content=command,
-                        file_path="bash",
-                    )
-
-                    if command and self.command_approval_handler:
-                        self.command_approval_handler.handle_command_approval(
-                            command_to_execute=command, auto_approve=approved
-                        )
-
-                    # Limpiar estado de confirmación tras procesar
-                    self.agent_state.command_to_confirm = None
-                    self.agent_state.tool_call_id_to_confirm = None
-
-                    if not approved:
-                        self.ui.print_warning_box("Comando cancelado por el usuario.")
-
-                    user_input = None
-                    continue  # Volver al inicio del bucle para que el agente procese el resultado
-
-                # Caso B: Confirmación de Skill (file_operations, advanced_file_editor, etc.)
-                elif (
-                    getattr(self.agent_state, "tool_pending_confirmation", None)
-                    or self.agent_state.file_update_diff_pending_confirmation
-                ):
-                    tool_name = self.agent_state.tool_pending_confirmation
-                    diff_info = self.agent_state.file_update_diff_pending_confirmation
-
-                    message = "Confirmación de herramienta requerida."
-                    diff_content = None
-                    file_path = None
-
-                    if isinstance(diff_info, dict):
-                        message = diff_info.get(
-                            "action_description", diff_info.get("message", message)
-                        )
-                        diff_content = diff_info.get("diff")
-                        file_path = diff_info.get("path")
-                    elif isinstance(diff_info, str):
-                        diff_content = diff_info
-
-                    approved = self.ui.ask_approval_sync(
-                        message=message,
-                        title=f"Confirmación: {tool_name}",
-                        diff_content=diff_content,
-                        file_path=file_path,
-                    )
-
-                    if self.command_approval_handler:
-                        self.command_approval_handler.handle_command_approval(
-                            command_to_execute="",  # No es un comando bash
-                            raw_tool_output=diff_info
-                            if isinstance(diff_info, dict)
-                            else {
-                                "status": "requires_confirmation",
-                                "diff": diff_content,
-                                "path": file_path,
-                                "operation": tool_name,
-                            },
-                            auto_approve=approved,
-                            tool_name=tool_name,
-                            original_tool_args=self.agent_state.tool_args_pending_confirmation,
-                        )
-
-                    # Limpiar estado de confirmación
-                    self.agent_state.reset_tool_confirmation()
-                    self.agent_state.tool_call_id_to_confirm = None
-
-                    if not approved:
-                        self.ui.print_warning_box("Acción cancelada por el usuario.")
-
-                    user_input = None
-                    continue  # Volver al inicio del bucle
-
-                # Sin confirmaciones pendientes: salir del loop
-                break
-        except Exception as e:
-            logger.error(
-                f"[Session:{self.session_id}] Error crítico en _run_agent_loop: {e}",
-                exc_info=True,
-            )
-            raise e
-        finally:
+        with session_context(
+            cwd=self.workspace_dir,
+            llm_service=self.llm_service,
+            history_manager=self.history_manager,
+            workspace_context=self.workspace_context,
+            vector_db_manager=self.vector_db_manager
+        ):
+            old_cwd = os.getcwd()
             try:
-                os.chdir(old_cwd)
-            except Exception:
-                pass
+                # Cambiar al workspace_dir de la sesión
+                if hasattr(self, "workspace_dir") and self.workspace_dir and os.path.exists(self.workspace_dir):
+                    try:
+                        os.chdir(self.workspace_dir)
+                    except Exception as e:
+                        logger.error(f"[Session:{self.session_id}] Error al cambiar de directorio a {self.workspace_dir}: {e}")
+
+                # Actualizar dinámicamente el workspace en el llm_service de la sesión
+                if self.llm_service and hasattr(self.llm_service, "update_workspace"):
+                    try:
+                        self.llm_service.update_workspace(self.workspace_dir)
+                    except Exception as e:
+                        logger.error(f"[Session:{self.session_id}] Error al actualizar el workspace en el LLMService: {e}")
+
+                is_first_iteration = True
+                while True:
+                    pending = self._drain_pending_messages()
+                    if pending:
+                        user_input = pending.pop(0)
+                        self.ui._push("user_message", {"text": user_input})
+                        self.agent_state.add_message(HumanMessage(content=user_input))
+                    elif is_first_iteration and not user_input:
+                        break
+
+                    is_first_iteration = False
+
+                    # 1. Invocar al agente
+                    final_state = self.manager.invoke_agent(user_input)
+
+                    self.agent_state.messages = final_state.get(
+                        "messages", self.agent_state.messages
+                    )
+                    self.agent_state.command_to_confirm = final_state.get(
+                        "command_to_confirm"
+                    )
+
+                    # Caso A: Comando de terminal (Bash)
+                    if self.agent_state.command_to_confirm:
+                        command = self.agent_state.command_to_confirm
+
+                        # Bloquear el hilo worker hasta que el usuario decida (TUI/WebSocket)
+                        approved = self.ui.ask_approval_sync(
+                            message=f"¿Ejecutar comando: {command}?",
+                            title="Confirmación de Comando",
+                            diff_content=command,
+                            file_path="bash",
+                        )
+
+                        if command and self.command_approval_handler:
+                            self.command_approval_handler.handle_command_approval(
+                                command_to_execute=command, auto_approve=approved
+                            )
+
+                        # Limpiar estado de confirmación tras procesar
+                        self.agent_state.command_to_confirm = None
+                        self.agent_state.tool_call_id_to_confirm = None
+
+                        if not approved:
+                            self.ui.print_warning_box("Comando cancelado por el usuario.")
+
+                        user_input = None
+                        continue  # Volver al inicio del bucle para que el agente procese el resultado
+
+                    # Caso B: Confirmación de Skill (file_operations, advanced_file_editor, etc.)
+                    elif (
+                        getattr(self.agent_state, "tool_pending_confirmation", None)
+                        or self.agent_state.file_update_diff_pending_confirmation
+                    ):
+                        tool_name = self.agent_state.tool_pending_confirmation
+                        diff_info = self.agent_state.file_update_diff_pending_confirmation
+
+                        message = "Confirmación de herramienta requerida."
+                        diff_content = None
+                        file_path = None
+
+                        if isinstance(diff_info, dict):
+                            message = diff_info.get(
+                                "action_description", diff_info.get("message", message)
+                            )
+                            diff_content = diff_info.get("diff")
+                            file_path = diff_info.get("path")
+                        elif isinstance(diff_info, str):
+                            diff_content = diff_info
+
+                        approved = self.ui.ask_approval_sync(
+                            message=message,
+                            title=f"Confirmación: {tool_name}",
+                            diff_content=diff_content,
+                            file_path=file_path,
+                        )
+
+                        if self.command_approval_handler:
+                            self.command_approval_handler.handle_command_approval(
+                                command_to_execute="",  # No es un comando bash
+                                raw_tool_output=diff_info
+                                if isinstance(diff_info, dict)
+                                else {
+                                    "status": "requires_confirmation",
+                                    "diff": diff_content,
+                                    "path": file_path,
+                                    "operation": tool_name,
+                                },
+                                auto_approve=approved,
+                                tool_name=tool_name,
+                                original_tool_args=self.agent_state.tool_args_pending_confirmation,
+                            )
+
+                        # Limpiar estado de confirmación
+                        self.agent_state.reset_tool_confirmation()
+                        self.agent_state.tool_call_id_to_confirm = None
+
+                        if not approved:
+                            self.ui.print_warning_box("Acción cancelada por el usuario.")
+
+                        user_input = None
+                        continue  # Volver al inicio del bucle
+
+                    # Sin confirmaciones pendientes: salir del loop
+                    break
+            except Exception as e:
+                logger.error(
+                    f"[Session:{self.session_id}] Error crítico en _run_agent_loop: {e}",
+                    exc_info=True,
+                )
+                raise e
+            finally:
+                try:
+                    os.chdir(old_cwd)
+                except Exception:
+                    pass
 
     @property
     def message_count(self) -> int:
@@ -970,6 +1083,10 @@ class SessionPool:
                     thread_manager=self._thread_manager,
                     workspace_dir=workspace_dir,
                 )
+            else:
+                session = self._sessions[session_id]
+                if workspace_dir and session.workspace_dir != workspace_dir:
+                    session.update_workspace_dir(workspace_dir)
             return self._sessions[session_id]
 
     def get(self, session_id: str) -> Optional[AgentSession]:
