@@ -1,7 +1,14 @@
 #!/bin/bash
 
 # Script de inicio rápido para KogniTerm Desktop
-# Este script inicia tanto el backend como el frontend en terminales separadas
+# Este script inicia tanto el backend como el frontend
+
+SHOW_LOGS=false
+for arg in "$@"; do
+    if [ "$arg" = "--logs" ]; then
+        SHOW_LOGS=true
+    fi
+done
 
 echo "🚀 Iniciando KogniTerm Desktop..."
 echo ""
@@ -50,23 +57,40 @@ if [ ! -d "node_modules" ]; then
     echo ""
 fi
 
-# Iniciar backend en una nueva terminal
-echo "${BLUE}📡 Iniciando backend (KogniTerm Server)...${NC}"
-WORKSPACE_ARG=""
-if [ -n "$KOGNITERM_WORKSPACE" ]; then
-    WORKSPACE_ARG="--workspace \"$KOGNITERM_WORKSPACE\""
+# Comprobar si el backend ya está corriendo
+BACKEND_RUNNING=false
+if curl -s "http://localhost:8765/health" > /dev/null; then
+    BACKEND_RUNNING=true
+    echo "✅ KogniTerm Server ya está corriendo en http://localhost:8765"
+    echo ""
 fi
 
-if command_exists gnome-terminal; then
-    gnome-terminal -- bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash"
-elif command_exists konsole; then
-    konsole -e bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash" &
-elif command_exists xterm; then
-    xterm -e "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash" &
-else
-    echo "⚠️  No se encontró un emulador de terminal compatible."
-    echo "Por favor, ejecuta manualmente en otra terminal (desde la raíz del proyecto):"
-    echo "  source /home/gato/.kogniterm/venv/bin/activate && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG"
+# Iniciar backend si no está corriendo
+if [ "$BACKEND_RUNNING" = false ]; then
+    echo "${BLUE}📡 Iniciando backend (KogniTerm Server)...${NC}"
+    WORKSPACE_ARG=""
+    if [ -n "$KOGNITERM_WORKSPACE" ]; then
+        WORKSPACE_ARG="--workspace \"$KOGNITERM_WORKSPACE\""
+    fi
+
+    if [ "$SHOW_LOGS" = true ]; then
+        if command_exists gnome-terminal; then
+            gnome-terminal -- bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash"
+        elif command_exists konsole; then
+            konsole -e bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash" &
+        elif command_exists xterm; then
+            xterm -e "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && echo '🐍 KogniTerm Server' && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG; exec bash" &
+        else
+            echo "⚠️  No se encontró un emulador de terminal compatible."
+            echo "Por favor, ejecuta manualmente en otra terminal (desde la raíz del proyecto):"
+            echo "  source /home/gato/.kogniterm/venv/bin/activate && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG"
+        fi
+    else
+        LOGS_DIR="$HOME/.kogniterm/logs"
+        mkdir -p "$LOGS_DIR"
+        echo "📝 Guardando logs del servidor en $LOGS_DIR/server.log"
+        bash -c "source \$HOME/.cargo/env; source /home/gato/.kogniterm/venv/bin/activate; cd .. && python3 -m kogniterm.server --port 8765 $WORKSPACE_ARG" > "$LOGS_DIR/server.log" 2>&1 &
+    fi
 fi
 
 # Función para esperar a que el backend esté listo
@@ -91,28 +115,42 @@ wait_for_backend() {
     echo -e "\n✅ Backend detectado y listo!"
 }
 
-# Ejecutar la espera antes de iniciar el frontend
-wait_for_backend
+# Ejecutar la espera solo si iniciamos el backend en esta sesión
+if [ "$BACKEND_RUNNING" = false ]; then
+    wait_for_backend
+fi
 
-# Iniciar frontend en otra terminal
+# Iniciar frontend
 echo "${BLUE}🎨 Iniciando frontend (Tauri)...${NC}"
-if command_exists gnome-terminal; then
-    gnome-terminal -- bash -c "source \$HOME/.cargo/env; cd apps/desktop && echo '⚛️  Frontend Tauri/React' && npm run tauri dev; exec bash"
-elif command_exists konsole; then
-    konsole -e bash -c "source \$HOME/.cargo/env; cd apps/desktop && echo '⚛️  Frontend Tauri/React' && npm run tauri dev; exec bash" &
-elif command_exists xterm; then
-    xterm -e "source \$HOME/.cargo/env; cd apps/desktop && echo '⚛️  Frontend Tauri/React' && npm run tauri dev; exec bash" &
+if [ "$SHOW_LOGS" = true ]; then
+    if command_exists gnome-terminal; then
+        gnome-terminal -- bash -c "source \$HOME/.cargo/env; cd apps/desktop && echo '⚛️  Frontend Tauri/React' && npm run tauri dev; exec bash"
+    elif command_exists konsole; then
+        konsole -e bash -c "source \$HOME/.cargo/env; cd apps/desktop && echo '⚛️  Frontend Tauri/React' && npm run tauri dev; exec bash" &
+    elif command_exists xterm; then
+        xterm -e "source \$HOME/.cargo/env; cd apps/desktop && echo '⚛️  Frontend Tauri/React' && npm run tauri dev; exec bash" &
+    else
+        echo "⚠️  No se encontró un emulador de terminal compatible."
+        echo "Por favor, ejecuta manualmente en otra terminal:"
+        echo "  cd apps/desktop && npm run tauri dev"
+    fi
 else
-    echo "⚠️  No se encontró un emulador de terminal compatible."
-    echo "Por favor, ejecuta manualmente en otra terminal:"
-    echo "  cd apps/desktop && npm run tauri dev"
+    LOGS_DIR="$HOME/.kogniterm/logs"
+    mkdir -p "$LOGS_DIR"
+    echo "📝 Guardando logs del frontend en $LOGS_DIR/tauri.log"
+    bash -c "source \$HOME/.cargo/env; cd apps/desktop && npm run tauri dev" > "$LOGS_DIR/tauri.log" 2>&1 &
 fi
 
 echo ""
-echo "${GREEN}✨ KogniTerm Desktop está iniciando...${NC}"
+echo "${GREEN}✨ KogniTerm Desktop se está iniciando...${NC}"
 echo ""
 echo "📝 Notas:"
 echo "  - Backend: http://localhost:8765"
-echo "  - Frontend: Se abrirá automáticamente"
-echo "  - Presiona Ctrl+C en cada terminal para detener"
+if [ "$SHOW_LOGS" = true ]; then
+    echo "  - Frontend: Se abrirá automáticamente"
+    echo "  - Presiona Ctrl+C en cada terminal para detener"
+else
+    echo "  - Logs del servidor: $LOGS_DIR/server.log"
+    echo "  - Logs del frontend: $LOGS_DIR/tauri.log"
+fi
 echo ""
