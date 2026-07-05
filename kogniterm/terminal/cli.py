@@ -528,6 +528,13 @@ class CLIHandler:
 
     def handle_desktop(self, args: List[str]):
         """Abre la versión desktop de KogniTerm."""
+        if "--help" in args or "-h" in args:
+            print("Uso: kogniterm desktop [opciones]")
+            print("\nOpciones:")
+            print("  --logs      Abre ventanas de terminal adicionales para mostrar los logs del servidor y de la app")
+            print("  -h, --help  Muestra este mensaje de ayuda")
+            return
+
         import subprocess
         
         # Guardar el directorio de trabajo original (el actual de la terminal del usuario)
@@ -570,7 +577,12 @@ class CLIHandler:
             # Usamos Popen para que corra en segundo plano y el CLI pueda retornar de inmediato
             env = os.environ.copy()
             env["KOGNITERM_WORKSPACE"] = original_cwd
-            subprocess.Popen(["./start-dev.sh"], cwd=desktop_dir, env=env)
+            
+            cmd = ["./start-dev.sh"]
+            if "--logs" in args:
+                cmd.append("--logs")
+                
+            subprocess.Popen(cmd, cwd=desktop_dir, env=env)
             print("✨ Proceso de inicio lanzado en segundo plano.")
         except Exception as e:
             print(f"❌ Error al iniciar KogniTerm Desktop: {e}")
