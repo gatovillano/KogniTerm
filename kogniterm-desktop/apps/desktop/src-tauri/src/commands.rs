@@ -18,3 +18,12 @@ pub async fn check_server_status() -> bool {
     let client = ApiClient::new(API_URL);
     client.check_health().await
 }
+
+#[command]
+pub fn get_cwd() -> Result<String, String> {
+    match std::env::current_dir() {
+        Ok(path) => Ok(path.to_string_lossy().into_owned()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+

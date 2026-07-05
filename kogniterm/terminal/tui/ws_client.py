@@ -265,8 +265,11 @@ class TUIWebSocketClient:
             else:
                 text = str(data) if data else ""
             if text:
-                chat_log = self._get_chat_log(agent_id)
-                self._app.call_from_thread(chat_log.write_agent_message, text)
+                self._app.call_from_thread(
+                    self._app.tui_ui.print_message,
+                    text,
+                    panel_id=agent_id
+                )
 
         elif event_type == "tool_call":
             # El agente comenzó a usar una herramienta

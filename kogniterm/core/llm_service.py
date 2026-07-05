@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 from typing import Union # ¡Nueva importación para Union!
+import contextvars
 
 # Importar ConfigManager para gestión centralizada de credenciales
 from kogniterm.terminal.config_manager import ConfigManager
@@ -180,7 +181,14 @@ from .history_manager import HistoryManager
 
 
 class LLMService:
+    _context_history_file_path = contextvars.ContextVar('history_file_path', default=None)
+    _context_history_manager = contextvars.ContextVar('history_manager', default=None)
+    _context_workspace_context = contextvars.ContextVar('workspace_context', default=None)
+    _context_vector_db_manager = contextvars.ContextVar('vector_db_manager', default=None)
+    _context_current_workspace_dir = contextvars.ContextVar('current_workspace_dir', default=None)
+
     def __init__(self, interrupt_queue: Optional[queue.Queue] = None, use_multi_provider: bool = True):
+        self._use_context_vars = False
         # print("DEBUG: Iniciando LLMService.__init__...")
         
         # Inicializar MultiProviderManager
@@ -394,6 +402,66 @@ class LLMService:
             except Exception as e:
                 logger.error(f"⚠️ Error re-descubriendo skills en {workspace_dir}: {e}")
         
+    @property
+    def history_file_path(self):
+        val = self._context_history_file_path.get()
+        return val if val is not None else getattr(self, '_fallback_history_file_path', None)
+
+    @history_file_path.setter
+    def history_file_path(self, value):
+        if getattr(self, '_use_context_vars', False):
+            self._context_history_file_path.set(value)
+        else:
+            self._fallback_history_file_path = value
+
+    @property
+    def history_manager(self):
+        val = self._context_history_manager.get()
+        return val if val is not None else getattr(self, '_fallback_history_manager', None)
+
+    @history_manager.setter
+    def history_manager(self, value):
+        if getattr(self, '_use_context_vars', False):
+            self._context_history_manager.set(value)
+        else:
+            self._fallback_history_manager = value
+
+    @property
+    def workspace_context(self):
+        val = self._context_workspace_context.get()
+        return val if val is not None else getattr(self, '_fallback_workspace_context', None)
+
+    @workspace_context.setter
+    def workspace_context(self, value):
+        if getattr(self, '_use_context_vars', False):
+            self._context_workspace_context.set(value)
+        else:
+            self._fallback_workspace_context = value
+
+    @property
+    def vector_db_manager(self):
+        val = self._context_vector_db_manager.get()
+        return val if val is not None else getattr(self, '_fallback_vector_db_manager', None)
+
+    @vector_db_manager.setter
+    def vector_db_manager(self, value):
+        if getattr(self, '_use_context_vars', False):
+            self._context_vector_db_manager.set(value)
+        else:
+            self._fallback_vector_db_manager = value
+
+    @property
+    def _current_workspace_dir(self):
+        val = self._context_current_workspace_dir.get()
+        return val if val is not None else getattr(self, '_fallback_current_workspace_dir', None)
+
+    @_current_workspace_dir.setter
+    def _current_workspace_dir(self, value):
+        if getattr(self, '_use_context_vars', False):
+            self._context_current_workspace_dir.set(value)
+        else:
+            self._fallback_current_workspace_dir = value
+
     @property
     def current_delegation_context(self):
         return getattr(self._thread_local, "delegation_context", None)
