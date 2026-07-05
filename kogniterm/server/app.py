@@ -1315,7 +1315,25 @@ app = create_app()
 def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False, workspace: Optional[str] = None):
     """Lanza el servidor KogniTerm."""
     import sys
+    import atexit
+    from pathlib import Path
     
+    # Escribir archivo PID para permitir detener el servidor después
+    pid_file = Path.home() / ".kogniterm" / f"server_{port}.pid"
+    try:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()))
+        
+        def remove_pid_file():
+            try:
+                if pid_file.exists():
+                    pid_file.unlink()
+            except Exception:
+                pass
+        atexit.register(remove_pid_file)
+    except Exception as e:
+        logger.warning(f"⚠️  No se pudo escribir el archivo PID en {pid_file}: {e}")
+
     # Obtener el workspace del argumento o de la variable de entorno
     target_workspace = workspace or os.environ.get("KOGNITERM_WORKSPACE")
     if target_workspace:
