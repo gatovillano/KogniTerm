@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 
 
 def _external_skills_base() -> Path:
-    return Path(__file__).resolve().parents[3] / "skills" / "external"
+    return Path(__file__).resolve().parents[3] / "external"
 
 
 def _iter_external_skills() -> List[Dict[str, Any]]:
