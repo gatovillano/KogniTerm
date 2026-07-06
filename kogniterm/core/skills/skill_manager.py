@@ -887,8 +887,8 @@ class SkillManager:
             self.skills[skill_name].tools = []
 
         # Remover módulos cargados de sys.modules para permitir recarga limpia
-        safe_skill_name = self._to_valid_module_part(skill_name)
-        prefix = f"{self.DYNAMIC_SKILLS_PACKAGE}.{safe_skill_name}"
+        safe_skill_name = SkillLoader._to_valid_module_part(skill_name)
+        prefix = f"{SkillLoader.DYNAMIC_SKILLS_PACKAGE}.{safe_skill_name}"
         modules_to_remove = [
             name for name in list(sys.modules.keys())
             if name == prefix or name.startswith(prefix + ".")
