@@ -11,6 +11,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ from rich.padding import Padding
 from rich.text import Text
 
 from kogniterm.core.agent_state import AgentState
+from kogniterm.core.exceptions import UserConfirmationRequired
 from kogniterm.ui.themes import ColorPalette, Icons
 from kogniterm.ui.terminal_ui import TerminalUI
 
@@ -639,14 +641,121 @@ def call_deep_model_node(
     return {"messages": state.messages}
 
 
+def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
+    """Ejecuta una herramienta individual SIN mostrar salida (modo Deep Researcher)."""
+    tool_name = tc["name"]
+    tool_args = tc["args"]
+    tool_id = tc["id"]
+
+    tool = llm_service.get_tool(tool_name)
+    if not tool:
+        return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
+
+    try:
+        full_tool_output = ""
+        tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
+
+        for chunk in tool_output_generator:
+            full_tool_output += str(chunk)
+
+        return tool_id, full_tool_output, None
+    except InterruptedError:
+        return (
+            tool_id,
+            f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.",
+            InterruptedError("Interrumpido por el usuario."),
+        )
+    except Exception as e:
+        return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
+
+
+def execute_tool_node(
+    state: DeepResearchState,
+    llm_service: LLMService,
+    terminal_ui: Optional[TerminalUI] = None,
+    interrupt_queue: Optional[queue.Queue] = None,
+):
+    """Nodo de ejecución de herramientas SIN mostrar salida (modo Deep Researcher)."""
+    last_message = state.messages[-1]
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return state
+
+    tool_messages = []
+    executor = ThreadPoolExecutor(max_workers=5)
+    futures = []
+
+    if interrupt_queue and not interrupt_queue.empty():
+        interrupt_queue.get()
+        state.reset_temporary_state()
+        return state
+
+    for tool_call in last_message.tool_calls:
+        if interrupt_queue and not interrupt_queue.empty():
+            interrupt_queue.get()
+            state.reset_temporary_state()
+            break
+
+        futures.append(
+            executor.submit(
+                execute_single_tool,
+                tool_call,
+                llm_service,
+                terminal_ui,
+                interrupt_queue,
+            )
+        )
+
+    for future in as_completed(futures):
+        try:
+            tool_id, content, exception = future.result()
+            if exception:
+                if isinstance(exception, UserConfirmationRequired):
+                    tool_messages.append(
+                        ToolMessage(content=content, tool_call_id=tool_id)
+                    )
+                else:
+                    tool_messages.append(
+                        ToolMessage(content=content, tool_call_id=tool_id)
+                    )
+            else:
+                tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+        except Exception as e:
+            tool_messages.append(
+                ToolMessage(content=f"Error en ejecutor: {e}", tool_call_id="unknown")
+            )
+
+    state.messages.extend(tool_messages)
+    llm_service._save_history(state.messages)
+    executor.shutdown(wait=True)
+    return state
+
+
+def should_continue(state: DeepResearchState) -> str:
+    """Decide si el agente debe continuar."""
+    from langgraph.graph import END
+
+    if state.completed:
+        return END
+
+    last_message = state.messages[-1]
+
+    if state.command_to_confirm is not None:
+        return END
+
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        return "execute_tool"
+    elif isinstance(last_message, ToolMessage):
+        return "call_model"
+
+    return "call_model"
+
+
 def create_deep_researcher(
     llm_service: LLMService,
     terminal_ui: Any = None,
     interrupt_queue: Optional[queue.Queue] = None,
 ):
-    from .code_agent import execute_tool_node, should_continue
-
-    workflow = StateGraph(DeepResearchState)  # Usar DeepResearchState
+    workflow = StateGraph(DeepResearchState)
 
     workflow.add_node(
         "planning",
@@ -694,32 +803,20 @@ def create_deep_researcher(
         ),
     )
 
-    # Definir flujo
     workflow.set_entry_point("planning")
     workflow.add_edge("planning", "call_model")
-    workflow.add_edge(
-        "execute_tool", "research"
-    )  # Después de herramientas, registrar hallazgos
+    workflow.add_edge("execute_tool", "research")
     workflow.add_edge("research", "call_model")
 
     def deep_research_router(state: DeepResearchState):
-        from .code_agent import should_continue
-
         if state.completed:
             return "synthesis"
 
         if should_continue(state) == "execute_tool":
             return "execute_tool"
 
-        tracker = llm_service.get_tool("task_tracker")
-        if tracker:
-            status = tracker.invoke(action="get", agent_name="Researcher")
-            if (
-                "PENDING" not in status
-                and "IN-PROGRESS" not in status
-                and "Estado del Plan" in status
-            ):
-                return "reflection"
+        if state.findings and len(state.findings) >= len(state.research_plan):
+            return "reflection"
 
         return "call_model"
 
