@@ -12,11 +12,12 @@ Herramienta profesional de edición de archivos con múltiples estrategias, oper
 ## Capacidades
 
 - **Múltiples Estrategias de Edición**: Soporta 10 acciones diferentes (insertar, reemplazar, eliminar, búsqueda por regex, etc.)
-- **Operaciones por Lote**: Ejecutar múltiples operaciones en un solo archivo de forma atómica
-- **Rollback Automático**: Si una operación falla, se revierte todo el lote
-- **Validación de Seguridad**: Verifica la validez de cada operación antes de ejecutar
-- **Transacciones**: Sistema de transacciones con IDs únicos para seguimiento
-- **Logging Profesional**: Trazabilidad completa de todas las operaciones
+- **Operaciones por Lote ATÓMICAS**: Ejecutar múltiples operaciones en un solo archivo de forma **todo-o-nada**. Si una operación falla, NINGÚN cambio se persiste en disco.
+- **Match EXACTO por defecto**: El matching flexible (fuzzy) está disponible pero **desactivado por defecto** para evitar el sobre-match que producía ediciones erráticas.
+- **Validación de Seguridad**: Verifica la validez de cada operación antes de ejecutar.
+- **Transacciones con rollback**: Cada conjunto de operaciones tiene un `transaction_id`. Se puede revertir con `action: "rollback", transaction_id: "..."`.
+- **Feedback rico al LLM**: Las operaciones exitosas devuelven `matched_span` y `applied_diff` para que el LLM verifique el cambio.
+- **Logging Profesional**: Trazabilidad completa de todas las operaciones.
 
 ## Uso Básico
 
@@ -60,15 +61,33 @@ Herramienta profesional de edición de archivos con múltiples estrategias, oper
 | Acción | Descripción | Parámetros Requeridos |
 |--------|-------------|----------------------|
 | `insert_line` | Inserta contenido en una línea específica | `line_number`, `content` |
-| `replace_block` | Reemplaza un bloque de texto | `target_content`, `replacement_content` |
-| `replace_lines` | Reemplaza un rango de líneas | `line_number`, `replacement_content` |
-| `insert_after_match` | Inserta después de una coincidencia | `target_content`, `content` |
-| `insert_before_match` | Inserta antes de una coincidencia | `target_content`, `content` |
+| `replace_block` | Reemplaza un bloque de texto. Match EXACTO por defecto. | `target_content`, `replacement_content` |
+| `replace_lines` | Reemplaza un rango de líneas (1-based) | `line_number`, `replacement_content` |
+| `insert_after_match` | Inserta después de una coincidencia exacta | `target_content`, `content` |
+| `insert_before_match` | Inserta antes de una coincidencia exacta | `target_content`, `content` |
 | `replace_regex` | Reemplaza usando expresión regular | `regex_pattern`, `replacement_content` |
 | `delete_lines` | Elimina un rango de líneas | `line_number`, `end_line` (opcional) |
 | `prepend_content` | Añade contenido al inicio | `content` |
 | `append_content` | Añade contenido al final | `content` |
 | `full_replacement` | Reemplaza todo el contenido | `content` |
+| `rollback` | Revierte una transacción previa | `transaction_id` |
+
+## Parámetros de control del match
+
+- `fuzzy` (bool, default `false`): permite coincidencia flexible en `replace_block` / `insert_*_match`. **Recomendado: dejar en false salvo necesidad real.**
+- `require_unique` (bool, default `true`): si `true`, falla con lista de líneas cuando el target aparece más de una vez.
+- `context_hint` (string, opcional): substring único que debe estar dentro de ±20 líneas del match correcto. Permite desambiguar entre múltiples matches.
+
+## Atomicidad del batch (2026-07)
+
+Cuando se proporciona `operations: [...]`, las operaciones se aplican de forma **atómica**:
+
+1. Se validan TODAS las operaciones contra el contenido en memoria.
+2. Si todas validan, se escribe el archivo una sola vez.
+3. Si UNA falla, el archivo en disco queda **idéntico** al original (cero cambios parciales).
+4. El resultado indica `failed_at: N` y el mensaje de la operación que falló.
+
+Antes (comportamiento anterior): cada operación escribía a disco; un batch de 5 ops donde la 3ª fallaba dejaba 2 cambios persistidos. **Esto ya no ocurre.**
 
 ## Características Avanzadas
 

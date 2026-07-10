@@ -2660,3 +2660,54 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
             with self.tool_execution_lock:
                 if getattr(self, 'active_tool_future', None) is future:
                     self.active_tool_future = None
+
+    def generate_thread_title(self, first_messages: List[Any]) -> str:
+        """
+        Genera un título corto y descriptivo para el hilo basándose en los primeros mensajes.
+        """
+        if not first_messages:
+            return "Conversación sin título"
+
+        # Extraer el texto de los primeros mensajes (especialmente el primero del usuario)
+        context_text = ""
+        for msg in first_messages[:3]:
+            content = getattr(msg, 'content', str(msg))
+            context_text += f"[{type(msg).__name__}]: {content}\\n"
+
+        prompt = (
+            "Eres un experto en organización de información. Tu tarea es generar un título "
+            "corto, conciso y descriptivo (máximo 5-7 palabras) para un hilo de chat basado en el siguiente contexto.\n"
+            "El título debe ser en el idioma del usuario y reflejar el objetivo principal de la conversación.\n"
+            "No uses comillas, ni frases como 'Título: ', solo el texto del título.\n\n"
+            f"CONTEXTO:\n{context_text}\n\n"
+            "TÍTULO:"
+        )
+
+        try:
+            # Usamos una llamada simple sin herramientas para el título
+            litellm_messages = [{"role": "user", "content": prompt}]
+            
+            # Usamos el provider_manager si está disponible para consistencia de modelo
+            if self.provider_manager:
+                response_gen = self.provider_manager.execute(
+                    model_name=self.model_name,
+                    messages=litellm_messages,
+                    stream=False,
+                    temperature=0.3
+                )
+                response = next(response_gen)
+                title = getattr(response.choices[0].message, 'content', "Conversación sin título")
+            else:
+                from litellm import completion
+                response = completion(
+                    model=self.model_name,
+                    messages=litellm_messages,
+                    stream=False,
+                    temperature=0.3
+                )
+                title = response.choices[0].message.content
+
+            return title.strip().strip('"').strip("'")
+        except Exception as e:
+            logger.warning(f"Error generando título automático para el hilo: {e}")
+            return "Nueva Conversación"

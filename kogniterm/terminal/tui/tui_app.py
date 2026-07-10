@@ -1728,10 +1728,28 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
-                    files = suggester.cached_files_list
-                    matches = [f for f in files if search_term.lower() in f.lower()][
-                        :15
-                    ]  # Limitar a 15
+                    search_lower = search_term.lower()
+                    token_map = getattr(suggester, "_file_token_map", None)
+                    if token_map is not None and search_lower:
+                        tokens = set(search_lower.replace("\\", "/").split("/"))
+                        tokens.update(search_lower.split())
+                        candidate_scores = {}
+                        for token in tokens:
+                            if not token:
+                                continue
+                            for path in token_map.get(token, []):
+                                candidate_scores[path] = candidate_scores.get(path, 0) + 1
+                        matches = [
+                            path
+                            for path, _ in sorted(
+                                candidate_scores.items(),
+                                key=lambda x: x[1],
+                                reverse=True,
+                            )
+                        ][:15]
+                    else:
+                        files = suggester.cached_files_list
+                        matches = [f for f in files if search_lower in f.lower()][:15]
             elif trigger == ":" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import (
                     KogniTermSuggester,
@@ -1739,12 +1757,11 @@ class KogniTermTUI(App):
 
                 if isinstance(suggester, KogniTermSuggester):
                     containers = getattr(suggester, "_cached_containers", []) or []
-                    # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
                     matches = [
                         c
                         for c in containers
                         if search_term.lower() in c["name"].lower()
-                    ][:12]  # Limitar a 12
+                    ][:12]
 
             # Si hay un único match y es exacto, no mostrar autocompletado
             if len(matches) == 1:
@@ -1879,10 +1896,28 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
-                    files = suggester.cached_files_list
-                    matches = [f for f in files if search_term.lower() in f.lower()][
-                        :15
-                    ]  # Limitar a 15
+                    search_lower = search_term.lower()
+                    token_map = getattr(suggester, "_file_token_map", None)
+                    if token_map is not None and search_lower:
+                        tokens = set(search_lower.replace("\\", "/").split("/"))
+                        tokens.update(search_lower.split())
+                        candidate_scores = {}
+                        for token in tokens:
+                            if not token:
+                                continue
+                            for path in token_map.get(token, []):
+                                candidate_scores[path] = candidate_scores.get(path, 0) + 1
+                        matches = [
+                            path
+                            for path, _ in sorted(
+                                candidate_scores.items(),
+                                key=lambda x: x[1],
+                                reverse=True,
+                            )
+                        ][:15]
+                    else:
+                        files = suggester.cached_files_list
+                        matches = [f for f in files if search_lower in f.lower()][:15]
             elif trigger == ":" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import (
                     KogniTermSuggester,
@@ -1921,7 +1956,6 @@ class KogniTermTUI(App):
                 self._completion_input = None
         else:
             self.command_popup.display = False
-            self._completion_input = None
 
     def _reposition_popup(self, input_widget, current_value: str) -> None:
         """Posiciona el popup justo encima del input activo (funciona tanto en splash como en chat)."""
