@@ -552,7 +552,23 @@ class CommandApprovalHandler:
                     tool_message_content = self._stringify_tool_result(normalized_result)
                     should_render_applied_diff = self._tool_result_succeeded(normalized_result)
 
-                elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
+                elif tool_name in [
+                    "advanced_file_editor", "advanced_file_editor_tool",
+                    "sophisticated_editor_tool", "replace_file_content",
+                ]:
+                    # Aliases viejos convergiendo en advanced_file_editor.
+                    # sofisticated/replace_file_content son aliases del mismo
+                    # objeto en file_editor.py; los demas wrappers los
+                    # ruteamos al mismo punto para que el comportamiento sea
+                    # consistente (ver ANALISIS_DEUDA_TECNICA.md).
+                    if tool_name in ("sophisticated_editor_tool", "replace_file_content"):
+                        import warnings
+                        warnings.warn(
+                            f"[KogniTerm] Tool name '{tool_name}' es un alias "
+                            f"deprecated. Use 'advanced_file_editor'.",
+                            DeprecationWarning,
+                            stacklevel=2,
+                        )
                     args_to_pass = dict(original_tool_args)
                     args_to_pass["confirm"] = True
                     if not args_to_pass.get("path"):
@@ -568,14 +584,11 @@ class CommandApprovalHandler:
                     tool_message_content = self._stringify_tool_result(normalized_result)
                     should_render_applied_diff = self._tool_result_succeeded(normalized_result)
 
-                elif tool_name in ["file_operations", "file_operations_tool", "sophisticated_editor_tool", "write_file_tool", "append_file_tool", "delete_file_tool", "move_file_tool", "copy_file_tool"]:
+                elif tool_name in ["file_operations", "file_operations_tool", "write_file_tool", "append_file_tool", "delete_file_tool", "move_file_tool", "copy_file_tool"]:
                     args_to_pass = {k: v for k, v in original_tool_args.items() if k != "operation"}
                     args_to_pass["confirm"] = True
-                    
-                    if tool_name == "sophisticated_editor_tool":
-                        _fe_mod = _load_file_ops_module("file_editor")
-                        file_ops_result = _fe_mod.sophisticated_editor_tool(**args_to_pass)
-                    elif tool_name == "write_file_tool":
+
+                    if tool_name == "write_file_tool":
                         _fw_mod = _load_file_ops_module("file_write")
                         file_ops_result = _fw_mod.write_file_tool(**args_to_pass)
                     elif tool_name == "append_file_tool":

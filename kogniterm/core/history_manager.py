@@ -174,13 +174,9 @@ class HistoryManager:
         self.tokenizer = tiktoken.encoding_for_model("gpt-4")
         self._message_length_cache: Dict[int, int] = {}
         
-        # Autoguardado versioned
+        # El AutosaveManager ahora es gestionado externamente por el ThreadManager 
+        # o la lógica de sesión para evitar redundancia de archivos.
         self.autosave_manager = None
-        try:
-            workspace_dir = os.path.dirname(history_file_path)
-            self.autosave_manager = AutosaveManager(workspace_dir)
-        except Exception as e:
-            print(f"Advertencia: No se pudo inicializar AutosaveManager: {e}", file=sys.stderr)
         
         # Autoguardado periódico
         self.auto_save_interval = auto_save_interval

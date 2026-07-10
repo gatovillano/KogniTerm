@@ -407,8 +407,19 @@ class KogniTermSuggester:
                         break
                 if len(items) > 5000: break
                 
+            # Precalcular tokens para búsqueda eficiente por palabras
+            token_map = {}
+            for item in items:
+                lower_item = item.lower()
+                tokens = set(lower_item.replace('\\', '/').split('/'))
+                tokens.update(lower_item.split())
+                for token in tokens:
+                    if token:
+                        token_map.setdefault(token, []).append(item)
+            
             with self._lock:
                 self.cached_files_list = items
+                self._file_token_map = token_map
         except Exception as e:
             # Registrar error si es posible (aunque aquí suele ser silencioso)
             pass
