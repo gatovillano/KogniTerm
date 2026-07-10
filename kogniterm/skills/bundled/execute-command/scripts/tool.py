@@ -128,6 +128,15 @@ def execute_command(
     try:
         master_fd, slave_fd = pty.openpty()
         
+        # Asegurar mapeo de saltos de línea (ONLCR) en la PTY
+        try:
+            import termios
+            attrs = termios.tcgetattr(slave_fd)
+            attrs[1] = attrs[1] | termios.OPOST | termios.ONLCR
+            termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+        except Exception:
+            pass
+        
         # Iniciar proceso con el slave_fd como stdout/stderr/stdin
         process = subprocess.Popen(
             command if shell else shlex.split(command),

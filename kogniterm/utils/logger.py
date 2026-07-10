@@ -2,8 +2,14 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 
-def setup_logger(name: str = "kogniterm", level: int = logging.INFO) -> logging.Logger:
-    """Configures and returns a logger with both file and (optional) console handlers."""
+def setup_logger(name: str = "kogniterm", level: int = logging.DEBUG, console_output: bool = False) -> logging.Logger:
+    """Configures and returns a logger with file handler and optional console handler.
+    
+    Args:
+        name: Logger name (default: "kogniterm")
+        level: Logging level (default: INFO)
+        console_output: If False, disables StreamHandler to prevent TUI interference (default: True)
+    """
     logger = logging.getLogger(name)
     logger.setLevel(level)
     
@@ -26,14 +32,14 @@ def setup_logger(name: str = "kogniterm", level: int = logging.INFO) -> logging.
     file_handler.setFormatter(file_formatter)
     logger.addHandler(file_handler)
 
-    # Console Handler (only for WARNING and above, to avoid UI corruption in TUI)
-    # Note: In TUI mode, we might want to disable this OR use a special handler.
-    # For now, we'll keep it at WARNING level.
-    console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
-    console_handler.setFormatter(console_formatter)
-    console_handler.setLevel(logging.WARNING)
-    logger.addHandler(console_handler)
+    # Console Handler - only add if console_output is True
+    # This prevents logs from appearing in the TUI
+    if console_output:
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+        console_handler.setFormatter(console_formatter)
+        console_handler.setLevel(logging.WARNING)
+        logger.addHandler(console_handler)
 
     return logger
 
@@ -42,3 +48,30 @@ def get_logger(name: str) -> logging.Logger:
     if not name.startswith("kogniterm.") and name != "kogniterm":
         name = f"kogniterm.{name}"
     return logging.getLogger(name)
+
+def disable_console_handler(logger: logging.Logger = None, name: str = "kogniterm") -> None:
+    """Disables console (StreamHandler) output for a logger to prevent TUI interference.
+    
+    Args:
+        logger: Logger instance (if None, gets logger by name)
+        name: Logger name if logger is None (default: "kogniterm")
+    """
+    if logger is None:
+        logger = logging.getLogger(name)
+    
+    # Remove all StreamHandler instances
+    handlers_to_remove = [h for h in logger.handlers if isinstance(h, logging.StreamHandler)]
+    for handler in handlers_to_remove:
+        logger.removeHandler(handler)
+        handler.close()
+
+def enable_file_logging_only(name: str = "kogniterm", level: int = logging.INFO) -> logging.Logger:
+    """Sets up logging to file only (no console output) for TUI mode.
+    
+    This is the recommended way to initialize logging when using the TUI.
+    
+    Args:
+        name: Logger name (default: "kogniterm")
+        level: Logging level (default: INFO)
+    """
+    return setup_logger(name=name, level=level, console_output=False)
