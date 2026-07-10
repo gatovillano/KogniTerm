@@ -2130,42 +2130,8 @@ class KogniTermTUI(App):
                             self._apply_completion(
                                 selected_text, input_widget, input_widget.value
                             )
+                        self.command_popup.display = False
                         event.prevent_default()
-            elif event.key == "up":
-                self.command_popup.action_cursor_up()
-                event.prevent_default()
-            elif event.key == "enter":
-                if self.command_popup.highlighted_child:
-                    item = self.command_popup.highlighted_child
-                    if hasattr(item, "command_text"):
-                        selected_text = item.command_text
-                        input_widget = self.focused
-                        current_val = input_widget.value
-
-                        # Determinar si estamos reemplazando una palabra parcial (@ o :)
-                        # o si es un comando mágico (%)
-                        if current_val.lstrip().startswith("%"):
-                            # Reemplazo total para comandos mágicos
-                            input_widget.value = selected_text + " "
-                        else:
-                            # Reemplazo inteligente de la última palabra para @ y :
-                            words = current_val.split()
-                            if words:
-                                last_word = words[-1]
-                                prefix = ""
-                                if "@" in last_word:
-                                    prefix = last_word.split("@")[0] + "@"
-                                elif ":" in last_word:
-                                    prefix = last_word.split(":")[0] + ":"
-
-                                # Reconstruir el valor
-                                words[-1] = prefix + selected_text
-                                input_widget.value = " ".join(words) + " "
-
-                        input_widget.cursor_position = len(input_widget.value)
-                        input_widget.focus()
-                    self.command_popup.display = False
-                    event.prevent_default()
 
     def on_input_submitted(self, event: Input.Submitted):
         user_input = event.value
