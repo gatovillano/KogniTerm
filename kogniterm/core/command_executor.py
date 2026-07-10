@@ -203,11 +203,11 @@ class CommandExecutor:
                                 if "##KOGNITERM_" in first_line and first_line.strip() != "##KOGNITERM_DONE_MARKER##":
                                     search_buffer = rest
                                 self._echo_filtered = True
-                            elif len(search_buffer) < len(expected) + 64:
+                            elif expected.startswith(search_buffer):
                                 # Aún no tenemos la línea de eco completa, seguimos esperando más chunks
                                 continue
                             else:
-                                # Mecanismo de seguridad por si el buffer crece demasiado
+                                # No es el eco de comando (o ya terminó de otra forma)
                                 self._echo_filtered = True
 
 
@@ -274,6 +274,7 @@ class CommandExecutor:
         # si el programa ejecutado así lo solicita.
         try:
             attrs = termios.tcgetattr(self._persistent_slave_fd)
+            attrs[1] = attrs[1] | termios.OPOST | termios.ONLCR # Asegurar procesamiento de salida y mapeo de NL a CR-NL
             attrs[3] = attrs[3] | termios.ECHO # Asegurar ECHO activado
             termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
         except Exception:

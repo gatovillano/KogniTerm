@@ -1,6 +1,6 @@
 import logging
-from kogniterm.utils.logger import setup_logger
-setup_logger() # Initialize root logger early
+from kogniterm.utils.logger import enable_file_logging_only
+enable_file_logging_only() # Initialize root logger for TUI mode (file only, no console)
 import sys
 import os
 from dotenv import load_dotenv # Importar load_dotenv
@@ -150,13 +150,6 @@ async def _main_async():
             if saved_key:
                 os.environ[env_var] = saved_key
     
-    # Disable console logging in TUI mode to prevent logs from disrupting the UI
-    kogniterm_logger = logging.getLogger("kogniterm")
-    kogniterm_logger.setLevel(logging.CRITICAL)
-    for handler in kogniterm_logger.handlers[:]:
-        if isinstance(handler, logging.StreamHandler):
-            kogniterm_logger.removeHandler(handler)
-    kogniterm_logger.propagate = False
     # --- Centralización: La TUI actúa como cliente ---
     workspace_directory = os.getcwd()
     

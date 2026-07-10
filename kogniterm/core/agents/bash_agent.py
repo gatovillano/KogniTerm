@@ -986,39 +986,40 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     # Solicitar aprobación usando command_approval_handler si está disponible
                     if command_approval_handler:
                         try:
-                            # Determinar el tipo de herramienta para pasar información correcta
-                            tool_name_for_handler = raw_tool_output.get("operation", exception.tool_name)
-                            
-                            # Crear un raw_output para el handler
+                            # Preparar raw_output para el handler con el formato esperado
                             handler_raw_output = {
                                 "status": "requires_confirmation",
                                 "action_description": exception.message,
                                 "diff": raw_tool_output.get("diff", ""),
-                                "path": exception.tool_args.get("path", "") if exception.tool_args else ""
+                                "path": exception.tool_args.get("path", "") if exception.tool_args else "",
+                                "operation": tool_name,
+                                "args": exception.tool_args
                             }
                             
-                            approval_result = command_approval_handler.handle_approval(
-                                action_description=exception.message,
-                                diff=raw_tool_output.get("diff", "")
+                            # Establecer el tool_call_id_to_confirm para que el handler pueda sincronizar el historial
+                            state.tool_call_id_to_confirm = tool_id
+                            
+                            # Llamar al método correcto: handle_command_approval
+                            # Este método maneja la confirmación de forma apropiada según el contexto (TUI/CLI)
+                            # El handler ya ejecuta la herramienta y añade el ToolMessage al historial
+                            handler_result = command_approval_handler.handle_command_approval(
+                                command_to_execute="",  # No es un comando bash en este caso
+                                raw_tool_output=handler_raw_output,
+                                tool_name=tool_name,
+                                original_tool_args=exception.tool_args
                             )
-                            run_action = approval_result
+                            # El handler ya ejecutó la herramienta y actualizó el historial
+                            executor.shutdown(wait=False)
+                            llm_service._save_history(state.messages)
+                            return {
+                                "messages": state.messages
+                            }
                         except Exception as e:
                             terminal_ui.console.print(f"[bold red]Error al solicitar confirmación: {e}[/bold red]")
-                            run_action = False
+                            # Continuar con el flujo normal de ejecución manual
                     else:
-                        # Fallback: usar prompt simple si no hay command_approval_handler
-                        # NOTA: Comentado porque la confirmación ya se maneja a través del flujo normal del tool
-                        # terminal_ui.print_confirmation_panel(
-                        #     panel_content,
-                        #     "Confirmación Requerida",
-                        #     'yellow'
-                        # )
-                        # approval_result = input("¿Deseas ejecutar esta acción? (s/n): ")
-                        # run_action = approval_result.lower().strip() == 's'
-                        run_action = False  # Denegar por defecto si no hay command_approval_handler
-                    
-                    if run_action:
-                        # Ejecutar la operación directamente
+                        # Si no hay command_approval_handler, la confirmación se maneja por el flujo normal
+                        # Ejecutar la operación directamente (manual o fallback)
                         if tool_name == "file_operations":
                             # Determinar si es write o delete
                             operation = exception.tool_args.get("operation", "write_file")
@@ -1049,30 +1050,35 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                                 exception.tool_args.get("new_content", exception.tool_args.get("content", ""))
                             )
                             content = edit_result
+                        else:
+                            # Para otras herramientas, usar el contenido existente
+                            content = None
                         
                         # ASEGURAR QUE EL CONTENIDO SEA STRING
-                        if isinstance(content, (dict, list)):
-                            content = json.dumps(content)
+                        if content is not None:
+                            if isinstance(content, (dict, list)):
+                                content = json.dumps(content)
+                            else:
+                                content = str(content)
+                            
+                            tool_message = ToolMessage(content=content, tool_call_id=tool_id)
+                            tool_messages.append(tool_message)
+                            state.add_message(tool_message)
+                            terminal_ui.print_message("✅ Acción ejecutada por el usuario.", style="green")
                         else:
-                            content = str(content)
-
-                        tool_message = ToolMessage(content=content, tool_call_id=tool_id)
-                        tool_messages.append(tool_message)
-                        state.add_message(tool_message)
-                        terminal_ui.print_message("✅ Acción ejecutada por el usuario.", style="green")
-                    else:
-                        # Usuario denegó
-                        content = f"Operación cancelada por el usuario: {exception.message}"
-                        tool_message = ToolMessage(content=content, tool_call_id=tool_id)
-                        tool_messages.append(tool_message)
-                        state.add_message(tool_message)
-                        terminal_ui.print_message("❌ Acción cancelada por el usuario.", style="yellow")
+                            # Usuario denegó o no hubo command_approval_handler
+                            content = f"Operación cancelada por el usuario: {exception.message}"
+                            tool_message = ToolMessage(content=content, tool_call_id=tool_id)
+                            tool_messages.append(tool_message)
+                            state.add_message(tool_message)
+                            terminal_ui.print_message("❌ Acción cancelada por el usuario.", style="yellow")
+                        
+                        executor.shutdown(wait=False)
+                        llm_service._save_history(state.messages)
+                        return {
+                            "messages": state.messages
+                        }
                     
-                    executor.shutdown(wait=False)
-                    llm_service._save_history(state.messages)
-                    return {
-                        "messages": state.messages
-                    }
                 elif isinstance(exception, InterruptedError):
                     terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
                     state.stop_requested = True
