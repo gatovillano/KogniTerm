@@ -475,6 +475,339 @@ class HistoryManager:
             "threads": threads,
         }
 
+    def _remove_orphan_tool_messages(self, history: List[BaseMessage]) -> List[BaseMessage]:
+        """
+        Elimina ToolMessages que no tienen un AIMessage correspondiente.
+        
+        Args:
+            history: Historial en formato LangChain
+            
+        Returns:
+            Historial sin ToolMessages huérfanos
+        """
+        valid_tool_call_ids: Set[str] = set()
+        for msg in history:
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    if 'id' in tc and tc['id']:
+                        valid_tool_call_ids.add(tc['id'])
+        
+        filtered_history = []
+        for i, msg in enumerate(history):
+            if isinstance(msg, ToolMessage):
+                if not msg.tool_call_id:
+                     if i > 0 and isinstance(history[i-1], AIMessage) and history[i-1].tool_calls:
+                         filtered_history.append(msg)
+                         continue
+                
+                if msg.tool_call_id and msg.tool_call_id not in valid_tool_call_ids:
+                    continue
+            filtered_history.append(msg)
+        
+        return filtered_history
+
+    def _ensure_tool_message_pairs(self, history: List[BaseMessage]) -> List[BaseMessage]:
+        """
+        Asegura que cada ToolMessage tenga su AIMessage correspondiente.
+        Elimina ToolMessages huérfanos al final del historial.
+        
+        Args:
+            history: Historial en formato LangChain
+            
+        Returns:
+            Historial con pares de mensajes válidos
+        """
+        if not history:
+            return history
+        
+        if isinstance(history[-1], ToolMessage):
+            last_tool_msg = history[-1]
+            tool_call_id = last_tool_msg.tool_call_id
+            found_ai_message = False
+            
+            if not tool_call_id:
+                 if len(history) > 1 and isinstance(history[-2], AIMessage) and history[-2].tool_calls:
+                     found_ai_message = True
+            else:
+                for msg in reversed(history[:-1]):
+                    if isinstance(msg, AIMessage) and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            if tc.get('id') == tool_call_id:
+                                found_ai_message = True
+                                break
+                    if found_ai_message:
+                        break
+            
+            if not found_ai_message:
+                history = history[:-1]
+        
+        if history and isinstance(history[-1], AIMessage):
+            if not history[-1].content and not history[-1].tool_calls:
+                history = history[:-1]
+        
+        return history
+
+    def _truncate_history(self, history: List[BaseMessage], max_messages: int, max_chars: int) -> List[BaseMessage]:
+        """
+        Trunca el historial según límites de mensajes y caracteres.
+        Protege los pares AIMessage-ToolMessage y trunca el contenido de ToolMessages grandes.
+        
+        Args:
+            history: Historial en formato LangChain
+            max_messages: Número máximo de mensajes conversacionales
+            max_chars: Número máximo de caracteres totales
+            
+        Returns:
+            Historial truncado
+        """
+        system_messages = [msg for msg in history if isinstance(msg, SystemMessage)]
+        conversational_messages = [msg for msg in history if not isinstance(msg, SystemMessage)]
+        
+        message_units = []
+        i = 0
+        while i < len(conversational_messages):
+            msg = conversational_messages[i]
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                current_unit = [msg]
+                expected_tool_ids = set()
+                for tc in msg.tool_calls:
+                    if tc.get('id'):
+                        expected_tool_ids.add(tc.get('id'))
+                
+                next_idx = i + 1
+                while next_idx < len(conversational_messages):
+                    next_msg = conversational_messages[next_idx]
+                    if isinstance(next_msg, ToolMessage):
+                        if (next_msg.tool_call_id and next_msg.tool_call_id in expected_tool_ids) or \
+                           (not next_msg.tool_call_id):
+                            current_unit.append(next_msg)
+                            next_idx += 1
+                        else:
+                            break
+                    else:
+                        break
+                
+                message_units.append(current_unit)
+                i = next_idx - 1 
+            else:
+                message_units.append([msg])
+            i += 1
+        
+        def get_unit_length(unit: List[BaseMessage]) -> int:
+            return sum(self._get_message_length(m) for m in unit)
+            
+        total_length = sum(get_unit_length(u) for u in message_units)
+        
+        # Eliminar mensajes antiguos si exceden la cantidad de mensajes
+        while len(message_units) > max_messages:
+            if len(message_units) > self.MIN_MESSAGES_TO_KEEP:
+                removed_unit = message_units.pop(0)
+                total_length -= get_unit_length(removed_unit)
+            else:
+                break
+                
+        # Eliminar mensajes antiguos si exceden el límite de caracteres
+        if total_length > max_chars:
+            while total_length > max_chars:
+                if len(message_units) > self.MIN_MESSAGES_TO_KEEP:
+                    removed_unit = message_units.pop(0)
+                    total_length -= get_unit_length(removed_unit)
+                else:
+                    break
+            
+        final_conversational_messages = []
+        for unit in message_units:
+            final_conversational_messages.extend(unit)
+        
+        return system_messages + final_conversational_messages
+
+    def _convert_litellm_to_langchain(self, messages_litellm: List[Dict[str, Any]]) -> List[BaseMessage]:
+        """Convierte mensajes de formato LiteLLM a formato LangChain."""
+        langchain_messages = []
+        for msg_litellm in messages_litellm:
+            role = msg_litellm.get("role")
+            if role == "user":
+                langchain_messages.append(HumanMessage(content=msg_litellm.get("content", "")))
+            elif role == "assistant":
+                tool_calls_data = msg_litellm.get("tool_calls")
+                if tool_calls_data:
+                    tool_calls = []
+                    for tc in tool_calls_data:
+                        tool_calls.append({
+                            "id": tc.get("id", str(uuid.uuid4())),
+                            "name": tc["function"].get("name", ""),
+                            "args": json.loads(tc["function"].get("arguments", "{}"))
+                        })
+                    langchain_messages.append(AIMessage(
+                        content=msg_litellm.get("content", ""), 
+                        tool_calls=tool_calls
+                    ))
+                else:
+                    langchain_messages.append(AIMessage(content=msg_litellm.get("content", "")))
+            elif role == "tool":
+                langchain_messages.append(ToolMessage(
+                    content=msg_litellm.get("content", ""), 
+                    tool_call_id=msg_litellm.get("tool_call_id", "")
+                ))
+            elif role == "system":
+                langchain_messages.append(SystemMessage(content=msg_litellm.get("content", "")))
+        return langchain_messages
+
+    def _ensure_ai_message_for_tool(self, 
+                                   tool_msg: ToolMessage, 
+                                   final_messages: List[BaseMessage],
+                                   all_messages: List[BaseMessage]) -> int:
+        """Asegura que un ToolMessage tenga su AIMessage correspondiente."""
+        tool_call_id = tool_msg.tool_call_id
+        additional_length = 0
+        found_ai_message = False
+        for prev_msg in final_messages[:-1]:
+            if isinstance(prev_msg, AIMessage) and prev_msg.tool_calls:
+                for tc in prev_msg.tool_calls:
+                    if tc.get('id') == tool_call_id:
+                        found_ai_message = True
+                        break
+            if found_ai_message:
+                break
+        
+        if not found_ai_message:
+            for original_msg in all_messages:
+                if isinstance(original_msg, AIMessage) and original_msg.tool_calls:
+                    for tc in original_msg.tool_calls:
+                        if tc.get('id') == tool_call_id:
+                            final_messages.insert(0, original_msg)
+                            additional_length = self._get_message_length(original_msg)
+                            break
+                    if additional_length > 0:
+                        break
+        return additional_length
+
+    def _summarize_and_compress(self, 
+                               history: List[BaseMessage],
+                               summarize_method: Callable[[List[BaseMessage]], str],
+                               console: Any) -> List[BaseMessage]:
+        """Genera un resumen de los mensajes antiguos y mantiene los recientes."""
+        if console:
+            console.print("[yellow]El historial de conversación es demasiado largo. Resumiendo mensajes antiguos...[/yellow]")
+        
+        keep_count = max(self.MIN_MESSAGES_TO_KEEP, int(self.max_history_messages * 0.7))
+        if len(history) <= keep_count:
+            return history
+
+        split_index = len(history) - keep_count
+        while split_index > 0 and split_index < len(history):
+            msg = history[split_index]
+            if isinstance(msg, ToolMessage):
+                split_index -= 1
+                keep_count += 1
+            else:
+                break
+        
+        messages_to_keep = history[-keep_count:]
+        messages_to_summarize = history[:-keep_count]
+        
+        summary = summarize_method(messages_to_summarize)
+        
+        try:
+            max_summary_chars = int(min(self.DEFAULT_MAX_SUMMARY_LENGTH, int(self.max_history_chars * self.MAX_SUMMARY_LENGTH_RATIO)))
+        except Exception:
+            max_summary_chars = self.DEFAULT_MAX_SUMMARY_LENGTH
+
+        if summary and len(summary) > max_summary_chars:
+            if console:
+                console.print(f"[yellow]Resumen demasiado largo ({len(summary)} chars). Truncando a {max_summary_chars} chars.[/yellow]")
+            summary = summary[:max_summary_chars] + "\n\n" + self.SUMMARY_TRUNCATION_SUFFIX
+
+        if not summary:
+            if console:
+                console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento estándar.[/red]")
+            return history
+            
+        summary_message = SystemMessage(content=f"Resumen de la conversación anterior: {summary}")
+        new_history = [summary_message] + messages_to_keep
+        
+        if console:
+            console.print(f"[green]Historial resumido. {len(messages_to_summarize)} mensajes condensados en un resumen.[/green]")
+        return new_history
+
+    def get_processed_history_for_llm(self, 
+                                     llm_service_summarize_method: Callable[[List[BaseMessage]], str],
+                                     max_history_messages: int,
+                                     max_history_chars: int,
+                                     console: Any,
+                                     save_history: bool = True,
+                                     history: Optional[List[BaseMessage]] = None) -> List[BaseMessage]:
+        """Procesa el historial aplicando filtrado, resumen y truncamiento."""
+        if max_history_messages >= 10:
+            self.max_history_messages = max(max_history_messages, 30)
+        else:
+            self.max_history_messages = max_history_messages
+
+        if max_history_chars >= 1000:
+            self.max_history_chars = max(max_history_chars, 50000)
+        else:
+            self.max_history_chars = max_history_chars
+        
+        target_history = history if history is not None else self.conversation_history
+        if not target_history:
+            return []
+            
+        if not isinstance(target_history, list):
+            target_history = list(target_history)
+
+        valid_tool_call_ids: Set[str] = {
+            tc['id'] for msg in target_history 
+            if isinstance(msg, AIMessage) and msg.tool_calls 
+            for tc in msg.tool_calls if tc.get('id')
+        }
+        
+        cleaned_history = []
+        for i, msg in enumerate(target_history):
+            if isinstance(msg, ToolMessage):
+                if msg.tool_call_id in valid_tool_call_ids:
+                    cleaned_history.append(msg)
+                elif msg.tool_call_id == 'execute_command' or not msg.tool_call_id:
+                    has_recent_ai_call = False
+                    for prev_msg in reversed(target_history[:i]):
+                        if isinstance(prev_msg, AIMessage) and prev_msg.tool_calls:
+                            has_recent_ai_call = True
+                            break
+                        if isinstance(prev_msg, HumanMessage):
+                            break
+                    if has_recent_ai_call:
+                        cleaned_history.append(msg)
+                continue
+            
+            if i == len(target_history) - 1 and isinstance(msg, AIMessage) and not msg.content and not msg.tool_calls:
+                continue
+                
+            cleaned_history.append(msg)
+
+        total_length = sum(self._get_message_length(msg) for msg in cleaned_history)
+        if (len(cleaned_history) > self.max_history_messages or total_length > self.max_history_chars) and \
+           len(cleaned_history) > self.MIN_MESSAGES_TO_KEEP:
+            
+            cleaned_history = self._summarize_and_compress(
+                cleaned_history,
+                llm_service_summarize_method,
+                console
+            )
+            
+            cleaned_history = self._remove_orphan_tool_messages(cleaned_history)
+            cleaned_history = self._truncate_history(
+                cleaned_history,
+                self.max_history_messages,
+                self.max_history_chars
+            )
+            cleaned_history = self._ensure_tool_message_pairs(cleaned_history)
+
+        if save_history:
+            if cleaned_history is not self.conversation_history:
+                self.conversation_history[:] = cleaned_history
+            self._save_history(self.conversation_history)
+        
+        return cleaned_history
+
     def _filter_empty_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Filtra mensajes de asistente vacíos sin tool_calls.
