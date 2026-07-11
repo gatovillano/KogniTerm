@@ -437,7 +437,34 @@ def call_agents_parallel(
         system_prompt = spec.get("system_prompt")
 
         import uuid
-        from kogniterm.core.delegation.agent_roles import AgentRole
+        from kogniterm.core.delegation import AgentRole
+
+        # --- Resolver la configuración del agente declarativamente ---
+        from kogniterm.core.agents.config_manager import AgentConfigManager
+        config_mgr = AgentConfigManager(workspace_dir=getattr(llm_service, "current_workspace_dir", None))
+        config_mgr.discover_configs()
+        agent_config = config_mgr.get_agent_config(agent_type) or config_mgr.get_agent_config(name)
+        
+        role = AgentRole.LEAF
+        allowed_tools = spec.get("allowed_tools")
+        if agent_config:
+            role_str = agent_config.get("role", "leaf").lower()
+            role = AgentRole.ORCHESTRATOR if role_str == "orchestrator" else AgentRole.LEAF
+            if not system_prompt:
+                system_prompt = agent_config.get("system_prompt")
+            if allowed_tools is None:
+                allowed_tools = agent_config.get("allowed_tools")
+
+        # Calcular conjunto de herramientas bloqueadas personalizadas si se define allowed_tools
+        blocked_tools_set = None
+        if allowed_tools is not None and llm_service:
+            all_tools = set(llm_service.tool_map.keys()) if hasattr(llm_service, "tool_map") else set()
+            from kogniterm.core.delegation.agent_roles import DEFAULT_BLOCKED_TOOLS
+            mandatory_blocked = DEFAULT_BLOCKED_TOOLS.get(role, frozenset())
+            # Bloquear todas las que no estén permitidas, más las obligatorias por seguridad
+            blocked_tools_set = frozenset(
+                (all_tools - set(allowed_tools)) | mandatory_blocked
+            )
 
         child_ctx = None
         child_id = f"child_{name}_{uuid.uuid4().hex[:8]}"
@@ -451,7 +478,10 @@ def call_agents_parallel(
         ):
             try:
                 child_ctx = llm_service.delegation_manager.register_agent(
-                    agent_id=child_id, parent_id=parent_id, role=AgentRole.LEAF
+                    agent_id=child_id,
+                    parent_id=parent_id,
+                    role=role,
+                    blocked_tools=blocked_tools_set
                 )
                 if (
                     hasattr(llm_service, "heartbeat_monitor")

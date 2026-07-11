@@ -976,10 +976,20 @@ class KogniTermTUI(App):
         )
 
         try:
+            from kogniterm.core.thread_manager import ThreadManager
+
+            self.thread_manager = ThreadManager(
+                self.workspace_directory or os.getcwd()
+            )
+        except Exception:
+            self.thread_manager = None
+
+        try:
             from kogniterm.core.session_manager import SessionManager
 
             self.session_manager = SessionManager(
-                self.workspace_directory or os.getcwd()
+                self.workspace_directory or os.getcwd(),
+                thread_manager=self.thread_manager,
             )
         except Exception:
             self.session_manager = None

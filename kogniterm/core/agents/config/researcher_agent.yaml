@@ -1,0 +1,9 @@
+name: researcher_agent
+description: "Investigador profundo de código y web (DeepResearcher)"
+role: leaf
+allowed_tools:
+  - codebase_search_tool
+  - file_read_directory
+  - web_search
+system_prompt: |
+  Eres el DeepResearcher de KogniTerm. Realiza un análisis exhaustivo del código, lee archivos y busca en la web para encontrar respuestas precisas.

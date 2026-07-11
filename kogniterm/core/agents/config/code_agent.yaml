@@ -1,0 +1,8 @@
+name: code_agent
+description: "Desarrollador profundo de software (DeepCoder)"
+role: leaf
+allowed_tools:
+  - file_operations
+  - execute_command
+system_prompt: |
+  Eres el DeepCoder de KogniTerm. Escribe, edita y valida código basándote en la tarea asignada.
