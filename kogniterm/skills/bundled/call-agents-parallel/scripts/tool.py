@@ -16,6 +16,8 @@ import time
 import uuid
 from typing import Any, List, Dict, Optional
 
+from kogniterm.core.delegation.agent_pool import AgentPool
+
 from rich.console import Console
 
 logger = logging.getLogger(__name__)
@@ -623,12 +625,38 @@ def call_agents_parallel(
         return name, res
 
     async def _run_all_parallel():
-        tasks = []
-        for spec, agent_ui, pid in zip(authorized, agent_uis, panel_ids):
-            tasks.append(asyncio.create_task(_run_single_agent(spec, agent_ui, pid)))
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+        pool = AgentPool(max_concurrent=len(authorized))
+
+        # Wrap cada agente como un grafo compatible con AgentPool
+        class _AgentGraphWrapper:
+            """Adapta la función run_agent_async al interface ainvoke esperado por AgentPool.
+            Retorna la tupla (name, res) para mantener compatibilidad con el resultado downstream.
+            """
+            def __init__(self, spec, agent_ui, pid):
+                self._spec = spec
+                self._agent_ui = agent_ui
+                self._pid = pid
+                self._name = spec.get("name", "Agente")
+
+            async def ainvoke(self, state, config=None):
+                res = await run_agent_async(self._spec, self._agent_ui, self._pid)
+                if terminal_ui:
+                    terminal_ui.print_message(f"🏁 **Agente ({self._name}) completó su tarea:**\n{res}")
+                return self._name, res
+
+        agents_specs = [
+            {
+                "id": spec.get("name", f"agent_{i}"),
+                "graph": _AgentGraphWrapper(spec, agent_ui, pid),
+                "initial_state": {},
+                "recursion_limit": 1000,
+            }
+            for i, (spec, agent_ui, pid) in enumerate(zip(authorized, agent_uis, panel_ids))
+        ]
+
+
+        results = await pool.execute_parallel(agents_specs)
+
         # Consolidar: mostrar resumen y desactivar paneles al finalizar todos
         try:
             _deactivate_parallel_container(
@@ -638,7 +666,7 @@ def call_agents_parallel(
                 terminal_ui.print_message("🏁 **Todas las misiones paralelas han finalizado**")
         except Exception as e:
             logger.exception("Error al desactivar el contenedor de agentes: %s", e)
-            
+
         return results
 
     try:

@@ -3,6 +3,7 @@ from .models import DelegationLimits, DelegationContext, DelegationResult
 from .delegation_manager import DelegationManager
 from .heartbeat_monitor import HeartbeatMonitor
 from .command_rules import CommandRulesResolver
+from .agent_pool import AgentPool
 
 __all__ = [
     "AgentRole",
@@ -13,4 +14,5 @@ __all__ = [
     "DelegationManager",
     "HeartbeatMonitor",
     "CommandRulesResolver",
+    "AgentPool",
 ]
