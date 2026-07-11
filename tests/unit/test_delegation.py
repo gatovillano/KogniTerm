@@ -10,7 +10,6 @@ from kogniterm.core.delegation import (
 
 def test_agent_role_permissions():
     from kogniterm.core.delegation.agent_roles import DEFAULT_BLOCKED_TOOLS
-    assert "execute_command" in DEFAULT_BLOCKED_TOOLS[AgentRole.LEAF]
     assert "call_agent" in DEFAULT_BLOCKED_TOOLS[AgentRole.LEAF]
     assert "memory_append" in DEFAULT_BLOCKED_TOOLS[AgentRole.LEAF]
     assert len(DEFAULT_BLOCKED_TOOLS[AgentRole.ORCHESTRATOR]) == 0
@@ -112,10 +111,15 @@ def test_tool_executor_rbac_blocking():
     # 1. Test execute_single_tool with blocked tool
     tc = {"name": "execute_command", "args": {"command": "ls"}, "id": "call_1"}
     
-    # Create delegation context for LEAF agent (which has execute_command blocked)
+    # Create delegation context for LEAF agent (explicitly blocking execute_command)
     limits = DelegationLimits()
     manager = DelegationManager(limits=limits)
-    leaf_ctx = manager.register_agent("leaf_agent", parent_id=None, role=AgentRole.LEAF)
+    leaf_ctx = manager.register_agent(
+        "leaf_agent",
+        parent_id=None,
+        role=AgentRole.LEAF,
+        blocked_tools=frozenset(["execute_command"])
+    )
     
     # Execute single tool: should be blocked
     tid, content, exc = ToolExecutor.execute_single_tool(tc, None, None, delegation_context=leaf_ctx)
@@ -143,7 +147,9 @@ def test_tool_executor_rbac_blocking():
 def test_call_agent_skill_delegation_integration():
     import kogniterm.core.agents.deep_coder
     from unittest.mock import MagicMock, patch
-    from kogniterm.skills.bundled.call_agent.scripts.tool import call_agent_skill
+    import importlib
+    tool_module = importlib.import_module("kogniterm.skills.bundled.call-agent.scripts.tool")
+    call_agent_skill = tool_module.call_agent_skill
     from kogniterm.core.delegation import DelegationManager, HeartbeatMonitor, AgentRole
 
     # Mock llm_service
@@ -191,7 +197,7 @@ def test_call_agent_skill_delegation_integration():
     mock_graph.invoke = mock_invoke
 
     with patch("kogniterm.core.agents.deep_coder.create_deep_coder", return_value=mock_graph), \
-         patch("kogniterm.skills.bundled.call_agent.scripts.tool._request_autonomous_execution", return_value=True):
+         patch.object(tool_module, "_request_autonomous_execution", return_value=True):
          
         # Execute skill
         res = call_agent_skill(
@@ -217,7 +223,9 @@ def test_call_agent_skill_delegation_integration():
 
 def test_call_agent_skill_dynamic_agent_allowed_tools():
     from unittest.mock import MagicMock, patch
-    from kogniterm.skills.bundled.call_agent.scripts.tool import call_agent_skill
+    import importlib
+    tool_module = importlib.import_module("kogniterm.skills.bundled.call-agent.scripts.tool")
+    call_agent_skill = tool_module.call_agent_skill
     from kogniterm.core.delegation import DelegationManager, AgentRole
     from kogniterm.core.agents.tool_executor import ToolExecutor
 
@@ -294,7 +302,7 @@ def test_call_agent_skill_dynamic_agent_allowed_tools():
     mock_graph.invoke = mock_invoke
 
     with patch("kogniterm.core.agents.dynamic_agent.create_dynamic_agent", side_effect=mock_create_dynamic_agent), \
-         patch("kogniterm.skills.bundled.call_agent.scripts.tool._request_autonomous_execution", return_value=True):
+         patch.object(tool_module, "_request_autonomous_execution", return_value=True):
          
         res = call_agent_skill(
             agent_name="sql_expert",

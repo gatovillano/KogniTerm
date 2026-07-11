@@ -275,6 +275,22 @@ def call_agent_skill(
     import uuid
     from kogniterm.core.delegation import AgentRole
 
+    # --- Resolver la configuración del agente declarativamente ---
+    from kogniterm.core.agents.config_manager import AgentConfigManager
+    config_mgr = AgentConfigManager(workspace_dir=getattr(llm_service, "current_workspace_dir", None))
+    config_mgr.discover_configs()
+    agent_config = config_mgr.get_agent_config(agent_name)
+    
+    role = AgentRole.LEAF
+    if agent_config:
+        # Usar los valores del archivo de configuración
+        role_str = agent_config.get("role", "leaf").lower()
+        role = AgentRole.ORCHESTRATOR if role_str == "orchestrator" else AgentRole.LEAF
+        if allowed_tools is None:
+            allowed_tools = agent_config.get("allowed_tools")
+        if custom_system_prompt is None:
+            custom_system_prompt = agent_config.get("system_prompt")
+
     child_ctx = None
     child_id = f"child_{agent_name}_{uuid.uuid4().hex[:8]}"
     parent_id = getattr(delegation_context, "agent_id", "orchestrator")
@@ -284,7 +300,7 @@ def call_agent_skill(
     if allowed_tools is not None and llm_service:
         all_tools = set(llm_service.tool_map.keys()) if hasattr(llm_service, "tool_map") else set()
         from kogniterm.core.delegation.agent_roles import DEFAULT_BLOCKED_TOOLS
-        mandatory_blocked = DEFAULT_BLOCKED_TOOLS.get(AgentRole.LEAF, frozenset())
+        mandatory_blocked = DEFAULT_BLOCKED_TOOLS.get(role, frozenset())
         # Bloquear todas las que no estén permitidas, más las obligatorias por seguridad
         blocked_tools_set = frozenset(
             (all_tools - set(allowed_tools)) | mandatory_blocked
@@ -295,7 +311,7 @@ def call_agent_skill(
             child_ctx = llm_service.delegation_manager.register_agent(
                 agent_id=child_id,
                 parent_id=parent_id,
-                role=AgentRole.LEAF,
+                role=role,
                 blocked_tools=blocked_tools_set
             )
             if hasattr(llm_service, "heartbeat_monitor") and llm_service.heartbeat_monitor:
