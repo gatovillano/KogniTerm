@@ -20,6 +20,7 @@ from kogniterm.terminal.visual_components import (
 )
 from kogniterm.terminal.themes import set_kogniterm_theme, get_available_themes
 from kogniterm.terminal.config_manager import ConfigManager
+from datetime import datetime
 try:
     from dotenv import set_key, unset_key, find_dotenv
     DOTENV_AVAILABLE = True
@@ -268,99 +269,168 @@ class MetaCommandProcessor:
                      self._show_themes_table()
             return True
 
-
         if user_input.lower().strip().startswith('/session'):
             parts = user_input.strip().split()
             subcommand = parts[1].lower() if len(parts) > 1 else "list"
             args = parts[2:] if len(parts) > 2 else []
 
-            session_manager = self.kogniterm_app.session_manager
+            thread_manager = getattr(self.kogniterm_app, 'thread_manager', None)
+            if not thread_manager:
+                self.terminal_ui.print_message("Thread manager is not available.", style="red")
+                return True
 
             if subcommand == "list":
-                sessions = session_manager.list_sessions()
-                if not sessions:
-                    self.terminal_ui.print_message("No saved sessions found.", style="yellow")
+                threads = thread_manager.list_threads()
+                if not threads:
+                    self.terminal_ui.print_message("No saved threads found.", style="yellow")
                 else:
-                    table = Table(title="Saved Sessions")
-                    table.add_column("Name", style="cyan")
-                    table.add_column("Type", style="magenta")
+                    table = Table(title="Saved Threads")
+                    table.add_column("ID", style="cyan", no_wrap=True)
+                    table.add_column("Title", style="cyan")
                     table.add_column("Modified", style="dim")
                     table.add_column("Messages", justify="right")
-                    
-                    for s in sessions:
-                        session_type = "autosave" if s.get("source") == "history" or s["name"].startswith("autosave_") else "manual"
-                        table.add_row(s.get("display_name", s["name"]), session_type, s["modified"], str(s["messages"]))
-                    
+
+                    for t in threads:
+                        table.add_row(
+                            t.get("id", ""),
+                            t.get("title", ""),
+                            t.get("updated_at", "")[:19],
+                            str(t.get("message_count", 0)),
+                        )
+
                     self.terminal_ui.console.print(table)
-                    
-                    current = session_manager.get_current_session_name()
-                    if current:
-                        self.terminal_ui.print_message(f"Current session: {current}", style="green")
-                    else:
-                        self.terminal_ui.print_message("You are in a temporary session (unsaved).", style="dim")
 
             elif subcommand == "save":
                 if not args:
-                    # If no name, try using the current one or ask for one
-                    current = session_manager.get_current_session_name()
-                    if current:
-                        name = current
-                    else:
-                        self.terminal_ui.print_message("Usage: /session save <name>", style="red")
-                        return True
+                    self.terminal_ui.print_message("Usage: /session save <thread_id_or_title>", style="red")
+                    return True
+
+                target = args[0]
+                history = list(self.llm_service.conversation_history)
+                created = False
+
+                metadata = thread_manager.get_thread_metadata(target)
+                if metadata:
+                    metadata["title"] = metadata.get("title") or target
+                    metadata["updated_at"] = datetime.utcnow().isoformat()
+                    metadata["message_count"] = len(history)
+                    saved = thread_manager._save_metadata(target, metadata)
+                    saved = saved and thread_manager.save_thread_messages(target, history)
                 else:
-                    name = args[0]
-                
-                if session_manager.save_session(name, self.llm_service.conversation_history):
-                    self.terminal_ui.print_message(f"Session '{name}' saved successfully. ✅", style="green")
+                    metadata = thread_manager.create_thread(thread_id=target, title=target)
+                    saved = thread_manager.save_thread_messages(target, history)
+                    created = True
+
+                if saved:
+                    label = target if created else metadata.get("title", target)
+                    self.terminal_ui.print_message(f"Thread '{label}' saved successfully. ✅", style="green")
                 else:
-                    self.terminal_ui.print_message(f"Error saving session '{name}'. ❌", style="red")
+                    self.terminal_ui.print_message(f"Error saving thread '{target}'. ❌", style="red")
 
             elif subcommand == "load":
                 if not args:
-                    self.terminal_ui.print_message("Usage: /session load <name>", style="red")
+                    self.terminal_ui.print_message("Usage: /session load <thread_id>", style="red")
                     return True
-                name = args[0]
-                
-                history = session_manager.load_session(name)
-                if history:
+
+                thread_id = args[0]
+                metadata = thread_manager.get_thread_metadata(thread_id)
+                if not metadata:
+                    self.terminal_ui.print_message(f"Thread '{thread_id}' not found.", style="red")
+                    return True
+
+                history = thread_manager.load_thread_messages(thread_id)
+                if history is not None:
                     self.llm_service.conversation_history = history
                     self.agent_state.messages = history
-                    self.llm_service._save_history(history) # Update active history
-                    self.terminal_ui.print_message(f"Session '{name}' loaded. History updated. 🔄", style="green")
+                    try:
+                        self.llm_service._save_history(history)
+                    except Exception:
+                        pass
+                    self.terminal_ui.print_message(f"Thread '{thread_id}' loaded. History updated. 🔄", style="green")
                 else:
-                    self.terminal_ui.print_message(f"Could not load session '{name}'.", style="red")
+                    self.terminal_ui.print_message(f"Could not load thread '{thread_id}'.", style="red")
 
             elif subcommand == "new":
-                name = args[0] if args else None
-                
-                # Resetear estado
+                title = args[0] if args else "Nueva conversación"
+
                 self.agent_state.reset()
                 self.llm_service.conversation_history = []
                 self.llm_service.conversation_history.append(get_system_message(self.llm_service))
                 self.agent_state.messages = self.llm_service.conversation_history.copy()
                 self.llm_service._save_history(self.llm_service.conversation_history)
-                
-                if name:
-                    session_manager.save_session(name, self.llm_service.conversation_history)
-                    self.terminal_ui.print_message(f"New session '{name}' created and started. ✨", style="green")
-                else:
-                    session_manager.current_session_name = None
-                    self.terminal_ui.print_message("New temporary session started. ✨", style="green")
+
+                metadata = thread_manager.create_thread(title=title)
+                thread_manager.save_thread_messages(metadata["id"], self.llm_service.conversation_history)
+                self.terminal_ui.print_message(f"New thread '{metadata['id']}' created and started. ✨", style="green")
 
             elif subcommand == "delete":
                 if not args:
-                    self.terminal_ui.print_message("Usage: /session delete <name>", style="red")
+                    self.terminal_ui.print_message("Usage: /session delete <thread_id>", style="red")
                     return True
-                name = args[0]
-                if session_manager.delete_session(name):
-                    self.terminal_ui.print_message(f"Session '{name}' deleted. 🗑️", style="green")
+
+                thread_id = args[0]
+                if thread_manager.delete_thread(thread_id):
+                    self.terminal_ui.print_message(f"Thread '{thread_id}' deleted. 🗑️", style="green")
                 else:
-                    self.terminal_ui.print_message(f"Error deleting session '{name}'.", style="red")
-            
+                    self.terminal_ui.print_message(f"Error deleting thread '{thread_id}'.", style="red")
+
             else:
                 self.terminal_ui.print_message("Available subcommands: list, save, load, new, delete", style="yellow")
 
+            return True
+
+        if user_input.lower().strip().startswith('/resume'):
+            # /resume [thread_id] -> If no id, show threads selector
+            parts = user_input.strip().split()
+            thread_id = parts[1] if len(parts) > 1 else None
+
+            thread_manager = getattr(self.kogniterm_app, 'thread_manager', None)
+            if not thread_manager:
+                self.terminal_ui.print_message("Thread manager is not available.", style="red")
+                return True
+
+            threads = thread_manager.list_threads()
+            if not threads:
+                self.terminal_ui.print_message("No saved threads to resume.", style="yellow")
+                return True
+
+            if not thread_id:
+                options = []
+                for t in threads:
+                    label = f"{t.get('title', t.get('id', ''))} — {t.get('updated_at', '')[:19]} ({t.get('message_count', 0)} msgs)"
+                    options.append((t.get("id", ""), label))
+
+                selected = await self._show_radiolist(
+                    title="Resume Thread",
+                    text="Select a thread to resume:",
+                    values=options,
+                )
+                if not selected:
+                    self.terminal_ui.print_message("Selection canceled.", style="dim")
+                    return True
+                thread_id = selected
+
+            history = thread_manager.load_thread_messages(thread_id)
+            if history is not None:
+                self.llm_service.conversation_history = history
+                self.agent_state.messages = history.copy()
+                try:
+                    self.llm_service._save_history(history)
+                except Exception:
+                    pass
+
+                if hasattr(self.terminal_ui, "clear_chat"):
+                    self.terminal_ui.clear_chat()
+                else:
+                    try:
+                        self.terminal_ui.console.clear()
+                    except Exception:
+                        pass
+
+                self._render_history_in_ui(history)
+                self.terminal_ui.print_message(f"Thread '{thread_id}' resumed with {len([m for m in history if hasattr(m, 'type') and m.type in ('human', 'ai')])} messages.", style="green")
+            else:
+                self.terminal_ui.print_message(f"Could not load thread '{thread_id}'.", style="red")
             return True
 
         if user_input.lower().strip().startswith('/autosave'):
@@ -368,11 +438,10 @@ class MetaCommandProcessor:
             parts = user_input.strip().split(maxsplit=2)
             subcommand = parts[1].lower() if len(parts) > 1 else "list"
             args = parts[2:] if len(parts) > 2 else []
-            
+
             llm_service = self.llm_service
-            
+
             if subcommand == "list":
-                # Listar versiones de autoguardos de la sesión actual
                 versions = llm_service.get_autosave_versions()
                 if not versions:
                     all_versions = llm_service.get_all_autosave_versions()
@@ -386,19 +455,19 @@ class MetaCommandProcessor:
                     self.terminal_ui.print_message(f"Found {len(versions)} autosave version(s) in current session:", style="cyan")
                     all_versions = versions
                     table = Table(title="📦 Autosave Versions (Current Session)")
-                
+
                 table.add_column("File", style="cyan", no_wrap=False)
                 table.add_column("Messages", justify="right", style="green")
                 table.add_column("Modified", style="dim")
-                
-                for v in all_versions[:20]:  # Mostrar máximo 20 versiones
+
+                for v in all_versions[:20]:
                     filename = v.get("filename", v.get("path", "unknown"))
                     messages = v.get("message_count", "?")
-                    modified = v.get("modified", v.get("timestamp", "?"))[:19]  # Truncar timestamp
+                    modified = v.get("modified", v.get("timestamp", "?"))[:19]
                     table.add_row(filename, str(messages), modified)
-                
+
                 self.terminal_ui.console.print(table)
-                
+
                 stats = llm_service.get_autosave_statistics()
                 if stats:
                     self.terminal_ui.print_message(
@@ -408,26 +477,24 @@ class MetaCommandProcessor:
                     )
 
             elif subcommand == "restore":
-                # Restaurar una versión específica
                 all_versions = llm_service.get_all_autosave_versions()
                 if not all_versions:
                     self.terminal_ui.print_message("No autosave versions available to restore.", style="yellow")
                     return True
-                
+
                 if not args:
-                    # Mostrar selector de versiones
                     options = []
                     for i, v in enumerate(all_versions[:10]):
                         filename = v.get("filename", "unknown")
                         modified = v.get("modified", "?")[:19]
                         options.append((str(i), f"{filename} ({modified})"))
-                    
+
                     selected = await self._show_radiolist(
                         title="Restore Autosave",
                         text="Select an autosave version to restore:",
                         values=options
                     )
-                    
+
                     if selected is not None:
                         idx = int(selected)
                         file_path = all_versions[idx].get("path")
@@ -435,15 +502,13 @@ class MetaCommandProcessor:
                         self.terminal_ui.print_message("Restore cancelled.", style="yellow")
                         return True
                 else:
-                    # Buscar por nombre de archivo
                     target_filename = args[0]
                     matching = [v for v in all_versions if target_filename in v.get("filename", "")]
                     if not matching:
                         self.terminal_ui.print_message(f"No autosave version matching '{target_filename}' found.", style="red")
                         return True
                     file_path = matching[0].get("path")
-                
-                # Cargar la versión
+
                 history = llm_service.load_autosave_version(file_path)
                 if history:
                     llm_service.conversation_history = history
@@ -470,66 +535,6 @@ Example: /autosave restore autosave_20250515_141530
 
             return True
 
-        if user_input.lower().strip().startswith('/resume'):
-            # /resume [name] -> If no name, show recent sessions selector
-            parts = user_input.strip().split()
-            name = parts[1] if len(parts) > 1 else None
-            session_manager = getattr(self.kogniterm_app, 'session_manager', None)
-            if not session_manager:
-                self.terminal_ui.print_message("Gestor de sesiones no disponible.", style="red")
-                return True
-
-            sessions = session_manager.list_sessions()
-            if not sessions:
-                self.terminal_ui.print_message("No saved sessions to resume.", style="yellow")
-                return True
-
-            if not name:
-                options = []
-                for s in sessions:
-                    session_type = "autosave" if s.get("source") == "history" or s["name"].startswith("autosave_") else "manual"
-                    label = f"{s.get('display_name', s['name'])} — {s['modified']} ({s['messages']} msgs, {session_type})"
-                    options.append((s['name'], label))
-                selected = await self._show_radiolist(title="Resume Session", text="Select a session to resume:", values=options)
-                if not selected:
-                    self.terminal_ui.print_message("Selection canceled.", style="dim")
-                    return True
-                name = selected
-
-            history = session_manager.load_session(name)
-            if history:
-                # Replace active history with selected session
-                self.llm_service.conversation_history = history
-                # Sincronizar agent_state
-                self.agent_state.messages = history.copy()
-                # Persistir como historial activo (intentar, sin fallar si no funciona)
-                try:
-                    self.llm_service._save_history(self.llm_service.conversation_history)
-                except Exception:
-                    pass
-                # Mark session as current in SessionManager
-                try:
-                    session_manager.current_session_name = name
-                except Exception:
-                    pass
-
-                # Clear UI and notify
-                if hasattr(self.terminal_ui, "clear_chat"):
-                    self.terminal_ui.clear_chat()
-                else:
-                    try:
-                        self.terminal_ui.console.clear()
-                    except Exception:
-                        pass
-
-                # Renderizar el historial cargado en la TUI
-                self._render_history_in_ui(history)
-
-                self.terminal_ui.print_message(f"Session '{name}' resumed with {len([m for m in history if hasattr(m, 'type') and m.type in ('human', 'ai')])} messages.", style="green")
-            else:
-                self.terminal_ui.print_message(f"Could not load session '{name}'.", style="red")
-            return True
-
         if user_input.lower().strip() == '/help':
             from prompt_toolkit.shortcuts import radiolist_dialog
             
@@ -538,82 +543,47 @@ Example: /autosave restore autosave_20250515_141530
                 ("/reasoning", "🧠 Reasoning Level (low / medium / high)"),
                 ("/summarymodel", "📝 Change Summary Model (To compress history)"),
                 ("/provider", "🌐 Change LLM Provider (OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud, Antigravity)"),
-                ("/agy-login", "🛸 Google Antigravity Login (Session authentication without API Keys)"),
-                ("/keys", "🔑 Manage API Keys (Configure provider keys)"),
-                ("/embeddings", "🧠 Configure Embeddings (Local/FastEmbed, Gemini, OpenAI, etc.)"),
-                ("/reset", "🔄 Reset Conversation (Clear current memory)"),
-                ("/undo", "↩️ Undo (Remove last interaction)"),
-                ("/compress [force]", "🗜️ Compress History (Use 'force' if exceeding limits)"),
-                ("/theme", "🎨 Change Theme (View list of available themes)"),
-                ("/session", "🗂️ Session Management (list, save, load, new, delete)"),
-                ("/instructions", "🧾 Agent Instructions (Global / Workspace)"),
-                ("/resume", "🔁 Resume Session (Resumes a saved session)"),
-                ("/skills", "🧩 Skills disponibles (Lista e invoca skills directamente)"),
-                ("/mouse", "🖱️ Toggle Mouse (Enable/Disable native selection)"),
-                ("/insights", "📊 Usage Insights (Costs, Tokens, Patterns)"),
-                ("/init", "📁 Initialize Context (Index key files)"),
+                ("/theme", "🎨 Change Color Theme"),
+                ("/session", "🧵 Manage chat threads (list, save, load, new, delete)"),
+                ("/resume", "▶️ Resume a saved thread"),
+                ("/autosave", "💾 Manage autosave versions (list, restore)"),
+                ("/clear", "🧹 Clear current conversation history"),
                 ("/exit", "🚪 Exit KogniTerm"),
             ]
             
-            selected_command = await self._show_radiolist(
-                title="KogniTerm Help Menu",
-                text="Select a command to execute it or see more information:",
+            selected = await self._show_radiolist(
+                title="KogniTerm Help",
+                text="Select a command to see its help:",
                 values=help_options
             )
-
-            if selected_command:
-                # Execute direct commands
-                if selected_command in ["/models", "/reasoning", "/summarymodel", "/provider", "/keys", "/reset", "/compress", "/undo", "/mouse", "/exit", "/resume", "/instructions", "/skills", "/agy-login"]:
-                    # Recursive call to process selected command
-                    return await self.process_meta_command(selected_command)
-                
-                # Comandos que requieren argumentos o interacción especial
-                elif selected_command == "/theme":
-                    # Running /theme without arguments shows the theme list
-                    return await self.process_meta_command("/theme")
-
-                elif selected_command == "/session":
-                    self.terminal_ui.print_message("ℹ️  Session Management (/session)", style="bold cyan")
-                    self.terminal_ui.print_message("Usage: /session <subcommand> [arguments]", style="blue")
-                    self.terminal_ui.print_message("Available subcommands:", style="yellow")
-                    self.terminal_ui.print_message("  • list           : 📋 Shows all saved sessions.", style="dim")
-                    self.terminal_ui.print_message("  • save <name>    : 💾 Saves current session.", style="dim")
-                    self.terminal_ui.print_message("  • load <name>    : 🔄 Loads a previous session.", style="dim")
-                    self.terminal_ui.print_message("  • new [name]     : ✨ Starts a new clean session.", style="dim")
-                    self.terminal_ui.print_message("  • delete <name>  : 🗑️  Deletes a saved session.", style="dim")
-                    self.terminal_ui.print_message("\nExample: /session save my_project", style="italic dim")
-                
-                elif selected_command == "/init":
-                    self.terminal_ui.print_message("ℹ️  Usage: /init [files]", style="blue")
-                    self.terminal_ui.print_message("Example: /init README.md,src/main.py", style="dim")
-                    self.terminal_ui.print_message("Tip: Use this command to load specific context into memory.", style="dim")
             
-            return True
-
-        # Agent instructions management command (workspace or global)
-        if user_input.lower().strip().startswith('/instructions'):
-            config_manager = ConfigManager()
-
-            options = [
-                ("add_project", "➕ Add instruction (Workspace)"),
-                ("add_global", "➕ Add instruction (Global)"),
-                ("list", "📋 List current instructions"),
-                ("remove_project", "🗑️ Remove instruction (Workspace)"),
-                ("remove_global", "🗑️ Remove instruction (Global)"),
-                ("clear_project", "🧹 Clear all (Workspace)"),
-                ("clear_global", "🧹 Clear all (Global)"),
-            ]
-
-            selected = await self._show_radiolist(title="Agent Instructions", text="Select an action:", values=options)
-            if not selected:
-                self.terminal_ui.print_message("Operation canceled.", style="dim")
-                return True
-
-            # Helper to load list
-            def _get_list(scope: str):
-                if scope == 'global':
-                    return config_manager.load_global_config().get('agent_instructions', []) or []
-                return config_manager.load_project_config().get('agent_instructions', []) or []
+            if selected:
+                help_texts = {
+                    "/models": "Change the AI model used for generation.\nUsage: /models\nOpens a selection dialog with available models from the current provider.",
+                    
+                    "/reasoning": "Set the reasoning level for the AI.\nUsage: /reasoning [low|medium|high]\nAffects how much the AI thinks before responding.",
+                    
+                    "/summarymodel": "Change the model used for compressing conversation history.\nUsage: /summarymodel\nOpens a selection dialog.",
+                    
+                    "/provider": "Change the LLM provider.\nUsage: /provider\nProviders: OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud, Antigravity",
+                    
+                    "/theme": "Change the color theme of the interface.\nUsage: /theme [name]\nIf no name is provided, opens a selection dialog.",
+                    
+                    "/session": "Manage chat threads (persistent conversations with titles).\n\nSubcommands:\n  • list              : Show all saved threads\n  • save <id>         : Save current conversation as a thread\n  • load <id>         : Load a saved thread\n  • new [title]       : Start a new thread\n  • delete <id>       : Delete a saved thread",
+                    
+                    "/resume": "Resume a previously saved thread.\nUsage: /resume [thread_id]\nIf no thread_id is provided, shows a selection dialog.",
+                    
+                    "/autosave": "Manage autosave versions of the current conversation.\n\nSubcommands:\n  • list              : List all autosave versions\n  • restore [file]    : Restore a specific autosave version\n  • restore           : Restore (interactive selector)",
+                    
+                    "/clear": "Clear the current conversation history.\nUsage: /clear\nThis action cannot be undone.",
+                    
+                    "/exit": "Exit KogniTerm.\nUsage: /exit"
+                }
+                
+                help_text = help_texts.get(selected, "No help available for this command.")
+                self.terminal_ui.print_message(Panel(Markdown(help_text), title=f"Help: {selected}", border_style="cyan"))
+            
+            return True                return config_manager.load_project_config().get('agent_instructions', []) or []
 
             # Helper to save list
             def _save_list(scope: str, lst):
