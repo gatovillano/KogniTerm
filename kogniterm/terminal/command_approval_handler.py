@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 import os
 from prompt_toolkit import PromptSession
 from kogniterm.core.llm_service import LLMService
+from kogniterm.core.delegation.command_rules import CommandRulesResolver
 from kogniterm.core.command_executor import CommandExecutor
 from kogniterm.core.agents.bash_agent import AgentState
 from kogniterm.terminal.terminal_ui import TerminalUI
@@ -140,6 +141,7 @@ class CommandApprovalHandler:
         
         self.diff_renderer = DiffRenderer(theme_colors=theme_colors)
         self.auto_approve = False # Estado de auto-aprobación
+        self._command_rules = CommandRulesResolver()  # Resolver de permisos granulares
 
     def _print_applied_diff_in_history(self, diff_content: str, file_path: str, tool_name: Optional[str] = None) -> None:
         """
@@ -262,62 +264,22 @@ class CommandApprovalHandler:
 
         return str(uuid.uuid4())
 
+    def _resolve_command_action(self, command: str) -> str:
+        """
+        Retorna la acción declarativa para el comando: 'allow', 'deny' o 'ask'.
+        Delega al CommandRulesResolver que lee reglas de .agents/command_rules.yaml.
+        """
+        if not command:
+            return "ask"
+        return self._command_rules.resolve(command)
+
     def _is_command_safe(self, command: str) -> bool:
         """
         Determina si un comando es seguro para ejecución automática.
-        Los comandos seguros son generalmente de solo lectura y no contienen redirecciones de escritura.
+        Ahora delega a CommandRulesResolver (allow/ask/deny configurable via YAML).
+        Retorna True sólo cuando la acción es 'allow'.
         """
-        if not command:
-            return False
-
-        # Lista de comandos considerados seguros (solo lectura / informativos)
-        SAFE_COMMANDS = {
-            'ls', 'pwd', 'cat', 'grep', 'egrep', 'fgrep', 'find', 'locate', 
-            'whoami', 'date', 'head', 'tail', 'wc', 'diff', 'cd', 'tree', 
-            'history', 'ps', 'top', 'htop', 'man', 'help', 'which', 'type',
-            'echo', 'printf', 'stat', 'du', 'df', 'free', 'uname', 'hostname',
-            'uptime', 'jobs', 'bg', 'fg', 'clear', 'git status', 'git diff',
-            'git log', 'git branch', 'git remote -v', 'git show --stat',
-            'cat', 'env', 'grep', 'ls', 'ls -la', 'ls -l', 'ls -R'
-        }
-
-        # Verificar redirecciones de salida que podrían sobrescribir archivos
-        if '>' in command:
-            return False
-        
-        # Simplificación: dividir por operadores comunes de encadenamiento
-        # Esto no es un parser completo de bash, pero cubre casos comunes
-        parts = command.replace('|', ';').replace('&&', ';').split(';')
-        
-        for part in parts:
-            part = part.strip()
-            if not part:
-                continue
-            
-            # Obtener el primer token (el comando en sí)
-            tokens = part.split()
-            if not tokens:
-                continue
-                
-            # Manejar comandos de varios tokens (ej: 'git status')
-            cmd = tokens[0]
-            if cmd == "git" and len(tokens) > 1:
-                cmd_full = f"{tokens[0]} {tokens[1]}"
-                if cmd_full in SAFE_COMMANDS:
-                    continue
-            
-            # Manejar asignaciones de variables al inicio (ej: VAR=val cmd)
-            # Si el comando contiene =, asumimos que es una asignación y miramos el siguiente token si existe
-            if '=' in cmd and len(tokens) > 1:
-                 cmd = tokens[1]
-            elif '=' in cmd:
-                 # Solo asignación, seguro
-                 continue
-
-            if cmd not in SAFE_COMMANDS:
-                return False
-                
-        return True
+        return self._resolve_command_action(command) == "allow"
 
     def _is_tool_safe(self, tool_name: Optional[str], tool_args: Optional[Dict[str, Any]]) -> bool:
         """
@@ -434,10 +396,22 @@ class CommandApprovalHandler:
             if tool_name and self._is_tool_safe(tool_name, original_tool_args):
                 run_action = True
                 auto_approve = True
-            elif command_to_execute and self._is_command_safe(command_to_execute):
-                run_action = True
-                auto_approve = True # Marcar para feedback visual posterior
-                # self.terminal_ui.print_message(f"Comando '{command_to_execute}' considerado seguro. Auto-aprobando.", style="green")
+            elif command_to_execute:
+                cmd_action = self._resolve_command_action(command_to_execute)
+                if cmd_action == "deny":
+                    # Bloqueo inmediato — no preguntar al usuario
+                    deny_msg = f"⛔ Comando denegado por reglas de seguridad: `{command_to_execute.strip()}`"
+                    logger.warning(deny_msg)
+                    self.terminal_ui.console.print(f"[bold red]{deny_msg}[/bold red]")
+                    return {
+                        "tool_message_content": deny_msg,
+                        "run_action": False,
+                        "full_command_output": "",
+                        "new_messages": [],
+                    }
+                elif cmd_action == "allow":
+                    run_action = True
+                    auto_approve = True
 
         # 4. Generar explicación SOLO si no está auto-aprobado y necesitamos mostrar el panel
         if not run_action:

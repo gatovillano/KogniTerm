@@ -1,0 +1,40 @@
+# command_rules.yaml — Reglas de permisos granulares por comando
+#
+# Coloca este archivo en:
+#   - <workspace>/.agents/command_rules.yaml   (específico del proyecto)
+#   - ~/.kogniterm/command_rules.yaml          (global del usuario)
+#
+# Prioridad: proyecto > usuario > defaults embebidos en código
+#
+# Acciones:
+#   allow: ejecutar sin confirmación interactiva
+#   deny:  bloquear inmediatamente sin preguntar
+#   ask:   solicitar aprobación interactiva (por defecto para desconocidos)
+#
+# Los patrones son regex Python y se evalúan en orden (primera coincidencia gana).
+# Las reglas del usuario se evalúan ANTES que los defaults del sistema.
+
+rules:
+  # === COMANDOS SEGUROS (solo lectura) ===
+  - pattern: "^git (status|diff|log|branch|remote -v|show --stat).*$"
+    action: "allow"
+  - pattern: "^ls(\\s+.*)?$"
+    action: "allow"
+  - pattern: "^(cat|head|tail|grep|find|pwd|whoami|date|echo|printf|uname|hostname|uptime|du|df|stat|wc).*$"
+    action: "allow"
+
+  # === COMANDOS PELIGROSOS (bloquear sin preguntar) ===
+  - pattern: "^rm\\s+(-rf?|--recursive).*$"
+    action: "deny"
+  - pattern: "^sudo\\s+.*$"
+    action: "deny"
+  - pattern: "^su\\s+.*$"
+    action: "deny"
+  - pattern: "^(mkfs|fdisk|parted).*$"
+    action: "deny"
+  - pattern: "^dd\\s+.*$"
+    action: "deny"
+  - pattern: "^chmod\\s+777.*$"
+    action: "deny"
+
+  # Cualquier comando no listado → 'ask' (pedir confirmación al usuario)
