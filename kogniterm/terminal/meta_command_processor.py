@@ -410,7 +410,8 @@ class MetaCommandProcessor:
                     return True
                 thread_id = selected
 
-            history = thread_manager.load_thread_messages(thread_id)
+            thread = thread_manager.get_thread(thread_id)
+            history = thread.messages if thread is not None else None
             if history is not None:
                 self.llm_service.conversation_history = history
                 self.agent_state.messages = history.copy()
