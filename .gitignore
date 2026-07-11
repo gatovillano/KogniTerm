@@ -86,3 +86,6 @@ kogniterm/agent-browser/.git/
 
 # CI/CD en subdirectorios
 kogniterm-desktop/.github/
+
+# Git Worktrees
+.worktrees/
