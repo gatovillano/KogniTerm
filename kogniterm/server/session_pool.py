@@ -69,7 +69,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.thread_manager import ThreadManager
-from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
+from kogniterm.core.agent_interaction import AgentInteractionRegistry
 from kogniterm.ui.terminal_ui import TerminalUI
 from rich.console import Console
 
@@ -646,7 +646,7 @@ class AgentSession:
             self.command_approval_handler = None
 
         # Gestor de interacción (crea el grafo LangGraph)
-        self.manager = AgentInteractionManager(
+        self.manager = AgentInteractionRegistry.create(
             llm_service=llm_service,
             agent_state=self.agent_state,
             terminal_ui=self.ui,
