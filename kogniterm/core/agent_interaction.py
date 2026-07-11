@@ -16,6 +16,11 @@ class AgentInteractionRegistry:
     @classmethod
     def create(cls, *args, **kwargs) -> BaseAgentInteractionManager:
         if cls._factory is None:
+            try:
+                import kogniterm.terminal.agent_interaction_manager
+            except ImportError:
+                pass
+        if cls._factory is None:
             raise RuntimeError(
                 "Error de Arquitectura: La factory de AgentInteractionManager no ha sido registrada. "
                 "Asegúrate de que la capa de UI/Terminal la registre al inicio."

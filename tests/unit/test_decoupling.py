@@ -2,10 +2,12 @@ import pytest
 from kogniterm.core.agent_interaction import BaseAgentInteractionManager, AgentInteractionRegistry
 
 def test_registry_raises_unregistered():
+    AgentInteractionRegistry._factory = None
     with pytest.raises(RuntimeError, match="La factory de AgentInteractionManager no ha sido registrada"):
         AgentInteractionRegistry.create()
 
 def test_registry_instantiates_registered():
+    AgentInteractionRegistry._factory = None
     class DummyManager(BaseAgentInteractionManager):
         def __init__(self, x):
             self.x = x
