@@ -1317,6 +1317,10 @@ def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False, wo
     import sys
     import atexit
     from pathlib import Path
+    from kogniterm.utils.logger import configure_server_logging
+    
+    # Configurar logs para redirigir toda la salida a .kogniterm/logs/server.log
+    configure_server_logging(port)
     
     # Escribir archivo PID para permitir detener el servidor después
     pid_file = Path.home() / ".kogniterm" / f"server_{port}.pid"
@@ -1355,8 +1359,9 @@ def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False, wo
         host=host,
         port=port,
         reload=reload,
-        log_level="info",
+        log_config=None,  # Evitar que uvicorn pise nuestra configuración
     )
+
 
 
 if __name__ == "__main__":
