@@ -546,6 +546,7 @@ Example: /autosave restore autosave_20250515_141530
                 ("/theme", "🎨 Change Color Theme"),
                 ("/session", "🧵 Manage chat threads (list, save, load, new, delete)"),
                 ("/resume", "▶️ Resume a saved thread"),
+                ("/instructions", "🧾 Agent Instructions (Global / Workspace)"),
                 ("/autosave", "💾 Manage autosave versions (list, restore)"),
                 ("/clear", "🧹 Clear current conversation history"),
                 ("/exit", "🚪 Exit KogniTerm"),
@@ -577,13 +578,39 @@ Example: /autosave restore autosave_20250515_141530
                     
                     "/clear": "Clear the current conversation history.\nUsage: /clear\nThis action cannot be undone.",
                     
-                    "/exit": "Exit KogniTerm.\nUsage: /exit"
+                    "/exit": "Exit KogniTerm.\nUsage: /exit",
+                    
+                    "/instructions": "Manage agent instructions/rules (Workspace or Global).\nUsage: /instructions\nOpens a selection dialog to add, list, remove, or clear instructions."
                 }
                 
                 help_text = help_texts.get(selected, "No help available for this command.")
                 self.terminal_ui.print_message(Panel(Markdown(help_text), title=f"Help: {selected}", border_style="cyan"))
             
-            return True                return config_manager.load_project_config().get('agent_instructions', []) or []
+            return True
+
+        if user_input.lower().strip().startswith('/instructions'):
+            config_manager = ConfigManager()
+
+            options = [
+                ("add_project", "➕ Add instruction (Workspace)"),
+                ("add_global", "➕ Add instruction (Global)"),
+                ("list", "📋 List current instructions"),
+                ("remove_project", "🗑️ Remove instruction (Workspace)"),
+                ("remove_global", "🗑️ Remove instruction (Global)"),
+                ("clear_project", "🧹 Clear all (Workspace)"),
+                ("clear_global", "🧹 Clear all (Global)"),
+            ]
+
+            selected = await self._show_radiolist(title="Agent Instructions", text="Select an action:", values=options)
+            if not selected:
+                self.terminal_ui.print_message("Operation canceled.", style="dim")
+                return True
+
+            # Helper to load list
+            def _get_list(scope: str):
+                if scope == 'global':
+                    return config_manager.load_global_config().get('agent_instructions', []) or []
+                return config_manager.load_project_config().get('agent_instructions', []) or []
 
             # Helper to save list
             def _save_list(scope: str, lst):
