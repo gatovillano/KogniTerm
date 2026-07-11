@@ -23,6 +23,34 @@ from typing import Optional, Dict, Any, List, Tuple
 from ._utils import clean_path
 
 
+# ---------------------------------------------------------------------------
+# Normalizacion de entradas (Task 2)
+# ---------------------------------------------------------------------------
+
+def _strip_line_numbers(text: Optional[str]) -> Optional[str]:
+    """Elimina prefijos de numero de linea del tipo '  12 | ' o '12| '.
+
+    Los LLMs frecuentemente incluyen numeros de linea al copiar fragmentos
+    de archivos mostrados con numeracion. Esta funcion los elimina antes
+    de buscar el target en el archivo real.
+    """
+    if text is None:
+        return None
+    lines = text.splitlines(keepends=True)
+    cleaned: List[str] = []
+    for line in lines:
+        # Patron: espacios opcionales, digitos, espacio opcional, '|', espacio opcional
+        cleaned.append(re.sub(r'^\s*\d+\s*\|\s?', '', line))
+    return ''.join(cleaned)
+
+
+def _normalize_input(text: Optional[str]) -> Optional[str]:
+    """Combina strip de numeros de linea y normalizacion de newlines a LF."""
+    if text is None:
+        return None
+    return _strip_line_numbers(text).replace('\r\n', '\n')
+
+
 # Intentar importar RaceConditionGuard del core
 try:
     from kogniterm.core.race_condition_guard import RaceConditionGuard, RaceConditionDetected
@@ -83,17 +111,47 @@ class FlexibleMatcher:
         if exact_matches or not fuzzy:
             return exact_matches
 
-        # 2. Fuzzy: tokens en la misma linea logica (sin \\n como \\s*).
-        # Tokenizar por whitespace, escapar cada uno, unir con [ \t]*.
-        tokens = [t for t in re.split(r'\s+', target.strip()) if t]
-        if not tokens:
+        # 2. Fuzzy: tolerancia de whitespace flexible.
+        #
+        # Casos soportados:
+        #   A) Target de UNA sola linea: los tokens pueden estar separados
+        #      por whitespace INCLUYENDO un unico salto de linea. Esto permite
+        #      que el LLM proporcione "def foo():  return 1" y matchee con
+        #      "def foo():\n    return 1" en el archivo.
+        #      Para no cruzar MULTIPLES lineas (prevencion de match erratico),
+        #      el patron usa [\s] pero se valida con score >= 0.6.
+        #
+        #   B) Target de MULTIPLES lineas: cada linea se tokeniza por separado
+        #      y se une con \r?\n. No se permiten newlines extra entre lineas.
+        #
+        target_lines = target.splitlines()
+        if not target_lines:
             return []
 
-        # Patron: tokens separados por espacio horizontal opcional,
-        # SIN newlines opcionales. Anclar al inicio/fin con texto literal.
-        pattern_parts: List[str] = [r'\s*'.join(re.escape(t) for t in tokens)]
-        pattern = ''.join(pattern_parts)
-        regex = re.compile(pattern)
+        if len(target_lines) == 1:
+            # Caso A: target de una linea — tokens pueden cruzar UN salto.
+            tokens = [t for t in re.split(r'\s+', target.strip()) if t]
+            if not tokens:
+                return []
+            # Whitespace entre tokens: cualquier blanco incluyendo hasta UN \n.
+            # Usamos [\s] pero verificamos con score que no se extiendan demasiado.
+            sep = r'[^\S\n]*\n?[^\S\n]*'
+            pattern = sep.join(re.escape(t) for t in tokens)
+        else:
+            # Caso B: target multilinea — cada linea con tokens horizontales.
+            line_patterns: List[str] = []
+            for tline in target_lines:
+                ltokens = [t for t in re.split(r'[ \t]+', tline.strip()) if t]
+                if ltokens:
+                    line_patterns.append(r'[ \t]*'.join(re.escape(t) for t in ltokens))
+                else:
+                    line_patterns.append(r'')  # Linea vacia
+            pattern = r'\r?\n[ \t]*'.join(line_patterns)
+
+        try:
+            regex = re.compile(pattern)
+        except re.error:
+            return []
 
         fuzzy_matches: List[Dict[str, Any]] = []
         for m in regex.finditer(content):
@@ -153,9 +211,19 @@ class FlexibleMatcher:
             return matches[0]
 
         if context_hint:
-            for m in matches:
-                if FlexibleMatcher._hint_near(content, m, context_hint):
-                    return m
+            # Buscar la ubicacion del hint y elegir el match mas CERCANO.
+            hint_matches = FlexibleMatcher.find_match(content, context_hint, fuzzy=True)
+            if hint_matches:
+                best_match = None
+                min_dist = float('inf')
+                for candidate in matches:
+                    for h in hint_matches:
+                        dist = abs(candidate["line_start"] - h["line_start"])
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_match = candidate
+                if best_match is not None:
+                    return best_match
             # Si context_hint no ayuda a desambiguar, error.
             raise MultipleMatchesError(
                 target=target,
@@ -213,16 +281,50 @@ def _apply_operation_pure(content: str, op: Dict[str, Any]) -> Tuple[str, Option
     encontrado, target ambiguo, etc.). NO escribe a disco.
     """
     action = op.get("action")
-    target_content = op.get("target_content")
-    replacement_content = op.get("replacement_content", "")
+    # --- Normalizacion de entradas (Task 2) ---
+    # Stripear numeros de linea y unificar saltos de linea a LF.
+    target_content = _normalize_input(op.get("target_content"))
+    replacement_content = _normalize_input(op.get("replacement_content")) or ""
+    content_arg = _normalize_input(op.get("content")) or ""
+    # Detectar CRLF y normalizar el contenido del archivo a LF para trabajar.
+    # La restauracion ocurre al FINAL de esta funcion, de forma centralizada.
+    has_crlf = '\r\n' in content
+    if has_crlf:
+        content = content.replace('\r\n', '\n')
     line_number = op.get("line_number")
     end_line = op.get("end_line")
     regex_pattern = op.get("regex_pattern")
-    content_arg = op.get("content", "")
     fuzzy = bool(op.get("fuzzy", False))
     require_unique = bool(op.get("require_unique", True))
     context_hint = op.get("context_hint")
 
+    # Aplicar la operacion en espacio LF.
+    new_content, matched_span = _apply_op_lf(
+        content, action, target_content, replacement_content, content_arg,
+        line_number, end_line, regex_pattern, fuzzy, require_unique, context_hint,
+    )
+
+    # Restaurar CRLF si el archivo original lo usaba.
+    if has_crlf:
+        new_content = new_content.replace('\n', '\r\n')
+
+    return new_content, matched_span
+
+
+def _apply_op_lf(
+    content: str,
+    action: Optional[str],
+    target_content: Optional[str],
+    replacement_content: str,
+    content_arg: str,
+    line_number: Optional[int],
+    end_line: Optional[int],
+    regex_pattern: Optional[str],
+    fuzzy: bool,
+    require_unique: bool,
+    context_hint: Optional[str],
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """Implementacion interna que opera siempre en espacio LF."""
     lines = content.splitlines(keepends=True)
 
     if action == "insert_line":
@@ -258,6 +360,27 @@ def _apply_operation_pure(content: str, op: Dict[str, Any]) -> Tuple[str, Option
                 "target_content no aparece en el archivo. "
                 "Verifique que el fragmento sea exacto, o use replace_lines por rango."
             )
+        # --- Indentation alignment (Task 3.2) ---
+        # Si el target y el match en disco tienen distinta indentacion,
+        # ajustamos el replacement para preservar el nivel real del archivo.
+        match_first_line = content[m["start"]:m["end"]].split('\n')[0]
+        target_first_line = target_content.split('\n')[0]
+        match_indent = len(match_first_line) - len(match_first_line.lstrip())
+        target_indent = len(target_first_line) - len(target_first_line.lstrip())
+        indent_diff = match_indent - target_indent
+        if indent_diff != 0:
+            rep_lines = replacement_content.splitlines(keepends=True)
+            adjusted: List[str] = []
+            for rline in rep_lines:
+                if rline.strip():  # Solo ajustar lineas no vacias
+                    if indent_diff > 0:
+                        adjusted.append(' ' * indent_diff + rline)
+                    else:
+                        strip_n = min(abs(indent_diff), len(rline) - len(rline.lstrip()))
+                        adjusted.append(rline[strip_n:])
+                else:
+                    adjusted.append(rline)
+            replacement_content = ''.join(adjusted)
         new = content[:m["start"]] + replacement_content + content[m["end"]:]
         return new, m
 
@@ -301,14 +424,36 @@ def _apply_operation_pure(content: str, op: Dict[str, Any]) -> Tuple[str, Option
         if m is None:
             raise ValueError("target_content no aparece en el archivo.")
         text = content_arg
-        # Sin doble newline: si el match ya termina en \n, content no
-        # necesita newline al frente; si NO termina en \n, lo anadimos.
-        ends_with_nl = m["matched_text"].endswith("\n")
-        if not ends_with_nl and not text.startswith("\n"):
-            text = "\n" + text
-        if not text.endswith("\n"):
-            text = text + "\n"
-        new = content[:m["end"]] + text + content[m["end"]:]
+        # --- Fix doble newline (Task 4.1) ---
+        # Determinar el punto exacto de insercion y el prefijo a usar.
+        #
+        # Caso 1: matched_text ya incluye su propio \n (matcheo linea completa).
+        #   -> insertar en m["end"], sin anadir \n extra.
+        # Caso 2: matched_text NO incluye \n, pero el siguiente char en el
+        #   archivo SÍ es \n (match inline de "def foo():" cuando el archivo
+        #   tiene "def foo():\n    return 1").
+        #   -> insertar DESPUES del \n existente (insert_pos = m["end"] + 1),
+        #      sin anadir \n al frente de text.
+        # Caso 3: matched_text NO incluye \n y el siguiente char tampoco es \n.
+        #   -> insertar en m["end"] con \n al frente de text.
+        matched_text = m["matched_text"]
+        next_char = content[m["end"]:m["end"] + 1] if m["end"] < len(content) else ''
+        if matched_text.endswith('\n'):
+            # Caso 1: el match incluye su newline.
+            insert_pos = m["end"]
+            if text.startswith('\n'):
+                text = text[1:]
+        elif next_char == '\n':
+            # Caso 2: el \n existente actua de separador; insertar despues de el.
+            insert_pos = m["end"] + 1
+        else:
+            # Caso 3: no hay newline — lo aniadimos.
+            insert_pos = m["end"]
+            if not text.startswith('\n'):
+                text = '\n' + text
+        if not text.endswith('\n'):
+            text = text + '\n'
+        new = content[:insert_pos] + text + content[insert_pos:]
         return new, m
 
     if action == "insert_before_match":
@@ -421,7 +566,7 @@ def advanced_file_editor(
             else:
                 return {"error": f"El archivo '{path}' no existe para la accion '{action}'."}
         else:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", newline="") as f:
                 original_content = f.read()
     except Exception as e:
         return {"error": f"Error al leer '{path}': {e}"}
