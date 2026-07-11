@@ -323,6 +323,11 @@ def call_agent_skill(
                 _widget_set_error(stream_widget, terminal_ui, error_msg)
             return error_msg
 
+    import time
+    t0 = time.time()
+    delegation_status = "success"
+    delegation_result = ""
+
     old_ctx = getattr(llm_service, "current_delegation_context", None)
     if child_ctx:
         llm_service.current_delegation_context = child_ctx
@@ -366,10 +371,13 @@ def call_agent_skill(
                         border_style="green",
                         padding=(1, 2)
                     ))
+                delegation_result = result_str
                 return f"Respuesta de {agent_display}:\n\n{result_str}"
             except Exception as e:
                 error_msg = f"Error al ejecutar {agent_display}: {str(e)}"
                 logger.error(error_msg)
+                delegation_status = "failed"
+                delegation_result = error_msg
                 if stream_widget is not None:
                     _widget_set_error(stream_widget, terminal_ui, str(e))
                 return error_msg
@@ -411,10 +419,13 @@ def call_agent_skill(
                         border_style="green",
                         padding=(1, 2)
                     ))
+                delegation_result = result_str
                 return f"Respuesta de DeepResearcher:\n\n{result_str}"
             except Exception as e:
                 error_msg = f"Error al ejecutar DeepResearcher: {str(e)}"
                 logger.error(error_msg)
+                delegation_status = "failed"
+                delegation_result = error_msg
                 if stream_widget is not None:
                     _widget_set_error(stream_widget, terminal_ui, str(e))
                 return error_msg
@@ -462,10 +473,13 @@ def call_agent_skill(
                         border_style="green",
                         padding=(1, 2)
                     ))
+                delegation_result = result_str
                 return f"Respuesta de {agent_display}:\n\n{result_str}"
             except Exception as e:
                 error_msg = f"Error al ejecutar {agent_display}: {str(e)}"
                 logger.error(error_msg)
+                delegation_status = "failed"
+                delegation_result = error_msg
                 if stream_widget is not None:
                     _widget_set_error(stream_widget, terminal_ui, str(e))
                 return error_msg
@@ -476,6 +490,18 @@ def call_agent_skill(
                 llm_service.delegation_manager.unregister_agent(child_id)
             if hasattr(llm_service, "heartbeat_monitor") and llm_service.heartbeat_monitor:
                 llm_service.heartbeat_monitor.remove_agent(child_id)
+            if hasattr(llm_service, "telemetry_tracker") and llm_service.telemetry_tracker:
+                duration = time.time() - t0
+                summary = delegation_result[:200] + "..." if len(delegation_result) > 200 else delegation_result
+                llm_service.telemetry_tracker.record_delegation(
+                    subagent_id=child_id,
+                    subagent_name=agent_name,
+                    task=task,
+                    depth=getattr(child_ctx, "depth", 1) if child_ctx else 1,
+                    status=delegation_status,
+                    duration=duration,
+                    summary=summary
+                )
 
 # Schema para el LLM
 tool_schema = {

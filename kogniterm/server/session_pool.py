@@ -657,6 +657,15 @@ class AgentSession:
         # Lock para serializar invocaciones del agente por sesión
         self._agent_lock = asyncio.Lock()
 
+        # Telemetría de sesión (KiloSession-like)
+        from kogniterm.core.delegation.telemetry import TelemetryTracker
+        self.telemetry_tracker = TelemetryTracker(
+            session_id=session_id,
+            workspace_dir=self.workspace_dir,
+        )
+        llm_service.telemetry_tracker = self.telemetry_tracker
+
+
         # Bandera de sesión activa
         self.is_running = False
 
