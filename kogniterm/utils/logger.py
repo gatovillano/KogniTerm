@@ -1,6 +1,61 @@
 import logging
 import os
+import sys
+import builtins
 from logging.handlers import RotatingFileHandler
+
+
+class StderrRedirector:
+    """Redirects writes to sys.stderr to a logger to prevent output from leaking to TUI."""
+    def __init__(self, logger_name="kogniterm.stderr"):
+        self.logger = logging.getLogger(logger_name)
+        self._buffer = []
+
+    def write(self, buf):
+        if not buf:
+            return
+        self._buffer.append(buf)
+        if "\n" in buf:
+            full_text = "".join(self._buffer)
+            # Log all lines except the last trailing newline if any
+            lines = full_text.splitlines()
+            for line in lines:
+                if line.strip():
+                    self.logger.error(line)
+            self._buffer = []
+
+    def flush(self):
+        if self._buffer:
+            full_text = "".join(self._buffer)
+            lines = full_text.splitlines()
+            for line in lines:
+                if line.strip():
+                    self.logger.error(line)
+            self._buffer = []
+
+
+def setup_tui_redirects():
+    """Redirects stderr and standard print() calls to the logging system.
+    This prevents third-party libraries or accidental prints from corrupting
+    the Textual TUI display, routing them to the log file instead.
+    """
+    # 1. Redirect sys.stderr to our StderrRedirector
+    sys.stderr = StderrRedirector("kogniterm.stderr")
+
+    # 2. Redirect builtins.print to route stdout-directed prints to logging
+    _original_print = builtins.print
+    def tui_print(*args, **kwargs):
+        # If print is directed to a specific file that is NOT stdout or stderr,
+        # let it proceed normally (e.g., writing to a file on disk).
+        file = kwargs.get("file", sys.stdout)
+        if file is not sys.stdout and file is not sys.stderr:
+            _original_print(*args, **kwargs)
+            return
+
+        message = " ".join(str(arg) for arg in args)
+        logging.getLogger("kogniterm.print").info(message)
+
+    builtins.print = tui_print
 
 
 def _build_file_handler(log_dir: str | None = None) -> RotatingFileHandler:
@@ -125,3 +180,56 @@ def enable_file_logging_only(
     kogniterm_logger.propagate = True
 
     return kogniterm_logger
+
+
+def configure_server_logging(port: int = 8765, level: int = logging.INFO):
+    """Configures the logging system for the backend server.
+    Redirects FastAPI/Uvicorn logs to a rotating file handler at .kogniterm/logs/server.log
+    to prevent console outputs when running the server.
+    """
+    log_dir = os.path.join(os.getcwd(), ".kogniterm", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "server.log")
+
+    # Rotating File Handler (10MB, 5 backups)
+    file_handler = RotatingFileHandler(
+        log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    file_formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    file_handler.setFormatter(file_formatter)
+
+    # Configure Python's root logger for the server process
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
+    root.addHandler(file_handler)
+    root.setLevel(level)
+
+    # Ensure third-party / webserver loggers propagate to root and don't use stream handlers
+    web_loggers = [
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        "fastapi",
+        "kogniterm",
+        "litellm",
+    ]
+    for logger_name in web_loggers:
+        l = logging.getLogger(logger_name)
+        for handler in list(l.handlers):
+            l.removeHandler(handler)
+            try:
+                handler.close()
+            except Exception:
+                pass
+        l.propagate = True
+        l.setLevel(level)
+
+    # Disable lastResort StreamHandler
+    logging.lastResort = logging.NullHandler()

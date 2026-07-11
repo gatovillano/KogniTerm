@@ -1,6 +1,8 @@
 import logging
-from kogniterm.utils.logger import enable_file_logging_only
+from kogniterm.utils.logger import enable_file_logging_only, setup_tui_redirects
 enable_file_logging_only() # Initialize root logger for TUI mode (file only, no console)
+setup_tui_redirects()      # Redirect stderr and print() to logging to prevent TUI pollution
+
 import sys
 import os
 from dotenv import load_dotenv # Importar load_dotenv
