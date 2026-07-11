@@ -1162,19 +1162,19 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         # Guardar historial al finalizar la ejecución de herramientas
         llm_service._save_history(state.messages)
 
-    finally:
-        if kh:
-            kh.stop()
-
-        # Clear current agent state
-        llm_service._current_agent_state = None
-
         return {
             "messages": state.messages,
             "command_to_confirm": getattr(state, 'command_to_confirm', None),
             "tool_call_id_to_confirm": getattr(state, 'tool_call_id_to_confirm', None),
             "file_update_diff_pending_confirmation": getattr(state, 'file_update_diff_pending_confirmation', None)
         }
+
+    finally:
+        if kh:
+            kh.stop()
+
+        # Clear current agent state
+        llm_service._current_agent_state = None
 
 def learning_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
     """
