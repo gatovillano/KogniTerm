@@ -1044,11 +1044,10 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             )
                             content = update_result
                         elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
-                            from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import _apply_advanced_update_with_validation
-                            edit_result = _apply_advanced_update_with_validation(
-                                exception.tool_args.get("path", ""),
-                                exception.tool_args.get("new_content", exception.tool_args.get("content", ""))
-                            )
+                            from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import advanced_file_editor_tool
+                            args_to_pass = dict(exception.tool_args)
+                            args_to_pass["confirm"] = True
+                            edit_result = advanced_file_editor_tool(**args_to_pass)
                             content = edit_result
                         else:
                             # Para otras herramientas, usar el contenido existente
