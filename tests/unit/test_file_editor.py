@@ -378,15 +378,17 @@ class TestBatchEdit:
         assert after == original, f"Archivo modificado parcialmente: {after!r}"
 
     def test_atomic_with_fuzzy_disabled(self, batch_file):
-        # Target con whitespace ligeramente distinto + fuzzy no activado
-        # -> falla la 2ª op -> no se escribe nada.
+        # La 2ª operacion usa un target que NO existe en el archivo (sin fuzzy).
+        # El archivo tiene "line2\nline3" exactamente, pero el target tiene
+        # un espacio extra dentro del token ("line 2") que no matchea sin fuzzy.
+        # -> falla la 2ª op -> ninguna operacion se escribe (atomicidad).
         with open(batch_file) as f:
             original = f.read()
         result = batch_edit(
             path=batch_file,
             operations=[
                 {"action": "replace_block", "target_content": "line1", "replacement_content": "A"},
-                {"action": "replace_block", "target_content": "line2\nline3", "replacement_content": "B"},
+                {"action": "replace_block", "target_content": "line 2\nline3", "replacement_content": "B"},
             ],
             confirm=True,
         )
@@ -475,3 +477,57 @@ class TestInputValidation:
         with open(tmp_file) as f:
             assert "def foo():" in f.read()
             assert "# ok" not in f.read()
+
+
+# ---------------------------------------------------------------------------
+# Normalizacion de entradas: auto-strip de numeros de linea y CRLF
+# ---------------------------------------------------------------------------
+
+class TestInputNormalization:
+    def test_auto_strip_line_numbers(self, tmp_file):
+        """target_content con prefijos '  N | ' debe funcionar igual que sin ellos."""
+        result = advanced_file_editor(
+            path=tmp_file,
+            action="replace_block",
+            target_content="   1 | def foo():\n   2 |     return 1",
+            replacement_content="def foo():  # stripped\n    return 42",
+            confirm=True,
+        )
+        assert result["status"] == "success"
+        with open(tmp_file) as f:
+            content = f.read()
+        assert "return 42" in content
+        assert "stripped" in content
+
+    def test_strip_line_numbers_replacement(self, tmp_file):
+        """replacement_content con prefijos tambien se limpia."""
+        result = advanced_file_editor(
+            path=tmp_file,
+            action="replace_block",
+            target_content="def foo():",
+            replacement_content="   1 | def foo():  # ok",
+            confirm=True,
+        )
+        assert result["status"] == "success"
+        with open(tmp_file) as f:
+            content = f.read()
+        # El prefijo de linea debe haber sido eliminado.
+        assert "1 | def foo" not in content
+        assert "def foo():  # ok" in content
+
+    def test_crlf_file_replace_block(self, tmp_file):
+        """Archivo con CRLF: replace_block con target LF debe funcionar."""
+        with open(tmp_file, "wb") as f:
+            f.write(b"def foo():\r\n    return 1\r\n\r\ndef bar():\r\n    return 1\r\n")
+        result = advanced_file_editor(
+            path=tmp_file,
+            action="replace_block",
+            target_content="def foo():\n    return 1",  # LF normal
+            replacement_content="def foo():\n    return 999",
+            confirm=True,
+        )
+        assert result["status"] == "success"
+        raw = open(tmp_file, "rb").read()
+        # El archivo debe seguir usando CRLF.
+        assert b"\r\n" in raw
+        assert b"999" in raw
