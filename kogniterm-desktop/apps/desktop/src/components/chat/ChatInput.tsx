@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Folder, Sparkles, Paperclip, Settings2, Square, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Send, Folder, Sparkles, Paperclip, Settings2, Square, ChevronDown, ChevronUp, X, Terminal } from 'lucide-react';
 
 interface ChatInputProps {
     onSendMessage: (message: string) => void;
@@ -30,56 +30,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [suggestions, setSuggestions] = useState<{ command: string; desc: string }[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
-    const [cursorOffset, setCursorOffset] = useState<{ top: number; left: number } | null>(null);
 
-    const getCursorOffset = useCallback(() => {
-        const textarea = textareaRef.current;
-        if (!textarea) return null;
-        
-        try {
-            const selectionStart = textarea.selectionStart;
-            const mirror = document.createElement('div');
-            const style = window.getComputedStyle(textarea);
-
-            mirror.style.position = 'absolute';
-            mirror.style.visibility = 'hidden';
-            mirror.style.whiteSpace = 'pre-wrap';
-            mirror.style.wordWrap = 'break-word';
-            mirror.style.width = style.width;
-            mirror.style.fontSize = style.fontSize;
-            mirror.style.fontFamily = style.fontFamily;
-            mirror.style.lineHeight = style.lineHeight;
-            mirror.style.padding = style.padding;
-            mirror.style.boxSizing = style.boxSizing;
-
-            const textBeforeCursor = textarea.value.substring(0, selectionStart);
-            mirror.textContent = textBeforeCursor;
-
-            const marker = document.createElement('span');
-            marker.textContent = '|';
-            mirror.appendChild(marker);
-
-            document.body.appendChild(mirror);
-            const markerRect = marker.getBoundingClientRect();
-            const mirrorRect = mirror.getBoundingClientRect();
-            document.body.removeChild(mirror);
-
-            return {
-                top: markerRect.top - mirrorRect.top,
-                left: markerRect.left - mirrorRect.left,
-            };
-        } catch (e) {
-            console.error("Error calculating cursor offset", e);
-            return null;
-        }
-    }, []);
-
-    const updateCursorPosition = useCallback(() => {
-        const offset = getCursorOffset();
-        if (offset) {
-            setCursorOffset(offset);
-        }
-    }, [getCursorOffset]);
 
     const handleSubmit = (e?: React.FormEvent) => {
         e?.preventDefault();
@@ -128,7 +79,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 setSuggestions(filtered);
                 setShowSuggestions(true);
                 setSelectedIndex(0);
-                requestAnimationFrame(updateCursorPosition);
                 return;
             }
         }
@@ -249,43 +199,39 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </div>
             )}
 
-            {/* Command Suggestions Menu */}
-            {showSuggestions && (
-                <div
-                    className="absolute z-[100] bg-[#16161a] border border-zinc-800 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden transition-all duration-200"
-                    style={{
-                        bottom: 'calc(100% + 12px)',
-                        left: cursorOffset ? `${Math.min(Math.max(cursorOffset.left + 52, 16), 400)}px` : '50%',
-                        transform: cursorOffset ? 'none' : 'translateX(-50%)',
-                        width: 'min(350px, calc(100vw - 32px))',
-                        opacity: 1,
-                        visibility: 'visible',
-                    }}
-                >
-                    <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5">
-                        <div className="px-2 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                            Comandos Disponibles
-                        </div>
-                        {suggestions.map((cmd, index) => (
-                            <button
-                                key={cmd.command}
-                                onClick={() => handleSelectCommand(cmd.command)}
-                                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${index === selectedIndex
-                                    ? 'bg-indigo-500/10 text-indigo-300'
-                                    : 'text-zinc-400 hover:bg-zinc-900'
-                                    }`}
-                            >
-                                <span className="font-mono font-medium">{cmd.command}</span>
-                                <span className="text-zinc-500 text-[10px]">{cmd.desc}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {/* Main Input Form */}
             <div className={`relative transition-all duration-300 ${isFocused ? 'scale-[1.005]' : ''}`}>
                 <div className={`absolute -inset-0.5 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-2xl opacity-20 blur transition duration-500 ${isFocused ? 'opacity-40' : ''}`}></div>
+
+                {/* Command Suggestions Menu */}
+                {showSuggestions && (
+                    <div
+                        className="absolute bottom-[calc(100%+12px)] left-0 right-0 z-[100] bg-[#16161a]/95 backdrop-blur-md border border-zinc-800/80 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden transition-all duration-200"
+                    >
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5">
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-900/60 mb-1">
+                                <Terminal size={11} className="text-indigo-400" />
+                                <span>Comandos Disponibles</span>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                                {suggestions.map((cmd, index) => (
+                                    <button
+                                        key={cmd.command}
+                                        type="button"
+                                        onClick={() => handleSelectCommand(cmd.command)}
+                                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all duration-150 text-left ${index === selectedIndex
+                                            ? 'bg-gradient-to-r from-indigo-500/15 to-indigo-500/5 text-indigo-300 border-l-2 border-indigo-500 pl-2.5 font-medium'
+                                            : 'text-zinc-400 hover:bg-zinc-900/60 border-l-2 border-transparent hover:text-zinc-200'
+                                            }`}
+                                    >
+                                        <span className="font-mono font-semibold">{cmd.command}</span>
+                                        <span className="text-zinc-500 text-[10px] truncate max-w-[70%]">{cmd.desc}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <form
                     onSubmit={handleSubmit}

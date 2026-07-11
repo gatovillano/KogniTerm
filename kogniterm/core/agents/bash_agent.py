@@ -75,6 +75,63 @@ logger = logging.getLogger(__name__)
 
 console = Console()
 
+_code_md_cache: Dict[str, Dict[str, Any]] = {}
+_CODE_MD_CACHE_TTL = 2.0
+
+def _get_code_memory(base_content: str) -> str:
+    instructions_path = os.path.join(os.getcwd(), ".kogniterm", "code_memory.md")
+    entry = _code_md_cache.get(instructions_path)
+    now = time.time()
+    if entry and (now - entry.get('ts', 0) < _CODE_MD_CACHE_TTL):
+        cm = entry['content']
+    else:
+        try:
+            cm = _get_cached_file(instructions_path)
+        except Exception:
+            cm = ""
+        _code_md_cache[instructions_path] = {'content': cm, 'ts': now}
+    if cm:
+        base_content += f"\n\n### 🧠 MEMORIA DE CÓDIGO (code_memory.md):\nConvenciones activas del proyecto. Respétalas en ediciones y nuevas implementaciones:\n{cm}\n"
+    return base_content
+
+
+def _build_semantic_code_context(llm_service: LLMService, state: AgentState) -> str:
+    try:
+        if not getattr(llm_service, 'vector_db_manager', None):
+            return ""
+        vdb = llm_service.vector_db_manager
+        if not vdb or not getattr(vdb, 'collection', None):
+            return ""
+        history = state.messages if 'state' in globals() and hasattr(state, 'messages') else []
+        query = " ".join(
+            [m.content for m in history if isinstance(m, HumanMessage)][-1:]
+        ) if history else ""
+        if not query or len(query.strip()) < 4:
+            return ""
+        if not getattr(llm_service, 'embeddings_service', None):
+            return ""
+        q_emb = llm_service.embeddings_service.embed_query(query)
+        if not q_emb:
+            return ""
+        hits = vdb.search(q_emb, k=3)
+        if not hits:
+            return ""
+        parts = []
+        parts.append("### 📂 CONTEXTO SEMÁNTICO DEL CODEBASE (top-K chunks relevantes):")
+        for i, h in enumerate(hits, 1):
+            meta = h.get('metadata', {}) or {}
+            fp = meta.get('file_path', 'desconocido')
+            sl = meta.get('start_line', '?')
+            el = meta.get('end_line', '?')
+            txt = h.get('content', '').strip().replace('\n', ' ')
+            if len(txt) > 220:
+                txt = txt[:220] + '…'
+            parts.append(f"{i}. `{fp}` L{sl}-L{el}: {txt}")
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
 # Cache para optimizar accesos repetidos a disco en cada turno del agente
 _file_cache = {}
 _json_file_cache = {}
@@ -163,7 +220,7 @@ def process_file_references(content: str, workspace_directory: str) -> str:
 
 
 # --- Mensaje de Sistema ---
-def get_system_message(llm_service: LLMService) -> SystemMessage:
+def get_system_message(llm_service: LLMService, state: Optional[AgentState] = None) -> SystemMessage:
     base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un agente evolutivo de terminal con **Capacidad Evolutiva**.
 
 ⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
@@ -208,7 +265,7 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
     - La única excepción es `execute_command`: siempre se presenta al usuario tras las demás, no la combines con herramientas que aún necesitas ejecutar antes.
 """
 
-    # Adjuntar instrucciones del usuario (global y del proyecto) si existen
+     # Adjuntar instrucciones del usuario (global y del proyecto) si existen
     try:
         global_conf = _get_cached_json(os.path.expanduser("~/.kogniterm/config.json")) or {}
         project_conf = _get_cached_json(os.path.join(os.getcwd(), ".kogniterm", "config.json")) or {}
@@ -247,7 +304,31 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
             base_content += "\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO:\nActualmente no existe el archivo `.kogniterm/llm_context.md`. Debes sugerir al usuario ejecutar `/init` al inicio de la interacción para realizar la investigación y construirla automáticamente.\n"
     except Exception:
         pass
+
+    # Cargar memoria de código del proyecto (code_memory.md)
+    try:
+        base_content = _get_code_memory(base_content)
+    except Exception:
+        pass
+
+    # Contexto semántico ligero del codebase (top-K chunks relevantes)
+    try:
+        sem_ctx = _build_semantic_code_context(llm_service, state)
+        if sem_ctx:
+            base_content += f"\n\n{sem_ctx}\n"
+    except Exception:
+        pass
     
+    # Atajos y rutas rápidas para tareas de código
+    base_content += """
+\n## 🚀 GUÍA RÁPIDA DE CALIDAD DE CÓDIGO
+- Edición: usa `advanced_file_editor` con `confirm=True` en CodeAgent/Leaf; en BashAgent mantén confirmación humana excepto si el usuario habilita autoaprobación.
+- Verificación inmediata: tras modificar `.py`, el sistema ya ejecuta `py_compile`. Si hay tests cercanos, ejecuta `pytest` o `python -m unittest discover` con `execute_command`.
+- Linting: usa `ruff check <archivo_o_paquete>` o `mypy <ruta>` para detectar style y type hints antes de declarar terminada una refactor.
+- TDD: cuando la tarea involucre lógica nueva, escribe primero el caso de prueba en `tests/` y luego la implementación.
+- Preflight: antes de editar, identifica el módulo afectado con `codebase_search_tool` y confirma que no rompes contratos públicos.
+
+"""
     # Solo añadir la instrucción de pensar si el modelo NO es de razonamiento nativo
     if not llm_service.is_thinking_model():
         base_content += """
@@ -380,9 +461,71 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
 
 
 
+def _file_stat_key(path: str) -> Optional[str]:
+    try:
+        st = os.stat(path)
+        return f"{path}::{st.st_mtime}::{st.st_size}"
+    except Exception:
+        return None
+
+def _run_lint(path: str, cache: Dict[str, Dict[str, Any]]) -> str:
+    key = _file_stat_key(path)
+    if not key:
+        return f"⚠️ No se pudo inspeccionar `{path}`"
+    entry = cache.get(key)
+    if entry:
+        return entry['text']
+    results = []
+    try:
+        import py_compile
+        py_compile.compile(path, doraise=True)
+        results.append(f"✅ `{path}` — sintaxis OK")
+    except py_compile.PyCompileError as e:
+        results.append(f"❌ Error de sintaxis en `{path}`:\n{str(e).strip()}")
+    except Exception as e:
+        results.append(f"⚠️ No se pudo verificar `{path}`: {e}")
+
+    ruff_ok = False
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["ruff", "check", "--output-format", "concise", path],
+            capture_output=True, text=True, timeout=120
+        )
+        if r.returncode == 0:
+            results.append(f"✅ ruff: `{path}` sin hallazgos")
+            ruff_ok = True
+        else:
+            out = (r.stdout or r.stderr or "").strip()
+            if out:
+                results.append(f"⚠️ ruff `{path}`:\n{out[:1000]}")
+    except FileNotFoundError:
+        pass
+    except subprocess.TimeoutExpired:
+        results.append(f"⏳ ruff timeout inspeccionando `{path}`")
+    except Exception:
+        pass
+
+    try:
+        if not ruff_ok:
+            import ast
+            with open(path, 'r', encoding='utf-8', errors='ignore') as _f:
+                src = _f.read()
+            try:
+                ast.parse(src)
+            except SyntaxError as se:
+                results.append(f"❌ SyntaxError AST:\n{se.msg} ({se.lineno}:{se.offset})")
+    except Exception:
+        pass
+
+    text = "\n".join(results)
+    cache[key] = {'text': text, 'ts': time.time()}
+    return text
+
+
 def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
     """Verifica la integridad de los archivos modificados tras una ejecución de herramientas.
-    Ejecuta py_compile para Python sin involucrar al LLM, cortando un ciclo de tool calls.
+    Ejecuta py_compile, ruff y AST parse con cache por hash de archivo para reducir latencia.
     """
     last_ai_msg = None
     for msg in reversed(state.messages):
@@ -417,22 +560,13 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
     if terminal_ui and hasattr(terminal_ui, "update_live"):
         from kogniterm.terminal.themes import Icons
         from rich.padding import Padding
-        # Añadir Padding (0, 0) con expand=True y padding interno (0, 4) para mantener la alineación de la TUI
         terminal_ui.update_live(Padding(Panel(f"{Icons.CODE} [bold]Verificando sintaxis de archivos modificados...[/bold]", border_style="yellow", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
     verification_results = []
-
-    for file_path in modified_files:
-        if file_path.endswith(".py"):
-            try:
-                import py_compile
-                py_compile.compile(file_path, doraise=True)
-                verification_results.append(f"✅ `{file_path}` — sintaxis OK")
-            except py_compile.PyCompileError as e:
-                verification_results.append(f"❌ Error de sintaxis en `{file_path}`:\n{str(e).strip()}")
-            except Exception as e:
-                verification_results.append(f"⚠️ No se pudo verificar `{file_path}`: {e}")
+    for fp in modified_files:
+        if isinstance(fp, str) and fp.endswith(".py"):
+            verification_results.append(_run_lint(fp, _lint_cache))
 
     if verification_results:
         summary = "\n".join(verification_results)
@@ -474,7 +608,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 "critical_loop_detected": True
             }
 
-    history = [get_system_message(llm_service)] + state.messages
+    history = [get_system_message(llm_service, state=state)] + state.messages
     
     # Procesar referencias a archivos en el último mensaje del usuario
     if state.messages and isinstance(state.messages[-1], HumanMessage):
@@ -483,7 +617,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
         # Actualizar el mensaje en el estado con el contenido procesado
         state.messages[-1] = HumanMessage(content=processed_content)
         # Actualizar history también
-        history = [get_system_message(llm_service)] + state.messages
+        history = [get_system_message(llm_service, state=state)] + state.messages
     full_response_content = ""
     full_thinking_content = ""
     final_ai_message_from_llm = None
@@ -1193,28 +1327,31 @@ def learning_node(state: AgentState, llm_service: LLMService, terminal_ui: Optio
     if state.messages[-1].tool_calls:
         return state
 
-    # 2. Extraer ventana de contexto para análisis (últimos 4 mensajes)
-    recent_msgs = state.messages[-4:]
+    # 2. Extraer ventana de contexto para análisis (últimos 6 mensajes)
+    recent_msgs = state.messages[-6:]
     conversation_text = ""
     for msg in recent_msgs:
         role = "Usuario" if isinstance(msg, HumanMessage) else "Asistente"
-        content = str(msg.content)[:500]
+        content = str(msg.content)[:700]
         conversation_text += f"{role}: {content}\n"
 
-    learning_prompt = f"""Analiza la siguiente conversación técnica y extrae un ÚNICO aprendizaje relevante sobre el usuario o el proyecto.
+    learning_prompt = """Analiza la siguiente conversación técnica y extrae aprendizajes útiles.
 Busca:
 - Preferencias de estilo, herramientas o lenguajes.
 - Hechos estructurales del proyecto que se hayan descubierto.
 - Correcciones que el usuario haya hecho sobre tu comportamiento.
+- Patrones de código recurrentes: imports comunes, clases base, uso de dataclasses, typing, fixtures de tests, convenciones de nombres, estructura de carpetas, linters usados, nivel de TDD.
+- Reglas ejecutivas: qué herramientas aprobar siempre ejecutar en segundo plano sin confirmación adicional.
 
-Reglas:
-1. Responde con UNA SOLA FRASE corta y clara en español.
-2. Si no hay nada nuevo que valga la pena recordar para siempre, responde: NADA
+Reglas estrictas:
+1. Responde con UNA SOLA FRASE corta y clara en español sobre preferencias generales.
+2. Si extrajiste patrones de código, responde con la frase general seguida de ` |||PATTERNS>>>` y la lista en bullet points.
+3. Si no hay nada nuevo que valga la pena recordar para siempre, responde: NADA
 
 CONVERSACIÓN:
 {conversation_text}
 
-APRENDIZAJE:"""
+APRENDIZAJE:""".replace("{conversation_text}", conversation_text)
 
     try:
         if hasattr(llm_service, "use_multi_provider") and llm_service.use_multi_provider and getattr(llm_service, "provider_manager", None):
@@ -1223,7 +1360,7 @@ APRENDIZAJE:"""
                 messages=[{"role": "user", "content": learning_prompt}],
                 stream=False,
                 temperature=0.3,
-                max_tokens=100
+                max_tokens=160
             )
             response = next(response_gen)
         else:
@@ -1232,35 +1369,61 @@ APRENDIZAJE:"""
                 model=llm_service.model_name,
                 messages=[{"role": "user", "content": learning_prompt}],
                 api_key=llm_service.api_key,
-                max_tokens=100,
+                max_tokens=160,
                 temperature=0.3
             )
         content_val = response.choices[0].message.content if (response.choices and response.choices[0].message) else None
         learned_text = content_val.strip() if content_val else "NADA"
 
         if "NADA" not in learned_text.upper() and len(learned_text) > 8:
+            general = learned_text
+            patterns = ""
+            if "|||PATTERNS>>>" in learned_text:
+                general, patterns = learned_text.split("|||PATTERNS>>>", 1)
+                general = general.strip()
+                patterns = patterns.strip()
+
             # Limpiar formato
-            learned_text = re.sub(r'^[-\*\s]+', '', learned_text)
+            general = re.sub(r'^[-\*\s]+', '', general)
             
-            # Guardar en .kogniterm/instructions.md
+            # Guardar preferencia general en .kogniterm/instructions.md
             instructions_path = os.path.join(os.getcwd(), ".kogniterm", "instructions.md")
             os.makedirs(os.path.dirname(instructions_path), exist_ok=True)
             
             is_duplicate = False
             if os.path.exists(instructions_path):
                 with open(instructions_path, 'r', encoding='utf-8') as f:
-                    if learned_text.lower() in f.read().lower():
+                    if general.lower() in f.read().lower():
                         is_duplicate = True
             
             if not is_duplicate:
                 with open(instructions_path, "a", encoding="utf-8") as f:
                     if os.path.getsize(instructions_path) == 0:
                         f.write("## Memorias y Preferencias Aprendidas\n\n")
-                    f.write(f"- {learned_text}\n")
+                    f.write(f"- {general}\n")
+            
+            # Guardar patrones de código en .kogniterm/code_memory.md
+            if patterns:
+                code_mem_path = os.path.join(os.getcwd(), ".kogniterm", "code_memory.md")
+                os.makedirs(os.path.dirname(code_mem_path), exist_ok=True)
+                code_mem = ""
+                if os.path.exists(code_mem_path):
+                    with open(code_mem_path, 'r', encoding='utf-8') as f:
+                        code_mem = f.read()
+                
+                if patterns.lower() not in code_mem.lower():
+                    with open(code_mem_path, "a", encoding="utf-8") as f:
+                        if os.path.getsize(code_mem_path) == 0:
+                            f.write("## Convenciones y Patrones de Código\n\n")
+                        f.write(f"- {patterns}\n")
                 
                 if terminal_ui:
                     from kogniterm.terminal.themes import Icons
-                    terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]", style="cyan")
+                    terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Patrón de código consolidado:[/] [italic white]{patterns[:120]}...[/]", style="cyan")
+                
+                if terminal_ui:
+                    from kogniterm.terminal.themes import Icons
+                    terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Aprendizaje general:[/] [italic white]{general}[/]", style="cyan")
     except Exception as e:
         logger.warning(f"Error en el nodo de aprendizaje del agente: {e}", exc_info=True)
         pass # Aprendizaje silencioso, no debe interrumpir el flujo principal
