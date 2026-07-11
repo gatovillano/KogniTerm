@@ -1,8 +1,10 @@
 import pytest
 from kogniterm.core.agent_interaction import BaseAgentInteractionManager, AgentInteractionRegistry
 
-def test_registry_raises_unregistered():
+def test_registry_raises_unregistered(monkeypatch):
+    import sys
     AgentInteractionRegistry._factory = None
+    monkeypatch.setitem(sys.modules, "kogniterm.terminal.agent_interaction_manager", None)
     with pytest.raises(RuntimeError, match="La factory de AgentInteractionManager no ha sido registrada"):
         AgentInteractionRegistry.create()
 
