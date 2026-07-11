@@ -10,6 +10,7 @@ from rich.text import Text
 
 logger = logging.getLogger(__name__)
 
+from kogniterm.core.agent_interaction import BaseAgentInteractionManager, AgentInteractionRegistry
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import create_bash_agent, create_learning_agent, AgentState, get_system_message
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
@@ -23,7 +24,7 @@ This module contains the AgentInteractionManager class, responsible for
 orchestrating AI agent interactions in the KogniTerm application.
 """
 
-class AgentInteractionManager:
+class AgentInteractionManager(BaseAgentInteractionManager):
     def __init__(self, llm_service: LLMService, agent_state: AgentState, terminal_ui: TerminalUI, interrupt_queue: queue.Queue, command_approval_handler=None):
         logger.info(f"AgentInteractionManager init: terminal_ui class={type(terminal_ui)}")
         self.llm_service = llm_service
@@ -173,6 +174,9 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
                 logger.error(f"Error al iniciar el thread de aprendizaje: {e}")
         
         return final_state_dict
+
+
+AgentInteractionRegistry.register_factory(AgentInteractionManager)
 
 
 
