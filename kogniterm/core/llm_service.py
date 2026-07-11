@@ -1142,9 +1142,58 @@ class LLMService:
         if effort:
             self.generation_params["reasoning_effort"] = effort
 
+    def _estimate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float:
+        rates = {
+            "gemini-1.5-pro": (7.0, 21.0),
+            "gemini-1.5-flash": (0.075, 0.3),
+            "claude-3-5-sonnet": (3.0, 15.0),
+            "gpt-4o": (5.0, 15.0),
+            "gpt-4o-mini": (0.15, 0.6)
+        }
+        model_key = model.lower()
+        for k in rates:
+            if k in model_key:
+                rate_in, rate_out = rates[k]
+                break
+        else:
+            rate_in, rate_out = (1.0, 3.0)
+        return ((input_tokens / 1_000_000) * rate_in) + ((output_tokens / 1_000_000) * rate_out)
+
     def invoke(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True, include_tools: bool = True) -> Generator[Union[AIMessage, str], None, None]:
+        full_content = ""
+        try:
+            for chunk in self._invoke_inner(history, system_message, interrupt_queue, save_history, include_tools):
+                if isinstance(chunk, AIMessage):
+                    full_content = chunk.content or ""
+                elif isinstance(chunk, str):
+                    if not chunk.startswith("__THINKING__:"):
+                        full_content += chunk
+                yield chunk
+        finally:
+            if hasattr(self, "telemetry_tracker") and self.telemetry_tracker:
+                hist_str = ""
+                if history:
+                    hist_str = "\n".join(str(m.content) for m in history)
+                else:
+                    hist_str = "\n".join(str(m.content) for m in (self.conversation_history or []))
+                if system_message:
+                    hist_str += "\n" + system_message
+                
+                in_tokens = max(len(hist_str) // 4, 1)
+                out_tokens = max(len(full_content) // 4, 1)
+                model_name = self.model_name or "gemini-1.5-flash"
+                cost = self._estimate_cost(model_name, in_tokens, out_tokens)
+                
+                self.telemetry_tracker.record_llm_call(
+                    model=model_name,
+                    input_tokens=in_tokens,
+                    output_tokens=out_tokens,
+                    cost=cost
+                )
+
+    def _invoke_inner(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True, include_tools: bool = True) -> Generator[Union[AIMessage, str], None, None]:
         """
-        Invoca al modelo LLM con el historial proporcionado.
+        Invoca al modelo LLM con el historial proporcionado (implementación interna).
         """
         # Actualizar latido/heartbeat de delegación si hay contexto activo en este hilo
         ctx = self.current_delegation_context

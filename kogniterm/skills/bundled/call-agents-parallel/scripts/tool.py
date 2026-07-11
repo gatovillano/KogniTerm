@@ -433,6 +433,11 @@ def call_agents_parallel(
 
     # ── Función de ejecución de un agente (Asíncrona) ────────────────────────
     async def run_agent_async(spec: Dict, agent_ui: ParallelPanelUI, panel_id: str) -> str:
+        import time
+        t0 = time.time()
+        delegation_status = "success"
+        delegation_result = ""
+
         name = spec.get("name", "Agente")
         task = spec.get("task", "")
         agent_type = spec.get("type") or spec.get("name", "dynamic_agent")
@@ -539,6 +544,7 @@ def call_agents_parallel(
                 )
             except AgentTaskCompleted as task_exc:
                 result = task_exc.result
+                delegation_result = result
                 logger.info("run_agent[%s]: Finalizado exitosamente vía AgentTaskCompleted exception.", name)
                 status_emoji = "✅"
                 if child_ctx:
@@ -596,10 +602,13 @@ def call_agents_parallel(
                         ex,
                     )
 
+            delegation_result = result
             return result
 
         except Exception as e:
             logger.exception("run_agent[%s]: error: %s", name, e)
+            delegation_status = "failed"
+            delegation_result = str(e)
             # Actualizar el título de la pestaña con error
             if agent_ui and hasattr(agent_ui, "update_agent_tab_title"):
                 try:
@@ -607,6 +616,19 @@ def call_agents_parallel(
                 except Exception:
                     pass
             return f"Error en {name}: {e}"
+        finally:
+            if llm_service and hasattr(llm_service, "telemetry_tracker") and llm_service.telemetry_tracker:
+                duration = time.time() - t0
+                summary = delegation_result[:200] + "..." if len(delegation_result) > 200 else delegation_result
+                llm_service.telemetry_tracker.record_delegation(
+                    subagent_id=child_id,
+                    subagent_name=name,
+                    task=task,
+                    depth=getattr(child_ctx, "depth", 1) if child_ctx else 1,
+                    status=delegation_status,
+                    duration=duration,
+                    summary=summary
+                )
 
     # ── Lanzar agentes en paralelo y esperar a que finalicen ──────────────────
     
