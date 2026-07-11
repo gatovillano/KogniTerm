@@ -39,7 +39,7 @@ from types import ModuleType
 def _load_file_operations():
     """Carga modulos desde la skill hermana file-operations via importlib."""
     this_dir = Path(__file__).resolve().parent
-    bundled_dir = this_dir.parent
+    bundled_dir = this_dir.parent.parent
     file_ops_scripts = bundled_dir / "file-operations" / "scripts"
 
     parent_pkg_name = "_file_ops_scripts_pkg"
