@@ -447,3 +447,48 @@ class KogniTermSuggester:
                     self._cached_containers = containers
         except Exception:
             pass
+
+    def search_files(self, search_term: str) -> List[str]:
+        """
+        Busca y puntúa archivos en base a los términos de búsqueda (AND lógico, case-insensitive).
+        Ordena por relevancia y limita a 15 resultados.
+        """
+        query_terms = search_term.lower().split()
+        if not query_terms:
+            return []
+
+        scored_matches = []
+        with self._lock:
+            cached_files = list(self.cached_files_list)
+
+        for path in cached_files:
+            path_lower = path.lower()
+            if not all(term in path_lower for term in query_terms):
+                continue
+
+            score = 0
+            filename = os.path.basename(path_lower)
+            filename_no_ext, _ = os.path.splitext(filename)
+
+            for term in query_terms:
+                if term == filename:
+                    score += 1000
+                elif term == filename_no_ext:
+                    score += 800
+                elif filename.startswith(term):
+                    score += 500
+                elif filename_no_ext.startswith(term):
+                    score += 400
+                elif term in filename:
+                    score += 200
+                elif term in path_lower:
+                    score += 50
+
+            # Penalización por profundidad de directorios
+            depth = path.count('/')
+            score -= min(depth, 5) * 5
+
+            scored_matches.append((score, path))
+
+        scored_matches.sort(key=lambda x: (-x[0], x[1]))
+        return [path for _, path in scored_matches[:15]]

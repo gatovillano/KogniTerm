@@ -808,7 +808,8 @@ class KogniTermTUI(App):
     }
 
     #command_popup {
-        width: 44;
+        width: auto;
+        min-width: 60;
         layer: popup;
         height: auto;
         max-height: 14;
@@ -1736,28 +1737,11 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
+                    matches = suggester.search_files(search_term)
+                else:
                     search_lower = search_term.lower()
-                    token_map = getattr(suggester, "_file_token_map", None)
-                    if token_map is not None and search_lower:
-                        tokens = set(search_lower.replace("\\", "/").split("/"))
-                        tokens.update(search_lower.split())
-                        candidate_scores = {}
-                        for token in tokens:
-                            if not token:
-                                continue
-                            for path in token_map.get(token, []):
-                                candidate_scores[path] = candidate_scores.get(path, 0) + 1
-                        matches = [
-                            path
-                            for path, _ in sorted(
-                                candidate_scores.items(),
-                                key=lambda x: x[1],
-                                reverse=True,
-                            )
-                        ][:15]
-                    else:
-                        files = suggester.cached_files_list
-                        matches = [f for f in files if search_lower in f.lower()][:15]
+                    files = getattr(suggester, "cached_files_list", []) or []
+                    matches = [f for f in files if search_lower in f.lower()][:15]
             elif trigger == ":" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import (
                     KogniTermSuggester,
@@ -1779,10 +1763,18 @@ class KogniTermTUI(App):
                     matches = []
 
             for match in matches:
-                # match puede ser string (comandos %) o dict (contenedores)
+                # match puede ser string (comandos % o archivos) o dict (contenedores)
                 if isinstance(match, dict):
                     display = f"{match['name']} ({match['status']})"
                     command_text = match["name"]
+                elif trigger == "@":
+                    filename = os.path.basename(match)
+                    dirname = os.path.dirname(match)
+                    if dirname:
+                        display = f"{filename}  ({dirname})"
+                    else:
+                        display = filename
+                    command_text = match
                 else:
                     display = match
                     command_text = match
@@ -1904,28 +1896,11 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
+                    matches = suggester.search_files(search_term)
+                else:
                     search_lower = search_term.lower()
-                    token_map = getattr(suggester, "_file_token_map", None)
-                    if token_map is not None and search_lower:
-                        tokens = set(search_lower.replace("\\", "/").split("/"))
-                        tokens.update(search_lower.split())
-                        candidate_scores = {}
-                        for token in tokens:
-                            if not token:
-                                continue
-                            for path in token_map.get(token, []):
-                                candidate_scores[path] = candidate_scores.get(path, 0) + 1
-                        matches = [
-                            path
-                            for path, _ in sorted(
-                                candidate_scores.items(),
-                                key=lambda x: x[1],
-                                reverse=True,
-                            )
-                        ][:15]
-                    else:
-                        files = suggester.cached_files_list
-                        matches = [f for f in files if search_lower in f.lower()][:15]
+                    files = getattr(suggester, "cached_files_list", []) or []
+                    matches = [f for f in files if search_lower in f.lower()][:15]
             elif trigger == ":" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import (
                     KogniTermSuggester,
@@ -1933,7 +1908,6 @@ class KogniTermTUI(App):
 
                 if isinstance(suggester, KogniTermSuggester):
                     containers = getattr(suggester, "_cached_containers", []) or []
-                    # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
                     matches = [
                         c
                         for c in containers
@@ -1948,10 +1922,18 @@ class KogniTermTUI(App):
                     matches = []
 
             for match in matches:
-                # match puede ser string (comandos %) o dict (contenedores)
+                # match puede ser string (comandos % o archivos) o dict (contenedores)
                 if isinstance(match, dict):
                     display = f"{match['name']} ({match['status']})"
                     command_text = match["name"]
+                elif trigger == "@":
+                    filename = os.path.basename(match)
+                    dirname = os.path.dirname(match)
+                    if dirname:
+                        display = f"{filename}  ({dirname})"
+                    else:
+                        display = filename
+                    command_text = match
                 else:
                     display = match
                     command_text = match
@@ -1976,7 +1958,7 @@ class KogniTermTUI(App):
 
             # Posición X: alineado exactamente con el input de texto, mismo ancho
             popup_x = input_region.x
-            popup_w = input_region.width
+            popup_w = max(60, input_region.width)
 
             # Calcular la altura del popup basándose en el número de matches reales (N items + 2 de bordes)
             num_items = len(self.command_popup.children)
