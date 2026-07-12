@@ -64,6 +64,7 @@ class LLMConfigRequest(BaseModel):
     model: Optional[str] = Field(default=None, description="Nombre del modelo LLM")
     api_key: Optional[str] = Field(default=None, description="API Key del proveedor")
     provider: Optional[str] = Field(default=None, description="Proveedor del modelo")
+    api_base: Optional[str] = Field(default=None, description="URL Base de la API (para custom_openai u otros)")
 
 
 class SessionCreateRequest(BaseModel):
@@ -495,6 +496,38 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+        custom_openai_models = ["custom_openai/local-model"]
+        async def fetch_custom_openai():
+            nonlocal custom_openai_models
+            custom_openai_key = cm.get_api_key("custom_openai") or os.environ.get("CUSTOM_OPENAI_API_KEY")
+            custom_openai_base = cm.get_config("custom_openai_api_base") or os.environ.get("CUSTOM_OPENAI_API_BASE") or "http://localhost:8387/v1"
+            try:
+                async with httpx.AsyncClient() as client:
+                    headers = {}
+                    if custom_openai_key:
+                        headers["Authorization"] = f"Bearer {custom_openai_key}"
+                    resp = await client.get(f"{custom_openai_base.rstrip('/')}/models", headers=headers, timeout=2.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        model_list = data.get("data", []) if isinstance(data, dict) else data
+                        if isinstance(model_list, list):
+                            for m in model_list:
+                                if isinstance(m, dict):
+                                    m_id = m.get("id")
+                                elif isinstance(m, str):
+                                    m_id = m
+                                else:
+                                    continue
+                                if m_id:
+                                    if not m_id.startswith("custom_openai/"):
+                                        m_id = f"custom_openai/{m_id}"
+                                    fetched.append(m_id)
+                        if fetched:
+                            custom_openai_models = fetched
+            except Exception:
+                pass
+
         # Ejecutar todas las consultas en paralelo
         await asyncio.gather(
             fetch_google(),
@@ -505,6 +538,7 @@ def create_app() -> FastAPI:
             fetch_kilocode(),
             fetch_ollama_cloud(),
             fetch_antigravity(),
+            fetch_custom_openai(),
             return_exceptions=True,
         )
 
@@ -522,6 +556,7 @@ def create_app() -> FastAPI:
                     "name": "KiloCode Gateway",
                     "models": kilocode_models,
                 },
+                {"id": "custom_openai", "name": "Custom OpenAI-Compatible", "models": custom_openai_models},
             ]
         }
 
@@ -542,6 +577,8 @@ def create_app() -> FastAPI:
         model_lower = model.lower()
         if "openrouter" in model_lower:
             provider = "openrouter"
+        elif "custom_openai" in model_lower or "custom-openai" in model_lower:
+            provider = "custom_openai"
         elif "gpt" in model_lower or "openai" in model_lower:
             provider = "openai"
         elif "claude" in model_lower or "anthropic" in model_lower:
@@ -555,6 +592,8 @@ def create_app() -> FastAPI:
         masked_key = (
             f"{raw_key[:4]}...{raw_key[-4:]}" if len(raw_key) > 8 else "********"
         )
+        
+        api_base = cm.get_config("custom_openai_api_base") or os.environ.get("CUSTOM_OPENAI_API_BASE") or ""
 
         return {
             "provider": provider,
@@ -562,6 +601,7 @@ def create_app() -> FastAPI:
             "api_key_masked": masked_key,
             "has_key": bool(raw_key),
             "reasoning_effort": cm.get_config("reasoning_effort") or "medium",
+            "api_base": api_base,
         }
 
     @application.post("/api/config/llm", tags=["Configuración"])
@@ -574,7 +614,10 @@ def create_app() -> FastAPI:
 
         # Guardar el modelo por defecto si se proporcionó, o si se especificó un proveedor
         if req.model:
-            cm.set_project_config("default_model", req.model)
+            model_to_save = req.model
+            if req.provider and req.provider.lower() == "custom_openai" and not model_to_save.startswith("custom_openai/"):
+                model_to_save = f"custom_openai/{model_to_save}"
+            cm.set_project_config("default_model", model_to_save)
         elif req.provider:
             default_models = {
                 "google": "google/gemini-1.5-flash",
@@ -584,10 +627,23 @@ def create_app() -> FastAPI:
                 "ollama": "ollama/llama3",
                 "kilocode": "kilocode/kilo/auto",
                 "litellm": "google/gemini-1.5-flash",
+                "custom_openai": "custom_openai/local-model",
             }
             new_model = default_models.get(req.provider.lower())
             if new_model:
                 cm.set_project_config("default_model", new_model)
+
+        # Guardar la API base si se proporcionó
+        if req.api_base:
+            cm.set_project_config("custom_openai_api_base", req.api_base)
+            try:
+                from dotenv import find_dotenv, set_key
+                dotenv_path = find_dotenv()
+                if dotenv_path:
+                    set_key(dotenv_path, "CUSTOM_OPENAI_API_BASE", req.api_base)
+            except Exception:
+                pass
+            os.environ["CUSTOM_OPENAI_API_BASE"] = req.api_base
 
         # Guardar la API key si se proporcionó
         if req.api_key:
@@ -609,6 +665,8 @@ def create_app() -> FastAPI:
                     provider = "ollama_cloud"
                 elif "kilocode" in model_lower:
                     provider = "kilocode"
+                elif "custom_openai" in model_lower or "custom-openai" in model_lower:
+                    provider = "custom_openai"
                 else:
                     provider = "litellm"  # Fallback genérico
 

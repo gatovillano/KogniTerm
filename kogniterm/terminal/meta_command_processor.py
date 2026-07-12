@@ -1440,6 +1440,7 @@ Example: /autosave restore autosave_20250515_141530
                 ("ollama_cloud", "☁️  Ollama Cloud (Ollama Models)"),
                 ("kilocode", "⚡ KiloCode Gateway (Routing inteligente)"),
                 ("antigravity", "🛸 Google Antigravity (Dynamic Session OAuth2)"),
+                ("custom_openai", "🔌 Custom OpenAI-Compatible Endpoint (LocalAI, etc.)"),
             ]
 
             selected_provider = await self._show_radiolist(
@@ -1469,8 +1470,28 @@ Example: /autosave restore autosave_20250515_141530
                     "ollama_cloud": "ollama/llama3",
                     "kilocode": "kilocode/kilo/auto",
                     "antigravity": "antigravity/gemini-3-flash",
+                    "custom_openai": "custom_openai/local-model",
                 }
                 new_model = default_models.get(selected_provider)
+
+                custom_openai_url = None
+                if selected_provider == "custom_openai":
+                    custom_openai_url = await self._show_input(
+                        title="Configurar URL de Custom OpenAI",
+                        text="Introduce la URL del endpoint compatible (ejemplo: http://localhost:8387/v1):",
+                        default="http://localhost:8387/v1"
+                    )
+                    if custom_openai_url:
+                        os.environ["CUSTOM_OPENAI_API_BASE"] = custom_openai_url
+                        if DOTENV_AVAILABLE:
+                            dotenv_path = find_dotenv()
+                            if dotenv_path:
+                                set_key(dotenv_path, "CUSTOM_OPENAI_API_BASE", custom_openai_url)
+                        config_manager = ConfigManager()
+                        config_manager.set_global_config("custom_openai_api_base", custom_openai_url)
+                        self.terminal_ui.print_message(f"🔗 URL de Custom OpenAI configurada: {custom_openai_url}", style="dim")
+                    else:
+                        self.terminal_ui.print_message("⚠️ No se configuró URL de Custom OpenAI. Usando valor por defecto.", style="yellow")
 
                 ollama_url = None
                 if selected_provider == "ollama":
@@ -1708,6 +1729,8 @@ Example: /autosave restore autosave_20250515_141530
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "OLLAMA_CLOUD_API_KEY",
+            "CUSTOM_OPENAI_API_KEY",
+            "CUSTOM_OPENAI_API_BASE",
             "BRAVE_API_KEY",
             "GITHUB_TOKEN"
         ]

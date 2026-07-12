@@ -41,7 +41,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     anthropic: '',
     openrouter: '',
     kilocode: '',
-    ollama_cloud: ''
+    ollama_cloud: '',
+    custom_openai: ''
   });
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
 
@@ -90,6 +91,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         let inferredProvider = 'google';
         const modelLower = activeModel.toLowerCase();
         if (modelLower.includes('openrouter')) inferredProvider = 'openrouter';
+        else if (modelLower.includes('custom_openai') || modelLower.includes('custom-openai')) inferredProvider = 'custom_openai';
         else if (modelLower.includes('gpt') || modelLower.includes('openai') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) inferredProvider = 'openai';
         else if (modelLower.includes('claude') || modelLower.includes('anthropic')) inferredProvider = 'anthropic';
         else if (modelLower.includes('ollama_cloud')) inferredProvider = 'ollama_cloud';
@@ -245,7 +247,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
       // 3. Save modified API Keys
       const activeKeysScope = activeScope; // Guardar las llaves en el scope activo
-      const providersKeys = ['google', 'openai', 'anthropic', 'openrouter', 'kilocode', 'ollama_cloud'];
+      const providersKeys = ['google', 'openai', 'anthropic', 'openrouter', 'kilocode', 'ollama_cloud', 'custom_openai'];
       for (const provider of providersKeys) {
         const inputKey = apiKeys[provider];
         if (inputKey && inputKey.trim() !== '') {
@@ -442,6 +444,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       { id: 'ollama_cloud', name: 'Ollama Cloud' },
                       { id: 'antigravity', name: 'Antigravity' },
                       { id: 'kilocode', name: 'KiloCode' },
+                      { id: 'custom_openai', name: 'Custom OpenAI' },
                     ].map(prov => (
                       <button
                         key={prov.id}
@@ -450,7 +453,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           setSelectedProvider(prov.id);
                           // Default model assignment if empty
                           const p = providers.find(pr => pr.id === prov.id);
-                          const defaultM = p?.models[0] || (prov.id === 'google' ? 'gemini/gemini-1.5-flash' : '');
+                          const defaultM = p?.models[0] || (prov.id === 'google' ? 'gemini/gemini-1.5-flash' : prov.id === 'custom_openai' ? 'custom_openai/local-model' : '');
                           if (defaultM) {
                             setScopeValue('default_model', defaultM, activeScope);
                           }
@@ -565,6 +568,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       onChange={(e) => setScopeValue('ollama_api_base', e.target.value, activeScope)}
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
                       placeholder="http://127.0.0.1:11434"
+                    />
+                  </div>
+                )}
+
+                {/* Custom OpenAI Base URL (if selectedProvider === 'custom_openai') */}
+                {selectedProvider === 'custom_openai' && (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">URL Base de API Compatible con OpenAI</label>
+                      {activeScope === 'project' && getInheritedValue('custom_openai_api_base') && (
+                        <span className="text-[9px] text-zinc-650 font-mono">Heredado: {getInheritedValue('custom_openai_api_base')}</span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={getScopeValue('custom_openai_api_base', activeScope) || ''}
+                      onChange={(e) => setScopeValue('custom_openai_api_base', e.target.value, activeScope)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                      placeholder="http://localhost:8387/v1"
                     />
                   </div>
                 )}
