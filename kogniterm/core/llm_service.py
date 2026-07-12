@@ -976,7 +976,7 @@ class LLMService:
             provider = "antigravity"
             
         # Determinar base de tokens de conversación
-        if provider in ("ollama", "custom_openai"):
+        if provider in ("ollama", "custom_openai", "antigravity"):
             self.max_conversation_tokens = int(os.getenv("KOGNITERM_MAX_CONVERSATION_TOKENS") or 8192)
         else:
             self.max_conversation_tokens = int(os.getenv("KOGNITERM_MAX_CONVERSATION_TOKENS") or 128000)

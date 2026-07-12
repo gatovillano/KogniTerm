@@ -229,3 +229,29 @@ def test_advanced_editor_confirmation_reuses_original_args_and_replaces_pending_
     assert json.loads(tool_messages[0].content)["status"] == "success"
     assert result["approved"] is True
     assert "BETA" in file_path.read_text(encoding="utf-8")
+
+
+def test_llm_service_antigravity_token_limit(monkeypatch):
+    # Mockear lo que inicializa el constructor que no necesitamos
+    monkeypatch.setattr("kogniterm.core.delegation.HeartbeatMonitor.start", lambda self: None)
+    monkeypatch.setattr("kogniterm.core.embeddings_service.EmbeddingsService.__init__", lambda self: None)
+    monkeypatch.setattr("kogniterm.core.context.vector_db_manager.VectorDBManager.__init__", lambda self, *args, **kwargs: None)
+    monkeypatch.setattr("kogniterm.core.skills.skill_manager.SkillManager.discover_all_skills", lambda self: None)
+    monkeypatch.setattr("kogniterm.core.skills.skill_manager.SkillManager.get_tools", lambda self: [])
+
+    # Crear una instancia mínima de LLMService
+    llm = LLMService()
+    llm.set_model("antigravity/gemini-3-flash-agent")
+
+    # Verificar que el límite de tokens de conversación sea 8192 por defecto para antigravity
+    assert llm.max_conversation_tokens == 8192
+    assert llm.max_history_tokens < 8192
+
+    # Si cambiamos el modelo a algo de gemini estándar, debe ser 128000
+    llm.set_model("gemini/gemini-1.5-flash")
+    assert llm.max_conversation_tokens == 128000
+
+    # Si cambiamos de nuevo a antigravity, debe ser 8192
+    llm.set_model("antigravity/gemini-pro-agent")
+    assert llm.max_conversation_tokens == 8192
+
