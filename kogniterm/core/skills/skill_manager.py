@@ -1180,6 +1180,13 @@ class SkillManager:
     def get_loaded_skill_instructions(self, query: Optional[str] = None, limit: int = 5) -> List[str]:
         """Devuelve bloques de instrucciones de las skills cargadas, priorizando relevancia si hay query."""
         loaded_skills = [skill for skill in self.skills.values() if skill.loaded]
+        
+        # Determinar el límite activo según el contexto del modelo
+        active_limit = limit
+        if hasattr(self, 'llm_service') and self.llm_service:
+            if getattr(self.llm_service, 'max_conversation_tokens', 128000) <= 16384:
+                active_limit = 2  # Solo 2 skills si el contexto es pequeño
+        
         if query:
             query_embedding = None
             if self.embeddings_service:
@@ -1192,13 +1199,20 @@ class SkillManager:
                 ((self._score_skill_relevance(skill, query, query_embedding), skill) for skill in loaded_skills),
                 key=lambda item: (-item[0], item[1].name)
             )
-            loaded_skills = [skill for score, skill in ranked if score > 0][:limit]
+            loaded_skills = [skill for score, skill in ranked if score > 0][:active_limit]
+        else:
+            # Si no hay query (como en el primer mensaje de bienvenida), limitar para no saturar el contexto
+            loaded_skills = loaded_skills[:active_limit]
 
         blocks: List[str] = []
         for skill in loaded_skills:
             instructions = (skill.instructions or "").strip()
             if not instructions:
                 continue
+
+            # Si el contexto es pequeño, truncar también las instrucciones individuales si son muy largas
+            if active_limit <= 2 and len(instructions) > 4000:
+                instructions = instructions[:2000] + "\n\n... [Instrucciones de skill truncadas por límite de contexto] ...\n\n" + instructions[-2000:]
 
             blocks.append(
                 f"### Skill: {skill.name}\n"

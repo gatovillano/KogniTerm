@@ -615,6 +615,18 @@ class HistoryManager:
                 else:
                     break
             
+            # Si todavía excedemos max_chars, truncar el contenido de los mensajes individuales
+            if total_length > max_chars:
+                target_msg_len = max(1000, max_chars // self.MIN_MESSAGES_TO_KEEP)
+                for unit in message_units:
+                    for msg in unit:
+                        if isinstance(msg, SystemMessage):
+                            continue
+                        content = msg.content or ""
+                        if isinstance(content, str) and len(content) > target_msg_len:
+                            half = target_msg_len // 2
+                            msg.content = content[:half] + f"\n\n... [Contenido truncado de {len(content)} a {target_msg_len} caracteres por límite de contexto] ...\n\n" + content[-half:]
+            
         final_conversational_messages = []
         for unit in message_units:
             final_conversational_messages.extend(unit)
