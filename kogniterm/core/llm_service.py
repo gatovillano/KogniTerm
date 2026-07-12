@@ -2357,9 +2357,10 @@ class LLMService:
             
             # Truncar localmente el contenido de mensajes individuales extremadamente largos (ej. outputs gigantes de herramientas)
             # para evitar que desplacen a otros mensajes del historial de resumen.
-            max_msg_content_len = 5000
+            max_msg_content_len = min(5000, int(self.max_history_chars * 0.2))
+            half_len = int(max_msg_content_len / 2)
             if len(content) > max_msg_content_len:
-                content = content[:2500] + f"\n\n... [Contenido largo de {len(content)} caracteres truncado para el proceso de resumen] ...\n\n" + content[-2500:]
+                content = content[:half_len] + f"\n\n... [Contenido largo de {len(content)} caracteres truncado para el proceso de resumen] ...\n\n" + content[-half_len:]
             
             # Si es un mensaje de asistente con llamadas a herramientas, incluirlas en el texto
             if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -2381,9 +2382,7 @@ class LLMService:
         flat_history = "\n\n".join(recent_messages_text)
         
         # Prevenir errores de contexto excedido en el modelo de resumen.
-        # Aumentamos a 100,000 chars ya que los modelos modernos tienen contextos grandes y
-        # así evitamos perder mensajes intermedios en conversaciones largas.
-        max_history_chars = 100000
+        max_history_chars = min(100000, self.max_history_chars)
         if len(flat_history) > max_history_chars:
             flat_history = "... [Mensajes intermedios antiguos truncados para resumen] ...\n\n" + flat_history[-max_history_chars:]
 
