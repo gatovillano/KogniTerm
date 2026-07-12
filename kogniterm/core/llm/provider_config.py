@@ -54,11 +54,28 @@ class ProviderConfig:
             return os.getenv("OPENROUTER_API_KEY") or os.getenv("LITELLM_API_KEY")
         elif self.model_name.startswith("ollama/"):
             return os.getenv("OLLAMA_CLOUD_API_KEY") or os.getenv("OLLAMA_API_KEY")
+        elif self.model_name.startswith("custom_openai/") or self.model_name.startswith("custom-openai/"):
+            return os.getenv("CUSTOM_OPENAI_API_KEY") or os.getenv("LITELLM_API_KEY")
         return os.getenv("LITELLM_API_KEY") or os.getenv("OPENROUTER_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
     def setup_provider(self):
         """Configura el proveedor y LiteLLM para el modelo actual."""
         model_to_use = self.model_name
+
+        # Custom OpenAI compatible endpoints
+        if model_to_use.startswith("custom_openai/") or model_to_use.startswith("custom-openai/"):
+            self.model_name = model_to_use.replace("custom_openai/", "openai/", 1).replace("custom-openai/", "openai/", 1)
+            self.api_key = os.getenv("CUSTOM_OPENAI_API_KEY")
+            self.api_base = os.getenv("CUSTOM_OPENAI_API_BASE") or "http://localhost:8000/v1"
+            self.headers = {}
+            
+            os.environ["LITELLM_MODEL"] = self.model_name
+            if self.api_key:
+                os.environ["LITELLM_API_KEY"] = self.api_key
+            os.environ["LITELLM_API_BASE"] = self.api_base
+            litellm.api_base = self.api_base
+            logger.info(f"🤖 Custom OpenAI compatible activo: {self.model_name} (base={self.api_base})")
+            return
         
         # Detectar si es Gemini nativo o OpenRouter
         is_gemini = model_to_use.startswith("gemini/") or ("gemini" in model_to_use.lower() and "openrouter" not in model_to_use.lower())
@@ -167,6 +184,10 @@ class ProviderConfig:
                 params["api_base"] = self.api_base
             if self.api_key and "ollama.com" in (self.api_base or ""):
                 params["headers"] = {"Authorization": f"Bearer {self.api_key}"}
+
+        if self.model_name.startswith("openai/") and self.api_base:
+            params["custom_llm_provider"] = "openai"
+            params["api_base"] = self.api_base
                 
         if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower()):
             params["custom_llm_provider"] = "gemini"

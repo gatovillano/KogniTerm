@@ -974,6 +974,46 @@ Example: /autosave restore autosave_20250515_141530
                     self.terminal_ui.print_message(f"⚠️ Exception connecting to KiloCode Gateway: {e}", style="red")
                     return []
 
+            # Función auxiliar para obtener modelos de Custom OpenAI
+            async def _fetch_custom_openai_models():
+                try:
+                    api_base = os.environ.get("CUSTOM_OPENAI_API_BASE", "http://localhost:8387/v1")
+                    api_key = os.environ.get("CUSTOM_OPENAI_API_KEY")
+                    url = api_base.rstrip('/') + "/models"
+                    self.terminal_ui.print_message(f"⏳ Fetching models list from Custom OpenAI at {url}...", style="dim")
+                    headers = {}
+                    if api_key:
+                        headers["Authorization"] = f"Bearer {api_key}"
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(url, headers=headers, timeout=10.0)
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = []
+                            items = data.get('data', []) if isinstance(data, dict) else data
+                            if not isinstance(items, list):
+                                items = []
+                            for m in items:
+                                if isinstance(m, dict):
+                                    model_id = m.get('id')
+                                elif isinstance(m, str):
+                                    model_id = m
+                                else:
+                                    continue
+                                if not model_id:
+                                    continue
+                                full_id = f"custom_openai/{model_id}"
+                                label = model_id
+                                models.append((full_id, label))
+                            models.sort(key=lambda x: x[1])
+                            return models
+                        else:
+                            self.terminal_ui.print_message(f"⚠️ Error fetching Custom OpenAI models: {response.status_code}", style="yellow")
+                            return []
+                except Exception as e:
+                    self.terminal_ui.print_message(f"⚠️ Exception connecting to Custom OpenAI: {e}", style="red")
+                    return []
+
             # Función auxiliar para obtener modelos de Ollama Local
             async def _fetch_ollama_local_models():
                 try:
@@ -1050,6 +1090,8 @@ Example: /autosave restore autosave_20250515_141530
                 current_provider = "antigravity"
             elif current_model.startswith("gemini/"):
                 current_provider = "google"
+            elif current_model.startswith("custom_openai/") or current_model.startswith("custom-openai/"):
+                current_provider = "custom_openai"
             elif current_model.startswith("ollama/"):
                 # Distinguir entre local y cloud según variables de entorno y configuración explícita.
                 api_base = os.environ.get("OLLAMA_API_BASE")
@@ -1149,6 +1191,12 @@ Example: /autosave restore autosave_20250515_141530
                         ("kilocode/anthropic/claude-sonnet-4", "Claude Sonnet 4 via Kilo"),
                         ("kilocode/openai/gpt-4o", "GPT-4o via Kilo"),
                         ("kilocode/google/gemini-3-pro-preview", "Gemini 3 Pro via Kilo"),
+                    ]
+            elif current_provider == "custom_openai":
+                target_list = await _fetch_custom_openai_models()
+                if not target_list:
+                    target_list = [
+                        ("custom_openai/local-model", "Local Model (Default fallback)"),
                     ]
             else:
                 target_list = await _fetch_openrouter_models()
