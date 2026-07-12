@@ -648,8 +648,11 @@ class MultiProviderManager:
                         should_fallback = True
                         break
                 
-                # Also fallback on timeouts or connection errors implicitly
-                if "timeout" in error_msg or "connection" in error_msg or "502" in error_msg or "504" in error_msg:
+                # Also fallback on timeouts, connection errors, or server unavailable/EOF implicitly
+                if any(x in error_msg for x in [
+                    "timeout", "connection", "502", "504", "503", 
+                    "unavailable", "eof", "rpc error", "error reading from server"
+                ]):
                     should_fallback = True
                     
                 # Do NOT fallback for Auth (401), Payment Required (402), or Not Found (404/model not found)
