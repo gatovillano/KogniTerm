@@ -972,6 +972,8 @@ class LLMService:
         model_lower = model_name.lower()
         if "openrouter" in model_lower:
             provider = "openrouter"
+        elif "custom_openai" in model_lower or "custom-openai" in model_lower:
+            provider = "custom_openai"
         elif "openai" in model_lower or "gpt" in model_lower or model_lower.startswith("o1") or model_lower.startswith("o3"):
             provider = "openai"
         elif "anthropic" in model_lower or "claude" in model_lower:
@@ -1048,6 +1050,18 @@ class LLMService:
             litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a KiloCode: {model_name}")
+
+        elif provider == "custom_openai":
+            key = cm.get_api_key("custom_openai") or os.environ.get("CUSTOM_OPENAI_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+                os.environ["CUSTOM_OPENAI_API_KEY"] = key
+            
+            self.api_base = cm.get_config("custom_openai_api_base") or os.environ.get("CUSTOM_OPENAI_API_BASE") or "http://localhost:8387/v1"
+            litellm.api_base = self.api_base
+            litellm.headers = {}
+            logger.info(f"🔌 Cambiado a Custom OpenAI: {model_name} (base={self.api_base})")
 
         elif provider == "antigravity":
             self.api_key = "antigravity-session-token"
