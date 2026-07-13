@@ -150,6 +150,7 @@ def _build_semantic_code_context(llm_service: LLMService, state: AgentState) -> 
 # Cache para optimizar accesos repetidos a disco en cada turno del agente
 _file_cache = {}
 _json_file_cache = {}
+_lint_cache = {}
 
 def _get_cached_file(file_path: str) -> str:
     now = time.time()
@@ -235,7 +236,7 @@ def process_file_references(content: str, workspace_directory: str) -> str:
 
 
 # --- Mensaje de Sistema ---
-def get_system_message(llm_service: LLMService, state: Optional[AgentState] = None) -> SystemMessage:
+def get_system_message(llm_service: LLMService, state: Optional[AgentState] = None, semantic_context: Optional[str] = None) -> SystemMessage:
     base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un agente evolutivo de terminal con **Capacidad Evolutiva**.
 
 ⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
@@ -328,7 +329,7 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
 
     # Contexto semántico ligero del codebase (top-K chunks relevantes)
     try:
-        sem_ctx = _build_semantic_code_context(llm_service, state)
+        sem_ctx = semantic_context if semantic_context is not None else _build_semantic_code_context(llm_service, state)
         if sem_ctx:
             base_content += f"\n\n{sem_ctx}\n"
     except Exception:
@@ -628,16 +629,23 @@ async def call_model_node(state: AgentState, llm_service: LLMService, terminal_u
                 "critical_loop_detected": True
             }
 
-    history = [get_system_message(llm_service, state=state)] + state.messages
-    
-    # Procesar referencias a archivos en el último mensaje del usuario
+    # 1. Procesar referencias a archivos en el último mensaje del usuario antes de armar el prompt de sistema
     if state.messages and isinstance(state.messages[-1], HumanMessage):
         workspace_directory = os.getcwd()  # Asumir que el workspace es el cwd
         processed_content = process_file_references(state.messages[-1].content, workspace_directory)
         # Actualizar el mensaje en el estado con el contenido procesado
         state.messages[-1] = HumanMessage(content=processed_content)
-        # Actualizar history también
-        history = [get_system_message(llm_service, state=state)] + state.messages
+
+    # 2. Pre-obtener el contexto semántico de forma asíncrona no bloqueante
+    semantic_context = ""
+    try:
+        semantic_context = await asyncio.to_thread(_build_semantic_code_context, llm_service, state)
+    except Exception as e:
+        logger.warning(f"Error pre-fetching semantic context: {e}")
+
+    # 3. Construir el system message e historial una sola vez
+    system_message = get_system_message(llm_service, state=state, semantic_context=semantic_context)
+    history = [system_message] + state.messages
     full_response_content = ""
     full_thinking_content = ""
     final_ai_message_from_llm = None
