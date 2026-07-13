@@ -99,6 +99,7 @@ class ToolExecutor:
         try:
             full_tool_output = ""
             last_ui_update = 0
+            ui_update_interval = 0.1  # segundos mínimos entre actualizaciones de UI en CLI
             for part in llm_service._invoke_tool_with_interrupt(
                 tool, tool_args, delegation_context
             ):
