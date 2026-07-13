@@ -1128,6 +1128,8 @@ async def execute_tool_node(state: AgentState, llm_service: LLMService, terminal
 
             for tool_id, content, exception in results:
                 logger.info(f"Agente: Herramienta con ID {tool_id} completada.")
+                tc = next((t for t in parallel_calls if t['id'] == tool_id), None)
+                tool_name = tc['name'] if tc else "unknown_tool"
                 if exception:
                     if isinstance(exception, UserConfirmationRequired):
                         if terminal_ui and getattr(terminal_ui, "is_tui", False):
