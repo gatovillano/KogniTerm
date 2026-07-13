@@ -95,6 +95,10 @@ def _get_code_memory(base_content: str) -> str:
     return base_content
 
 
+import hashlib
+
+_semantic_context_cache: Dict[str, str] = {}
+
 def _build_semantic_code_context(llm_service: LLMService, state: AgentState) -> str:
     try:
         if not getattr(llm_service, 'vector_db_manager', None):
@@ -108,6 +112,13 @@ def _build_semantic_code_context(llm_service: LLMService, state: AgentState) -> 
         ) if history else ""
         if not query or len(query.strip()) < 4:
             return ""
+        
+        # Generar clave única para la consulta del usuario
+        query_hash = hashlib.md5(query.encode('utf-8')).hexdigest()
+        if query_hash in _semantic_context_cache:
+            logger.info("Recuperado contexto semántico desde caché (hit).")
+            return _semantic_context_cache[query_hash]
+            
         if not getattr(llm_service, 'embeddings_service', None):
             return ""
         q_emb = llm_service.embeddings_service.embed_query(query)
@@ -127,8 +138,12 @@ def _build_semantic_code_context(llm_service: LLMService, state: AgentState) -> 
             if len(txt) > 220:
                 txt = txt[:220] + '…'
             parts.append(f"{i}. `{fp}` L{sl}-L{el}: {txt}")
-        return "\n".join(parts)
-    except Exception:
+        
+        result = "\n".join(parts)
+        _semantic_context_cache[query_hash] = result
+        return result
+    except Exception as e:
+        logger.warning(f"Error al construir contexto semántico: {e}")
         return ""
 
 
@@ -468,7 +483,7 @@ def _file_stat_key(path: str) -> Optional[str]:
     except Exception:
         return None
 
-def _run_lint(path: str, cache: Dict[str, Dict[str, Any]]) -> str:
+async def _run_lint(path: str, cache: Dict[str, Dict[str, Any]]) -> str:
     key = _file_stat_key(path)
     if not key:
         return f"⚠️ No se pudo inspeccionar `{path}`"
@@ -478,7 +493,7 @@ def _run_lint(path: str, cache: Dict[str, Dict[str, Any]]) -> str:
     results = []
     try:
         import py_compile
-        py_compile.compile(path, doraise=True)
+        await asyncio.to_thread(py_compile.compile, path, doraise=True)
         results.append(f"✅ `{path}` — sintaxis OK")
     except py_compile.PyCompileError as e:
         results.append(f"❌ Error de sintaxis en `{path}`:\n{str(e).strip()}")
@@ -487,21 +502,22 @@ def _run_lint(path: str, cache: Dict[str, Dict[str, Any]]) -> str:
 
     ruff_ok = False
     try:
-        import subprocess
-        r = subprocess.run(
-            ["ruff", "check", "--output-format", "concise", path],
-            capture_output=True, text=True, timeout=120
+        proc = await asyncio.create_subprocess_exec(
+            "ruff", "check", "--output-format", "concise", path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-        if r.returncode == 0:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode == 0:
             results.append(f"✅ ruff: `{path}` sin hallazgos")
             ruff_ok = True
         else:
-            out = (r.stdout or r.stderr or "").strip()
+            out = stdout.decode('utf-8', errors='ignore').strip()
             if out:
                 results.append(f"⚠️ ruff `{path}`:\n{out[:1000]}")
     except FileNotFoundError:
         pass
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         results.append(f"⏳ ruff timeout inspeccionando `{path}`")
     except Exception:
         pass
@@ -509,10 +525,12 @@ def _run_lint(path: str, cache: Dict[str, Dict[str, Any]]) -> str:
     try:
         if not ruff_ok:
             import ast
-            with open(path, 'r', encoding='utf-8', errors='ignore') as _f:
-                src = _f.read()
+            def _parse_ast():
+                with open(path, 'r', encoding='utf-8', errors='ignore') as _f:
+                    src = _f.read()
+                return ast.parse(src)
             try:
-                ast.parse(src)
+                await asyncio.to_thread(_parse_ast)
             except SyntaxError as se:
                 results.append(f"❌ SyntaxError AST:\n{se.msg} ({se.lineno}:{se.offset})")
     except Exception:
@@ -523,7 +541,7 @@ def _run_lint(path: str, cache: Dict[str, Dict[str, Any]]) -> str:
     return text
 
 
-def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
+async def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None):
     """Verifica la integridad de los archivos modificados tras una ejecución de herramientas.
     Ejecuta py_compile, ruff y AST parse con cache por hash de archivo para reducir latencia.
     """
@@ -563,12 +581,14 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
         terminal_ui.update_live(Padding(Panel(f"{Icons.CODE} [bold]Verificando sintaxis de archivos modificados...[/bold]", border_style="yellow", padding=(0, 4), expand=True), (0, 0)))
         terminal_ui.stop_live()
 
-    verification_results = []
+    # Ejecutar ruff/py_compile de forma concurrente no bloqueante
+    tasks = []
     for fp in modified_files:
         if isinstance(fp, str) and fp.endswith(".py"):
-            verification_results.append(_run_lint(fp, _lint_cache))
+            tasks.append(_run_lint(fp, _lint_cache))
 
-    if verification_results:
+    if tasks:
+        verification_results = await asyncio.gather(*tasks)
         summary = "\n".join(verification_results)
         state.messages.append(ToolMessage(
             content=f"VERIFICACIÓN AUTOMÁTICA DE SINTAXIS:\n{summary}",
@@ -578,7 +598,7 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
     return {"messages": state.messages}
 
 
-def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
+async def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
 
     """
     Llama al modelo de lenguaje y maneja la salida en streaming,
@@ -640,9 +660,13 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
             SECONDARY_LIGHT = "yellow"
             TEXT_SECONDARY = "grey"
             GRAY_600 = "grey"
+            GRAY_900 = "black"
+            GRAY_700 = "grey"
+            GRAY_500 = "grey"
         class Icons:
             THINKING = "🤔"
             TOOL = "🛠️"
+            STOPWATCH = "⏳"
         
         def create_thought_bubble(content, title="Pensando...", icon="🤔", color="grey"):
             from rich.panel import Panel
@@ -696,8 +720,6 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                             expand=True
                         )
 
-
-
                         renderables.append(thought_panel)
                     else:
                         renderables.append(create_thought_bubble(full_thinking_content, title="KogniTerm Pensando..."))
@@ -719,8 +741,31 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                     else:
                         live.update(final_renderable)
 
+            # Consumir el generador síncrono del LLM en un hilo separado
+            # y propagar los chunks a través de una asyncio.Queue
+            q = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+            
+            def _consume_llm():
+                try:
+                    for chunk in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
+                        loop.call_soon_threadsafe(q.put_nowait, chunk)
+                except Exception as ex:
+                    loop.call_soon_threadsafe(q.put_nowait, ex)
+                finally:
+                    loop.call_soon_threadsafe(q.put_nowait, None)
+            
+            import threading
+            threading.Thread(target=_consume_llm, daemon=True).start()
+
             interrupcion_detectada = False
-            for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
+            while True:
+                part = await q.get()
+                if part is None:
+                    break
+                if isinstance(part, Exception):
+                    raise part
+
                 if isinstance(part, AIMessage):
                     final_ai_message_from_llm = part
                 elif isinstance(part, str):
@@ -738,6 +783,9 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                         if terminal_ui and hasattr(terminal_ui, "print_stream") and terminal_ui.__class__.__name__ == "ServerUI":
                             terminal_ui.print_stream(part)
                 
+                # Ceder control brevemente al event loop para procesar TUI refreshes y teclado
+                await asyncio.sleep(0.001)
+
                 # Verificar interrupción en cada iteración del streaming
                 # Chequeamos tanto la cola como la bandera del servicio
                 if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
@@ -797,7 +845,6 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
         if not final_ai_message_from_llm.tool_calls:
             llm_service._save_history(state.messages)
 
-        # Añadir separación visual después de la respuesta del LLM
         console.print()  # Línea en blanco para separación
 
         return {
@@ -812,10 +859,11 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
         llm_service._save_history(state.messages)
         return {"messages": state.messages}
 
-async def execute_single_tool_async(tc, llm_service, terminal_ui, interrupt_queue):
+async def execute_single_tool_async_optimized(tc, llm_service, terminal_ui, interrupt_queue):
     """
-    Versión asíncrona de execute_single_tool.
-    Ejecuta la herramienta en un thread separado para no bloquear.
+    Versión asíncrona optimizada de execute_single_tool.
+    Ejecuta la herramienta en un hilo separado usando asyncio.to_thread para evitar
+    el polling repetitivo y el doble anidamiento de ThreadPoolExecutors.
     """
     tool_name = tc['name']
     tool_args = tc['args']
@@ -826,32 +874,42 @@ async def execute_single_tool_async(tc, llm_service, terminal_ui, interrupt_queu
         return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
 
     try:
-        io_manager = get_io_manager()
-        
-        # Función síncrona que se ejecutará en el executor
-        def run_tool_sync():
+        def _run():
             full_tool_output = ""
             tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
-
             for chunk in tool_output_generator:
                 full_tool_output += str(chunk)
-
-            return full_tool_output
-        
-        # Ejecutar de forma asíncrona
-        result = io_manager.run_in_executor(run_tool_sync)
-        
-        if result.success:
-            return tool_id, result.result, None
-        else:
-            return tool_id, f"Error al ejecutar la herramienta {tool_name}: {result.error}", Exception(result.error)
             
+            # --- Refresco automático de herramientas ---
+            if tool_name == 'refresh_tools' and hasattr(llm_service, 'skill_manager'):
+                logger.info("Detectada llamada a refresh_tools. Disparando SkillManager.refresh_skills(force=True).")
+                llm_service.skill_manager.refresh_skills(force=True)
+                if hasattr(llm_service, 'sync_tools'):
+                    llm_service.sync_tools()
+
+            if tool_name == 'skill_factory' and hasattr(llm_service, 'skill_manager'):
+                logger.info("Detectada creación de skill via skill_factory. Disparando refresh automático.")
+                try:
+                    llm_service.skill_manager.refresh_skills(force=True)
+                    if hasattr(llm_service, 'sync_tools'):
+                        llm_service.sync_tools()
+                    new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
+                    logger.info(f"Arsenal actualizado. Herramientas disponibles: {new_tool_names}")
+                    full_tool_output += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
+                except Exception as e:
+                    logger.warning(f"Error al refrescar skills tras skill_factory: {e}")
+                    
+            return full_tool_output
+
+        result_str = await asyncio.to_thread(_run)
+        return tool_id, result_str, None
     except UserConfirmationRequired as e:
         return tool_id, json.dumps(e.raw_tool_output), e
-    except InterruptedError:
-        return tool_id, f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.", InterruptedError("Interrumpido por el usuario.")
+    except InterruptedError as e:
+        return tool_id, f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.", e
     except Exception as e:
         return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
+
 
 
 def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
@@ -987,18 +1045,18 @@ def _print_tool_notification(tool_name: str, bajada: str, skill_name: str, is_tu
         terminal_ui.console.print(f"\n[bold blue]🛠️ {verb}:[/bold blue] [yellow]{tool_name}[/yellow]")
 
 
-def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None, command_approval_handler=None):
+async def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None, command_approval_handler=None):
     """Ejecuta las herramientas solicitadas por el modelo.
 
     Estrategia de paralelismo:
     - Las herramientas se particionan en paralelas (todo excepto execute_command)
       e interactivas (execute_command).
     - Metadata de herramientas (descripciones, skill_name) se obtiene en paralelo
-      antes de hacer submit al executor principal.
-    - Todas las herramientas paralelas se envían al executor de una sola vez (batch
-      submit) para maximizar concurrencia real.
+      antes de ejecutar.
+    - Todas las herramientas paralelas se envían usando asyncio.gather para
+      maximizar concurrencia real sin hilos redundantes ni polling.
     - execute_command se presenta al usuario DESPUÉS de que las herramientas
-      paralelas terminan, eliminando el descarte prematuro anterior.
+      paralelas terminan.
     """
     if command_approval_handler is None and hasattr(llm_service, 'skill_manager') and hasattr(llm_service.skill_manager, 'approval_handler'):
         command_approval_handler = llm_service.skill_manager.approval_handler
@@ -1011,7 +1069,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
     tool_messages = []
 
     # --- PASO 1: Particionar herramientas ---
-    # Las interactivas (execute_command) se ejecutan al final para no bloquear las paralelas.
     parallel_calls = [tc for tc in last_message.tool_calls if tc['name'] != 'execute_command']
     interactive_calls = [tc for tc in last_message.tool_calls if tc['name'] == 'execute_command']
 
@@ -1032,9 +1089,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         return state
 
     # --- PASO 4: Pre-fetch de metadata de herramientas ---
-    # Obtener tool instances, skill_names y descripciones de forma directa.
-    # Al ser operaciones puramente en memoria, hacerlo de forma secuencial evita
-    # el overhead innecesario de inicializar y gestionar un ThreadPoolExecutor.
     metadata_map: Dict[str, tuple] = {}  # tool_id -> (skill_name, bajada)
     for tc in parallel_calls + interactive_calls:
         tool = llm_service.get_tool(tc['name'])
@@ -1062,226 +1116,170 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
     try:
         llm_service._current_agent_state = state
 
-        # --- PASO 7: Submit batch al executor principal ---
-        executor = ThreadPoolExecutor(max_workers=min(len(parallel_calls), 10) if parallel_calls else 1)
-        futures_map: Dict = {}  # future -> tool_id
+        # --- PASO 7: Ejecución concurrente no bloqueante ---
+        tasks = []
         for tc in parallel_calls:
-            logger.info(f"Agente: Enviando herramienta '{tc['name']}' al executor.")
-            future = executor.submit(execute_single_tool, tc, llm_service, terminal_ui, interrupt_queue)
-            futures_map[future] = tc['id']
+            logger.info(f"Agente: Preparando herramienta '{tc['name']}' para ejecución asíncrona.")
+            tasks.append(execute_single_tool_async_optimized(tc, llm_service, terminal_ui, interrupt_queue))
 
-        logger.info(f"Agente: Esperando resultados de {len(futures_map)} herramientas en paralelo.")
-        for future in as_completed(futures_map):
-            try:
-                tool_id, content, exception = future.result()
+        if tasks:
+            logger.info(f"Agente: Esperando resultados de {len(tasks)} herramientas en paralelo.")
+            results = await asyncio.gather(*tasks)
+
+            for tool_id, content, exception in results:
                 logger.info(f"Agente: Herramienta con ID {tool_id} completada.")
-            except Exception as e:
-                logger.error(f"Error al obtener resultado del future: {e}")
-                continue
-            if exception:
-                if isinstance(exception, UserConfirmationRequired):
-                    # SI ESTAMOS EN TUI: Burbujear la petición al hilo principal
-                    # Esto evita el uso de loops anidados (nest_asyncio) en hilos worker
-                    # que causan cierres silenciosos.
-                    if terminal_ui and getattr(terminal_ui, "is_tui", False):
-                        logger.info(f"Agente: Postergando confirmación de '{exception.tool_name}' para el hilo principal TUI.")
-                        state.tool_pending_confirmation = exception.tool_name
-                        state.tool_args_pending_confirmation = exception.tool_args
-                        state.tool_call_id_to_confirm = tool_id
-                        state.file_update_diff_pending_confirmation = exception.raw_tool_output
-                        
-                        executor.shutdown(wait=False)
-                        return {
-                            "messages": state.messages,
-                            "tool_pending_confirmation": exception.tool_name,
-                            "tool_args_pending_confirmation": exception.tool_args,
-                            "tool_call_id_to_confirm": tool_id,
-                            "file_update_diff_pending_confirmation": exception.raw_tool_output
-                        }
-
-                    # MODO CLI (O NO-TUI): Manejar la confirmación DIRECTAMENTE sin involucrar al LLM
-                    # Esto evita que el LLM genere texto antes de que el usuario pueda confirmar
-                    
-                    # Preparar raw_output para el handler
-                    raw_tool_output = exception.raw_tool_output or {}
-                    
-                    # Obtener tool_name del raw_output o de la excepción
-                    tool_name = raw_tool_output.get("operation", exception.tool_name)
-                    
-                    # Determinar si es una operación de archivo
-                    is_file_update = tool_name in ["file_operations", "file_update_tool", "file_update", "advanced_file_editor", "advanced_file_editor_tool"]
-                    
-                    # Crear contenido del panel de confirmación
-                    panel_content = f"**{exception.message}**"
-                    
-                    if is_file_update and raw_tool_output.get("diff"):
-                        panel_content += f"\n\n**Diff:**\n{raw_tool_output['diff']}"
-                    
-                    # Solicitar aprobación usando command_approval_handler si está disponible
-                    if command_approval_handler:
-                        try:
-                            # Preparar raw_output para el handler con el formato esperado
-                            handler_raw_output = {
-                                "status": "requires_confirmation",
-                                "action_description": exception.message,
-                                "diff": raw_tool_output.get("diff", ""),
-                                "path": exception.tool_args.get("path", "") if exception.tool_args else "",
-                                "operation": tool_name,
-                                "args": exception.tool_args
-                            }
-                            
-                            # Establecer el tool_call_id_to_confirm para que el handler pueda sincronizar el historial
+                if exception:
+                    if isinstance(exception, UserConfirmationRequired):
+                        if terminal_ui and getattr(terminal_ui, "is_tui", False):
+                            logger.info(f"Agente: Postergando confirmación de '{exception.tool_name}' para el hilo principal TUI.")
+                            state.tool_pending_confirmation = exception.tool_name
+                            state.tool_args_pending_confirmation = exception.tool_args
                             state.tool_call_id_to_confirm = tool_id
+                            state.file_update_diff_pending_confirmation = exception.raw_tool_output
                             
-                            # Llamar al método correcto: handle_command_approval
-                            # Este método maneja la confirmación de forma apropiada según el contexto (TUI/CLI)
-                            # El handler ya ejecuta la herramienta y añade el ToolMessage al historial
-                            handler_result = command_approval_handler.handle_command_approval(
-                                command_to_execute="",  # No es un comando bash en este caso
-                                raw_tool_output=handler_raw_output,
-                                tool_name=tool_name,
-                                original_tool_args=exception.tool_args
-                            )
-                            # El handler ya ejecutó la herramienta y actualizó el historial
-                            executor.shutdown(wait=False)
+                            return {
+                                "messages": state.messages,
+                                "tool_pending_confirmation": exception.tool_name,
+                                "tool_args_pending_confirmation": exception.tool_args,
+                                "tool_call_id_to_confirm": tool_id,
+                                "file_update_diff_pending_confirmation": exception.raw_tool_output
+                            }
+
+                        # MODO CLI (O NO-TUI)
+                        raw_tool_output = exception.raw_tool_output or {}
+                        tool_name = raw_tool_output.get("operation", exception.tool_name)
+                        is_file_update = tool_name in ["file_operations", "file_update_tool", "file_update", "advanced_file_editor", "advanced_file_editor_tool"]
+                        
+                        if command_approval_handler:
+                            try:
+                                handler_raw_output = {
+                                    "status": "requires_confirmation",
+                                    "action_description": exception.message,
+                                    "diff": raw_tool_output.get("diff", ""),
+                                    "path": exception.tool_args.get("path", "") if exception.tool_args else "",
+                                    "operation": tool_name,
+                                    "args": exception.tool_args
+                                }
+                                state.tool_call_id_to_confirm = tool_id
+                                command_approval_handler.handle_command_approval(
+                                    command_to_execute="",
+                                    raw_tool_output=handler_raw_output,
+                                    tool_name=tool_name,
+                                    original_tool_args=exception.tool_args
+                                )
+                                llm_service._save_history(state.messages)
+                                return {
+                                    "messages": state.messages
+                                }
+                            except Exception as e:
+                                terminal_ui.console.print(f"[bold red]Error al solicitar confirmación: {e}[/bold red]")
+                        else:
+                            # Fallback síncrono si no hay handler
+                            if tool_name == "file_operations":
+                                operation = exception.tool_args.get("operation", "write_file")
+                                if operation == "write_file":
+                                    _ft_mod = _load_file_ops_module("tool")
+                                    content = _ft_mod._write_file(
+                                        exception.tool_args.get("path", ""),
+                                        exception.tool_args.get("content", "")
+                                    )
+                                elif operation == "delete_file":
+                                    _ft_mod = _load_file_ops_module("tool")
+                                    content = _ft_mod._delete_file(exception.tool_args.get("path", ""))
+                            elif tool_name in ["file_update_tool", "file_update"]:
+                                from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
+                                content = _apply_file_update(
+                                    exception.tool_args.get("path", ""),
+                                    exception.tool_args.get("content", "")
+                                )
+                            elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
+                                from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import advanced_file_editor_tool
+                                args_to_pass = dict(exception.tool_args)
+                                args_to_pass["confirm"] = True
+                                content = advanced_file_editor_tool(**args_to_pass)
+                            else:
+                                content = None
+                            
+                            if content is not None:
+                                if isinstance(content, (dict, list)):
+                                    content = json.dumps(content)
+                                else:
+                                    content = str(content)
+                                
+                                tool_message = ToolMessage(content=content, tool_call_id=tool_id)
+                                tool_messages.append(tool_message)
+                                state.add_message(tool_message)
+                                terminal_ui.print_message("✅ Acción ejecutada por el usuario.", style="green")
+                            else:
+                                content = f"Operación cancelada por el usuario: {exception.message}"
+                                tool_message = ToolMessage(content=content, tool_call_id=tool_id)
+                                tool_messages.append(tool_message)
+                                state.add_message(tool_message)
+                                terminal_ui.print_message("❌ Acción cancelada por el usuario.", style="yellow")
+                            
                             llm_service._save_history(state.messages)
                             return {
                                 "messages": state.messages
                             }
-                        except Exception as e:
-                            terminal_ui.console.print(f"[bold red]Error al solicitar confirmación: {e}[/bold red]")
-                            # Continuar con el flujo normal de ejecución manual
-                    else:
-                        # Si no hay command_approval_handler, la confirmación se maneja por el flujo normal
-                        # Ejecutar la operación directamente (manual o fallback)
-                        if tool_name == "file_operations":
-                            # Determinar si es write o delete
-                            operation = exception.tool_args.get("operation", "write_file")
-                            if operation == "write_file":
-                                _ft_mod = _load_file_ops_module("tool")
-                                write_result = _ft_mod._write_file(
-                                    exception.tool_args.get("path", ""),
-                                    exception.tool_args.get("content", "")
-                                )
-                                content = write_result
-                            elif operation == "delete_file":
-                                _ft_mod = _load_file_ops_module("tool")
-                                delete_result = _ft_mod._delete_file(
-                                    exception.tool_args.get("path", "")
-                                )
-                                content = delete_result
-                        elif tool_name in ["file_update_tool", "file_update"]:
-                            from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
-                            update_result = _apply_file_update(
-                                exception.tool_args.get("path", ""),
-                                exception.tool_args.get("content", "")
-                            )
-                            content = update_result
-                        elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
-                            from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import advanced_file_editor_tool
-                            args_to_pass = dict(exception.tool_args)
-                            args_to_pass["confirm"] = True
-                            edit_result = advanced_file_editor_tool(**args_to_pass)
-                            content = edit_result
-                        else:
-                            # Para otras herramientas, usar el contenido existente
-                            content = None
                         
-                        # ASEGURAR QUE EL CONTENIDO SEA STRING
-                        if content is not None:
-                            if isinstance(content, (dict, list)):
-                                content = json.dumps(content)
-                            else:
-                                content = str(content)
-                            
-                            tool_message = ToolMessage(content=content, tool_call_id=tool_id)
-                            tool_messages.append(tool_message)
-                            state.add_message(tool_message)
-                            terminal_ui.print_message("✅ Acción ejecutada por el usuario.", style="green")
-                        else:
-                            # Usuario denegó o no hubo command_approval_handler
-                            content = f"Operación cancelada por el usuario: {exception.message}"
-                            tool_message = ToolMessage(content=content, tool_call_id=tool_id)
-                            tool_messages.append(tool_message)
-                            state.add_message(tool_message)
-                            terminal_ui.print_message("❌ Acción cancelada por el usuario.", style="yellow")
-                        
-                        executor.shutdown(wait=False)
+                    elif isinstance(exception, InterruptedError):
+                        terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
+                        state.stop_requested = True
+                        state.reset_temporary_state()
                         llm_service._save_history(state.messages)
                         return {
-                            "messages": state.messages
+                            "messages": state.messages,
+                            "stop_requested": True
                         }
+                    else:
+                        tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+                else:
+                    if "<coder_analysis>" in content or "<researcher_analysis>" in content or "<parallel_agents_results>" in content:
+                        clean_content = f"--- RESULTADOS DE AGENTES PARALELOS ---\n\n{content}\n\n--- FIN DE RESULTADOS ---\n\n[SISTEMA: Estos son los resultados consolidados de tus sub-agentes. Analízalos profesionalmente como KogniTerm, sin adoptar sus roles.]"
+                    else:
+                        clean_content = content.replace("## 🔬 Informe de Deep Research", "").strip()
                     
-                elif isinstance(exception, InterruptedError):
-                    terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
-                    state.stop_requested = True
-                    state.reset_temporary_state()
-                    executor.shutdown(wait=False)
-                    llm_service._save_history(state.messages)
-                    return {
-                        "messages": state.messages,
-                        "stop_requested": True
-                    }
-                else:
-                    tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-            else:
-                # Procesamiento especializado para agentes paralelos (DeepCoder/Researcher)
-                if "<coder_analysis>" in content or "<researcher_analysis>" in content or "<parallel_agents_results>" in content:
-                    clean_content = f"--- RESULTADOS DE AGENTES PARALELOS ---\n\n{content}\n\n--- FIN DE RESULTADOS ---\n\n[SISTEMA: Estos son los resultados consolidados de tus sub-agentes. Analízalos profesionalmente como KogniTerm, sin adoptar sus roles.]"
-                else:
-                    # Limpieza estándar para herramientas normales
-                    clean_content = content.replace("## 🔬 Informe de Deep Research", "").strip()
-                
-                tool_messages.append(ToolMessage(content=clean_content, tool_call_id=tool_id))
-                # Lógica para herramientas que requieren confirmación
-                tool_call_info = next(tc for tc in last_message.tool_calls if tc['id'] == tool_id)
-                tool_name = tool_call_info['name']
-                tool_args = tool_call_info['args']
-                
-                # Para herramientas que no son execute_command (que ya manejamos arriba), 
-                # verificamos si requieren confirmación basada en su output JSON
-                if tool_name != "execute_command":
-                    try:
-                        json_output = json.loads(content)
-                        should_confirm = False
-                        confirmation_data = None
-                        if isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output):
-                            for item in json_output:
-                                if item.get("status") == "requires_confirmation":
+                    tool_messages.append(ToolMessage(content=clean_content, tool_call_id=tool_id))
+                    
+                    # Confirmación por respuesta JSON
+                    if tool_name != "execute_command":
+                        try:
+                            json_output = json.loads(content)
+                            should_confirm = False
+                            confirmation_data = None
+                            if isinstance(json_output, list) and all(isinstance(item, dict) for item in json_output):
+                                for item in json_output:
+                                    if item.get("status") == "requires_confirmation":
+                                        should_confirm = True
+                                        confirmation_data = item
+                                        break
+                            elif isinstance(json_output, dict):
+                                if json_output.get("status") == "requires_confirmation":
                                     should_confirm = True
-                                    confirmation_data = item
-                                    break
-                        elif isinstance(json_output, dict):
-                            if json_output.get("status") == "requires_confirmation":
-                                should_confirm = True
-                                confirmation_data = json_output
-                        
-                        if should_confirm and confirmation_data:
-                            state.file_update_diff_pending_confirmation = confirmation_data
-                            state.tool_pending_confirmation = tool_name
-                            state.tool_args_pending_confirmation = tool_args
-                            state.tool_call_id_to_confirm = tool_id
-                            executor.shutdown(wait=False)
-                            state.add_messages(tool_messages)
-                            llm_service._save_history(state.messages)
-                            return {
-                                "messages": state.messages,
-                                "tool_pending_confirmation": state.tool_pending_confirmation,
-                                "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
-                                "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
-                                "file_update_diff_pending_confirmation": state.file_update_diff_pending_confirmation
-                            }
-                    except json.JSONDecodeError:
-                        pass
+                                    confirmation_data = json_output
+                            
+                            if should_confirm and confirmation_data:
+                                state.file_update_diff_pending_confirmation = confirmation_data
+                                state.tool_pending_confirmation = tool_name
+                                state.tool_args_pending_confirmation = tc['args']
+                                state.tool_call_id_to_confirm = tool_id
+                                state.add_messages(tool_messages)
+                                llm_service._save_history(state.messages)
+                                return {
+                                    "messages": state.messages,
+                                    "tool_pending_confirmation": state.tool_pending_confirmation,
+                                    "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
+                                    "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                                    "file_update_diff_pending_confirmation": state.file_update_diff_pending_confirmation
+                                }
+                        except json.JSONDecodeError:
+                            pass
 
-        executor.shutdown(wait=True)
         state.add_messages(tool_messages)
 
         # --- PASO 8: Procesar execute_command DESPUÉS de las herramientas paralelas ---
-        # Así las herramientas de lectura/búsqueda ya terminaron antes de que el usuario
-        # tenga que confirmar el comando de terminal.
         if interactive_calls:
-            tc = interactive_calls[0]  # Solo puede haber uno significativo
+            tc = interactive_calls[0]  # Solo uno significativo
             skill_name, bajada = metadata_map.get(tc['id'], ("", ""))
             _print_tool_notification(tc['name'], bajada, skill_name, is_tui, terminal_ui, is_interactive=True)
             state.command_to_confirm = tc['args'].get('command', '')
@@ -1293,7 +1291,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                 "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
             }
 
-        # Guardar historial al finalizar la ejecución de herramientas
         llm_service._save_history(state.messages)
 
         return {

@@ -107,11 +107,20 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
 
         sys.stderr.flush()
         
+        # Ejecutar ainvoke de forma asíncrona usando un event loop local
+        import asyncio
         try:
-            # Ejecutar invoke sin timeout
-            final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 1000})
-        finally:
-            pass
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                final_state_dict = loop.run_until_complete(
+                    self.bash_agent_app.ainvoke(self.agent_state, config={"recursion_limit": 1000})
+                )
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"Error ejecutando grafo asíncrono en invoke_agent: {e}")
+            raise e
 
         sys.stderr.flush()
         

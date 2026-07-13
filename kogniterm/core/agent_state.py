@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import threading
 from dataclasses import dataclass, field
 from collections import deque  # Importar deque
 from typing import List, Optional, Dict, Any, Union
@@ -62,6 +63,8 @@ class AgentState:
     tool_call_history: deque = field(
         default_factory=lambda: deque(maxlen=5)
     )  # Historial de llamadas a herramientas para detección de bucles
+    # Lock para acceso thread-safe al historial de herramientas
+    tool_call_history_lock: Any = field(default=None, repr=False, compare=False)
     critical_loop_detected: bool = False  # Bandera para indicar que se detectó un bucle crítico y se debe terminar el flujo
     stop_requested: bool = False
     delegation_context: Optional[Any] = None
@@ -169,6 +172,10 @@ class AgentState:
         # Si se pasó history_for_api pero no messages, sincronizar
         if self.history_for_api is not None and not self.messages:
             self.messages = self.history_for_api
+
+        # Inicializar lock para acceso thread-safe al historial de herramientas
+        if self.tool_call_history_lock is None:
+            self.tool_call_history_lock = threading.Lock()
 
     def load_history(
         self, system_message: SystemMessage, llm_service: Any
