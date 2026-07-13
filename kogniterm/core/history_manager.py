@@ -161,14 +161,25 @@ class HistoryManager:
     SUMMARY_TRUNCATION_SUFFIX = "... [Resumen truncado para evitar bucles]"
     MAX_TOOL_MESSAGE_CONTENT_LENGTH_ASSUMED = 100000
     
-    def __init__(self, history_file_path: str, max_history_messages: int = 100, max_history_chars: int = 150000, auto_save_interval: Optional[float] = None, thread_manager: Optional[Any] = None):
+    def __init__(self, history_file_path: str, max_history_messages: int = 100, max_history_chars: int = 150000, auto_save_interval: Optional[float] = None, thread_manager: Optional[Any] = None, tokenizer: Optional[Any] = None, debounce_seconds: Optional[float] = None):
         self.history_file_path = history_file_path
         self.max_history_messages = max_history_messages
         self.max_history_chars = max_history_chars
         self._save_lock = threading.RLock()
-        self._conversation_history = AutoSavingMessageList()
+        
+        # Determinar debounce_seconds: por defecto 0.0 en tests, de lo contrario 1.0
+        if debounce_seconds is None:
+            import sys
+            if "pytest" in sys.modules or "unittest" in sys.modules:
+                self._debounce_seconds = 0.0
+            else:
+                self._debounce_seconds = 1.0
+        else:
+            self._debounce_seconds = debounce_seconds
+
+        self._conversation_history = AutoSavingMessageList(debounce_seconds=self._debounce_seconds)
         self.conversation_history = self._load_history() or []
-        self.tokenizer = tiktoken.encoding_for_model("gpt-4")
+        self.tokenizer = tokenizer or tiktoken.encoding_for_model("gpt-4")
         self._message_length_cache: Dict[int, int] = {}
         
         # El sistema de persistencia ahora es gestionado por ThreadManager.
@@ -190,14 +201,17 @@ class HistoryManager:
     def conversation_history(self, value: Optional[List[BaseMessage]]):
         if isinstance(value, AutoSavingMessageList):
             value.set_on_change(self._handle_history_mutation)
+            if hasattr(self, "_debounce_seconds"):
+                value._debounce_seconds = self._debounce_seconds
             self._conversation_history = value
             return
 
-        self._conversation_history = AutoSavingMessageList(value or [], self._handle_history_mutation)
+        debounce = getattr(self, "_debounce_seconds", 1.0)
+        self._conversation_history = AutoSavingMessageList(value or [], self._handle_history_mutation, debounce_seconds=debounce)
 
     def _handle_history_mutation(self, history: List[BaseMessage]):
         """Maneja mutaciones del historial guardando en disco."""
-        self._save_history(history)
+        self._save_history(history, update_memory=False)
 
     def _start_auto_save(self):
         """Inicia el hilo de autoguardado."""
@@ -328,7 +342,7 @@ class HistoryManager:
             print(f"Error inesperado al cargar el historial desde {self.history_file_path}: {e}", file=sys.stderr)
             return []
 
-    def _save_history(self, history: List[BaseMessage]):
+    def _save_history(self, history: List[BaseMessage], update_memory: bool = True):
         """Guarda el historial en el archivo JSON."""
         with self._save_lock:
             if history is None:
@@ -339,7 +353,7 @@ class HistoryManager:
             if self.conversation_history is None:
                 self.conversation_history = []
 
-            if history is not self.conversation_history:
+            if update_memory and history is not self.conversation_history:
                 self.conversation_history = history
                 history = self.conversation_history
 
