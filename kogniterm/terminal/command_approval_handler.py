@@ -520,8 +520,8 @@ class CommandApprovalHandler:
                     if hasattr(self.file_update_tool, '_apply_update'):
                         result = self.file_update_tool._apply_update(file_path, original_tool_args.get("content", ""))
                     else:
-                        from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
-                        result = _apply_file_update(file_path, original_tool_args.get("content", ""))
+                        _fu_mod = _load_bundled_skill_module("file-update", "tool")
+                        result = _fu_mod._apply_file_update(file_path, original_tool_args.get("content", ""))
                     normalized_result = self._normalize_tool_result(result)
                     tool_message_content = self._stringify_tool_result(normalized_result)
                     should_render_applied_diff = self._tool_result_succeeded(normalized_result)
@@ -550,8 +550,16 @@ class CommandApprovalHandler:
 
                     advanced_tool = self.advanced_file_editor_tool
                     if advanced_tool is None:
-                        _fe_mod = _load_file_ops_module("file_editor")
-                        advanced_tool = _fe_mod.advanced_file_editor
+                        try:
+                            _adv_mod = _load_bundled_skill_module("advanced-file-editor", "tool")
+                            advanced_tool = _adv_mod.advanced_file_editor_tool
+                        except Exception as e:
+                            logger.warning(
+                                f"No se pudo cargar advanced_file_editor_tool desde advanced-file-editor, "
+                                f"usando fallback file_editor: {e}"
+                            )
+                            _fe_mod = _load_file_ops_module("file_editor")
+                            advanced_tool = _fe_mod.advanced_file_editor
 
                     advanced_result = self._invoke_tool_for_confirmation(advanced_tool, args_to_pass)
                     normalized_result = self._normalize_tool_result(advanced_result)

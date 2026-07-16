@@ -62,6 +62,28 @@ def _load_file_ops_module(module_filename: str):
     mod_spec.loader.exec_module(mod)
     return mod
 
+
+def _load_bundled_skill_module(skill_folder_name: str, module_filename: str = "tool"):
+    """Carga dinámicamente un módulo de cualquier skill en bundled/."""
+    bundled_dir = _Path(__file__).resolve().parent.parent.parent / "skills" / "bundled"
+    scripts_dir = bundled_dir / skill_folder_name / "scripts"
+    pkg_name = f"_{skill_folder_name.replace('-', '_')}_pkg"
+    if pkg_name not in sys.modules:
+        parent_pkg = ModuleType(pkg_name)
+        parent_pkg.__path__ = [str(scripts_dir)]
+        sys.modules[pkg_name] = parent_pkg
+    mod_key = f"{pkg_name}.{module_filename}"
+    if mod_key in sys.modules:
+        return sys.modules[mod_key]
+    mod_spec = importlib.util.spec_from_file_location(
+        mod_key, str(scripts_dir / f"{module_filename}.py")
+    )
+    mod = importlib.util.module_from_spec(mod_spec)
+    mod.__package__ = pkg_name
+    sys.modules[mod_key] = mod
+    mod_spec.loader.exec_module(mod)
+    return mod
+
 from ..llm_service import LLMService
 from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
@@ -1197,13 +1219,14 @@ async def execute_tool_node(state: AgentState, llm_service: LLMService, terminal
                                     _ft_mod = _load_file_ops_module("tool")
                                     content = _ft_mod._delete_file(exception.tool_args.get("path", ""))
                             elif tool_name in ["file_update_tool", "file_update"]:
-                                from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
-                                content = _apply_file_update(
+                                _fu_mod = _load_bundled_skill_module("file-update", "tool")
+                                content = _fu_mod._apply_file_update(
                                     exception.tool_args.get("path", ""),
                                     exception.tool_args.get("content", "")
                                 )
                             elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
-                                from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import advanced_file_editor_tool
+                                _fe_mod = _load_bundled_skill_module("advanced-file-editor", "tool")
+                                advanced_file_editor_tool = _fe_mod.advanced_file_editor_tool
                                 args_to_pass = dict(exception.tool_args)
                                 args_to_pass["confirm"] = True
                                 content = advanced_file_editor_tool(**args_to_pass)
