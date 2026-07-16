@@ -331,7 +331,7 @@ class KogniTermSuggester:
     Proporciona sugerencias para autocompletado de archivos (@) y contenedores (:).
     """
     def __init__(self, workspace_directory: str = None):
-        self.workspace_directory = workspace_directory or os.getcwd()
+        self.workspace_directory = workspace_directory
         self.cached_files_list: List[str] = []
         self._cached_containers: List[dict] = []
         self._lock = threading.Lock()
@@ -373,7 +373,8 @@ class KogniTermSuggester:
     def _update_files(self):
         """Escanea el workspace en busca de archivos."""
         try:
-            if not self.workspace_directory or not os.path.exists(self.workspace_directory):
+            workspace_dir = self.workspace_directory or os.getcwd()
+            if not workspace_dir or not os.path.exists(workspace_dir):
                 return
 
             exclude = {
@@ -385,12 +386,12 @@ class KogniTermSuggester:
             
             items = []
             # Usar una lista temporal para evitar bloqueos largos del lock
-            for root, dirs, files in os.walk(self.workspace_directory):
+            for root, dirs, files in os.walk(workspace_dir):
                 # Filtrar directorios in-situ para no descender en ellos
                 dirs[:] = [d for d in dirs if not d.startswith('.') and d not in exclude]
                 
                 try:
-                    rel_root = os.path.relpath(root, self.workspace_directory)
+                    rel_root = os.path.relpath(root, workspace_dir)
                 except ValueError:
                     continue
                     
@@ -455,7 +456,8 @@ class KogniTermSuggester:
         """
         query_terms = search_term.lower().split()
         if not query_terms:
-            return []
+            with self._lock:
+                return list(self.cached_files_list[:15])
 
         scored_matches = []
         with self._lock:

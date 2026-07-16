@@ -34,5 +34,23 @@ class TestKogniTermSuggesterSearch(unittest.TestCase):
         matches_path = suggester.search_files("components button")
         self.assertEqual(matches_path, ["src/components/button/button.tsx"])
 
+    def test_search_files_empty_query(self):
+        suggester = KogniTermSuggester()
+        suggester.cached_files_list = [
+            "a.py",
+            "b.py",
+            "c.py"
+        ]
+        # An empty search term should return the top cached files
+        matches = suggester.search_files("")
+        self.assertEqual(matches, ["a.py", "b.py", "c.py"])
+
+    def test_workspace_directory_none_by_default(self):
+        # The suggester should allow workspace_directory to be None initially,
+        # so it can be updated on mount from the TUI App.
+        suggester = KogniTermSuggester()
+        self.assertIsNone(suggester.workspace_directory)
+
 if __name__ == "__main__":
     unittest.main()
+
