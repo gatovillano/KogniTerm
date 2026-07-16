@@ -35,7 +35,6 @@ class FileCompleter(Completer):
     EXCLUDE_PATTERNS = [
         "build/", "venv/", ".git/", "__pycache__/", "kogniterm.egg-info/",
         "*/build/*", "*/venv/*", "*/.git/*", "*/__pycache__/*", "*/kogniterm.egg-info/*",
-        ".*/", "*/.*/",
         "*.pyc", "*.tmp", "*.log", ".env", ".DS_Store", "*.swp", "*.bak", "*.old", "*.fuse_hidden*",
         "node_modules/", "dist/", "out/", "coverage/", ".mypy_cache/", ".pytest_cache/",
     ]
