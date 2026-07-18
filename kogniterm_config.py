@@ -24,7 +24,8 @@ def config_kogniterm():
         "4": ("anthropic", "Anthropic (Claude)"),
         "5": ("ollama", "Ollama Local"),
         "6": ("ollama_cloud", "Ollama Cloud"),
-        "7": ("kilocode", "KiloCode Gateway")
+        "7": ("kilocode", "KiloCode Gateway"),
+        "8": ("custom_openai", "Custom OpenAI-Compatible Endpoint (LocalAI, etc.)")
     }
     
     print("Proveedores disponibles:")
@@ -35,7 +36,14 @@ def config_kogniterm():
     provider_key, provider_name = providers.get(choice, ("google", "Google Gemini"))
     
     model = input(f"Modelo para {provider_name}: ")
-    api_key = input("API Key (se ocultará): ")
+    
+    api_base = None
+    if provider_key == "custom_openai":
+        api_base = input("API Base (ej: http://localhost:8387/v1) [http://localhost:8387/v1]: ") or "http://localhost:8387/v1"
+        if model and not model.startswith("custom_openai/"):
+            model = f"custom_openai/{model}"
+            
+    api_key = input("API Key (se ocultará, presiona Enter para omitir): ")
     
     if not model:
         print("Error: El modelo es obligatorio.")
@@ -43,6 +51,8 @@ def config_kogniterm():
 
     set_key(env_file, "LLM_PROVIDER", provider_key)
     set_key(env_file, "LLM_MODEL", model)
+    if api_base:
+        set_key(env_file, "CUSTOM_OPENAI_API_BASE", api_base)
     
     # Mapeo de llaves
     key_mapping = {
@@ -51,7 +61,8 @@ def config_kogniterm():
         "anthropic": "ANTHROPIC_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
         "ollama_cloud": "OLLAMA_CLOUD_API_KEY",
-        "kilocode": "KILOCODE_API_KEY"
+        "kilocode": "KILOCODE_API_KEY",
+        "custom_openai": "CUSTOM_OPENAI_API_KEY"
     }
     
     key_name = key_mapping.get(provider_key, "LLM_API_KEY")

@@ -808,7 +808,8 @@ class KogniTermTUI(App):
     }
 
     #command_popup {
-        width: 44;
+        width: auto;
+        min-width: 60;
         layer: popup;
         height: auto;
         max-height: 14;
@@ -1672,8 +1673,6 @@ class KogniTermTUI(App):
             self._completion_input = event.input  # Guardar referencia al input
             await self.command_popup.clear()
 
-            # Posicionar el popup horizontalmente donde está el cursor del input
-            self._reposition_popup(event.input, value)
 
             matches = []
             if trigger in ("%", "/"):
@@ -1738,28 +1737,11 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
+                    matches = suggester.search_files(search_term)
+                else:
                     search_lower = search_term.lower()
-                    token_map = getattr(suggester, "_file_token_map", None)
-                    if token_map is not None and search_lower:
-                        tokens = set(search_lower.replace("\\", "/").split("/"))
-                        tokens.update(search_lower.split())
-                        candidate_scores = {}
-                        for token in tokens:
-                            if not token:
-                                continue
-                            for path in token_map.get(token, []):
-                                candidate_scores[path] = candidate_scores.get(path, 0) + 1
-                        matches = [
-                            path
-                            for path, _ in sorted(
-                                candidate_scores.items(),
-                                key=lambda x: x[1],
-                                reverse=True,
-                            )
-                        ][:15]
-                    else:
-                        files = suggester.cached_files_list
-                        matches = [f for f in files if search_lower in f.lower()][:15]
+                    files = getattr(suggester, "cached_files_list", []) or []
+                    matches = [f for f in files if search_lower in f.lower()][:15]
             elif trigger == ":" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import (
                     KogniTermSuggester,
@@ -1781,10 +1763,18 @@ class KogniTermTUI(App):
                     matches = []
 
             for match in matches:
-                # match puede ser string (comandos %) o dict (contenedores)
+                # match puede ser string (comandos % o archivos) o dict (contenedores)
                 if isinstance(match, dict):
                     display = f"{match['name']} ({match['status']})"
                     command_text = match["name"]
+                elif trigger == "@":
+                    filename = os.path.basename(match)
+                    dirname = os.path.dirname(match)
+                    if dirname:
+                        display = f"{filename}  ({dirname})"
+                    else:
+                        display = filename
+                    command_text = match
                 else:
                     display = match
                     command_text = match
@@ -1792,7 +1782,9 @@ class KogniTermTUI(App):
                 item.command_text = command_text
                 self.command_popup.append(item)
 
-            if not matches:
+            if matches:
+                self._reposition_popup(event.input, value)
+            else:
                 self.command_popup.display = False
                 self._completion_input = None
         else:
@@ -1840,8 +1832,6 @@ class KogniTermTUI(App):
             self._completion_input = event.text_area  # Guardar referencia al input
             await self.command_popup.clear()
 
-            # Posicionar el popup horizontalmente donde está el cursor del input
-            self._reposition_popup(event.text_area, value)
 
             matches = []
             if trigger in ("%", "/"):
@@ -1906,28 +1896,11 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
+                    matches = suggester.search_files(search_term)
+                else:
                     search_lower = search_term.lower()
-                    token_map = getattr(suggester, "_file_token_map", None)
-                    if token_map is not None and search_lower:
-                        tokens = set(search_lower.replace("\\", "/").split("/"))
-                        tokens.update(search_lower.split())
-                        candidate_scores = {}
-                        for token in tokens:
-                            if not token:
-                                continue
-                            for path in token_map.get(token, []):
-                                candidate_scores[path] = candidate_scores.get(path, 0) + 1
-                        matches = [
-                            path
-                            for path, _ in sorted(
-                                candidate_scores.items(),
-                                key=lambda x: x[1],
-                                reverse=True,
-                            )
-                        ][:15]
-                    else:
-                        files = suggester.cached_files_list
-                        matches = [f for f in files if search_lower in f.lower()][:15]
+                    files = getattr(suggester, "cached_files_list", []) or []
+                    matches = [f for f in files if search_lower in f.lower()][:15]
             elif trigger == ":" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import (
                     KogniTermSuggester,
@@ -1935,7 +1908,6 @@ class KogniTermTUI(App):
 
                 if isinstance(suggester, KogniTermSuggester):
                     containers = getattr(suggester, "_cached_containers", []) or []
-                    # containers es lista de dicts: {'name': ..., 'status': ..., 'image': ...}
                     matches = [
                         c
                         for c in containers
@@ -1950,10 +1922,18 @@ class KogniTermTUI(App):
                     matches = []
 
             for match in matches:
-                # match puede ser string (comandos %) o dict (contenedores)
+                # match puede ser string (comandos % o archivos) o dict (contenedores)
                 if isinstance(match, dict):
                     display = f"{match['name']} ({match['status']})"
                     command_text = match["name"]
+                elif trigger == "@":
+                    filename = os.path.basename(match)
+                    dirname = os.path.dirname(match)
+                    if dirname:
+                        display = f"{filename}  ({dirname})"
+                    else:
+                        display = filename
+                    command_text = match
                 else:
                     display = match
                     command_text = match
@@ -1961,7 +1941,9 @@ class KogniTermTUI(App):
                 item.command_text = command_text
                 self.command_popup.append(item)
 
-            if not matches:
+            if matches:
+                self._reposition_popup(event.text_area, value)
+            else:
                 self.command_popup.display = False
                 self._completion_input = None
         else:
@@ -1970,23 +1952,22 @@ class KogniTermTUI(App):
     def _reposition_popup(self, input_widget, current_value: str) -> None:
         """Posiciona el popup justo encima del input activo (funciona tanto en splash como en chat)."""
         try:
-            screen_w = self.size.width
-
             # Usar SIEMPRE la región del widget activo, no del #input_container
             # (que puede estar oculto durante el splash)
             input_region = input_widget.region
 
-            # Posición X: inicio del widget + pequeño indent para alinear con el texto
-            popup_w = 44  # ancho del popup definido en CSS
-            popup_x = input_region.x + 2
-            # No salirse por la derecha
-            if popup_x + popup_w > screen_w:
-                popup_x = max(0, screen_w - popup_w)
+            # Posición X: alineado exactamente con el input de texto, mismo ancho
+            popup_x = input_region.x
+            popup_w = max(60, input_region.width)
+
+            # Calcular la altura del popup basándose en el número de matches reales (N items + 2 de bordes)
+            num_items = len(self.command_popup.children)
+            popup_height = min(14, num_items + 2) if num_items > 0 else 2
 
             # Posición Y: justo ENCIMA del input
-            popup_max_h = 14  # max-height en CSS
-            popup_y = max(0, input_region.y - popup_max_h)
+            popup_y = max(0, input_region.y - popup_height)
 
+            self.command_popup.styles.width = popup_w
             self.command_popup.styles.offset = (popup_x, popup_y)
         except Exception:
             pass

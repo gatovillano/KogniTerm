@@ -954,6 +954,50 @@ class LLMService:
             logger.info(f"📋 Total herramientas convertidas: {len(converted_tools)}")
         return self.litellm_tools
 
+    def _update_context_limits(self, model_name: str):
+        """Actualiza los límites de contexto y truncamiento según el modelo/proveedor."""
+        provider = "google"
+        model_lower = model_name.lower()
+        if "openrouter" in model_lower:
+            provider = "openrouter"
+        elif "custom_openai" in model_lower or "custom-openai" in model_lower:
+            provider = "custom_openai"
+        elif "openai" in model_lower or "gpt" in model_lower or model_lower.startswith("o1") or model_lower.startswith("o3"):
+            provider = "openai"
+        elif "anthropic" in model_lower or "claude" in model_lower:
+            provider = "anthropic"
+        elif "ollama_cloud" in model_lower:
+            provider = "ollama_cloud"
+        elif "ollama" in model_lower:
+            provider = "ollama"
+        elif "kilocode" in model_lower:
+            provider = "kilocode"
+        elif "antigravity" in model_lower:
+            provider = "antigravity"
+            
+        # Determinar base de tokens de conversación
+        if provider in ("ollama", "custom_openai", "antigravity"):
+            self.max_conversation_tokens = int(os.getenv("KOGNITERM_MAX_CONVERSATION_TOKENS") or 8192)
+        else:
+            self.max_conversation_tokens = int(os.getenv("KOGNITERM_MAX_CONVERSATION_TOKENS") or 128000)
+            
+        # Ajustar límites dependientes
+        if self.max_conversation_tokens <= 16384:
+            self.max_tool_output_tokens = int(self.max_conversation_tokens * 0.4)
+            self.MAX_TOOL_MESSAGE_CONTENT_LENGTH = self.max_tool_output_tokens * 4
+            self.max_history_tokens = self.max_conversation_tokens - self.max_tool_output_tokens - 1024
+            self.max_history_chars = self.max_history_tokens * 4
+        else:
+            self.max_tool_output_tokens = 100000
+            self.MAX_TOOL_MESSAGE_CONTENT_LENGTH = 100000
+            self.max_history_tokens = self.max_conversation_tokens - self.max_tool_output_tokens
+            self.max_history_chars = 40000
+            
+        # Actualizar en el history_manager si ya existe
+        if hasattr(self, "history_manager") and self.history_manager:
+            self.history_manager.max_history_chars = self.max_history_chars
+            logger.info(f"📊 Límites del HistoryManager actualizados para {model_name}: max_history_chars={self.max_history_chars}")
+
     def set_model(self, model_name: str):
         """Cambia el modelo actual en tiempo de ejecución de forma robusta."""
         self.model_name = model_name
@@ -963,6 +1007,7 @@ class LLMService:
         
         # Invalidar caché de herramientas
         self.litellm_tools = None
+        self._update_context_limits(model_name)
         
         from kogniterm.terminal.config_manager import ConfigManager
         cm = ConfigManager()
@@ -972,6 +1017,8 @@ class LLMService:
         model_lower = model_name.lower()
         if "openrouter" in model_lower:
             provider = "openrouter"
+        elif "custom_openai" in model_lower or "custom-openai" in model_lower:
+            provider = "custom_openai"
         elif "openai" in model_lower or "gpt" in model_lower or model_lower.startswith("o1") or model_lower.startswith("o3"):
             provider = "openai"
         elif "anthropic" in model_lower or "claude" in model_lower:
@@ -1048,6 +1095,18 @@ class LLMService:
             litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a KiloCode: {model_name}")
+
+        elif provider == "custom_openai":
+            key = cm.get_api_key("custom_openai") or os.environ.get("CUSTOM_OPENAI_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+                os.environ["CUSTOM_OPENAI_API_KEY"] = key
+            
+            self.api_base = cm.get_config("custom_openai_api_base") or os.environ.get("CUSTOM_OPENAI_API_BASE") or "http://localhost:8387/v1"
+            litellm.api_base = self.api_base
+            litellm.headers = {}
+            logger.info(f"🔌 Cambiado a Custom OpenAI: {model_name} (base={self.api_base})")
 
         elif provider == "antigravity":
             self.api_key = "antigravity-session-token"
@@ -2298,9 +2357,10 @@ class LLMService:
             
             # Truncar localmente el contenido de mensajes individuales extremadamente largos (ej. outputs gigantes de herramientas)
             # para evitar que desplacen a otros mensajes del historial de resumen.
-            max_msg_content_len = 5000
+            max_msg_content_len = min(5000, int(self.max_history_chars * 0.2))
+            half_len = int(max_msg_content_len / 2)
             if len(content) > max_msg_content_len:
-                content = content[:2500] + f"\n\n... [Contenido largo de {len(content)} caracteres truncado para el proceso de resumen] ...\n\n" + content[-2500:]
+                content = content[:half_len] + f"\n\n... [Contenido largo de {len(content)} caracteres truncado para el proceso de resumen] ...\n\n" + content[-half_len:]
             
             # Si es un mensaje de asistente con llamadas a herramientas, incluirlas en el texto
             if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -2322,9 +2382,7 @@ class LLMService:
         flat_history = "\n\n".join(recent_messages_text)
         
         # Prevenir errores de contexto excedido en el modelo de resumen.
-        # Aumentamos a 100,000 chars ya que los modelos modernos tienen contextos grandes y
-        # así evitamos perder mensajes intermedios en conversaciones largas.
-        max_history_chars = 100000
+        max_history_chars = min(100000, self.max_history_chars)
         if len(flat_history) > max_history_chars:
             flat_history = "... [Mensajes intermedios antiguos truncados para resumen] ...\n\n" + flat_history[-max_history_chars:]
 

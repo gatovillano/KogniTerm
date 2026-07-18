@@ -145,7 +145,8 @@ class ProviderConfig:
                 "openrouter": "openrouter",
                 "cohere": "cohere",
                 "kilocode": "kilocode",
-                "ollama_cloud": "ollama_cloud"
+                "ollama_cloud": "ollama_cloud",
+                "custom_openai": "custom_openai"
             }
             cm_name = provider_map.get(self.name, self.name)
             cm_key = cm.get_api_key(cm_name)
@@ -176,6 +177,13 @@ class ProviderConfig:
                 return os.path.exists(token_path)
             except Exception:
                 return False
+
+        if self.name == "custom_openai":
+            # Si tiene base personalizada, se considera configurado
+            api_base = self.get_api_base()
+            if api_base:
+                return True
+            return self.get_api_key() is not None
 
         # Soporte para forzar local o cloud mediante OLLAMA_PROVIDER_TARGET
         target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
@@ -292,6 +300,15 @@ DEFAULT_PROVIDERS = [
         api_base="https://api.kilo.ai/api/gateway/v1",
         priority=999,
         fallback_on_error_codes=["429", "503", "timeout"]
+    ),
+    ProviderConfig(
+        name="custom_openai",
+        model_prefix="openai",
+        api_key_env="CUSTOM_OPENAI_API_KEY",
+        api_base="http://localhost:8000/v1",
+        api_base_env="CUSTOM_OPENAI_API_BASE",
+        priority=60,
+        fallback_on_error_codes=["429", "503"]
     ),
 ]
 
@@ -508,6 +525,8 @@ class MultiProviderManager:
                 completion_kwargs["custom_llm_provider"] = "openai"
             elif provider.name == "kilocode":
                 completion_kwargs["custom_llm_provider"] = "openai"
+            elif provider.name == "custom_openai":
+                completion_kwargs["custom_llm_provider"] = "openai"
             elif provider.model_prefix == "gemini" or provider.name == "google":
                 completion_kwargs["custom_llm_provider"] = "gemini"
                 key = kwargs.get("api_key") or provider.get_api_key()
@@ -629,8 +648,11 @@ class MultiProviderManager:
                         should_fallback = True
                         break
                 
-                # Also fallback on timeouts or connection errors implicitly
-                if "timeout" in error_msg or "connection" in error_msg or "502" in error_msg or "504" in error_msg:
+                # Also fallback on timeouts, connection errors, or server unavailable/EOF implicitly
+                if any(x in error_msg for x in [
+                    "timeout", "connection", "502", "504", "503", 
+                    "unavailable", "eof", "rpc error", "error reading from server"
+                ]):
                     should_fallback = True
                     
                 # Do NOT fallback for Auth (401), Payment Required (402), or Not Found (404/model not found)

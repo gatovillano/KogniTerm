@@ -7,8 +7,6 @@ if TYPE_CHECKING:
     from ..llm_service import LLMService
 import functools
 import queue
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,292 +23,56 @@ from rich.text import Text
 
 from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
+from .base_agent import BaseAgentNode
+from .tool_executor import ToolExecutor
 
 console = Console()
 
 # --- Mensaje de Sistema del Agente Investigador ---
 def get_system_message(llm_service: LLMService) -> SystemMessage:
-    content = """INSTRUCCIÓN CRÍTICA: Eres el Agente Investigador de KogniTerm (ResearcherAgent).
+    content = \"\"\"INSTRUCCIÓN CRÍTICA: Eres el Agente Investigador de KogniTerm (ResearcherAgent).
 Tu rol es ser un Investigador profesional de nivel senior enfocado principalmente en la investigación de código fuente y temáticas tecnológicas, pero no limitado únicamente a ello. Tu objetivo NO es editar código, sino ENTENDERLO y EXPLICARLO.
 
 ⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
 Cualquier solicitud o tarea de investigación asignada (sin importar su complejidad) DEBE ser registrada y actualizada en la herramienta `task_tracker`.
 1. **Inicialización Inmediata**: En tu PRIMER TURNO, antes de realizar cualquier otra acción o ejecutar cualquier herramienta (como realizar búsquedas, leer archivos, etc.), DEBES llamar a `task_tracker` con `action="init"`, especificando `agent_name="Researcher"` y la lista de sub-tareas detallada en `plan`.
-2. **Actualizaciones en Tiempo Real**: Cada vez que inicies, completes o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("in_progress", "completed", "failed").
+2. **Actualizaciones en Tiempo Real**: Cada vez que inicies, completes o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("in-progress", "completed", "failed").
 3. **Registro Final**: Al concluir el trabajo, asegúrate de marcar la última tarea como completada llamando a `task_tracker`.
-¡NUNCA OMITAS ESTE PASO! No inicializar el task tracker inmediatamente en el primer turno se considera un fallo de ejecución crítico y una violación del protocolo.
 
-**Tus Objetivos:**
-1.  **Comprensión Profunda**: No te quedes en la superficie. Si ves una función o un concepto, busca dónde se define, quién la llama y qué datos manipula, cuales son sus  variables y características, dependiendo del tipo de datos que maneje.
-2.  **Mapeo de Arquitectura**: Identifica los componentes principales, sus responsabilidades y cómo interactúan entre sí.
-3.  **Diagnóstico de Problemas**: Si hay un error, rastrea su origen a través de las capas del sistema.
-4.  **Búsqueda Exhaustiva**: Utiliza tanto búsqueda semántica (vectorial) como textual, en internet, github o el codigo local, para no perder nada.
+Tus capacidades incluyen:
+- Búsqueda semántica de código y análisis de archivos.
+- Investigación web profunda.
+- Análisis de dependencias y arquitectura.
+- Capacidad de sintetizar información de múltiples fuentes.
 
-**Tu Flujo de Trabajo:** Este flujo es una referencia, pero debes buscar según la necesidad de consulta.
-1.  **Exploración Inicial**:
-    *   Usa `file_operation_tool` para obtener un mapa mental de la estructura del proyecto, leer archivos (individual o en grupo) y directorios.
-    *   Identifica archivos clave para la consulta (entry points, configuración, core logic, definiciones, etc). Siempre dependiendo del tipo de datos que maneje.
-2.  **Investigación Dirigida**:
-    *   Usa `codebase_search_tool` (Búsqueda Vectorial) para conceptos abstractos ("¿Cómo se maneja la autenticación?", "Lógica de reintentos").
-    *   Usa `file_search_tool` (Grep) para encontrar usos exactos de variables, funciones o constantes.
-    *   Usa `github_tool` para investigar repositorios de GitHub, obtener información del repo, listar contenidos, leer archivos y directorios.
-    *   Usa `brave_search` para buscar documentación técnica, artículos, tutoriales y discusiones en la web sobre temas relacionados con la consulta.
-    *   Usa `web_fetch` para leer contenido específico.
-3.  **Síntesis**:
-    *   Conecta los puntos. Explica la relación entre A y B.
-    *   Genera informes claros en Markdown que respondan a la pregunta del usuario con evidencia del código.
-    *   Si hay inconsistencias, repórtalas.
-    *   Tu informe debe ser un documento de investigación, estructurad, y muy detallado. Explicativo de la arquitectura, el flujo de datos, y las relaciones entre componentes.
-    *   Menciona dependencias entre archivos.
-**Herramientas a tu disposición:**
-*   `codebase_search_tool`: TU HERRAMIENTA ESTRELLA. Úsala para búsquedas semánticas y conceptuales.
-*   `file_search_tool`: Para búsquedas exactas (grep).
-*   `file_operations`: Para listar directorios específicos y leer archivos (individual o en grupo).
-*   `code_analysis_tool`: Para analizar la complejidad del código.
-*   `github_tool`: Para investigar repositorios de GitHub, obtener información del repo, listar contenidos, leer archivos y directorios.
-*   `tavily_search`: Para buscar documentación técnica, artículos, tutoriales y discusiones en la web sobre temas relacionados con la consulta.
-*   `web_fetch`: Para leer contenido específico.
-**Instrucciones de Respuesta:**
-*   Tus respuestas deben ser informes de investigación detallados y extensos.
-*   Cita los archivos y líneas de código relevantes.
-*   Si encuentras inconsistencias o "code smells", repórtalas.
-*   Usa diagramas (Mermaid) si ayudan a explicar flujos complejos.
-*   Siempre justifica tus conclusiones con evidencia del código.
-*   Estructura tus respuestas en secciones claras con encabezados en Markdown.
-*   Si no tienes suficiente información, explica qué más necesitas investigar.
-*   Prioriza la precisión y profundidad sobre la brevedad.
-*   Formatea todo en Markdown para facilitar la lectura.
-
-## 📌 PROTOCOLO OBLIGATORIO DE SEGUIMIENTO DE TAREAS (task_tracker)
-1. **Inicialización Obligatoria**: Para toda tarea o plan, DEBES inicializar tu plan de trabajo llamando a `task_tracker` con `action="init"`, especificando tu `agent_name='Researcher'` y la lista de tareas en `plan`.
-2. **Actualización de Progreso**: Cada vez que completes una tarea o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("completed", "in_progress", "failed").
-3. **Finalización**: Al terminar todo el trabajo solicitado, DEBES registrar la finalización llamando a `task_tracker` con `action="update"` para marcar la última tarea como completada.
-¡NUNCA procedas con ninguna tarea o acción sin registrarla y mantenerla al día en `task_tracker`!
-
-Recuerda: Eres los ojos y el cerebro analítico de KogniTerm.
+REGLA DE ORO: No inventes rutas de archivos ni funciones. Si no estás seguro, usa las herramientas de búsqueda primero.
 """
-    if not llm_service.is_thinking_model():
-        content += """
-Recuerda: Como este modelo no tiene razonamiento nativo, DEBES encerrar todo tu proceso de pensamiento e investigación técnica dentro de etiquetas `<thought>...</thought>` antes de escribir cualquier respuesta o ejecutar cualquier herramienta.
-Ejemplo:
-<thought>
-Estoy analizando el código para responder la consulta...
-</thought>
-[Aquí tu respuesta final o llamada a herramienta]
-"""
-    return SystemMessage(content=content)
+    return BaseAgentNode.get_system_message(llm_service, content)
 
-# --- Funciones Auxiliares (Similares a CodeAgent/BashAgent) ---
+# --- Nodos del Grafo ---
 
 def call_model_node(state: AgentState, llm_service: LLMService, interrupt_queue: Optional[queue.Queue] = None):
-    """Llama al LLM (ResearcherAgent)."""
-    if state.delegation_context and getattr(state.delegation_context, "metadata", {}).get("completed"):
-        logger.info("El agente investigador ya completó su proceso a través de complete_task. Saltando llamada al modelo.")
-        if not state.messages or not isinstance(state.messages[-1], AIMessage):
-            state.messages.append(AIMessage(content="Proceso finalizado a través de complete_task."))
-        return {"messages": state.messages}
-
-    messages = [get_system_message(llm_service)] + state.messages
-    
-    full_response_content = ""
-    full_thinking_content = ""
-    final_ai_message = None
-    
-    try:
-        from kogniterm.terminal.visual_components import create_processing_spinner
-        from kogniterm.terminal.themes import ColorPalette, Icons
-        spinner = create_processing_spinner()
-    except ImportError:
-        from rich.spinner import Spinner
-        spinner = Spinner("dots", text="ResearcherAgent investigando...")
-
-    with Live(spinner, console=console, screen=False, refresh_per_second=10) as live:
-        for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
-            if isinstance(part, AIMessage):
-                final_ai_message = part
-            elif isinstance(part, str):
-                if part.startswith("__THINKING__:"):
-                    thinking_chunk = part[len("__THINKING__:"):]
-                    full_thinking_content += thinking_chunk
-                    thinking_panel = Panel(
-                        Markdown(full_thinking_content),
-                        title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} ResearcherAgent Pensando...[/]",
-                        border_style=ColorPalette.PRIMARY_LIGHT,
-                        padding=(0, 4),
-                        expand=True
-                    )
-                    live.update(Padding(thinking_panel, (0, 0)))
-                else:
-                    full_response_content += part
-                    renderables = []
-                    if full_thinking_content:
-                        renderables.append(Panel(
-                            Markdown(full_thinking_content),
-                            title=f"[bold {ColorPalette.PRIMARY_LIGHT}]{Icons.THINKING} Investigación finalizada[/]",
-                            border_style=ColorPalette.GRAY_600,
-                            padding=(0, 4),
-                            expand=True
-                        ))
-                    renderables.append(Markdown(full_response_content))
-                    live.update(Padding(Group(*renderables), (0, 0)))
-
-    if final_ai_message:
-        if not final_ai_message.content and full_response_content:
-             final_ai_message.content = full_response_content
-        state.messages.append(final_ai_message)
-        llm_service._save_history(state.messages)
-            
-    return {"messages": state.messages}
-
-def execute_single_tool(tc, llm_service, interrupt_queue):
-    """Ejecuta una herramienta individual con verbosidad."""
-    tool_name = tc['name']
-    tool_args = tc['args']
-    tool_id = tc['id']
-    
-    # Mostrar qué se está ejecutando
-    args_json = json.dumps(tool_args, indent=2, ensure_ascii=False)
-    console.print(Panel(
-        Syntax(args_json, "json", theme="monokai", line_numbers=False),
-        title=f"[bold cyan]🛠️ Ejecutando: {tool_name}[/bold cyan]",
-        border_style="cyan",
-        padding=(0, 4),
-        expand=True
-    ))
-    
-    tool = llm_service.get_tool(tool_name)
-    if not tool:
-        return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
-
-    try:
-        # _invoke_tool_with_interrupt es un generador, debemos iterar para obtener el resultado final
-        output_str = ""
-        for part in llm_service._invoke_tool_with_interrupt(tool, tool_args):
-            if part is not None:
-                output_str += str(part)
-        
-        # Mostrar un resumen de la salida si es muy larga
-        display_output = output_str if len(output_str) < 500 else output_str[:500] + "\n... (truncado para brevedad)"
-        console.print(Panel(
-            display_output,
-            title=f"[bold green]✅ Resultado de {tool_name}[/bold green]",
-            border_style="green",
-            padding=(0, 4),
-            expand=True
-        ))
-        
-        # --- Refresco automático de herramientas ---
-        # Si la herramienta es 'refresh_tools', forzar al SkillManager a recargar
-        if tool_name == 'refresh_tools' and hasattr(llm_service, 'skill_manager'):
-            logger.info("Detectada llamada a refresh_tools en ResearcherAgent. Disparando SkillManager.refresh_skills(force=True).")
-            llm_service.skill_manager.refresh_skills(force=True)
-            if hasattr(llm_service, 'sync_tools'):
-                llm_service.sync_tools()
-
-        # Si la herramienta es 'skill_factory' y terminó con éxito, refrescar el arsenal
-        if tool_name == 'skill_factory' and hasattr(llm_service, 'skill_manager'):
-            logger.info("Detectada creación de skill via skill_factory en ResearcherAgent. Disparando refresh automático.")
-            try:
-                llm_service.skill_manager.refresh_skills(force=True)
-                if hasattr(llm_service, 'sync_tools'):
-                    llm_service.sync_tools()
-                new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
-                logger.info(f"Arsenal de ResearcherAgent actualizado. Herramientas: {new_tool_names}")
-                output_str += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
-            except Exception as e:
-                logger.warning(f"Error al refrescar skills en ResearcherAgent tras skill_factory: {e}")
-
-        return tool_id, output_str, None
-    except InterruptedError:
-        console.print(f"[bold yellow]⚠️ Ejecución de {tool_name} interrumpida por el usuario.[/bold yellow]")
-        return tool_id, "Ejecución interrumpida por el usuario.", InterruptedError("Interrumpido por el usuario.")
-    except Exception as e:
-        console.print(f"[bold red]❌ Error en {tool_name}: {e}[/bold red]")
-        return tool_id, f"Error en {tool_name}: {e}", e
+    """Nodo que llama al modelo utilizando la lógica base."""
+    return BaseAgentNode.call_model(
+        state=state,
+        llm_service=llm_service,
+        system_prompt=get_system_message(llm_service).content,
+        terminal_ui=None, # Researcher no suele necesitar renderizado complejo directo en este nodo
+        interrupt_queue=interrupt_queue
+    )
 
 def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None):
-    """Nodo de ejecución de herramientas."""
-    last_message = state.messages[-1]
-    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        return state
-
-    tool_messages = []
-    executor = ThreadPoolExecutor(max_workers=5)
-    futures = []
-    
-    # Mostrar encabezado de fase de análisis
-    console.print(Padding(Text("🕵️‍♂️ Fase de Investigación: Ejecutando herramientas...", style="bold magenta underline"), (1, 0)))
-
-    # Verificar interrupción ANTES de iniciar cualquier cosa
-    if interrupt_queue and not interrupt_queue.empty():
-        while not interrupt_queue.empty():
-            interrupt_queue.get() # Limpiar cola
-        
-        console.print("[bold yellow]⚠️ Interrupción detectada antes de ejecutar herramientas. Cancelando...[/bold yellow]")
-        # Generar mensajes de cancelación para todas las herramientas solicitadas
-        for tool_call in last_message.tool_calls:
-            tool_messages.append(ToolMessage(content="Ejecución cancelada por el usuario.", tool_call_id=tool_call['id']))
-        
-        state.messages.extend(tool_messages)
-        llm_service._save_history(state.messages)
-        return state
-
-    for tool_call in last_message.tool_calls:
-        # Verificar interrupción durante el encolado
-        if interrupt_queue and not interrupt_queue.empty():
-            while not interrupt_queue.empty():
-                interrupt_queue.get()
-            
-            console.print("[bold yellow]⚠️ Interrupción detectada. Cancelando herramientas restantes...[/bold yellow]")
-            # Cancelar futuros pendientes
-            for f in futures:
-                f.cancel()
-            
-            # Completar esta herramienta y las restantes como canceladas
-            tool_messages.append(ToolMessage(content="Ejecución cancelada por el usuario.", tool_call_id=tool_call['id']))
-            # Nota: Las herramientas que ya se enviaron (futures) se manejarán en el bucle de as_completed o se cancelarán
-            state.reset_temporary_state()
-            break
-            
-        futures.append(executor.submit(execute_single_tool, tool_call, llm_service, interrupt_queue))
-
-    # Si salimos del bucle por interrupción, necesitamos llenar los mensajes para las herramientas que faltaron
-    # (La lógica de arriba ya maneja la herramienta actual, pero si había más en la lista last_message.tool_calls...)
-    # Simplificación: Dejamos que el agente maneje lo que se haya procesado.
-
-    for future in as_completed(futures):
-        try:
-            tool_id, content, exception = future.result()
-            tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-        except Exception as e:
-            # Esto captura errores graves del executor
-            console.print(f"[bold red]❌ Error crítico en executor: {e}[/bold red]")
-
-    state.messages.extend(tool_messages)
-    llm_service._save_history(state.messages)
-    return state
+    """Nodo que ejecuta herramientas utilizando el ToolExecutor consolidado."""
+    return ToolExecutor.execute_tool_node(
+        state=state,
+        llm_service=llm_service,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue
+    )
 
 def should_continue(state: AgentState) -> str:
-    """Decide si el agente debe continuar."""
-    from langgraph.graph import END
-    if getattr(state, "completed", False):
-        return END
-
-    last_message = state.messages[-1]
-    
-    if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        return "execute_tool"
-    elif isinstance(last_message, ToolMessage):
-        return "call_model"
-    
-    is_autonomous = getattr(state, "autonomous_approvals", False) or getattr(state, "delegation_context", None) is not None
-    if is_autonomous and not getattr(state, "completed", False):
-        return "call_model"
-    
-    # Debugging: Mostrar por qué se detiene
-    console.print(Panel(f"[yellow]Agente Investigador deteniéndose.[/yellow]\nÚltimo mensaje tipo: {type(last_message).__name__}\nContenido: {str(last_message.content)[:200]}...", title="Diagnóstico de Parada", border_style="yellow"))
-    
-    return END
+    """Decide si el agente debe continuar utilizando la lógica de ToolExecutor."""
+    return ToolExecutor.should_continue(state)
 
 # --- Construcción del Grafo ---
 

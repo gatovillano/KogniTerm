@@ -19,8 +19,16 @@ class KeyboardHandler:
         """Hilo que escucha el teclado continuamente usando select para no bloquear."""
         logger.debug("KeyboardHandler: Hilo de escucha iniciado.")
         
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
+        try:
+            if not sys.stdin.isatty():
+                logger.debug("KeyboardHandler: stdin no es un TTY, abortando hilo de escucha.")
+                return
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+        except Exception as e:
+            logger.debug(f"KeyboardHandler: No se pudo inicializar la terminal/TTY: {e}")
+            return
+
         try:
             tty.setcbreak(fd)
             while not self.stop_event.is_set():
@@ -37,7 +45,10 @@ class KeyboardHandler:
         except Exception as e:
             logger.error(f"Error en KeyboardHandler: {e}")
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
             logger.debug("KeyboardHandler: Hilo de escucha detenido y terminal restaurada.")
 
     def start(self):
