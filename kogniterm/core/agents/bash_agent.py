@@ -101,6 +101,7 @@ from kogniterm.core.agent_state import AgentState # Importar AgentState desde el
 from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 from ..async_io_manager import get_io_manager, AsyncTaskResult
 from ..utils.tool_utils import get_tool_action_description, tool_requires_content_for_confirmation
+from ..tool_executor import ToolExecutor
 
 import logging
 
@@ -601,7 +602,7 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
     # Usar la consola de terminal_ui si está disponible, de lo contrario usar la global
     current_console = terminal_ui.console if terminal_ui else console
     
-    # --- Lógica de Detección de Bucles ---
+    # --- Lógica de Detección de Bucles (específica de Bash) ---
     if len(state.tool_call_history) >= 4:
         last_calls = list(state.tool_call_history)[-4:]
         if all(tc['name'] == last_calls[0]['name'] and tc['args_hash'] == last_calls[0]['args_hash'] for tc in last_calls):
@@ -619,305 +620,56 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 "critical_loop_detected": True
             }
 
-    history = [get_system_message(llm_service)] + state.messages
-    
-    # Procesar referencias a archivos en el último mensaje del usuario
+    # --- Pre-procesamiento de referencias a archivos (específico de Bash) ---
     if state.messages and isinstance(state.messages[-1], HumanMessage):
-        workspace_directory = os.getcwd()  # Asumir que el workspace es el cwd
+        workspace_directory = os.getcwd()
         processed_content = process_file_references(state.messages[-1].content, workspace_directory)
-        # Actualizar el mensaje en el estado con el contenido procesado
         state.messages[-1] = HumanMessage(content=processed_content)
-        # Actualizar history también
-        history = [get_system_message(llm_service)] + state.messages
-    full_response_content = ""
-    full_thinking_content = ""
-    final_ai_message_from_llm = None
-    text_streamed = False 
 
-    # Importar componentes visuales
-    try:
-        from kogniterm.terminal.visual_components import create_processing_spinner, create_thinking_spinner, create_thought_bubble
-        from kogniterm.terminal.themes import ColorPalette, Icons
-        # Crear spinner mejorado usando componentes visuales
-        spinner = create_processing_spinner()
-    except ImportError:
-        # Fallback al spinner original si hay problemas de importación
-        from rich.spinner import Spinner
-        spinner = Spinner("dots", text=Text("🤖 Procesando...", style="cyan"))
-        # Definir fallbacks para evitar NameError
-        class ColorPalette:
-            PRIMARY_LIGHT = "cyan"
-            SECONDARY = "blue"
-            SECONDARY_LIGHT = "yellow"
-            TEXT_SECONDARY = "grey"
-            GRAY_600 = "grey"
-        class Icons:
-            THINKING = "🤔"
-            TOOL = "🛠️"
+    # --- Obtener system message dinámico (específico de Bash) ---
+    system_prompt = get_system_message(llm_service)
+    
+    # --- Delegar streaming y renderizado a BaseAgentNode ---
+    # BaseAgentNode.call_model maneja: streaming, renderizado en tiempo real (TUI/CLI),
+    # detección de bucles genérica, keyboard handler, y actualización del estado.
+    result = BaseAgentNode.call_model(
+        state=state,
+        llm_service=llm_service,
+        system_prompt=system_prompt,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue
+    )
+    
+    # --- Post-procesamiento específico de Bash ---
+    # Extraer el AIMessage del resultado (BaseAgentNode ya lo añadió a state.messages)
+    final_ai_message = None
+    for msg in reversed(state.messages):
+        if isinstance(msg, AIMessage):
+            final_ai_message = msg
+            break
+    
+    command_to_confirm = None
+    tool_call_id_to_confirm = None
+    
+    if final_ai_message and final_ai_message.tool_calls:
+        # Capturar el tool_call_id del primer tool_call
+        tool_call_id_to_confirm = final_ai_message.tool_calls[0]['id']
         
-        def create_thought_bubble(content, title="Pensando...", icon="🤔", color="grey"):
-            from rich.panel import Panel
-            from rich.markdown import Markdown
-            from rich.padding import Padding
-            if isinstance(content, str):
-                content = Markdown(content)
-            return Padding(Panel(content, title=f"[dim]{icon} {title}[/dim]", border_style="dim grey", style="dim grey", padding=(0, 4), expand=True), (1, 0))
-
-
-    # Usar Live para actualizar el contenido en tiempo real
-    # Iniciamos con el spinner
+        # Buscar execute_command para confirmación
+        for tc in final_ai_message.tool_calls:
+            if tc['name'] == 'execute_command':
+                command_to_confirm = tc['args'].get('command')
+                break
     
-    # Iniciar KeyboardHandler para detectar ESC durante la generación (solo en CLI)
-    is_tui = terminal_ui.is_tui if (terminal_ui and hasattr(terminal_ui, "is_tui")) else False
-    kh = None
-    if not is_tui:
-        kh = KeyboardHandler(interrupt_queue)
-        kh.start()
-    
-    try:
-        import contextlib
-        # Solo usar rich.Live si NO estamos en la TUI
-        if not is_tui:
-            live_context = Live(spinner, console=current_console, screen=False, refresh_per_second=10)
-        else:
-            @contextlib.contextmanager
-            def dummy_live(): 
-                yield type('DummyLive', (), {'update': lambda self, x: None})()
-            live_context = dummy_live()
-
-        with live_context as live:
-            # Color de fondo del TUI (debe coincidir con CSS Screen background)
-            TUI_BG = ColorPalette.GRAY_900
-
-            def update_live_display():
-                """Función auxiliar para actualizar el display de forma consistente."""
-                renderables = []
-                
-                # 1. Mostrar pensamiento si existe
-                if full_thinking_content:
-                    if is_tui:
-                        # En TUI: construir Panel con fondo explícito y letra opaca (gris/dim)
-                        thinking_content = Markdown(full_thinking_content) if isinstance(full_thinking_content, str) else full_thinking_content
-                        thought_panel = Panel(
-                            thinking_content,
-                            title=f"{Icons.THINKING} KogniTerm Pensando...",
-                            border_style=ColorPalette.GRAY_700,
-                            style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
-                            padding=(0, 4),
-                            expand=True
-                        )
-
-
-
-                        renderables.append(thought_panel)
-                    else:
-                        renderables.append(create_thought_bubble(full_thinking_content, title="KogniTerm Pensando..."))
-                
-                # 2. Añadir respuesta si existe
-                if full_response_content:
-                    if full_thinking_content:
-                        renderables.append(Text("\n"))  # Separación entre pensamiento y respuesta
-                    renderables.append(Markdown(full_response_content))
-                
-                if is_tui:
-                    group = Group(*renderables)
-                    final_renderable = Padding(group, (2, 0, 1, 0))
-                    terminal_ui.update_live(final_renderable)
-                else:
-                    final_renderable = Padding(Group(*renderables), (2, 0, 1, 0)) if renderables else spinner
-                    if not renderables:
-                        live.update(spinner)
-                    else:
-                        live.update(final_renderable)
-
-            interrupcion_detectada = False
-            for part in llm_service.invoke(history=history, interrupt_queue=interrupt_queue):
-                if isinstance(part, AIMessage):
-                    final_ai_message_from_llm = part
-                elif isinstance(part, str):
-                    if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
-                        # Es contenido de razonamiento (Thinking)
-                        prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
-                        thinking_chunk = part[len(prefix):]
-                        full_thinking_content += thinking_chunk
-                        update_live_display()
-                    else:
-                        # Es contenido normal de la respuesta
-                        full_response_content += part
-                        text_streamed = True
-                        update_live_display()
-                        if terminal_ui and hasattr(terminal_ui, "print_stream") and terminal_ui.__class__.__name__ == "ServerUI":
-                            terminal_ui.print_stream(part)
-                
-                # Verificar interrupción en cada iteración del streaming
-                # Chequeamos tanto la cola como la bandera del servicio
-                if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
-                    interrupcion_detectada = True
-                    if interrupt_queue:
-                        while not interrupt_queue.empty():
-                            interrupt_queue.get_nowait()
-                    break
-            
-            if interrupcion_detectada:
-                current_console.print(f"\n{Icons.STOPWATCH} [bold red]Interrupción detectada. Deteniendo...[/bold red]")
-            
-            # Al finalizar el stream, asegurarnos de que el display final sea correcto
-            # Si no hubo streaming de texto (e.g. error o respuesta no chunked), forzar actualización con el mensaje final
-            if final_ai_message_from_llm and not text_streamed and final_ai_message_from_llm.content:
-                full_response_content = final_ai_message_from_llm.content
-                update_live_display()
-                if terminal_ui and hasattr(terminal_ui, "print_stream") and terminal_ui.__class__.__name__ == "ServerUI":
-                    terminal_ui.print_stream(final_ai_message_from_llm.content)
-            elif not text_streamed and not full_thinking_content:
-                # Si no hubo nada de nada, al menos actualizar una vez
-                update_live_display()
-
-            # En TUI, cerramos el streaming para consolidar el mensaje en el log
-            if is_tui:
-                # Importante: Solo consolidamos si hubo contenido real para evitar bloques vacíos
-                if text_streamed or full_thinking_content or (final_ai_message_from_llm and final_ai_message_from_llm.content):
-                    terminal_ui.stop_live()
-                else:
-                    # Si no hubo nada, simplemente esconder el live display sin consolidar
-                    terminal_ui.stop_live()
-    finally:
-        if kh:
-            kh.stop()
-
-
-    # --- Lógica del Agente después de recibir la respuesta completa del LLM ---
-
-    # Usar directamente el AIMessage del LLMService para evitar duplicación de contenido
-    if final_ai_message_from_llm:
-        state.add_message(final_ai_message_from_llm)
-
-        # Si la herramienta es 'execute_command', establecemos command_to_confirm
-        command_to_execute = None
-        tool_call_id = None # Inicializar tool_call_id
-        if final_ai_message_from_llm.tool_calls:
-            # Siempre capturar el tool_call_id del primer tool_call si existe
-            tool_call_id = final_ai_message_from_llm.tool_calls[0]['id']
-
-            for tc in final_ai_message_from_llm.tool_calls:
-                if tc['name'] == 'execute_command':
-                    command_to_execute = tc['args'].get('command')
-                    break # Asumimos una sola llamada a comando por ahora
-
-        # Solo guardar si no hay tool_calls pendientes (respuesta final sin herramientas).
-        # Cuando hay tool_calls, execute_tool_node se encarga del guardado final.
-        if not final_ai_message_from_llm.tool_calls:
-            llm_service._save_history(state.messages)
-
-        # Añadir separación visual después de la respuesta del LLM
-        console.print()  # Línea en blanco para separación
-
-        return {
-            "messages": state.messages,
-            "command_to_confirm": command_to_execute, # Devolver el comando para confirmación
-            "tool_call_id_to_confirm": tool_call_id # Devolver el tool_call_id asociado
-        }
-    else:
-        # Fallback si por alguna razón no se obtuvo un AIMessage (poco probable con llm_service.py)
-        error_message = "El modelo no proporcionó una respuesta AIMessage válida después de procesar los chunks."
-        state.add_message(AIMessage(content=error_message))
+    # Guardar historial si no hay tool_calls (respuesta final)
+    if not (final_ai_message and final_ai_message.tool_calls):
         llm_service._save_history(state.messages)
-        return {"messages": state.messages}
-
-async def execute_single_tool_async(tc, llm_service, terminal_ui, interrupt_queue):
-    """
-    Versión asíncrona de execute_single_tool.
-    Ejecuta la herramienta en un thread separado para no bloquear.
-    """
-    tool_name = tc['name']
-    tool_args = tc['args']
-    tool_id = tc['id']
-
-    tool = llm_service.get_tool(tool_name)
-    if not tool:
-        return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
-
-    try:
-        io_manager = get_io_manager()
-        
-        # Función síncrona que se ejecutará en el executor
-        def run_tool_sync():
-            full_tool_output = ""
-            tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
-
-            for chunk in tool_output_generator:
-                full_tool_output += str(chunk)
-
-            return full_tool_output
-        
-        # Ejecutar de forma asíncrona
-        result = io_manager.run_in_executor(run_tool_sync)
-        
-        if result.success:
-            return tool_id, result.result, None
-        else:
-            return tool_id, f"Error al ejecutar la herramienta {tool_name}: {result.error}", Exception(result.error)
-            
-    except UserConfirmationRequired as e:
-        return tool_id, json.dumps(e.raw_tool_output), e
-    except InterruptedError:
-        return tool_id, f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.", InterruptedError("Interrumpido por el usuario.")
-    except Exception as e:
-        return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
-
-
-def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
-    """Versión síncrona para compatibilidad."""
-    tool_name = tc['name']
-    tool_args = tc['args']
-    tool_id = tc['id']
-
-    tool = llm_service.get_tool(tool_name)
-    if not tool:
-        return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
-
-    try:
-        full_tool_output = ""
-        tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
-
-        for chunk in tool_output_generator:
-            # NO imprimir aquí - el output ya se muestra en command_approval_handler.py
-            # if tool_name == "execute_command":
-            #     terminal_ui.print_stream(str(chunk))
-            full_tool_output += str(chunk)
-
-        # Sin truncamiento - devolver la salida completa tal cual
-        processed_tool_output = full_tool_output
-
-        # --- Refresco automático de herramientas ---
-        # Si la herramienta es 'refresh_tools', forzar al SkillManager a recargar
-        if tool_name == 'refresh_tools' and hasattr(llm_service, 'skill_manager'):
-            logger.info("Detectada llamada a refresh_tools. Disparando SkillManager.refresh_skills(force=True).")
-            llm_service.skill_manager.refresh_skills(force=True)
-            if hasattr(llm_service, 'sync_tools'):
-                llm_service.sync_tools()
-
-        # Si la herramienta es 'skill_factory' y terminó con éxito, refrescar el arsenal
-        # automáticamente para que la nueva skill quede disponible en el siguiente turno.
-        if tool_name == 'skill_factory' and hasattr(llm_service, 'skill_manager'):
-            logger.info("Detectada creación de skill via skill_factory. Disparando refresh automático.")
-            try:
-                llm_service.skill_manager.refresh_skills(force=True)
-                if hasattr(llm_service, 'sync_tools'):
-                    llm_service.sync_tools()
-                new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
-                logger.info(f"Arsenal actualizado. Herramientas disponibles: {new_tool_names}")
-                # Añadir al output la lista de herramientas para que el LLM sepa qué puede invocar
-                processed_tool_output += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
-            except Exception as e:
-                logger.warning(f"Error al refrescar skills tras skill_factory: {e}")
-
-        return tool_id, processed_tool_output, None
-    except UserConfirmationRequired as e:
-        return tool_id, json.dumps(e.raw_tool_output), e
-    except InterruptedError:
-        return tool_id, f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.", InterruptedError("Interrumpido por el usuario.")
-    except Exception as e:
-        return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
+    
+    # Actualizar el resultado con los campos específicos de Bash
+    result["command_to_confirm"] = command_to_confirm
+    result["tool_call_id_to_confirm"] = tool_call_id_to_confirm
+    
+    return result
 
 def call_task_tracker(
     llm_service: LLMService,
