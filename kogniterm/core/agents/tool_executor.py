@@ -117,7 +117,7 @@ class ToolExecutor:
                         )
                         last_ui_update = current_time
             # Post-procesamiento (Skills refresh, etc.)
-            ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)
+            full_tool_output = ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)
 
             # Renderizado de resultado (CLI)
             if not is_tui:
@@ -150,6 +150,16 @@ class ToolExecutor:
                 logger.info(
                     f"[{tool_name}] tool_map sincronizado tras refresh. Herramientas activas: {list(llm_service.tool_map.keys())}"
                 )
+            # Si la herramienta es 'skill_factory' y terminó con éxito, añadir al output
+            # la lista de herramientas para que el LLM sepa qué puede invocar.
+            if tool_name == "skill_factory":
+                try:
+                    new_tool_names = list(llm_service.skill_manager.tool_registry.keys())
+                    logger.info(f"Arsenal actualizado. Herramientas disponibles: {new_tool_names}")
+                    output += f"\n\n✅ Arsenal actualizado automáticamente. Herramientas ahora disponibles: {new_tool_names}"
+                except Exception as e:
+                    logger.warning(f"Error al refrescar skills tras skill_factory: {e}")
+        return output
 
     @staticmethod
     def _render_cli_result(tool_name, output):
