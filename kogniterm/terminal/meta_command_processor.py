@@ -307,23 +307,17 @@ class MetaCommandProcessor:
 
                 target = args[0]
                 history = list(self.llm_service.conversation_history)
-                created = False
 
-                metadata = thread_manager.get_thread_metadata(target)
-                if metadata:
-                    metadata["title"] = metadata.get("title") or target
-                    metadata["updated_at"] = datetime.utcnow().isoformat()
-                    metadata["message_count"] = len(history)
-                    saved = thread_manager._save_metadata(target, metadata)
-                    saved = saved and thread_manager.save_thread_messages(target, history)
+                thread = thread_manager.get_thread(target)
+                if not thread:
+                    thread = thread_manager.create_thread(thread_id=target, title=target, messages=history)
+                    saved = True
                 else:
-                    metadata = thread_manager.create_thread(thread_id=target, title=target)
-                    saved = thread_manager.save_thread_messages(target, history)
-                    created = True
+                    thread.messages = history
+                    saved = thread_manager.save_thread(thread, llm_service=self.llm_service)
 
                 if saved:
-                    label = target if created else metadata.get("title", target)
-                    self.terminal_ui.print_message(f"Thread '{label}' saved successfully. ✅", style="green")
+                    self.terminal_ui.print_message(f"Thread '{thread.title}' saved successfully. ✅", style="green")
                 else:
                     self.terminal_ui.print_message(f"Error saving thread '{target}'. ❌", style="red")
 
@@ -333,15 +327,16 @@ class MetaCommandProcessor:
                     return True
 
                 thread_id = args[0]
-                metadata = thread_manager.get_thread_metadata(thread_id)
-                if not metadata:
+                thread = thread_manager.get_thread(thread_id)
+                if not thread:
                     self.terminal_ui.print_message(f"Thread '{thread_id}' not found.", style="red")
                     return True
 
-                history = thread_manager.load_thread_messages(thread_id)
+                history = thread.messages
                 if history is not None:
                     self.llm_service.conversation_history = history
-                    self.agent_state.messages = history
+                    self.agent_state.messages = history.copy()
+                    thread_manager.set_current_thread_id(thread_id)
                     try:
                         self.llm_service._save_history(history)
                     except Exception:
@@ -359,9 +354,9 @@ class MetaCommandProcessor:
                 self.agent_state.messages = self.llm_service.conversation_history.copy()
                 self.llm_service._save_history(self.llm_service.conversation_history)
 
-                metadata = thread_manager.create_thread(title=title)
-                thread_manager.save_thread_messages(metadata["id"], self.llm_service.conversation_history)
-                self.terminal_ui.print_message(f"New thread '{metadata['id']}' created and started. ✨", style="green")
+                thread = thread_manager.create_thread(title=title, messages=self.llm_service.conversation_history)
+                thread_manager.set_current_thread_id(thread.id)
+                self.terminal_ui.print_message(f"New thread '{thread.id}' created and started. ✨", style="green")
 
             elif subcommand == "delete":
                 if not args:
@@ -380,9 +375,9 @@ class MetaCommandProcessor:
             return True
 
         if user_input.lower().strip().startswith('/resume'):
-            # /resume [thread_id] -> If no id, show threads selector
-            parts = user_input.strip().split()
-            thread_id = parts[1] if len(parts) > 1 else None
+            # /resume [query] -> If no query or multiple matches, show selector
+            parts = user_input.strip().split(maxsplit=1)
+            query = parts[1] if len(parts) > 1 else None
 
             thread_manager = getattr(self.kogniterm_app, 'thread_manager', None)
             if not thread_manager:
@@ -393,6 +388,23 @@ class MetaCommandProcessor:
             if not threads:
                 self.terminal_ui.print_message("No saved threads to resume.", style="yellow")
                 return True
+
+            thread_id = None
+            if query:
+                # 1. Comprobar ID exacto
+                exact_thread = thread_manager.get_thread(query)
+                if exact_thread:
+                    thread_id = exact_thread.id
+                else:
+                    # 2. Coincidencia parcial
+                    matches = thread_manager.find_threads(query)
+                    if len(matches) == 1:
+                        thread_id = matches[0].get("id")
+                    elif len(matches) > 1:
+                        self.terminal_ui.print_message(f"Multiple matches found for '{query}'. Please select from list.", style="yellow")
+                        threads = matches
+                    else:
+                        self.terminal_ui.print_message(f"No match found for '{query}'. Showing all threads.", style="yellow")
 
             if not thread_id:
                 options = []
@@ -410,10 +422,12 @@ class MetaCommandProcessor:
                     return True
                 thread_id = selected
 
-            history = thread_manager.load_thread_messages(thread_id)
+            thread = thread_manager.get_thread(thread_id)
+            history = thread.messages if thread is not None else None
             if history is not None:
                 self.llm_service.conversation_history = history
                 self.agent_state.messages = history.copy()
+                thread_manager.set_current_thread_id(thread_id)
                 try:
                     self.llm_service._save_history(history)
                 except Exception:
@@ -428,7 +442,10 @@ class MetaCommandProcessor:
                         pass
 
                 self._render_history_in_ui(history)
-                self.terminal_ui.print_message(f"Thread '{thread_id}' resumed with {len([m for m in history if hasattr(m, 'type') and m.type in ('human', 'ai')])} messages.", style="green")
+                self.terminal_ui.print_message(f"Thread '{thread.title}' resumed with {len([m for m in history if hasattr(m, 'type') and m.type in ('human', 'ai')])} messages.", style="green")
+                
+                # Intentar autonombrado asíncrono si el título no es definitivo
+                thread_manager.schedule_title_generation(thread_id, history, self.llm_service)
             else:
                 self.terminal_ui.print_message(f"Could not load thread '{thread_id}'.", style="red")
             return True

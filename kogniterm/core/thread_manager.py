@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import threading
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -95,6 +96,7 @@ class ThreadManager:
                 messages=list(messages or []),
             )
             self._save(thread)
+            self._current_thread_id = thread_id
             return thread
 
     def get_thread(self, thread_id: str) -> Optional[ChatThread]:
@@ -162,14 +164,72 @@ class ThreadManager:
             thread.touch()
             return self._save(thread)
 
+    def get_thread_metadata(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Devuelve el diccionario de metadatos del hilo (para retrocompatibilidad)."""
+        return self._load_metadata(thread_id)
+
+    def _save_metadata(self, thread_id: str, metadata: Dict[str, Any]) -> bool:
+        """Guarda metadatos de un hilo (para retrocompatibilidad)."""
+        with self._lock:
+            thread_path = os.path.join(self.threads_dir, thread_id)
+            os.makedirs(thread_path, exist_ok=True)
+            metadata_file = os.path.join(thread_path, "metadata.json")
+            tmp = metadata_file + ".tmp"
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(metadata, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, metadata_file)
+                return True
+            except Exception as exc:
+                logger.error("Error guardando metadatos en %s: %s", metadata_file, exc)
+                return False
+
+    def save_thread_messages(self, thread_id: str, messages: List[BaseMessage], llm_service: Optional[Any] = None) -> bool:
+        """Guarda o actualiza los mensajes de un hilo y actualiza sus metadatos (para retrocompatibilidad)."""
+        with self._lock:
+            thread = self.get_thread(thread_id)
+            if not thread:
+                thread = ChatThread(
+                    id=thread_id,
+                    title="Nueva conversación",
+                    messages=list(messages or [])
+                )
+            else:
+                thread.messages = list(messages or [])
+            
+            return self.save_thread(thread, llm_service=llm_service)
+
+    def load_thread_messages(self, thread_id: str) -> List[BaseMessage]:
+        """Carga los mensajes de un hilo (para retrocompatibilidad)."""
+        return self._load_messages(thread_id)
+
+    def find_threads(self, query: str) -> List[Dict[str, Any]]:
+        """Busca hilos por coincidencia parcial de ID o título (case-insensitive)."""
+        if not query:
+            return []
+        query_lower = query.lower().strip()
+        threads = self.list_threads()
+        matches = []
+        for t in threads:
+            tid = t.get("id", "").lower()
+            title = t.get("title", "").lower()
+            if query_lower in tid or query_lower in title:
+                matches.append(t)
+        return matches
+
     # ------------------------------------------------------------------
     # Persistencia
     # ------------------------------------------------------------------
-    def save_thread(self, thread: ChatThread) -> bool:
+    def save_thread(self, thread: ChatThread, llm_service: Optional[Any] = None) -> bool:
         """Guarda un hilo completo (mensajes + metadatos) de forma atómica."""
         with self._lock:
             thread.touch()
-            return self._save(thread)
+            success = self._save(thread)
+            if success and llm_service:
+                self.schedule_title_generation(thread.id, thread.messages, llm_service)
+            return success
 
     def _save(self, thread: ChatThread) -> bool:
         """Guarda metadatos y mensajes de un hilo."""
@@ -258,14 +318,29 @@ class ThreadManager:
             return
 
         metadata = self._load_metadata(thread_id)
-        if not metadata or metadata.get("title_source") != "manual":
-            return
-        if len(messages) < 2:
+        if not metadata:
             return
 
-        asyncio.get_running_loop().create_task(
-            self._generate_title(thread_id, messages, llm_service)
-        )
+        current_title = metadata.get("title", "")
+        default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
+        is_generic = current_title in default_titles or current_title == thread_id
+
+        if not is_generic or metadata.get("title_source") == "llm":
+            return
+
+        # Verificar que tengamos al menos un HumanMessage y un AIMessage
+        human_msgs = [m for m in messages if getattr(m, "type", None) == "human" or isinstance(m, HumanMessage)]
+        ai_msgs = [m for m in messages if getattr(m, "type", None) == "ai" or isinstance(m, AIMessage)]
+        if not human_msgs or not ai_msgs:
+            return
+
+        try:
+            asyncio.get_running_loop().create_task(
+                self._generate_title(thread_id, messages, llm_service)
+            )
+        except RuntimeError:
+            # Si no hay un bucle de eventos corriendo, se ignora
+            pass
 
     async def _generate_title(
         self,
@@ -307,8 +382,17 @@ class ThreadManager:
             )
 
             title = await self._call_llm_for_title(prompt, llm_service)
+            if title:
+                title = title.strip().strip("\"'").replace("\n", " ").strip()
+                for prefix in ("título:", "title:", "asunto:", "subject:"):
+                    if title.lower().startswith(prefix):
+                        title = title[len(prefix):].strip()
+                title = title.strip("\"'")
+                words = title.split()
+                if len(words) > 7:
+                    title = " ".join(words[:6]) + "..."
             if not title:
-                return self._fallback_title(human_msgs[0])
+                title = self._fallback_title(human_msgs[0])
 
             self.rename_thread(thread_id, title, source="llm")
             return title
