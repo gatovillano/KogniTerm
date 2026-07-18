@@ -62,6 +62,39 @@ def _load_file_ops_module(module_filename: str):
     mod_spec.loader.exec_module(mod)
     return mod
 
+
+# ---------------------------------------------------------------------------
+# Carga directa del módulo task_tracker (skill bundled con guión en el path)
+# Se carga una vez al importar este módulo y se reutiliza en task_tracker_node.
+# ---------------------------------------------------------------------------
+_task_tracker_module: Any = None
+_task_tracker_fn = None  # callable: task_tracker(action, agent_name, ...)
+
+def _ensure_task_tracker_module_loaded() -> bool:
+    """Carga el módulo task_tracker via importlib si aún no está en caché.
+    Devuelve True si la carga fue exitosa."""
+    global _task_tracker_module, _task_tracker_fn
+    if _task_tracker_fn is not None:
+        return True
+    try:
+        bundled_dir = _Path(__file__).resolve().parent.parent.parent / "skills" / "bundled"
+        tt_path = bundled_dir / "task-tracker" / "scripts" / "tool.py"
+        mod_key = "_task_tracker_bundled_tool"
+        if mod_key in sys.modules:
+            _task_tracker_module = sys.modules[mod_key]
+        else:
+            spec = importlib.util.spec_from_file_location(mod_key, str(tt_path))
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_key] = mod
+            spec.loader.exec_module(mod)
+            _task_tracker_module = mod
+        _task_tracker_fn = _task_tracker_module.task_tracker
+        logger.debug("task_tracker_node: módulo cargado directamente desde bundled.")
+        return True
+    except Exception as e:
+        logger.warning(f"task_tracker_node: no se pudo cargar el módulo directamente: {e}")
+        return False
+
 from ..llm_service import LLMService
 from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState # Importar AgentState desde el archivo consolidado
@@ -442,6 +475,118 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
         ))
 
     return {"messages": state.messages}
+
+
+# ---------------------------------------------------------------------------
+# task_tracker_node: Ejecuta tool_calls de task_tracker directamente en Python
+# sin pasar por el LLM ni por el ThreadPoolExecutor del execute_tool_node.
+# Esto elimina el ciclo execute_tool → LLM para una herramienta determinista.
+# ---------------------------------------------------------------------------
+
+def task_tracker_node(
+    state: AgentState,
+    llm_service: LLMService,
+    terminal_ui: Optional[TerminalUI] = None,
+):
+    """Nodo del grafo que intercepta y ejecuta directamente las tool_calls
+    de ``task_tracker`` sin hacer un round-trip al LLM.
+
+    - Procesa todas las llamadas ``task_tracker`` del turno actual.
+    - Genera los ``ToolMessage`` correspondientes e inyecta el estado del
+      ``_llm_service`` en el módulo para que la TUI se actualice.
+    - Deja intactas las demás tool_calls del mismo turno para que
+      ``execute_tool_node`` las maneje a continuación.
+    """
+    last_message = state.messages[-1]
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return state
+
+    tt_calls = [tc for tc in last_message.tool_calls if tc["name"] == "task_tracker"]
+    if not tt_calls:
+        return state
+
+    # Asegurar que el módulo esté cargado y _llm_service inyectado
+    _ensure_task_tracker_module_loaded()
+    if _task_tracker_module and hasattr(_task_tracker_module, "_llm_service"):
+        _task_tracker_module._llm_service = llm_service
+
+    tool_messages = []
+    for tc in tt_calls:
+        args = tc.get("args", {})
+        try:
+            if _task_tracker_fn is not None:
+                result = _task_tracker_fn(
+                    action=args.get("action", "get"),
+                    agent_name=args.get("agent_name", "kogni_agent"),
+                    plan=args.get("plan"),
+                    task_index=args.get("task_index"),
+                    status=args.get("status"),
+                    updates=args.get("updates"),
+                )
+            else:
+                # Fallback: intentar via skill_manager
+                tool = llm_service.get_tool("task_tracker") if llm_service else None
+                result = str(tool(**args)) if tool else "Error: task_tracker no disponible."
+        except Exception as exc:
+            result = f"Error en task_tracker_node: {exc}"
+            logger.warning(f"task_tracker_node: excepción al ejecutar {tc['id']}: {exc}")
+
+        tool_messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+        logger.info(f"task_tracker_node: call '{args.get('action')}' procesada directamente (id={tc['id']}).")
+
+    state.add_messages(tool_messages)
+    return {"messages": state.messages}
+
+
+def route_tools(state: AgentState) -> str:
+    """Router que decide si el turno requiere el nodo rápido task_tracker_node
+    o el execute_tool_node genérico.
+
+    Regla:
+    - Si el último AIMessage contiene al menos una tool_call ``task_tracker``
+      → ``task_tracker_node`` (ejecución directa, sin LLM).
+    - En caso contrario → ``execute_tool`` (flujo normal).
+    """
+    last_message = state.messages[-1]
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        return END
+    for tc in last_message.tool_calls:
+        if tc["name"] == "task_tracker":
+            return "task_tracker_node"
+    return "execute_tool"
+
+
+def should_continue_after_tt(state: AgentState) -> str:
+    """Router de salida del task_tracker_node.
+
+    Tras procesar las calls de task_tracker, verifica si quedan tool_calls
+    pendientes (de otra herramienta) en el mismo turno o si debe volver
+    directamente a call_model.
+    """
+    if state.critical_loop_detected or state.stop_requested:
+        return END
+    if (state.command_to_confirm is not None or
+            state.file_update_diff_pending_confirmation is not None or
+            state.tool_pending_confirmation is not None or
+            state.tool_code_to_confirm is not None):
+        return END
+
+    # Buscar el último AIMessage para ver si quedan calls pendientes
+    last_ai: Optional[AIMessage] = None
+    for msg in reversed(state.messages):
+        if isinstance(msg, AIMessage):
+            last_ai = msg
+            break
+
+    if last_ai and last_ai.tool_calls:
+        # Determinar IDs ya procesados (ToolMessages añadidos en este nodo)
+        processed_ids = {msg.tool_call_id for msg in state.messages if isinstance(msg, ToolMessage)}
+        remaining = [tc for tc in last_ai.tool_calls if tc["id"] not in processed_ids]
+        if remaining:
+            return "execute_tool"
+
+    # Sin calls pendientes → volver al modelo
+    return "call_model"
 
 
 def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Optional[TerminalUI] = None, interrupt_queue: Optional[queue.Queue] = None):
@@ -1298,19 +1443,36 @@ def should_continue(state: AgentState) -> str:
 # --- Construcción del Grafo ---
 
 def create_bash_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None, command_approval_handler=None):
+    # Pre-cargar el módulo task_tracker para que el primer init sea instantáneo
+    _ensure_task_tracker_module_loaded()
+
     bash_agent_graph = StateGraph(AgentState)
 
     bash_agent_graph.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue))
     bash_agent_graph.add_node("execute_tool", functools.partial(execute_tool_node, llm_service=llm_service, terminal_ui=terminal_ui, interrupt_queue=interrupt_queue, command_approval_handler=command_approval_handler))
     bash_agent_graph.add_node("verify", functools.partial(verification_node, llm_service=llm_service, terminal_ui=terminal_ui))
+    bash_agent_graph.add_node("task_tracker_node", functools.partial(task_tracker_node, llm_service=llm_service, terminal_ui=terminal_ui))
 
     bash_agent_graph.set_entry_point("call_model")
 
+    # call_model → route_tools: separa task_tracker del resto de herramientas
     bash_agent_graph.add_conditional_edges(
         "call_model",
-        should_continue,
+        route_tools,
+        {
+            "task_tracker_node": "task_tracker_node",
+            "execute_tool": "execute_tool",
+            END: END
+        }
+    )
+
+    # task_tracker_node → si quedan otras calls → execute_tool; si no → call_model
+    bash_agent_graph.add_conditional_edges(
+        "task_tracker_node",
+        should_continue_after_tt,
         {
             "execute_tool": "execute_tool",
+            "call_model": "call_model",
             END: END
         }
     )
