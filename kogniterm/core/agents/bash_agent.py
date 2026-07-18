@@ -628,8 +628,11 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
         state.messages[-1] = HumanMessage(content=processed_content)
 
     # --- Obtener system message dinámico (específico de Bash) ---
-    system_prompt = get_system_message(llm_service)
-    
+    # get_system_message devuelve un SystemMessage; extraer el string de contenido
+    # porque BaseAgentNode.call_model espera un str, no un SystemMessage.
+    _sys_msg = get_system_message(llm_service)
+    system_prompt = _sys_msg.content if hasattr(_sys_msg, "content") else str(_sys_msg)
+
     # --- Delegar streaming y renderizado a BaseAgentNode ---
     # BaseAgentNode.call_model maneja: streaming, renderizado en tiempo real (TUI/CLI),
     # detección de bucles genérica, keyboard handler, y actualización del estado.
