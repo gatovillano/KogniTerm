@@ -289,6 +289,53 @@ class ToolExecutor:
         return state
 
 
+
+    @staticmethod
+    async def execute_single_tool_async(tc, llm_service, terminal_ui, interrupt_queue):
+        """
+        Versión asíncrona de execute_single_tool.
+        Ejecuta la herramienta en un thread separado para no bloquear el event loop.
+        """
+        tool_name = tc['name']
+        tool_args = tc['args']
+        tool_id = tc['id']
+
+        tool = llm_service.get_tool(tool_name)
+        if not tool:
+            return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
+
+        try:
+            from ..async_io_manager import get_io_manager
+
+            io_manager = get_io_manager()
+
+            # Función síncrona que se ejecutará en el executor
+            def run_tool_sync():
+                full_tool_output = ""
+                tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
+                for chunk in tool_output_generator:
+                    full_tool_output += str(chunk)
+                return full_tool_output
+
+            # Ejecutar de forma asíncrona
+            result = io_manager.run_in_executor(run_tool_sync)
+
+            if result.success:
+                processed_tool_output = ToolExecutor._handle_special_tools(
+                    tool_name, result.result, llm_service
+                )
+                return tool_id, processed_tool_output, None
+            else:
+                return tool_id, f"Error al ejecutar la herramienta {tool_name}: {result.error}", Exception(result.error)
+
+        except UserConfirmationRequired as e:
+            return tool_id, json.dumps(e.raw_tool_output), e
+        except InterruptedError:
+            return tool_id, f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.", InterruptedError("Interrumpido por el usuario.")
+        except Exception as e:
+            return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
+
+
 def should_continue(state: AgentState) -> str:
     from langgraph.graph import END
 
