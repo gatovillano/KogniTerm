@@ -101,7 +101,7 @@ from kogniterm.core.agent_state import AgentState # Importar AgentState desde el
 from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
 from ..async_io_manager import get_io_manager, AsyncTaskResult
 from ..utils.tool_utils import get_tool_action_description, tool_requires_content_for_confirmation
-from ..tool_executor import ToolExecutor
+from .tool_executor import ToolExecutor
 
 import logging
 
