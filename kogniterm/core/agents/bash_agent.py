@@ -21,6 +21,7 @@ import py_compile
 import importlib.util
 from types import ModuleType
 from pathlib import Path as _Path
+from kogniterm.core.agents.base_agent import BaseAgentNode
 
 
 def _load_file_ops_module(module_filename: str):
@@ -830,7 +831,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         futures_map: Dict = {}  # future -> tool_id
         for tc in parallel_calls:
             logger.info(f"Agente: Enviando herramienta '{tc['name']}' al executor.")
-            future = executor.submit(execute_single_tool, tc, llm_service, terminal_ui, interrupt_queue)
+            future = executor.submit(ToolExecutor.execute_single_tool, tc, llm_service, terminal_ui, getattr(state, 'delegation_context', None))
             futures_map[future] = tc['id']
 
         logger.info(f"Agente: Esperando resultados de {len(futures_map)} herramientas en paralelo.")
