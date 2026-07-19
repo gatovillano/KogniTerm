@@ -196,21 +196,15 @@ class BaseAgentNode:
         renderables = []
         if s_state["full_thinking"]:
             from kogniterm.ui.themes import ColorPalette
-            # Render de 'pensamiento' simplificado en TUI para evitar paneles/bordes
-            if is_tui:
-                # Usar Text plano con estilo dim para evitar bordes y tablas que rompan el layout
-                thinking_text = Text(s_state["full_thinking"], style=f"dim {ColorPalette.TEXT_DIM}")
-                renderables.append(thinking_text)
-            else:
-                # En modo CLI clásico seguimos mostrando un Panel con Markdown
-                renderables.append(Panel(
-                    Markdown(s_state["full_thinking"]), 
-                    title=f"[{ColorPalette.TEXT_DIM}]Pensando...[/{ColorPalette.TEXT_DIM}]", 
-                    border_style=ColorPalette.TEXT_DIM,
-                    style=ColorPalette.TEXT_DIM,
-                    padding=(0, 4),
-                    expand=True
-                ))
+            # Mostrar el pensamiento con Panel y Markdown tanto en TUI como en CLI
+            renderables.append(Panel(
+                Markdown(s_state["full_thinking"]),
+                title=f"[{ColorPalette.TEXT_DIM}]💭 Pensando...[/{ColorPalette.TEXT_DIM}]",
+                border_style=ColorPalette.TEXT_DIM,
+                style=ColorPalette.TEXT_DIM,
+                padding=(0, 2),
+                expand=True
+            ))
             if s_state["full_response"]:
                 renderables.append(Text("")) # Margen inferior respecto al mensaje final
         if s_state["full_response"]:

@@ -63,14 +63,19 @@ class DeepResearchState(AgentState):
     research_plan: List[str] = field(default_factory=list)
     findings: List[Dict[str, Any]] = field(default_factory=list)
     iteration_count: int = 0
-    max_iterations: int = 5
+    max_iterations: int = 8  # Aumentado para permitir investigación profunda iterativa
     current_task: str = ""
     autonomous_approvals: bool = True  # DeepResearch opera en modo autónomo por defecto
+    # Nuevos campos para investigación profunda
+    research_gaps: List[str] = field(default_factory=list)  # Lagunas identificadas en reflexión
+    source_urls: List[str] = field(default_factory=list)  # URLs de fuentes rastreadas
+    reflection_count: int = 0  # Cuántas veces se ha hecho reflexión
+    synthesis_sections: Dict[str, str] = field(default_factory=dict)  # Síntesis incremental por tarea
 
 
 # --- Prompts ---
 def get_deep_research_system_prompt(llm_service: LLMService) -> str:
-    prompt = """Eres el **KogniDeepResearcher**, un motor de investigación de élite diseñado para realizar análisis técnicos profundos y exhaustivos, como miembro de un equipo multi-agente.
+    prompt = """Eres el **KogniDeepResearcher**, un motor de investigación de élite diseñado para realizar análisis técnicos PROFUNDOS y EXHAUSTIVOS, como miembro de un equipo multi-agente.
 
 ⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
 Cualquier tarea asignada DEBE ser registrada y actualizada en la herramienta `task_tracker`.
@@ -82,14 +87,14 @@ Cualquier tarea asignada DEBE ser registrada y actualizada en la herramienta `ta
 **IMPORTANTE — CONTEXTO DE OPERACIÓN:**
 No interactúas directamente con el usuario final. Tu receptor es el **Bash Agent (KogniTerm)**, quien coordina la ejecución global. Tu misión es entregar un **Informe de Investigación Magistral** al Bash Agent para que este tome decisiones informadas.
 
-Tu objetivo es resolver consultas complejas mediante un proceso iterativo de:
-1. **Planificación**: Desglosar la consulta en sub-preguntas lógicas.
-2. **Exploración**: Utilizar búsquedas web, análisis de código y GitHub para encontrar respuestas.
-"""
-    if not llm_service.is_thinking_model():
-        prompt += "3. **Razonamiento Crítico**: Evaluar la información obtenida. Si encuentras contradicciones o lagunas, DEBES investigar más profundo.\n"
-
-    prompt += """4. **Síntesis**: Crear un informe técnico magistral con citas, fragmentos de código y arquitectura.
+## 🔬 METODOLOGÍA DE INVESTIGACIÓN PROFUNDA
+Tu objetivo es resolver consultas complejas mediante un proceso iterativo y PROFUNDO de:
+1. **Planificación**: Desglosar la consulta en sub-preguntas lógicas y específicas.
+2. **Exploración de Fuentes Primarias**: Utilizar `tavily_search` con `search_depth="advanced"` para temas complejos, `web_fetch` para leer contenido completo de URLs relevantes, y `github` para analizar código fuente y repositorios.
+3. **Verificación Cruzada**: NUNCA te quedes con una sola fuente. Busca al menos 3 fuentes independientes por sub-pregunta. Si encuentras contradicciones, INVESTIGA MÁS para resolverlas.
+4. **Rastreo de Fuentes**: Cada hallazgo DEBE incluir la URL de origen. Usa `web_fetch` para obtener detalles técnicos específicos de documentación oficial.
+5. **Análisis Crítico**: Evalúa la calidad y relevancia de cada fuente. Prioriza documentación oficial, papers, repositorios con muchas estrellas, y contenido técnico detallado sobre blogs superficiales.
+6. **Síntesis Profunda**: Crear un informe técnico magistral con citas, fragmentos de código y arquitectura, conectando los puntos entre diferentes fuentes.
 
 ## 🚀 OPTIMIZACIÓN Y VELOCIDAD (PARALELISMO)
 Para ser eficiente y rápido, **DEBES ejecutar múltiples herramientas simultáneamente** cuando las acciones sean independientes. 
@@ -104,10 +109,11 @@ Usa `task_tracker` para gestionar tu progreso con el `agent_name='Researcher'`.
 
 **ENTREGA DE RESULTADOS AL BASH AGENT:**
 Tu respuesta final es el Informe de Investigación Magistral. Debe ser:
-- **Técnico y Preciso**: Basado exclusivamente en evidencia encontrada.
+- **Técnico y Preciso**: Basado exclusivamente en evidencia encontrada y citada.
 - **Estructurado**: Usa Markdown, tablas y diagramas Mermaid si es necesario.
 - **Accionable**: Proporciona conclusiones claras que el Bash Agent pueda usar.
 - **Detallado con párrafos explicativos**: Cada sección debe desarrollarse con párrafos descriptivos completos. **NO te limites a listas de viñetas o encabezados vacíos.** Después de cada título o punto clave, escribe al menos 2–3 párrafos que expliquen el "por qué", el "cómo" y las implicaciones técnicas. El informe debe ser comprensible para alguien que no estuvo presente en la investigación.
+- **Con Fuentes**: Cada afirmación técnica debe tener su URL de referencia en formato [fuente](url).
 """
 
     if not llm_service.is_thinking_model():
@@ -275,7 +281,9 @@ def research_node(
     terminal_ui: Optional[TerminalUI] = None,
     interrupt_queue: Optional[queue.Queue] = None,
 ):
-    """Nodo de investigación: registra hallazgos y mantiene la UI informada."""
+    """Nodo de investigación: registra hallazgos estructurados con fuentes y mantiene la UI informada."""
+    import re
+    import json
 
     # Registrar hallazgos de todas las herramientas ejecutadas recientemente (soporte para paralelismo)
     recent_tool_messages = []
@@ -285,10 +293,47 @@ def research_node(
         elif isinstance(msg, AIMessage):
             break
 
-    for msg in reversed(recent_tool_messages):
-        state.findings.append({"task": state.current_task, "content": msg.content})
+    url_pattern = re.compile(r'https?://[^\s)<>"]+')
 
-    return {"findings": state.findings}
+    for msg in reversed(recent_tool_messages):
+        content = str(msg.content)
+        # Extraer URLs del contenido para rastreo de fuentes
+        urls = url_pattern.findall(content)
+        if urls:
+            for u in urls:
+                if u not in state.source_urls:
+                    state.source_urls.append(u)
+
+        # Intentar extraer metadatos estructurados si el ToolMessage tiene artifact
+        sources = urls[:5]  # Máximo 5 fuentes por hallazgo
+        confidence = "medium"
+
+        # Si el mensaje tiene artifact con metadata de herramienta
+        artifact = getattr(msg, 'artifact', None)
+        if artifact and isinstance(artifact, dict):
+            if 'source_urls' in artifact:
+                sources = artifact['source_urls']
+            if 'confidence' in artifact:
+                confidence = artifact['confidence']
+
+        finding = {
+            "task": state.current_task,
+            "content": content,
+            "sources": sources,
+            "confidence": confidence,
+            "tool": msg.name if hasattr(msg, 'name') else "unknown",
+        }
+        state.findings.append(finding)
+
+    # Actualizar UI con progreso
+    if terminal_ui and hasattr(terminal_ui, "update_live"):
+        is_tui = hasattr(terminal_ui, "app") and terminal_ui.app is not None
+        if is_tui:
+            terminal_ui.update_live(
+                ("__SPINNER__", f"Investigando: {state.current_task} ({len(state.findings)} hallazgos, {len(state.source_urls)} fuentes)")
+            )
+
+    return {"findings": state.findings, "source_urls": state.source_urls}
 
 
 def reflection_node(
@@ -296,14 +341,17 @@ def reflection_node(
     llm_service: LLMService,
     terminal_ui: Optional[TerminalUI] = None,
 ):
-    """Nodo de pensamiento crítico que evalúa la calidad de los hallazgos."""
+    """Nodo de pensamiento crítico que evalúa la PROFUNDIDAD y CALIDAD de los hallazgos."""
+    state.iteration_count += 1
+    state.reflection_count += 1
+
     if terminal_ui and hasattr(terminal_ui, "update_live"):
         is_tui = hasattr(terminal_ui, "app") and terminal_ui.app is not None
         if is_tui:
             terminal_ui.update_live(
                 (
                     "__SPINNER__",
-                    "Reflexionando sobre los hallazgos y buscando inconsistencias...",
+                    "Reflexionando sobre la profundidad y calidad de los hallazgos...",
                 )
             )
         else:
@@ -314,7 +362,7 @@ def reflection_node(
             terminal_ui.update_live(
                 Padding(
                     Panel(
-                        f"{Icons.THINKING} [bold]Reflexionando sobre los hallazgos y buscando inconsistencias...[/bold]",
+                        f"{Icons.THINKING} [bold]Evaluando profundidad de investigación (iter {state.iteration_count}/{state.max_iterations})...[/bold]",
                         border_style="cyan",
                         padding=(0, 4),
                         expand=True,
@@ -323,21 +371,63 @@ def reflection_node(
                 )
             )
 
-    findings_text = "\n".join(
-        [f"- {f['task']}: {f['content'][:200]}..." for f in state.findings]
-    )
+    # Si alcanzamos el límite de iteraciones, forzar síntesis
+    if state.iteration_count >= state.max_iterations:
+        logger.info(f"⚠️ Límite de iteraciones ({state.max_iterations}) alcanzado. Forzando síntesis.")
+        state.messages.append(
+            ToolMessage(
+                content="REFLEXIÓN: Límite de iteraciones alcanzado. Procediendo a síntesis.",
+                tool_call_id="reflection_node",
+            )
+        )
+        return {"messages": state.messages, "reflection_result": "READY", "iteration_count": state.iteration_count}
 
-    prompt = f"""Revisa los hallazgos actuales:
-    {findings_text}
-    
-    ¿Hay contradicciones? ¿Falta información crítica para la consulta original: '{state.messages[0].content}'?
-    Si todo está claro, responde 'READY'. Si falta algo, indica qué tarea o área técnica necesita más profundidad.
-    Responde brevemente.
-    """
+    # Construir resumen detallado de hallazgos con fuentes
+    findings_text = ""
+    for i, f in enumerate(state.findings):
+        task = f.get('task', 'N/A')
+        content = str(f.get('content', ''))[:300]
+        sources = f.get('sources', [])
+        confidence = f.get('confidence', 'unknown')
+        findings_text += f"\n[{i+1}] Tarea: {task}\n   Resumen: {content}...\n   Fuentes: {len(sources)} | Confianza: {confidence}\n"
+
+    plan_text = "\n".join([f"- {p}" for p in state.research_plan])
+
+    # Incluir lagunas previas si existen
+    prev_gaps = ""
+    if state.research_gaps:
+        prev_gaps = "\n\n**Lagunas de la reflexión anterior:**\n" + "\n".join([f"- {g}" for g in state.research_gaps])
+
+    prompt = f"""Eres un **Crítico de Investigación de Élite**. Evalúa si la investigación tiene PROFUNDIDAD y CALIDAD suficientes.
+
+**Plan Original:**
+{plan_text}
+{prev_gaps}
+
+**Hallazgos ({len(state.findings)} total):**
+{findings_text}
+
+Evalúa rigurosamente:
+1. ¿Todas las sub-preguntas del plan tienen evidencia sólida?
+2. ¿Hay 2-3 fuentes independientes por tema importante?
+3. ¿Contradicciones resueltas o señaladas?
+4. ¿Faltan detalles técnicos (versiones, APIs, código, métricas)?
+5. ¿Profundidad suficiente para decisión técnica real?
+
+Responde JSON estricto:
+```json
+{{
+  "status": "READY" o "NEEDS_MORE",
+  "gaps": ["lagunas específicas a investigar, vacío si READY"],
+  "priority": "high|medium|low",
+  "reasoning": "por qué estás listo o necesitas más"
+}}
+```
+"""
 
     response = llm_service.invoke(
         history=[
-            SystemMessage(content="Eres un Crítico de Investigación."),
+            SystemMessage(content="Eres un Crítico de Investigación riguroso. Responde solo con JSON válido."),
             HumanMessage(content=prompt),
         ]
     )
@@ -346,12 +436,40 @@ def reflection_node(
         if isinstance(part, str) and not part.startswith("THINKING"):
             content += part
 
+    # Parsear JSON
+    import json
+    import re
+    decision = "NEEDS_MORE"
+    gaps = []
+    priority = "medium"
+    try:
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            decision = parsed.get('status', 'NEEDS_MORE')
+            gaps = parsed.get('gaps', [])
+            priority = parsed.get('priority', 'medium')
+    except Exception as e:
+        logger.warning(f"No se pudo parsear reflexión JSON: {e}. Usando NEEDS_MORE.")
+        decision = "NEEDS_MORE"
+        gaps = ["No se pudo evaluar automáticamente, continuar investigando"]
+
+    # Guardar lagunas para próxima iteración
+    if gaps:
+        state.research_gaps = gaps
+
     state.messages.append(
         ToolMessage(
-            content=f"REFLEXIÓN TÉCNICA: {content}", tool_call_id="reflection_node"
+            content=f"REFLEXIÓN TÉCNICA: status={decision}, priority={priority}, gaps={gaps}",
+            tool_call_id="reflection_node",
         )
     )
-    return {"messages": state.messages}
+    return {
+        "messages": state.messages,
+        "reflection_result": "READY" if decision == "READY" else "FALTA",
+        "research_gaps": gaps,
+        "iteration_count": state.iteration_count,
+    }
 
 
 def synthesis_node(
@@ -386,22 +504,38 @@ def synthesis_node(
                 )
             )
 
+    # Construir resumen de hallazgos con fuentes
     all_findings_summary = ""
     for idx, finding in enumerate(state.findings):
-        all_findings_summary += f"### Hallazgo {idx + 1}: {finding.get('task')}\n{finding.get('content')}\n\n"
+        task = finding.get('task', 'N/A')
+        content = finding.get('content', '')
+        sources = finding.get('sources', [])
+        confidence = finding.get('confidence', 'unknown')
+        tool = finding.get('tool', 'unknown')
+        sources_text = "\n".join([f"  - {s}" for s in sources]) if sources else "  - (sin fuentes explícitas)"
+        all_findings_summary += f"### Hallazgo {idx + 1}: {task} [confianza: {confidence}, tool: {tool}]\n{content}\n\n**Fuentes:**\n{sources_text}\n\n"
 
-    prompt = f"""Como experto Sintetizador Técnico, utiliza toda la información recopilada para crear el informe final.
+    sources_list = "\n".join([f"- {u}" for u in state.source_urls[:20]]) if state.source_urls else "- (no se registraron URLs)"
+
+    prompt = f"""Como experto Sintetizador Técnico de ÉLITE, utiliza toda la información recopilada para crear el INFORME FINAL DE INVESTIGACIÓN PROFUNDA.
     
-    HISTORIAL DE INVESTIGACIÓN:
+    HISTORIAL DE INVESTIGACIÓN ({len(state.findings)} hallazgos, {len(state.source_urls)} fuentes únicas):
     {all_findings_summary}
+    
+    FUENTES RASTREADAS:\n{sources_list}
     
     CONSULTA ORIGINAL: {state.messages[0].content}
     
-    REQUISITOS DEL INFORME:
-    1. Estructura clara (Introducción, Arquitectura/Flujo, Detalles Técnicos, Conclusión).
-    2. Cita archivos, líneas de código y URLs encontradas.
-    3. Usa Mermaid para diagramas de secuencia o flujo.
-    4. Proporcina recomendaciones o advertencias 'KogniInsight'.
+    REQUISITOS DEL INFORME (MÍNIMO 1500 PALABRAS, PROFUNDO Y TÉCNICO):
+    1. **Resumen Ejecutivo**: Síntesis de 2-3 párrafos con las conclusiones clave.
+    2. **Análisis por Sub-pregunta**: Para cada punto del plan de investigación, un análisis detallado con párrafos explicativos (no solo viñetas) que conecten múltiples fuentes.
+    3. **Arquitectura y Flujos**: Usa diagramas Mermaid cuando sea relevante.
+    4. **Detalles Técnicos Específicos**: Versiones, APIs, fragmentos de código, métricas, con citas a fuentes.
+    5. **Contradicciones y Resolución**: Si hubo fuentes en conflicto, explica cómo se resolvieron.
+    6. **Conclusiones y Recomendaciones**: Accionables para el Bash Agent, con advertencias 'KogniInsight'.
+    7. **Referencias**: Lista numerada de todas las URLs citadas.
+    
+    Cada afirmación técnica DEBE incluir su referencia en formato [n] donde n es el índice en la lista de referencias.
     """
 
     # Llamada final al modelo
@@ -409,7 +543,8 @@ def synthesis_node(
         history=[
             SystemMessage(content=get_deep_research_system_prompt(llm_service)),
             HumanMessage(content=prompt),
-        ]
+        ],
+        temperature=0.3,
     )
 
     # Recolectar la respuesta y filtrar razonamiento
@@ -482,9 +617,18 @@ def call_deep_model_node(
             msg.additional_kwargs.pop("reasoning_content")
         cleaned_messages.append(msg)
 
-    context_info = f"\n\nESTADO DE LA INVESTIGACIÓN:\n- Plan de investigación: {state.research_plan}\n- Tarea actual: {state.current_task}\n- Hallazgos acumulados: {len(state.findings)}"
+    context_info = f"\n\nESTADO DE LA INVESTIGACIÓN:\n- Plan de investigación: {state.research_plan}\n- Tarea actual: {state.current_task}\n- Hallazgos acumulados: {len(state.findings)}\n- Iteración: {state.iteration_count}/{state.max_iterations}"
     if state.findings:
         context_info += f"\n- Último hallazgo: {state.findings[-1]['task']}"
+    if getattr(state, 'research_gaps', None):
+        context_info += f"\n\n⚠️ LAGUNAS IDENTIFICADAS POR REFLEXIÓN (DEBES INVESTIGAR ESTO):\n"
+        for i, gap in enumerate(state.research_gaps, 1):
+            context_info += f"  {i}. {gap}\n"
+        context_info += "\nUsa tavily_search, web_fetch o github para cerrar estas brechas."
+    if getattr(state, 'source_urls', None):
+        context_info += f"\n\nFuentes ya rastreadas ({len(state.source_urls)}): " + ", ".join(state.source_urls[:5])
+    if getattr(state, 'reflection_result', None):
+        context_info += f"\n\nÚltima evaluación de reflexión: {state.reflection_result}"
 
     system_prompt = get_deep_research_system_prompt(llm_service) + context_info
 
@@ -809,13 +953,29 @@ def create_deep_researcher(
     workflow.add_edge("research", "call_model")
 
     def deep_research_router(state: DeepResearchState):
+        """Router iterativo: respeta max_iterations y bucle reflection->research."""
+        # Si el modelo ha completado explícitamente
         if state.completed:
             return "synthesis"
 
+        # Si hay tool calls pendientes, ejecutar herramientas
         if should_continue(state) == "execute_tool":
             return "execute_tool"
 
-        if state.findings and len(state.findings) >= len(state.research_plan):
+        # Si hay hallazgos y alcanzamos el límite de iteraciones, ir a reflexión
+        if state.findings and state.iteration_count >= state.max_iterations:
+            return "reflection"
+
+        # Si tenemos al menos un hallazgo y la reflexión anterior dijo READY, síntesis
+        if state.findings and getattr(state, 'reflection_result', None) == "READY":
+            return "reflection"  # El nodo reflection forzará síntesis si es READY
+
+        # Si ya pasamos por reflexión y dijo FALTA, volver a investigar con gaps
+        if state.findings and getattr(state, 'reflection_result', None) == "FALTA":
+            return "call_model"  # El modelo usará research_gaps para profundizar
+
+        # Flujo normal: si hay hallazgos suficientes para una primera reflexión
+        if state.findings and len(state.findings) >= max(1, len(state.research_plan) // 2):
             return "reflection"
 
         return "call_model"
@@ -827,10 +987,24 @@ def create_deep_researcher(
             "execute_tool": "execute_tool",
             "reflection": "reflection",
             "call_model": "call_model",
+            "synthesis": "synthesis",
         },
     )
 
-    workflow.add_edge("reflection", "synthesis")
+    # Bucle: reflection puede volver a call_model si FALTA, o ir a synthesis si READY
+    def reflection_router(state: DeepResearchState):
+        if getattr(state, 'reflection_result', None) == "READY":
+            return "synthesis"
+        return "call_model"
+
+    workflow.add_conditional_edges(
+        "reflection",
+        reflection_router,
+        {
+            "synthesis": "synthesis",
+            "call_model": "call_model",
+        },
+    )
     workflow.add_edge("synthesis", END)
 
     return workflow.compile()
