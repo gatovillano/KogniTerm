@@ -237,6 +237,20 @@ class TextualTerminalUI:
         self.console = DummyConsole(self)
         self.kb = None
         self.is_tui = True
+        self._stream_accumulators = {}
+        self._last_live_update_time = 0.0
+
+    def _get_stream_accumulator(self, panel_id: str = None) -> str:
+        key = panel_id or "__main__"
+        return self._stream_accumulators.get(key, "")
+
+    def _set_stream_accumulator(self, value: str, panel_id: str = None):
+        key = panel_id or "__main__"
+        self._stream_accumulators[key] = value
+
+    def _reset_stream_accumulator(self, panel_id: str = None):
+        key = panel_id or "__main__"
+        self._stream_accumulators[key] = ""
 
     def _safe_call(self, func, *args, **kwargs):
         """Call a function safely depending on whether we are in the main thread or not."""
@@ -296,37 +310,43 @@ class TextualTerminalUI:
             return
 
         panel_id = kwargs.get("panel_id")
-        if panel_id:
+        import time
+        # Solo suprimir stream del agente principal si hay live_update reciente
+        if panel_id or time.time() - self._last_live_update_time > 2.0:
+            accumulated = self._get_stream_accumulator(panel_id) + content
+            self._set_stream_accumulator(accumulated, panel_id)
 
-            def _update_panel():
-                try:
-                    panel = self._get_chat_log(panel_id)
-                    # ChatLogWidget (VerticalScroll) usa write_stream; Static/ToolOutputWidget usa update
-                    from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+            if panel_id:
+                def _update_panel():
+                    try:
+                        panel = self._get_chat_log(panel_id)
+                        # ChatLogWidget (VerticalScroll) usa write_stream; Static/ToolOutputWidget usa update
+                        from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
 
-                    if isinstance(panel, ChatLogWidget):
-                        panel.write_stream(content)
-                    elif hasattr(panel, "update"):
-                        panel.update(content)
-                except Exception:
-                    pass
+                        if isinstance(panel, ChatLogWidget):
+                            panel.write_stream(accumulated)
+                        elif hasattr(panel, "update"):
+                            panel.update(accumulated)
+                    except Exception:
+                        pass
 
-            self._safe_call(_update_panel)
-            return
+                self._safe_call(_update_panel)
+                return
 
-        # Limpiar el cursor previo si existe antes de escribir nuevo texto
-        if self.app._cursor_active:
-            # RichLog no permite borrar caracteres individuales fácilmente,
-            # pero podemos escribir el contenido nuevo y el cursor se moverá al final.
-            pass
+            # Limpiar el cursor previo si existe antes de escribir nuevo texto
+            if self.app._cursor_active:
+                # RichLog no permite borrar caracteres individuales fácilmente,
+                # pero podemos escribir el contenido nuevo y el cursor se moverá al final.
+                pass
 
-        self._safe_call(self.app.chat_log.write_stream, content)
-
-        # El cursor se redibujará en el siguiente tick del timer si está activo
+            self._safe_call(self.app.chat_log.write_stream, accumulated)
 
     def update_live(self, renderable, **kwargs):
         """Actualiza el contenido en streaming."""
         panel_id = kwargs.get("panel_id")
+        import time
+        if not panel_id:
+            self._last_live_update_time = time.time()
         self._safe_call(self.app.update_live_display, renderable, panel_id)
 
     def update_terminal_output(self, tool_name: str, output: str, **kwargs):
@@ -375,6 +395,9 @@ class TextualTerminalUI:
     def stop_live(self, **kwargs):
         """Finaliza el streaming y consolida el mensaje."""
         panel_id = kwargs.get("panel_id")
+        self._reset_stream_accumulator(panel_id)
+        if not panel_id:
+            self._last_live_update_time = 0.0
         if panel_id:
             # Si hay panel_id, detener streaming en ese panel específico
             def _stop():

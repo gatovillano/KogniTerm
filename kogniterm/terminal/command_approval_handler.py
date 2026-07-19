@@ -400,11 +400,15 @@ class CommandApprovalHandler:
                 cmd_action = self._resolve_command_action(command_to_execute)
                 if cmd_action == "deny":
                     # Bloqueo inmediato — no preguntar al usuario
-                    deny_msg = f"⛔ Comando denegado por reglas de seguridad: `{command_to_execute.strip()}`"
+                    deny_msg = f"⛔ Comando denegado por reglas de seguridad y no ejecutado: `{command_to_execute.strip()}`"
                     logger.warning(deny_msg)
                     self.terminal_ui.console.print(f"[bold red]{deny_msg}[/bold red]")
+                    self.agent_state.messages.append(AIMessage(content=deny_msg))
+                    self.llm_service._save_history(self.agent_state.messages)
                     return {
+                        "messages": self.agent_state.messages,
                         "tool_message_content": deny_msg,
+                        "approved": False,
                         "run_action": False,
                         "full_command_output": "",
                         "new_messages": [],

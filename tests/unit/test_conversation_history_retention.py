@@ -1,4 +1,5 @@
 import json
+from rich.console import Console
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -77,6 +78,7 @@ def test_explicit_command_denial_does_not_execute_safe_command():
     class DummyTerminalUI:
         def __init__(self):
             self.messages = []
+            self.console = Console()
 
         def get_interrupt_queue(self):
             return None
