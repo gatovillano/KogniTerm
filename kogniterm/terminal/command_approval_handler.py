@@ -323,8 +323,8 @@ class CommandApprovalHandler:
         panel_title = 'Confirmación de Comando'
         panel_content_markdown = ""
         full_command_output = "" # Inicializar aquí
-        
-        is_file_update_confirmation = False
+
+        # NO sobrescribir el parámetro - usarlo como fallback si raw_tool_output no lo confirma
         is_plan_confirmation = False # Nueva bandera para la confirmación del plan
         is_python_execution = False  # Bandera para ejecución de Python
         diff_content = ""
@@ -362,6 +362,26 @@ class CommandApprovalHandler:
                 original_tool_args = raw_tool_output.get("args", original_tool_args)
                 logger.debug(f"DEBUG: CommandApprovalHandler - original_tool_args después de asignación: {original_tool_args}") # <-- Añadir este log
                 is_file_update_confirmation = True
+
+        # FALLBACK: Detectar confirmación de archivo basada en tool_name si raw_tool_output no lo hizo
+        # Esto cubre casos donde el llamador pasa tool_name directamente pero raw_tool_output no tiene el formato esperado
+        if not is_file_update_confirmation and not is_plan_confirmation and not is_python_execution:
+            FILE_UPDATE_TOOLS = {
+                "file_update", "file_update_tool", "file_operations",
+                "advanced_file_editor", "advanced_file_editor_tool",
+                "sophisticated_editor_tool", "replace_file_content",
+                "write_file_tool", "append_file_tool",
+            }
+            if tool_name in FILE_UPDATE_TOOLS:
+                logger.debug(f"DEBUG: Detectada confirmación de archivo por tool_name: {tool_name}")
+                is_file_update_confirmation = True
+                # Si no hay diff en raw_tool_output, intentar construirlo de original_tool_args
+                if not diff_content and original_tool_args:
+                    diff_content = original_tool_args.get("diff", original_tool_args.get("content", ""))
+                if not file_path and original_tool_args:
+                    file_path = original_tool_args.get("path", original_tool_args.get("target_file", "archivo desconocido"))
+                if not message:
+                    message = f"Se detectaron cambios para '{file_path}'. Por favor, confirma para aplicar."
 
         # Evita errores cuando una tool no entrega args en la solicitud de confirmación.
         original_tool_args = original_tool_args or {}
