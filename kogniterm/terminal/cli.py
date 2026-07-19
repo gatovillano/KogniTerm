@@ -446,28 +446,55 @@ class CLIHandler:
         repo_dir = os.path.join(kogniterm_dir, "repo")
         venv_dir = os.path.join(kogniterm_dir, "venv")
         
-        # Check if we're in a local development environment
-        if os.path.exists("pyproject.toml") and os.path.isdir("kogniterm"):
-            print("📁 Detected local development environment in current directory.")
-            repo_dir = os.getcwd()
-            # Try to find venv
-            if os.path.isdir(".venv"):
-                venv_dir = os.path.join(os.getcwd(), ".venv")
-            elif os.path.isdir("venv"):
-                venv_dir = os.path.join(os.getcwd(), "venv")
+        # Check if executing package is in a git repo (e.g. editable install)
+        import kogniterm
+        executing_pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(kogniterm.__file__)))
+        
+        if os.path.exists(os.path.join(executing_pkg_dir, ".git")):
+            repo_dir = executing_pkg_dir
+            # Try to find corresponding virtualenv
+            if repo_dir == os.path.join(kogniterm_dir, "repo"):
+                venv_dir = os.path.join(kogniterm_dir, "venv")
             else:
-                venv_dir = None
+                if os.path.isdir(os.path.join(repo_dir, ".venv")):
+                    venv_dir = os.path.join(repo_dir, ".venv")
+                elif os.path.isdir(os.path.join(repo_dir, "venv")):
+                    venv_dir = os.path.join(repo_dir, "venv")
+                else:
+                    venv_dir = None
+        else:
+            # Check if we are running in a directory containing the dev repository (search upwards)
+            dev_repo_dir = None
+            current_dir = os.getcwd()
+            while True:
+                if os.path.exists(os.path.join(current_dir, "pyproject.toml")) and os.path.isdir(os.path.join(current_dir, "kogniterm")):
+                    dev_repo_dir = current_dir
+                    break
+                parent = os.path.dirname(current_dir)
+                if parent == current_dir:
+                    break
+                current_dir = parent
+                
+            if dev_repo_dir:
+                print(f"📁 Detected local development environment in {dev_repo_dir}", flush=True)
+                repo_dir = dev_repo_dir
+                if os.path.isdir(os.path.join(repo_dir, ".venv")):
+                    venv_dir = os.path.join(repo_dir, ".venv")
+                elif os.path.isdir(os.path.join(repo_dir, "venv")):
+                    venv_dir = os.path.join(repo_dir, "venv")
+                else:
+                    venv_dir = None
         
         # Check git command availability
         if not shutil.which("git"):
-            print("❌ Error: 'git' is not installed on this system.")
+            print("❌ Error: 'git' is not installed on this system.", flush=True)
             return
         
         # Check git repository
         git_dir = os.path.join(repo_dir, ".git")
         if not os.path.exists(git_dir):
-            print(f"❌ Error: No git repository found at {repo_dir}")
-            print("   Please reinstall KogniTerm or run from the repository root.")
+            print(f"❌ Error: No git repository found at {repo_dir}", flush=True)
+            print("   Please reinstall KogniTerm or run from the repository root.", flush=True)
             return
         
         os.chdir(repo_dir)
@@ -476,29 +503,51 @@ class CLIHandler:
         stash_created = False
         try:
             result = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], 
-                                  capture_output=True, cwd=repo_dir)
+                                   capture_output=True, cwd=repo_dir)
             if result.returncode != 0:
-                print("⚠️  Local changes detected. Stashing them temporarily...")
+                print("⚠️  Local changes detected. Stashing them temporarily...", flush=True)
                 subprocess.run(["git", "stash"], check=True, cwd=repo_dir)
                 stash_created = True
         except subprocess.CalledProcessError as e:
-            print(f"❌ Error during git stash: {e}")
+            print(f"❌ Error during git stash: {e}", flush=True)
             return
         
-        # Pull updates
-        print("🔄 Syncing with remote repository...")
+        # Get current branch to pull
         try:
-            subprocess.run(["git", "pull", "--no-rebase", "origin", "main"], 
+            result = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], 
+                                  capture_output=True, text=True, check=True, cwd=repo_dir)
+            current_branch = result.stdout.strip()
+        except subprocess.CalledProcessError:
+            current_branch = "main"
+
+        if current_branch == "HEAD":
+            current_branch = "main"
+
+        # Pull updates
+        print(f"🔄 Syncing with remote repository (branch: {current_branch})...", flush=True)
+        try:
+            subprocess.run(["git", "pull", "--no-rebase", "origin", current_branch], 
                          check=True, cwd=repo_dir)
         except subprocess.CalledProcessError:
-            print("❌ Error during git pull.")
-            if stash_created:
-                subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
-            return
+            if current_branch != "main":
+                print(f"⚠️  Could not pull branch '{current_branch}' from remote. Falling back to 'main'...", flush=True)
+                try:
+                    subprocess.run(["git", "pull", "--no-rebase", "origin", "main"], 
+                                 check=True, cwd=repo_dir)
+                except subprocess.CalledProcessError:
+                    print("❌ Error during git pull.", flush=True)
+                    if stash_created:
+                        subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+                    return
+            else:
+                print("❌ Error during git pull.", flush=True)
+                if stash_created:
+                    subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+                return
         
         # Restore stashed changes
         if stash_created:
-            print("📦 Restoring your local changes...")
+            print("📦 Restoring your local changes...", flush=True)
             subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
         
         # Reinstall package
@@ -510,21 +559,20 @@ class CLIHandler:
                 pip_cmd = os.path.join(venv_dir, "bin", "pip")
         
         if pip_cmd and os.path.exists(pip_cmd):
-            print("🔄 Updating virtual environment...")
-            install_source = repo_dir if repo_dir != os.getcwd() else "."
+            print("🔄 Updating virtual environment...", flush=True)
             try:
-                subprocess.run([pip_cmd, "install", "-e", install_source], 
+                subprocess.run([pip_cmd, "install", "-e", "."], 
                              check=True, cwd=repo_dir)
             except subprocess.CalledProcessError:
-                print("❌ Error reinstalling the package.")
+                print("❌ Error reinstalling the package.", flush=True)
                 return
         else:
-            print("⚠️  Virtual environment not found. Skipping pip install.")
-            print("   You may need to manually reinstall the package.")
+            print("⚠️  Virtual environment not found. Skipping pip install.", flush=True)
+            print("   You may need to manually reinstall the package.", flush=True)
         
-        print("\n" + "="*80)
-        print("    🎉 KogniTerm has been successfully upgraded to the latest version!")
-        print("="*80 + "\n")
+        print("\n" + "="*80, flush=True)
+        print("    🎉 KogniTerm has been successfully upgraded to the latest version!", flush=True)
+        print("="*80 + "\n", flush=True)
 
     def handle_desktop(self, args: List[str]):
         """Abre la versión desktop de KogniTerm."""
