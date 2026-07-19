@@ -5,6 +5,7 @@ from rich.text import Text
 from rich.syntax import Syntax
 from rich.markdown import Markdown
 from rich.style import Style
+from rich.color import ColorParseError
 from kogniterm.terminal.themes import ColorPalette, Icons
 from typing import Optional
 import pyte
@@ -305,13 +306,23 @@ class ToolOutputWidget(Static):
         
         return Text("\n").join(lines)
 
+    def _detect_color(self, color: str) -> Optional[str]:
+        """Detecta y normaliza colores de pyte para que sean compatibles con Rich."""
+        if color == 'default' or not color:
+            return None
+        if color == 'brown':
+            return 'yellow'
+        if color == 'brightblack':
+            return '#808080'
+        # Si es un color hexadecimal de 3 o 6 dígitos sin '#'
+        if isinstance(color, str) and re.match(r'^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$', color):
+            return f"#{color}"
+        return color
+
     def _get_rich_style(self, char) -> Style:
         """Convierte los atributos de un carácter pyte a un Rich Style."""
-        fg = char.fg if char.fg != 'default' else None
-        bg = char.bg if char.bg != 'default' else None
-        # pyte usa 'brown' por compatibilidad histórica; Rich lo llama 'yellow'
-        if fg == 'brown': fg = 'yellow'
-        if bg == 'brown': bg = 'yellow'
+        fg = self._detect_color(char.fg)
+        bg = self._detect_color(char.bg)
         
         bold = char.bold
         italic = char.italics
@@ -325,14 +336,23 @@ class ToolOutputWidget(Static):
             if fg is None: fg = 'black'
             if bg is None: bg = 'white'
             
-        return Style(
-            color=fg, 
-            bgcolor=bg, 
-            bold=bold, 
-            italic=italic, 
-            underline=underline,
-            blink=blink
-        )
+        try:
+            return Style(
+                color=fg, 
+                bgcolor=bg, 
+                bold=bold, 
+                italic=italic, 
+                underline=underline,
+                blink=blink
+            )
+        except (ColorParseError, Exception):
+            # Fallback seguro: retornar estilo básico sin colores inválidos
+            return Style(
+                bold=bold,
+                italic=italic,
+                underline=underline,
+                blink=blink
+            )
 
     def _is_markdown(self, content: str) -> bool:
         """Heurística para detectar contenido Markdown."""
