@@ -33,6 +33,8 @@ from rich.text import Text
 
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.exceptions import UserConfirmationRequired
+from kogniterm.core.agents.base_agent import BaseAgentNode
+from kogniterm.core.agents.tool_executor import ToolExecutor
 from kogniterm.ui.themes import ColorPalette, Icons
 from kogniterm.ui.terminal_ui import TerminalUI
 
@@ -517,6 +519,10 @@ def synthesis_node(
 
     sources_list = "\n".join([f"- {u}" for u in state.source_urls[:20]]) if state.source_urls else "- (no se registraron URLs)"
 
+    # Secciones sugeridas basadas en el plan de investigación
+    plan_sections = state.research_plan if state.research_plan else ["Análisis General"]
+    existing_sections = getattr(state, 'synthesis_sections', {}) or {}
+
     prompt = f"""Como experto Sintetizador Técnico de ÉLITE, utiliza toda la información recopilada para crear el INFORME FINAL DE INVESTIGACIÓN PROFUNDA.
     
     HISTORIAL DE INVESTIGACIÓN ({len(state.findings)} hallazgos, {len(state.source_urls)} fuentes únicas):
@@ -525,6 +531,9 @@ def synthesis_node(
     FUENTES RASTREADAS:\n{sources_list}
     
     CONSULTA ORIGINAL: {state.messages[0].content}
+    
+    PLAN DE INVESTIGACIÓN ORIGINAL (usa como esqueleto de secciones):
+    {chr(10).join([f'{i+1}. {p}' for i, p in enumerate(plan_sections)])}
     
     REQUISITOS DEL INFORME (MÍNIMO 1500 PALABRAS, PROFUNDO Y TÉCNICO):
     1. **Resumen Ejecutivo**: Síntesis de 2-3 párrafos con las conclusiones clave.
@@ -536,6 +545,7 @@ def synthesis_node(
     7. **Referencias**: Lista numerada de todas las URLs citadas.
     
     Cada afirmación técnica DEBE incluir su referencia en formato [n] donde n es el índice en la lista de referencias.
+    Si ya existe una sección parcial en el estado, COMPLEMENTA y MEJORA en lugar de reescribir desde cero.
     """
 
     # Llamada final al modelo
@@ -584,6 +594,18 @@ def synthesis_node(
     if not full_content and final_ai_message and final_ai_message.content:
         full_content = str(final_ai_message.content)
 
+    # Guardar secciones incrementales para futuras iteraciones
+    synthesis_sections = dict(existing_sections)
+    # Dividir por encabezados ## o ###
+    import re
+    sections = re.split(r'(?=^#{1,3}\s)', full_content, flags=re.MULTILINE)
+    for sec in sections:
+        if sec.strip():
+            title_match = re.match(r'^#{1,3}\s+(.+)$', sec.strip(), flags=re.MULTILINE)
+            if title_match:
+                title = title_match.group(1).strip()
+                synthesis_sections[title] = sec.strip()
+
     if not (terminal_ui and hasattr(terminal_ui, "update_live")):
         current_console.print(
             Padding(
@@ -592,10 +614,13 @@ def synthesis_node(
         )
 
     state.messages.append(
-        AIMessage(content=f"## 🔬 Informe de Deep Research\n\n{full_content}")
+        AIMessage(content=f"\n\n{full_content}")
     )
-    return {"messages": state.messages, "findings": state.findings}
-
+    return {
+        "messages": state.messages,
+        "findings": state.findings,
+        "synthesis_sections": synthesis_sections,
+    }
 
 # --- Implementación principal conceptualmente basada en agentes previos pero con lógica mejorada ---
 
@@ -606,10 +631,7 @@ def call_deep_model_node(
     terminal_ui: Optional[TerminalUI] = None,
     interrupt_queue: Optional[queue.Queue] = None,
 ):
-    """Llama al LLM de Deep Research con soporte completo para TUI/CLI y contexto persistente."""
-    current_console = terminal_ui.console if terminal_ui else console
-    is_tui = getattr(terminal_ui, "is_tui", False)
-
+    """Llama al LLM de Deep Research usando BaseAgentNode para streaming unificado."""
     # Limpiar razonamiento de mensajes anteriores para evitar saturación
     cleaned_messages = []
     for msg in state.messages:
@@ -632,185 +654,17 @@ def call_deep_model_node(
 
     system_prompt = get_deep_research_system_prompt(llm_service) + context_info
 
-    # Inyectar instrucción de avance de tarea de manera natural en el sistema, no en cada paso
-    messages = [SystemMessage(content=system_prompt)] + cleaned_messages
+    # Usar BaseAgentNode.call_model para streaming y renderizado unificado
+    result = BaseAgentNode.call_model(
+        state=state,
+        llm_service=llm_service,
+        system_prompt=system_prompt,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue,
+    )
 
-    full_response_content = ""
-    full_thinking_content = ""
-    final_ai_message = None
-    text_streamed = False
-
-    # Importar componentes visuales
-    try:
-        from kogniterm.terminal.visual_components import create_processing_spinner
-        from kogniterm.terminal.themes import ColorPalette, Icons
-
-        spinner = create_processing_spinner()
-    except ImportError:
-        from rich.spinner import Spinner
-
-        spinner = Spinner("dots", text="[dim]Investigando...[/dim]")
-
-        class Icons:
-            THINKING = "🤔"
-            RESEARCH = "🔍"
-
-        class ColorPalette:
-            PRIMARY_LIGHT = "cyan"
-            SECONDARY = "blue"
-            GRAY_800 = "#333333"
-            GRAY_600 = "#666666"
-            GRAY_900 = "#1e1e1e"
-
-    # Iniciar KeyboardHandler para detectar ESC (solo CLI)
-    kh = None
-    if not is_tui:
-        from kogniterm.terminal.keyboard_handler import KeyboardHandler
-
-        kh = KeyboardHandler(interrupt_queue)
-        kh.start()
-
-    def update_display(final: bool = False, initial: bool = False):
-        """Construye y envía el renderable al panel o al Live"""
-        renderables = []
-
-        if initial:
-            if is_tui:
-                if terminal_ui and hasattr(terminal_ui, "update_live"):
-                    terminal_ui.update_live(
-                        ("__SPINNER__", "DeepResearcher Investigando...")
-                    )
-            else:
-                from kogniterm.terminal.visual_components import create_animated_spinner
-
-                renderables.append(
-                    create_animated_spinner("DeepResearcher Investigando...", "dots")
-                )
-        else:
-            if full_thinking_content:
-                if is_tui:
-                    thinking_content = Markdown(full_thinking_content)
-                    thought_panel = Panel(
-                        thinking_content,
-                        title=f"{Icons.THINKING} DeepResearcher Pensando...",
-                        border_style=ColorPalette.GRAY_700,
-                        style=f"dim {ColorPalette.GRAY_500} on {ColorPalette.GRAY_900}",
-                        padding=(0, 4),
-                        expand=True,
-                    )
-                    renderables.append(thought_panel)
-                else:
-                    renderables.append(
-                        Panel(
-                            Markdown(full_thinking_content),
-                            title=f"{Icons.THINKING} [bold {ColorPalette.PRIMARY_LIGHT}]DeepResearcher Razonando...[/]",
-                            border_style=ColorPalette.PRIMARY_LIGHT,
-                            padding=(0, 4),
-                            expand=True,
-                        )
-                    )
-
-            if full_response_content:
-                renderables.append(Markdown(full_response_content))
-
-        if renderables:
-            if is_tui and terminal_ui and hasattr(terminal_ui, "update_live"):
-                terminal_ui.update_live(Padding(Group(*renderables), (0, 0)))
-            elif not is_tui and _live_ref[0] is not None:
-                _live_ref[0].update(Padding(Group(*renderables), (0, 0)))
-
-    # Usamos una lista mutable para acceder al live desde el closure
-    _live_ref = [None]
-
-    try:
-        import contextlib
-
-        if not is_tui:
-            live_ctx = Live(
-                console=current_console, screen=False, refresh_per_second=10
-            )
-        else:
-
-            @contextlib.contextmanager
-            def _dummy_live():
-                yield None
-
-            live_ctx = _dummy_live()
-
-        with live_ctx as live:
-            _live_ref[0] = live
-
-            update_display(initial=True)
-
-            for part in llm_service.invoke(
-                history=messages, interrupt_queue=interrupt_queue
-            ):
-                if isinstance(part, AIMessage):
-                    final_ai_message = part
-                elif isinstance(part, str):
-                    if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
-                        prefix = (
-                            "__THINKING__:"
-                            if part.startswith("__THINKING__:")
-                            else "THINKING:"
-                        )
-                        full_thinking_content += part[len(prefix) :]
-                        update_display()
-                    else:
-                        full_response_content += part
-                        text_streamed = True
-                        update_display()
-
-                if (
-                    interrupt_queue and not interrupt_queue.empty()
-                ) or llm_service.stop_generation_flag:
-                    break
-
-            # Actualización final para asegurar visibilidad total
-            update_display(final=True)
-
-            if is_tui:
-                terminal_ui.stop_live()
-    finally:
-        if kh:
-            kh.stop()
-
-    if final_ai_message:
-        # Asegurar que el contenido procesado se guarde en el mensaje
-        if not final_ai_message.content and full_response_content:
-            final_ai_message.content = full_response_content
-        state.messages.append(final_ai_message)
-        state.save_history(llm_service)
-
-    return {"messages": state.messages}
-
-
-def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
-    """Ejecuta una herramienta individual SIN mostrar salida (modo Deep Researcher)."""
-    tool_name = tc["name"]
-    tool_args = tc["args"]
-    tool_id = tc["id"]
-
-    tool = llm_service.get_tool(tool_name)
-    if not tool:
-        return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
-
-    try:
-        full_tool_output = ""
-        tool_output_generator = llm_service._invoke_tool_with_interrupt(tool, tool_args)
-
-        for chunk in tool_output_generator:
-            full_tool_output += str(chunk)
-
-        return tool_id, full_tool_output, None
-    except InterruptedError:
-        return (
-            tool_id,
-            f"Ejecución de herramienta '{tool_name}' interrumpida por el usuario.",
-            InterruptedError("Interrumpido por el usuario."),
-        )
-    except Exception as e:
-        return tool_id, f"Error al ejecutar la herramienta {tool_name}: {e}", e
+    # El mensaje ya fue agregado por BaseAgentNode._build_node_output
+    return {"messages": result["messages"]}
 
 
 def execute_tool_node(
@@ -819,59 +673,30 @@ def execute_tool_node(
     terminal_ui: Optional[TerminalUI] = None,
     interrupt_queue: Optional[queue.Queue] = None,
 ):
-    """Nodo de ejecución de herramientas SIN mostrar salida (modo Deep Researcher)."""
+    """Nodo de ejecución de herramientas usando ToolExecutor centralizado."""
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
         return state
 
-    tool_messages = []
-    executor = ThreadPoolExecutor(max_workers=5)
-    futures = []
-
+    # Manejo de interrupción
     if interrupt_queue and not interrupt_queue.empty():
         interrupt_queue.get()
         state.reset_temporary_state()
         return state
 
-    for tool_call in last_message.tool_calls:
-        if interrupt_queue and not interrupt_queue.empty():
-            interrupt_queue.get()
-            state.reset_temporary_state()
-            break
+    # ToolExecutor maneja la ejecución paralela y notificaciones
+    # El DeepResearcher es autónomo, así que no pausa por confirmaciones
+    is_autonomous = True
+    state.autonomous_approvals = True
 
-        futures.append(
-            executor.submit(
-                execute_single_tool,
-                tool_call,
-                llm_service,
-                terminal_ui,
-                interrupt_queue,
-            )
-        )
-
-    for future in as_completed(futures):
-        try:
-            tool_id, content, exception = future.result()
-            if exception:
-                if isinstance(exception, UserConfirmationRequired):
-                    tool_messages.append(
-                        ToolMessage(content=content, tool_call_id=tool_id)
-                    )
-                else:
-                    tool_messages.append(
-                        ToolMessage(content=content, tool_call_id=tool_id)
-                    )
-            else:
-                tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-        except Exception as e:
-            tool_messages.append(
-                ToolMessage(content=f"Error en ejecutor: {e}", tool_call_id="unknown")
-            )
-
-    state.messages.extend(tool_messages)
-    llm_service._save_history(state.messages)
-    executor.shutdown(wait=True)
-    return state
+    result_state = ToolExecutor.execute_tools_parallel(
+        state=state,
+        llm_service=llm_service,
+        terminal_ui=terminal_ui,
+        delegation_context=None,
+        interrupt_queue=interrupt_queue,
+    )
+    return result_state
 
 
 def should_continue(state: DeepResearchState) -> str:
