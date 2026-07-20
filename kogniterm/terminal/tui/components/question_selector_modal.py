@@ -71,24 +71,37 @@ class QuestionSelectorModal(ModalScreen[str]):
     }
 
     ListItem {
-        padding: 0 2;
-        height: 2;
-        margin: 0 1;
+        padding: 1 2;
+        height: auto;
+        min-height: 2;
+        margin: 0 1 1 1;
         background: #1f2937;
-        color: #e5e7eb;
         border: solid #374151;
         content-align: left middle;
     }
 
+    ListItem Label, ListItem Static {
+        color: #f3f4f6;
+        width: 100%;
+    }
+
     ListItem:hover {
         background: #374151;
+        border: solid #6b7280;
+    }
+
+    ListItem:hover Label, ListItem:hover Static {
         color: #ffffff;
     }
 
     ListItem.--highlight {
         background: #7c3aed;
-        color: #ffffff;
         border: solid #a78bfa;
+    }
+
+    ListItem.--highlight Label, ListItem.--highlight Static {
+        color: #ffffff;
+        text-style: bold;
     }
 
     #freeform-container {
@@ -152,8 +165,8 @@ class QuestionSelectorModal(ModalScreen[str]):
             items = []
             for i, opt in enumerate(self.options, start=1):
                 item_id = f"opt_{i}"
-                label_text = f"{i}. {opt}"
-                li = ListItem(Static(label_text), id=item_id)
+                label = Label(f"[bold #a78bfa]{i}.[/bold #a78bfa] {opt}", markup=True)
+                li = ListItem(label, id=item_id)
                 self._item_map[item_id] = opt
                 items.append(li)
 
