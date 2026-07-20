@@ -522,6 +522,21 @@ class TextualTerminalUI:
             file_path=file_path,
         )
 
+    def ask_question_sync(
+        self,
+        question: str,
+        options: list,
+        title: str = "Consulta del Agente",
+        allow_freeform: bool = True,
+    ) -> str:
+        """Pide al usuario que seleccione una opción usando el modal gráfico de forma SÍNCRONA."""
+        return self.app.ask_question_sync(
+            question=question,
+            options=options,
+            title=title,
+            allow_freeform=allow_freeform,
+        )
+
     async def ask_approval_async(
         self,
         message: str,
@@ -2808,6 +2823,45 @@ class KogniTermTUI(App):
             push_screen_callback()
         else:
             self.call_from_thread(push_screen_callback)
+
+        return future.result()
+
+    def ask_question_sync(
+        self,
+        question: str,
+        options: list,
+        title: str = "Consulta del Agente",
+        allow_freeform: bool = True,
+    ) -> str:
+        """Muestra un QuestionSelectorModal y bloquea el hilo del agente hasta que el usuario responda."""
+        import concurrent.futures
+        from .components.question_selector_modal import QuestionSelectorModal
+
+        future: concurrent.futures.Future = concurrent.futures.Future()
+
+        def push_modal():
+            def on_dismiss(result: Optional[str]):
+                res = result if result is not None else "Cancelado por el usuario."
+                if not future.done():
+                    future.set_result(res)
+
+            self.push_screen(
+                QuestionSelectorModal(
+                    question=question,
+                    options=options,
+                    title=title,
+                    allow_freeform=allow_freeform,
+                ),
+                callback=on_dismiss,
+            )
+
+        if (
+            threading.current_thread() is threading.main_thread()
+            or getattr(self, "_thread_id", None) == threading.get_ident()
+        ):
+            push_modal()
+        else:
+            self.call_from_thread(push_modal)
 
         return future.result()
 

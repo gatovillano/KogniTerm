@@ -260,6 +260,35 @@ class TerminalUI:
         
         return (approval_input or "").lower().strip() == 's'
 
+    def ask_question_sync(
+        self,
+        question: str,
+        options: list,
+        title: str = "Consulta del Agente",
+        allow_freeform: bool = True,
+    ) -> str:
+        """Versión síncrona de fallback para preguntar al usuario en modo CLI básico."""
+        self.console.print(f"\n[bold #A78BFA]❓ {title}[/bold #A78BFA]")
+        self.console.print(f"[bold white]{question}[/bold white]\n")
+        for i, opt in enumerate(options, start=1):
+            self.console.print(f"  [bold cyan]{i}.[/bold cyan] {opt}")
+        if allow_freeform:
+            self.console.print("  [dim](o escribe tu respuesta personalizada)[/dim]")
+
+        while True:
+            try:
+                raw = input(f"Selecciona [1-{len(options)}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                return "Cancelado por el usuario."
+            if not raw:
+                continue
+            if raw.isdigit():
+                idx = int(raw)
+                if 1 <= idx <= len(options):
+                    return options[idx - 1]
+            if allow_freeform:
+                return raw
+
     def ask_approval_sync(
         self,
         message: str,

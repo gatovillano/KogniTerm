@@ -75,6 +75,21 @@ def ask_question(
     if len(options) > 10:
         raise ValueError("Se permiten máximo 10 opciones.")
 
+    # ── Usar selector gráfico interactivo si terminal_ui lo soporta ───────────────
+    if terminal_ui and hasattr(terminal_ui, "ask_question_sync"):
+        try:
+            selected = terminal_ui.ask_question_sync(
+                question=question,
+                options=options,
+                title=title,
+                allow_freeform=allow_freeform,
+            )
+            _print_selection(terminal_ui, selected)
+            return selected
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Error en ask_question_sync: {e}")
+
     # Usar Rich para el renderizado visual si está disponible
     try:
         from rich.console import Console, Group
