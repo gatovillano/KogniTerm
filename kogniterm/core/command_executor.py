@@ -209,8 +209,15 @@ class CommandExecutor:
                             prefix_len = min(len(cmd_stripped), 16)
                             
                             # Si el buffer no empieza con el prefijo esperado del comando,
-                            # asumimos que ECHO está desactivado y lo que recibimos ya es salida del comando
-                            if prefix_len > 0 and not clean_buf.startswith(cmd_stripped[:prefix_len]):
+                            # asumimos que ECHO está desactivado y lo que recibimos ya es salida del comando.
+                            # Para evitar desactivar el filtro prematuramente con buffers muy cortos que aún 
+                            # están recibiendo el eco, primero verificamos si clean_buf es prefijo del comando esperado.
+                            if prefix_len == 0:
+                                self._echo_filtered = True
+                            elif len(clean_buf) < prefix_len:
+                                if not cmd_stripped.startswith(clean_buf):
+                                    self._echo_filtered = True
+                            elif not clean_buf.startswith(cmd_stripped[:prefix_len]):
                                 self._echo_filtered = True
                             
                             # Si detectamos la firma de nuestro marcador en el eco, sabemos que terminó el eco
