@@ -383,18 +383,15 @@ class KogniTermSuggester:
             if not self.workspace_directory or not os.path.exists(self.workspace_directory):
                 return
 
-            exclude = {
-                'build', 'venv', '.git', '__pycache__', 'node_modules', 
-                'dist', 'out', 'coverage', '.mypy_cache', '.pytest_cache',
-                '.gemini', '.antigravity', '.pyfly'
-            }
+            from kogniterm.terminal.file_completer import is_ignored_path
+
             exclude_extensions = {'.pyc', '.tmp', '.log', '.swp', '.bak', '.old', '.pyfly'}
             
             items = []
             # Usar una lista temporal para evitar bloqueos largos del lock
             for root, dirs, files in os.walk(self.workspace_directory):
                 # Filtrar directorios in-situ para no descender en ellos
-                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in exclude]
+                dirs[:] = [d for d in dirs if not is_ignored_path(d)]
                 
                 try:
                     rel_root = os.path.relpath(root, self.workspace_directory)
