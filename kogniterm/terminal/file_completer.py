@@ -240,8 +240,19 @@ class FileCompleter(Completer):
                 return
 
         # 2. Archivos (@)
-        if '@' in text_before_cursor:
-            current_input_part = text_before_cursor.split('@')[-1]
+        idx = -1
+        for i in range(len(text_before_cursor) - 1, -1, -1):
+            if text_before_cursor[i] == '@':
+                if i == 0:
+                    idx = i
+                    break
+                prev_char = text_before_cursor[i - 1]
+                if prev_char.isspace() or prev_char in ('=', '(', '[', '{', ',', '"', "'", '!', '&', '|', ';', '<', '>', '@'):
+                    idx = i
+                    break
+
+        if idx != -1:
+            current_input_part = text_before_cursor[idx + 1:]
             with self.cache_lock:
                 cached_files = self._cached_files
             if cached_files is None:
@@ -251,78 +262,187 @@ class FileCompleter(Completer):
                     yield Completion("(Cargando archivos...)", start_position=-len(current_input_part))
                 return
 
-            query = current_input_part.lower()
-            path_prefix = ""
-            basename_query = query
-            if '/' in query:
-                path_prefix = query.rsplit('/', 1)[0] + '/'
-                basename_query = query.rsplit('/', 1)[1]
+            query_lower = current_input_part.lower()
+            terms = query_lower.split()
 
-            scored: List[tuple] = []
+            if not terms:
+                scored_root: List[tuple] = []
+                for relative_item_path in cached_files:
+                    is_dir = relative_item_path.endswith('/') or os.path.isdir(os.path.join(self.workspace_directory, relative_item_path))
+                    display_item = relative_item_path
+                    if is_dir and not display_item.endswith('/'):
+                        display_item += '/'
+                    
+                    depth = display_item.count('/')
+                    if (is_dir and depth == 1) or (not is_dir and depth == 0):
+                        ext = os.path.splitext(display_item)[1]
+                        if is_dir:
+                            meta = "📁 dir"
+                            score = 0
+                        else:
+                            if ext in ('.py',):
+                                meta = "🐍 python"
+                            elif ext in ('.md', '.rst', '.txt'):
+                                meta = "📝 texto"
+                            elif ext in ('.json', '.yaml', '.yml', '.toml', '.ini', '.env'):
+                                meta = "⚙️ config"
+                            else:
+                                meta = ext if ext else "📄 archivo"
+                            score = 1
+                        scored_root.append((score, display_item, meta))
+                
+                scored_root.sort(key=lambda x: (x[0], x[1]))
+                for _, suggestion, meta in scored_root[:100]:
+                    yield Completion(suggestion, start_position=-len(current_input_part), display_meta=meta)
+                return
+
+            scored_matches = []
             for relative_item_path in cached_files:
-                absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
-                is_dir = os.path.isdir(absolute_item_path)
                 display_item = relative_item_path
+                absolute_item_path = os.path.join(self.workspace_directory, relative_item_path)
+                is_dir = relative_item_path.endswith('/') or os.path.isdir(absolute_item_path)
                 if is_dir and not display_item.endswith('/'):
                     display_item += '/'
+
                 display_lower = display_item.lower()
-                if path_prefix and not display_lower.startswith(path_prefix):
-                    continue
-                segment = display_lower[len(path_prefix):] if path_prefix else display_lower
                 base_name = os.path.basename(display_item.rstrip('/')).lower()
+                base_name_start_idx = display_lower.rfind(base_name)
+                if base_name_start_idx == -1:
+                    base_name_start_idx = 0
 
-                if not basename_query:
-                    score = 100 if is_dir else 50
-                elif base_name == basename_query or base_name.rstrip('/') == basename_query.rstrip('/'):
-                    score = 200
-                elif base_name.startswith(basename_query):
-                    score = 150
-                elif basename_query in base_name:
-                    score = 100
-                elif basename_query in segment:
-                    score = 60
-                else:
-                    # Fuzzy matching: verificar si todos los caracteres de la query aparecen
-                    # consecutivamente en el segmento
-                    target = basename_query
-                    source = base_name
-                    match_idx = 0
-                    for ch in source:
-                        if match_idx < len(target) and ch == target[match_idx]:
-                            match_idx += 1
-                    if match_idx == len(target):
-                        score = 40
+                item_score = 0.0
+                matched_all = True
+
+                for term in terms:
+                    p_idx = 0
+                    has_match = True
+                    for char in term:
+                        p_idx = display_lower.find(char, p_idx)
+                        if p_idx == -1:
+                            has_match = False
+                            break
+                        p_idx += 1
+
+                    if not has_match:
+                        matched_all = False
+                        break
+
+                    term_score = 0.0
+                    exact_pos = display_lower.find(term)
+                    if exact_pos != -1:
+                        term_score += 80.0
+                        if exact_pos >= base_name_start_idx:
+                            term_score += 40.0
+                            base_name_no_ext = os.path.splitext(base_name)[0]
+                            if base_name_no_ext == term:
+                                term_score += 60.0
+                        if exact_pos == 0:
+                            term_score += 30.0
+                        elif display_lower[exact_pos - 1] == '/':
+                            term_score += 25.0
+                        elif display_lower[exact_pos - 1] in ('_', '-', '.'):
+                            term_score += 15.0
+                        term_score -= exact_pos * 0.1
                     else:
-                        continue
+                        posiciones = {}
+                        for j, char in enumerate(display_lower):
+                            if char not in posiciones:
+                                posiciones[char] = []
+                            posiciones[char].append(j)
 
-                if is_dir:
-                    score += 10
-                depth = display_item.count('/')
-                # Penalizar menos la profundidad para permitir archivos anidados
-                score -= min(depth, 3) * 2
+                        first_char = term[0]
+                        current_states = []
+                        for pos in posiciones.get(first_char, []):
+                            score = 10.0
+                            if pos == 0:
+                                score += 30.0
+                            elif display_lower[pos - 1] == '/':
+                                score += 25.0
+                            elif display_lower[pos - 1] in ('_', '-', '.'):
+                                score += 15.0
+                            if pos >= base_name_start_idx:
+                                score += 10.0
+                            current_states.append((pos, score, 1))
 
-                ext = os.path.splitext(display_item)[1]
-                if is_dir:
-                    meta = "📁 dir"
-                elif ext in ('.py',):
-                    meta = "🐍 python"
-                elif ext in ('.md', '.rst', '.txt'):
-                    meta = "📝 texto"
-                elif ext in ('.json', '.yaml', '.yml', '.toml', '.ini', '.env'):
-                    meta = "⚙️ config"
-                elif ext in ('.js', '.ts', '.jsx', '.tsx'):
-                    meta = "🌐 js/ts"
-                elif ext in ('.sh', '.bash'):
-                    meta = "🖥️ shell"
-                elif ext in ('.html', '.css'):
-                    meta = "🎨 web"
-                else:
-                    meta = ext if ext else "📄 archivo"
+                        for i in range(1, len(term)):
+                            char = term[i]
+                            next_states = []
+                            for pos in posiciones.get(char, []):
+                                best_prev_score = -9999.0
+                                best_consec = 0
+                                for prev_pos, prev_score, prev_consec in current_states:
+                                    if prev_pos >= pos:
+                                        continue
+                                    transition_score = prev_score + 10.0
 
-                scored.append((-score, display_item, meta))
+                                    is_consec = (pos == prev_pos + 1)
+                                    consec_count = prev_consec + 1 if is_consec else 1
+                                    if is_consec:
+                                        transition_score += 20.0 + min(consec_count * 5, 20)
 
-            scored.sort(key=lambda x: (x[0], x[1]))
-            results = scored[:100]  # Aumentado de 30 a 100 resultados
+                                    if pos == 0:
+                                        transition_score += 30.0
+                                    elif display_lower[pos - 1] == '/':
+                                        transition_score += 25.0
+                                    elif display_lower[pos - 1] in ('_', '-', '.'):
+                                        transition_score += 15.0
+                                    if pos >= base_name_start_idx:
+                                        transition_score += 10.0
+
+                                    gap = pos - prev_pos - 1
+                                    if gap > 0:
+                                        transition_score -= min(gap * 2.0, 15.0)
+
+                                    if transition_score > best_prev_score:
+                                        best_prev_score = transition_score
+                                        best_consec = consec_count
+
+                                if best_prev_score > -9999.0:
+                                    next_states.append((pos, best_prev_score, best_consec))
+                            current_states = next_states
+                            if not current_states:
+                                break
+
+                        if current_states:
+                            term_score += max(state[1] for state in current_states)
+                        else:
+                            term_score += 10.0
+
+                    if term.startswith('.') and display_lower.endswith(term):
+                        term_score += 50.0
+
+                    item_score += term_score
+
+                if matched_all:
+                    item_score -= len(display_lower) * 0.1
+                    depth = display_item.count('/')
+                    item_score -= min(depth, 5) * 2.0
+                    if is_dir:
+                        item_score += 15.0
+
+                    ext = os.path.splitext(display_item)[1]
+                    if is_dir:
+                        meta = "📁 dir"
+                    elif ext in ('.py',):
+                        meta = "🐍 python"
+                    elif ext in ('.md', '.rst', '.txt'):
+                        meta = "📝 texto"
+                    elif ext in ('.json', '.yaml', '.yml', '.toml', '.ini', '.env'):
+                        meta = "⚙️ config"
+                    elif ext in ('.js', '.ts', '.jsx', '.tsx'):
+                        meta = "🌐 js/ts"
+                    elif ext in ('.sh', '.bash'):
+                        meta = "🖥️ shell"
+                    elif ext in ('.html', '.css'):
+                        meta = "🎨 web"
+                    else:
+                        meta = ext if ext else "📄 archivo"
+
+                    scored_matches.append((item_score, display_item, meta))
+
+            scored_matches.sort(key=lambda x: -x[0])
+            results = scored_matches[:100]
+
             if len(results) == 1:
                 only = results[0][1]
                 if only == current_input_part or only.rstrip('/') == current_input_part.rstrip('/'):
