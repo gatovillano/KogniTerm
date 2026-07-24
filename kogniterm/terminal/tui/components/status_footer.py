@@ -398,8 +398,10 @@ class KogniTermSuggester:
                 except ValueError:
                     continue
                     
-                if rel_root == ".": rel_root = ""
-                
+                for d in dirs:
+                    rel_dir = os.path.join(rel_root, d) + '/' if rel_root else d + '/'
+                    items.append(rel_dir)
+
                 for f in files:
                     if f.startswith('.') or any(f.endswith(ext) for ext in exclude_extensions):
                         continue
