@@ -849,7 +849,7 @@ class KogniTermTUI(App):
         position: absolute;
         layer: popup;
         height: auto;
-        max-height: 14;
+        max-height: 25;
         background: #1e1e2e;
         border: tall #3b82f6;
         padding: 0;
@@ -2014,8 +2014,9 @@ class KogniTermTUI(App):
 
             # Posición Y: justo encima del borde superior del contenedor (target_region.y)
             items_count = len(self.command_popup.children)
-            popup_max_h = 14
-            popup_h = min(popup_max_h, max(3, items_count + 2))
+            available_h_above = max(3, target_region.y - 1)
+            popup_max_h = min(22, available_h_above)
+            popup_h = min(popup_max_h, max(4, items_count + 2))
             popup_y = max(0, target_region.y - popup_h)
 
             self.command_popup.styles.height = popup_h
