@@ -1836,6 +1836,8 @@ class KogniTermTUI(App):
             if not matches:
                 self.command_popup.display = False
                 self._completion_input = None
+            else:
+                self._reposition_popup(event.input, value)
         else:
             self.command_popup.display = False
             self._completion_input = None
@@ -1991,6 +1993,8 @@ class KogniTermTUI(App):
             if not matches:
                 self.command_popup.display = False
                 self._completion_input = None
+            else:
+                self._reposition_popup(event.text_area, value)
         else:
             self.command_popup.display = False
 
