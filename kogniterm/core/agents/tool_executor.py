@@ -178,6 +178,7 @@ class ToolExecutor:
         llm_service: LLMService,
         terminal_ui: Optional[Any] = None,
         interrupt_queue: Optional[queue.Queue] = None,
+        delegation_context: Optional[Any] = None,
     ):
         """Nodo de ejecución para grafos de agentes."""
         last_message = state.messages[-1]
@@ -195,7 +196,7 @@ class ToolExecutor:
         # 1. Registrar y Verificar Interrupciones
         try:
             futures = []
-            del_ctx = getattr(state, "delegation_context", None)
+            del_ctx = delegation_context or getattr(state, "delegation_context", None)
 
             for tc in last_message.tool_calls:
                 # Detección de bucles (hash de args)
@@ -287,6 +288,25 @@ class ToolExecutor:
             if hasattr(terminal_ui, "resume_spinner"):
                 terminal_ui.resume_spinner()
         return state
+
+    @staticmethod
+    def execute_tools_parallel(
+        state: AgentState,
+        llm_service: LLMService,
+        terminal_ui: Optional[Any] = None,
+        delegation_context: Optional[Any] = None,
+        interrupt_queue: Optional[queue.Queue] = None,
+    ):
+        """
+        Ejecución paralela de herramientas para subagentes o nodos autónomos (ej. DeepResearcher).
+        """
+        return ToolExecutor.execute_tool_node(
+            state=state,
+            llm_service=llm_service,
+            terminal_ui=terminal_ui,
+            interrupt_queue=interrupt_queue,
+            delegation_context=delegation_context,
+        )
 
 
 

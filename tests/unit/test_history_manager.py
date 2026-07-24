@@ -134,6 +134,8 @@ def test_direct_history_list_mutation_persists_immediately(temp_history_file):
     history_manager = HistoryManager(history_file_path=temp_history_file)
 
     history_manager.conversation_history.append(HumanMessage(content="Hola inmediata"))
+    # El autoguardado tiene debounce; forzamos el flush antes de leer
+    history_manager.conversation_history.force_flush()
 
     reloaded = HistoryManager(history_file_path=temp_history_file)
     history = reloaded.get_history()
@@ -147,6 +149,8 @@ def test_agent_state_messages_stay_bound_to_history_manager(temp_history_file):
 
     state.attach_history_manager(history_manager)
     state.messages.append(AIMessage(content="respuesta"))
+    # Forzar guardado inmediato antes de verificar en disco
+    history_manager.conversation_history.force_flush()
 
     reloaded = HistoryManager(history_file_path=temp_history_file)
     history = reloaded.get_history()

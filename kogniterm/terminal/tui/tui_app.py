@@ -1022,6 +1022,23 @@ class KogniTermTUI(App):
         except Exception:
             self.thread_manager = None
 
+        # Inyectar thread_manager en llm_service para que cada mutación del
+        # historial se persista también en el hilo activo de ThreadManager.
+        if self.thread_manager and self.llm_service:
+            try:
+                self.llm_service.set_thread_manager(self.thread_manager)
+            except Exception:
+                pass
+
+        # Auto-crear un hilo para esta sesión si no hay ninguno activo.
+        # Así, desde el primer mensaje, la conversación queda guardada y
+        # puede recuperarse con /resume sin necesidad de hacer /thread save.
+        if self.thread_manager and not self.thread_manager.get_current_thread_id():
+            try:
+                self.thread_manager.create_thread(title="Nueva conversación")
+            except Exception:
+                pass
+
         try:
             from kogniterm.core.session_manager import SessionManager
 
