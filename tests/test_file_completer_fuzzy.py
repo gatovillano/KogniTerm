@@ -34,3 +34,15 @@ def test_no_match_returns_empty():
     files = ["kogniterm/terminal/terminal.py"]
     results = fuzzy_match_files("nonexistentxyz999", files)
     assert results == []
+
+def test_suggester_search_files():
+    from kogniterm.terminal.tui.components.status_footer import KogniTermSuggester
+    suggester = KogniTermSuggester()
+    suggester.cached_files_list = [
+        "kogniterm/terminal/file_completer.py",
+        "kogniterm/terminal/terminal.py"
+    ]
+    matches = suggester.search_files("file_completer")
+    assert len(matches) > 0
+    assert matches[0][1] == "kogniterm/terminal/file_completer.py"
+

@@ -354,6 +354,13 @@ class KogniTermSuggester:
         if self._thread:
             self._thread.join(timeout=1.0)
 
+    def search_files(self, query: str, max_results: int = 20) -> List[tuple]:
+        """Busca archivos cacheados usando el motor difuso de file_completer."""
+        from kogniterm.terminal.file_completer import fuzzy_match_files
+        with self._lock:
+            files = list(self.cached_files_list)
+        return fuzzy_match_files(query, files, self.workspace_directory, max_results=max_results)
+
     def _worker(self):
         """Hilo de segundo plano para actualizar caches periódicamente."""
         # Primera actualización inmediata, sin esperar
