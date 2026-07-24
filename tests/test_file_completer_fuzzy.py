@@ -60,4 +60,18 @@ def test_exclude_venv_folders():
     assert ".venv/bin/pytest" not in matched_paths
     assert "my_venv/lib/script.py" not in matched_paths
 
+def test_directory_matching():
+    files = [
+        "kogniterm/terminal/",
+        "kogniterm/terminal/file_completer.py",
+        "kogniterm/tui/",
+    ]
+    results = fuzzy_match_files("terminal", files)
+    matched_paths = [r[1] for r in results]
+    assert "kogniterm/terminal/" in matched_paths
+    for _, path, meta in results:
+        if path == "kogniterm/terminal/":
+            assert meta == "📁 dir"
+
+
 

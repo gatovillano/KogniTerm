@@ -2036,8 +2036,9 @@ class KogniTermTUI(App):
                     prefix = last_word.split("@")[0] + "@"
                 elif ":" in last_word:
                     prefix = last_word.split(":")[0] + ":"
+                suffix = "" if selected_text.endswith("/") else " "
                 words[-1] = prefix + selected_text
-                input_widget.value = " ".join(words) + " "
+                input_widget.value = " ".join(words) + suffix
         input_widget.cursor_position = len(input_widget.value)
         input_widget.focus()
         self.command_popup.display = False
