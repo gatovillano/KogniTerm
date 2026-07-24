@@ -329,6 +329,8 @@ class LLMService:
         self.tool_execution_lock = threading.Lock() # Inicializar el lock
         self.active_tool_future = None # Referencia a la última tarea iniciada
         self.tool_executor = ThreadPoolExecutor(max_workers=20) # Aumentado para permitir mayor paralelismo en ejecución de herramientas
+        # Referencia al ThreadManager (inyectada desde tui_app tras su creación)
+        self._thread_manager = None
         # Inicializar HistoryManager para gestión optimizada del historial
         self.history_manager = HistoryManager(
             history_file_path=self.history_file_path,
@@ -367,7 +369,8 @@ class LLMService:
             history_file_path=self.history_file_path,
             max_history_messages=self.max_history_messages,
             max_history_chars=self.max_history_chars,
-            auto_save_interval=self.auto_save_interval
+            auto_save_interval=self.auto_save_interval,
+            thread_manager=self._thread_manager,
         )
 
         from .context.vector_db_manager import VectorDBManager
@@ -402,6 +405,12 @@ class LLMService:
             except Exception as e:
                 logger.error(f"⚠️ Error re-descubriendo skills en {workspace_dir}: {e}")
         
+    def set_thread_manager(self, thread_manager) -> None:
+        """Inyecta el ThreadManager y lo propaga al HistoryManager activo."""
+        self._thread_manager = thread_manager
+        if self.history_manager:
+            self.history_manager.set_thread_manager(thread_manager)
+
     @property
     def history_file_path(self):
         val = self._context_history_file_path.get()

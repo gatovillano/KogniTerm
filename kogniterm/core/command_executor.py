@@ -193,22 +193,48 @@ class CommandExecutor:
  
                         # Filtrar el eco del comando completo provocado por bash readline
                         if not getattr(self, '_echo_filtered', True):
-                            expected = getattr(self, '_expected_echo', '')
-                            # Si ya tenemos un salto de línea en el buffer, podemos analizar la primera línea
-                            if '\n' in search_buffer:
-                                first_line, rest = search_buffer.split('\n', 1)
-                                # Si la primera línea contiene el token del marcador, es definitivamente el eco
-                                # (siempre que no sea exactamente el marcador de finalización limpio, lo que indicaría
-                                # que ECHO está desactivado y el primer output que recibimos es ya el fin del comando)
-                                if "##KOGNITERM_" in first_line and first_line.strip() != "##KOGNITERM_DONE_MARKER##":
+                            # Limpiar secuencias de escape ANSI del buffer para la comparación de prefijos
+                            clean_buf = re.sub(r'\x1b\[[0-9;?]*[a-zA-Z]', '', search_buffer).lstrip()
+                            cmd_stripped = original_command.strip()
+                            prefix_len = min(len(cmd_stripped), 16)
+                            
+                            # Si el buffer no empieza con el prefijo esperado del comando,
+                            # asumimos que ECHO está desactivado y lo que recibimos ya es salida del comando
+                            if prefix_len > 0 and not clean_buf.startswith(cmd_stripped[:prefix_len]):
+                                self._echo_filtered = True
+                            
+                            # Si detectamos la firma de nuestro marcador en el eco, sabemos que terminó el eco
+                            # La firma en el comando de eco es: ##KOGNITERM_''DONE_MARKER##
+                            elif "##KOGNITERM_''DONE_MARKER##" in search_buffer:
+                                parts = search_buffer.split("##KOGNITERM_''DONE_MARKER##", 1)
+                                rest = parts[1]
+                                if rest.startswith("'"):
+                                    rest = rest[1:]
+                                if rest.startswith("\r"):
+                                    rest = rest[1:]
+                                if rest.startswith("\n"):
+                                    rest = rest[1:]
+                                search_buffer = rest
+                                self._echo_filtered = True
+                                
+                            # Si el buffer limpio supera en longitud de forma excesiva al comando,
+                            # desactivamos el filtro por seguridad para no retener salida real
+                            elif len(clean_buf) > len(cmd_stripped) + 150:
+                                # Si el marcador de eco completo está presente en alguna parte, intentamos descartarlo
+                                if "##KOGNITERM_''DONE_MARKER##" in search_buffer:
+                                    parts = search_buffer.split("##KOGNITERM_''DONE_MARKER##", 1)
+                                    rest = parts[1]
+                                    if rest.startswith("'"):
+                                        rest = rest[1:]
+                                    if rest.startswith("\r"):
+                                        rest = rest[1:]
+                                    if rest.startswith("\n"):
+                                        rest = rest[1:]
                                     search_buffer = rest
                                 self._echo_filtered = True
-                            elif expected.startswith(search_buffer):
-                                # Aún no tenemos la línea de eco completa, seguimos esperando más chunks
-                                continue
                             else:
-                                # No es el eco de comando (o ya terminó de otra forma)
-                                self._echo_filtered = True
+                                # Aún estamos recibiendo la línea de eco, no hacemos yield todavía
+                                continue
 
 
                         # Si el marcador de fin aparece completo, hemos terminado

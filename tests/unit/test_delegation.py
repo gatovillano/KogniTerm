@@ -316,3 +316,35 @@ def test_call_agent_skill_dynamic_agent_allowed_tools():
         assert "SQL query verified" in res
         assert captured_sys_prompt[0] == custom_prompt
 
+
+def test_tool_executor_execute_tools_parallel():
+    from kogniterm.core.agent_state import AgentState
+    from kogniterm.core.agents.tool_executor import ToolExecutor
+    from langchain_core.messages import AIMessage
+    from unittest.mock import MagicMock
+
+    mock_llm_service = MagicMock()
+    mock_tool = MagicMock()
+    mock_llm_service.get_tool.return_value = mock_tool
+    mock_llm_service._invoke_tool_with_interrupt.return_value = iter(["parallel_result"])
+
+    state = AgentState()
+    ai_message = AIMessage(
+        content="Testing parallel execution",
+        tool_calls=[{"name": "read_file", "args": {"path": "test.py"}, "id": "call_1"}]
+    )
+    state.messages.append(ai_message)
+
+    res_state = ToolExecutor.execute_tools_parallel(
+        state=state,
+        llm_service=mock_llm_service,
+        terminal_ui=None,
+        delegation_context=None,
+        interrupt_queue=None,
+    )
+
+    assert len(res_state.messages) == 2
+    assert res_state.messages[-1].content == "parallel_result"
+    assert res_state.messages[-1].tool_call_id == "call_1"
+
+

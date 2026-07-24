@@ -174,6 +174,7 @@ class HistoryManager:
         # El sistema de persistencia ahora es gestionado por ThreadManager.
         self.autosave_manager = None
         self._thread_manager = thread_manager
+        self._logger = __import__('logging').getLogger(__name__)
         
         # Autoguardado periódico
         self.auto_save_interval = auto_save_interval
@@ -195,9 +196,26 @@ class HistoryManager:
 
         self._conversation_history = AutoSavingMessageList(value or [], self._handle_history_mutation)
 
+    def set_thread_manager(self, thread_manager) -> None:
+        """Inyecta (o reemplaza) el ThreadManager en tiempo de ejecución."""
+        self._thread_manager = thread_manager
+
+    def _save_to_active_thread(self, history: List[BaseMessage]) -> None:
+        """Persiste el historial en el hilo activo del ThreadManager, si existe."""
+        if not self._thread_manager:
+            return
+        thread_id = self._thread_manager.get_current_thread_id()
+        if not thread_id:
+            return
+        try:
+            self._thread_manager.save_thread_messages(thread_id, history)
+        except Exception as exc:
+            self._logger.error("Error persistiendo historial en hilo %s: %s", thread_id, exc)
+
     def _handle_history_mutation(self, history: List[BaseMessage]):
-        """Maneja mutaciones del historial guardando en disco."""
+        """Maneja mutaciones del historial guardando en disco y en el hilo activo."""
         self._save_history(history)
+        self._save_to_active_thread(history)
 
     def _start_auto_save(self):
         """Inicia el hilo de autoguardado."""
@@ -329,19 +347,12 @@ class HistoryManager:
             return []
 
     def _save_history(self, history: List[BaseMessage]):
-        """Guarda el historial en el archivo JSON."""
+        """Guarda el historial en el archivo JSON (operación pura de serialización y escritura)."""
         with self._save_lock:
             if history is None:
                 history = []
             if not self.history_file_path:
                 return
-
-            if self.conversation_history is None:
-                self.conversation_history = []
-
-            if history is not self.conversation_history:
-                self.conversation_history = history
-                history = self.conversation_history
 
             history_dir = os.path.dirname(self.history_file_path)
             os.makedirs(history_dir, exist_ok=True)

@@ -55,7 +55,8 @@ class KogniTermKernel:
             self.kc = self.km.client()
             self.kc.start_channels()
 
-            self.kc.wait_for_ready()
+            # Añadir timeout para evitar bloqueo indefinido si el kernel muere al arrancar
+            self.kc.wait_for_ready(timeout=5.0)
 
             self.listener_thread = threading.Thread(target=self._iopub_listener)
             self.listener_thread.daemon = True
@@ -89,7 +90,11 @@ class KogniTermKernel:
     def execute_code_stream(self, code: str, terminal_ui: Any = None, command_title: str = "python") -> Generator[str, None, None]:
         """Ejecuta código en el kernel y produce fragmentos formateados en tiempo real."""
         if not self.kc:
-            yield "Error: El kernel no está iniciado."
+            yield "Error: El kernel no está iniciado o falló al arrancar.\n"
+            return
+
+        if not self.listener_thread or not self.listener_thread.is_alive():
+            yield "Error: El hilo de escucha del kernel no está activo. ¿Está instalado 'ipykernel'?\n"
             return
 
         self.current_execution_outputs = []
@@ -120,6 +125,12 @@ class KogniTermKernel:
             return ""
 
         while not self.execution_complete_event.is_set():
+            if not self.listener_thread or not self.listener_thread.is_alive():
+                err_msg = "\nError: El kernel se detuvo inesperadamente durante la ejecución.\n"
+                self.current_execution_outputs.append({"type": "error", "ename": "DeadKernel", "evalue": err_msg, "traceback": []})
+                yield err_msg
+                break
+
             if time.time() - start_wait > max_wait:
                 err_msg = f"\nTimeout: El kernel de Jupyter no respondió después de {max_wait} segundos.\n"
                 self.current_execution_outputs.append({"type": "error", "ename": "Timeout", "evalue": err_msg, "traceback": []})
@@ -181,6 +192,7 @@ class KogniTermKernel:
                 self.kc.stop_channels()
             except Exception:
                 pass
+            self.kc = None
                 
         # 4. Apagar el kernel físico
         if self.km:
@@ -188,6 +200,7 @@ class KogniTermKernel:
                 self.km.shutdown_kernel()
             except Exception:
                 pass
+            self.km = None
 
 
 # Instancia global del kernel
