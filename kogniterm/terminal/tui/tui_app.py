@@ -846,11 +846,12 @@ class KogniTermTUI(App):
     }
 
     #command_popup {
+        position: absolute;
         layer: popup;
         height: auto;
         max-height: 14;
         background: #1e1e2e;
-        border: tall #3b82f6 40%;
+        border: tall #3b82f6;
         padding: 0;
         display: none;
     }
@@ -2011,11 +2012,13 @@ class KogniTermTUI(App):
             if popup_x + popup_w > screen_w:
                 popup_x = max(0, screen_w - popup_w)
 
-            # Posición Y: justo ENCIMA del input
+            # Posición Y: justo encima del borde superior del contenedor (target_region.y)
             items_count = len(self.command_popup.children)
-            popup_h = max(3, min(14, items_count + 1))
+            popup_max_h = 14
+            popup_h = min(popup_max_h, max(3, items_count + 2))
             popup_y = max(0, target_region.y - popup_h)
 
+            self.command_popup.styles.height = popup_h
             self.command_popup.styles.width = popup_w
             self.command_popup.styles.offset = (popup_x, popup_y)
         except Exception:
