@@ -131,6 +131,9 @@ class CommandExecutor:
         # a ejecución desde archivo temporal para evitar problemas de eco, PS2 (>) y PTY
         command, was_transformed, temp_path = _transform_python3_dash_c(command)
         
+        # Eliminar saltos de línea y espacios al final para evitar errores sintácticos
+        command = command.rstrip()
+        
         original_command = command
         stripped_command = command.strip()
         is_multiline = "\n" in stripped_command
@@ -154,7 +157,14 @@ class CommandExecutor:
         part1 = self._last_command_done_marker[:half_len]
         part2 = self._last_command_done_marker[half_len:]
         marker = f"echo '{part1}''{part2}'"
-        full_cmd = f"{command} ; {marker}\n"
+        
+        # Construcción segura del comando y el marcador para evitar errores sintácticos de bash
+        if not stripped_command:
+            full_cmd = f"{marker}\n"
+        elif stripped_command.endswith(';') or stripped_command.endswith('&'):
+            full_cmd = f"{command} {marker}\n"
+        else:
+            full_cmd = f"{command} ; {marker}\n"
         
         # Filtro de echo: definiremos la cadena exacta a borrar que producirá bash readline
         self._expected_echo = full_cmd.replace('\n', '\r\n')
