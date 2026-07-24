@@ -46,3 +46,18 @@ def test_suggester_search_files():
     assert len(matches) > 0
     assert matches[0][1] == "kogniterm/terminal/file_completer.py"
 
+def test_exclude_venv_folders():
+    files = [
+        "kogniterm/terminal/file_completer.py",
+        "venv/lib/python3.12/site-packages/package.py",
+        ".venv/bin/pytest",
+        "my_venv/lib/script.py",
+    ]
+    results = fuzzy_match_files("py", files)
+    matched_paths = [r[1] for r in results]
+    assert "kogniterm/terminal/file_completer.py" in matched_paths
+    assert "venv/lib/python3.12/site-packages/package.py" not in matched_paths
+    assert ".venv/bin/pytest" not in matched_paths
+    assert "my_venv/lib/script.py" not in matched_paths
+
+

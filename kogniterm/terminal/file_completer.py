@@ -115,11 +115,7 @@ class FileCompleter(Completer):
         try:
             all_relative_items = []
             for root, dirs, files in os.walk(self.workspace_directory):
-                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in (
-                    'venv', '__pycache__', 'node_modules', 'build', 'dist',
-                    'out', 'coverage', '.mypy_cache', '.pytest_cache',
-                    'kogniterm.egg-info', '.git',
-                )]
+                dirs[:] = [d for d in dirs if not is_ignored_path(d)]
                 rel_root = os.path.relpath(root, self.workspace_directory)
                 if rel_root == ".":
                     rel_root = ""
@@ -324,6 +320,8 @@ def fuzzy_match_files(query: str, files: List[str], workspace_directory: Optiona
 
     scored_matches = []
     for rel_path in files:
+        if is_ignored_path(rel_path):
+            continue
         display_item = rel_path
         is_dir = rel_path.endswith('/') or (workspace_directory and os.path.isdir(os.path.join(workspace_directory, rel_path)))
         if is_dir and not display_item.endswith('/'):
@@ -404,6 +402,22 @@ def fuzzy_match_files(query: str, files: List[str], workspace_directory: Optiona
 
     scored_matches.sort(key=lambda x: -x[0])
     return scored_matches[:max_results]
+
+
+def is_ignored_path(path_str: str) -> bool:
+    """Verifica si la ruta pertenece a una carpeta virtualenv u otra carpeta ignorada."""
+    parts = path_str.lower().replace('\\', '/').split('/')
+    for part in parts:
+        if not part:
+            continue
+        if part in ('venv', '.venv', 'env', '.env', 'virtualenv', '.virtualenv',
+                    'site-packages', 'node_modules', '__pycache__', 'build',
+                    'dist', 'out', 'coverage', '.mypy_cache', '.pytest_cache',
+                    'kogniterm.egg-info', '.git', '.gemini', '.antigravity', '.pyfly'):
+            return True
+        if 'venv' in part or 'virtualenv' in part or 'site-packages' in part:
+            return True
+    return False
 
 
 def _get_file_meta_icon(ext: str) -> str:
