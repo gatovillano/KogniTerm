@@ -849,7 +849,7 @@ class KogniTermTUI(App):
         position: absolute;
         layer: popup;
         height: auto;
-        max-height: 25;
+        max-height: 45;
         background: #1e1e2e;
         border: tall #3b82f6;
         padding: 0;
@@ -1793,7 +1793,7 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
-                    raw_matches = suggester.search_files(search_term, max_results=20)
+                    raw_matches = suggester.search_files(search_term, max_results=40)
                     matches = [
                         {
                             "name": path,
@@ -1947,7 +1947,7 @@ class KogniTermTUI(App):
                 )
 
                 if isinstance(suggester, KogniTermSuggester):
-                    raw_matches = suggester.search_files(search_term, max_results=20)
+                    raw_matches = suggester.search_files(search_term, max_results=40)
                     matches = [
                         {
                             "name": path,
@@ -2014,8 +2014,8 @@ class KogniTermTUI(App):
 
             # Posición Y: justo encima del borde superior del contenedor (target_region.y)
             items_count = len(self.command_popup.children)
-            available_h_above = max(3, target_region.y - 1)
-            popup_max_h = min(22, available_h_above)
+            available_h_above = max(5, target_region.y - 1)
+            popup_max_h = min(44, available_h_above)
             popup_h = min(popup_max_h, max(4, items_count + 2))
             popup_y = max(0, target_region.y - popup_h)
 
