@@ -876,7 +876,12 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     tool_name = raw_tool_output.get("operation", exception.tool_name)
                     
                     # Determinar si es una operación de archivo
-                    is_file_update = tool_name in ["file_operations", "file_update_tool", "file_update", "advanced_file_editor", "advanced_file_editor_tool"]
+                    is_file_update = tool_name in [
+                        "file_operations", "file_update_tool", "file_update",
+                        "advanced_file_editor", "advanced_file_editor_tool",
+                        "write_file_tool", "write_file", "file_write", "file_write_tool", "write",
+                        "append_file_tool",
+                    ]
                     
                     # Crear contenido del panel de confirmación
                     panel_content = f"**{exception.message}**"
