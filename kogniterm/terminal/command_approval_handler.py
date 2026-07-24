@@ -143,6 +143,41 @@ class CommandApprovalHandler:
         self.auto_approve = False # Estado de auto-aprobación
         self._command_rules = CommandRulesResolver()  # Resolver de permisos granulares
 
+    def _ensure_unified_diff(self, file_path: str, diff_or_content: str) -> str:
+        """
+        Garantiza que diff_or_content sea un diff unificado estándar.
+        Si es texto plano nuevo o no contiene cabeceras diff/hunks, genera el diff unificado
+        comparándolo contra el contenido anterior en disco (o /dev/null si no existe).
+        """
+        if not diff_or_content:
+            return ""
+
+        lines = diff_or_content.splitlines()
+        # Verificar si ya es un formato diff unificado válido
+        if any(l.startswith(("@@", "--- ", "+++ ")) for l in lines):
+            return diff_or_content
+
+        # Es contenido nuevo sin formato diff -> Generar diff unificado
+        old_content = ""
+        if file_path and os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    old_content = f.read()
+            except Exception:
+                old_content = ""
+
+        import difflib
+        unified = list(difflib.unified_diff(
+            old_content.splitlines(keepends=True),
+            diff_or_content.splitlines(keepends=True),
+            fromfile=f"a/{file_path}" if old_content else "/dev/null",
+            tofile=f"b/{file_path}",
+        ))
+        res = "".join(unified)
+        if not res:
+            res = f"--- /dev/null\n+++ b/{file_path}\n@@ -0,0 +0,0 @@\n"
+        return res
+
     def _print_applied_diff_in_history(self, diff_content: str, file_path: str, tool_name: Optional[str] = None) -> None:
         """
         Imprime el diff aprobado en la vista persistente del historial (incluida TUI streaming).
@@ -370,18 +405,20 @@ class CommandApprovalHandler:
                 "file_update", "file_update_tool", "file_operations",
                 "advanced_file_editor", "advanced_file_editor_tool",
                 "sophisticated_editor_tool", "replace_file_content",
-                "write_file_tool", "append_file_tool",
+                "write_file_tool", "write_file", "file_write", "file_write_tool", "write",
+                "append_file_tool",
             }
             if tool_name in FILE_UPDATE_TOOLS:
                 logger.debug(f"DEBUG: Detectada confirmación de archivo por tool_name: {tool_name}")
                 is_file_update_confirmation = True
-                # Si no hay diff en raw_tool_output, intentar construirlo de original_tool_args
-                if not diff_content and original_tool_args:
-                    diff_content = original_tool_args.get("diff", original_tool_args.get("content", ""))
-                if not file_path and original_tool_args:
-                    file_path = original_tool_args.get("path", original_tool_args.get("target_file", "archivo desconocido"))
-                if not message:
-                    message = f"Se detectaron cambios para '{file_path}'. Por favor, confirma para aplicar."
+        if is_file_update_confirmation and not is_python_execution:
+            original_tool_args = original_tool_args or {}
+            if not diff_content:
+                diff_content = original_tool_args.get("diff", original_tool_args.get("content", ""))
+            if not file_path:
+                file_path = original_tool_args.get("path", original_tool_args.get("target_file", "archivo desconocido"))
+            if file_path and diff_content:
+                diff_content = self._ensure_unified_diff(file_path, diff_content)
 
         # Evita errores cuando una tool no entrega args en la solicitud de confirmación.
         original_tool_args = original_tool_args or {}
@@ -582,25 +619,36 @@ class CommandApprovalHandler:
                     tool_message_content = self._stringify_tool_result(normalized_result)
                     should_render_applied_diff = self._tool_result_succeeded(normalized_result)
 
-                elif tool_name in ["file_operations", "file_operations_tool", "write_file_tool", "append_file_tool", "delete_file_tool", "move_file_tool", "copy_file_tool"]:
+                elif tool_name in ["file_operations", "file_operations_tool", "write_file_tool", "write_file", "file_write", "file_write_tool", "write", "append_file_tool", "delete_file_tool", "move_file_tool", "copy_file_tool"]:
                     args_to_pass = {k: v for k, v in original_tool_args.items() if k != "operation"}
                     args_to_pass["confirm"] = True
+                    op = original_tool_args.get("operation") or tool_name
 
-                    if tool_name == "write_file_tool":
+                    if tool_name in ["write_file_tool", "write_file", "file_write", "file_write_tool", "write"] or op in ["write_file", "write_file_tool", "write"]:
                         _fw_mod = _load_file_ops_module("file_write")
                         file_ops_result = _fw_mod.write_file_tool(**args_to_pass)
-                    elif tool_name == "append_file_tool":
+                    elif tool_name == "append_file_tool" or op == "append_file":
                         _fw_mod = _load_file_ops_module("file_write")
                         file_ops_result = _fw_mod.append_file_tool(**args_to_pass)
-                    elif tool_name == "delete_file_tool" or (tool_name in ["file_operations", "file_operations_tool"] and original_tool_args.get("operation") == "delete_file"):
+                    elif tool_name == "delete_file_tool" or op == "delete_file":
                         _fm_mod = _load_file_ops_module("file_management")
                         file_ops_result = _fm_mod.delete_file_tool(**args_to_pass)
-                    elif tool_name == "move_file_tool":
+                    elif tool_name == "move_file_tool" or op == "move_file":
                         _fm_mod = _load_file_ops_module("file_management")
                         file_ops_result = _fm_mod.move_file_tool(**args_to_pass)
-                    elif tool_name == "copy_file_tool":
+                    elif tool_name == "copy_file_tool" or op == "copy_file":
                         _fm_mod = _load_file_ops_module("file_management")
                         file_ops_result = _fm_mod.copy_file_tool(**args_to_pass)
+                    else:
+                        _fo_mod = _load_file_ops_module("tool")
+                        file_ops_result = _fo_mod.file_operations(op, **args_to_pass)
+
+                    normalized_result = self._normalize_tool_result(file_ops_result)
+                    tool_message_content = self._stringify_tool_result(normalized_result)
+                    should_render_applied_diff = self._tool_result_succeeded(normalized_result)
+
+                    if not diff_content and file_path and original_tool_args.get("content"):
+                        diff_content = self._ensure_unified_diff(file_path, original_tool_args.get("content", ""))
                 elif tool_name in ["python_executor", "python_executor_tool"]:
                     args_to_pass = dict(original_tool_args)
                     args_to_pass["auto_confirm"] = True
