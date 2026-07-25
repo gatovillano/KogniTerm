@@ -58,8 +58,9 @@ def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
     with open(temp_path, 'w', encoding='utf-8') as f:
         f.write(code)
     
-    # Construir comando transformado: python ... /tmp/...py [suffix]
-    transformed = f"{prefix} {temp_path}{suffix}"
+    # Construir comando transformado: python ... -u /tmp/...py [suffix]
+    u_flag = "" if "-u" in prefix.split() else "-u "
+    transformed = f"{prefix} {u_flag}{temp_path}{suffix}"
     
     return transformed, True, temp_path
 
@@ -200,28 +201,16 @@ class CommandExecutor:
                         
                         search_buffer += data
  
- 
                         # Filtrar el eco del comando completo provocado por bash readline
                         if not getattr(self, '_echo_filtered', True):
-                            # Limpiar secuencias de escape ANSI del buffer para la comparación de prefijos
                             clean_buf = re.sub(r'\x1b\[[0-9;?]*[a-zA-Z]', '', search_buffer).lstrip()
                             cmd_stripped = original_command.strip()
                             prefix_len = min(len(cmd_stripped), 16)
                             
-                            # Si el buffer no empieza con el prefijo esperado del comando,
-                            # asumimos que ECHO está desactivado y lo que recibimos ya es salida del comando.
-                            # Para evitar desactivar el filtro prematuramente con buffers muy cortos que aún 
-                            # están recibiendo el eco, primero verificamos si clean_buf es prefijo del comando esperado.
-                            if prefix_len == 0:
+                            # 1. Si aparece el marcador limpio de finalización, NO es un eco: desactivar filtro de inmediato
+                            if marker_to_hide in search_buffer:
                                 self._echo_filtered = True
-                            elif len(clean_buf) < prefix_len:
-                                if not cmd_stripped.startswith(clean_buf):
-                                    self._echo_filtered = True
-                            elif not clean_buf.startswith(cmd_stripped[:prefix_len]):
-                                self._echo_filtered = True
-                            
-                            # Si detectamos la firma de nuestro marcador en el eco, sabemos que terminó el eco
-                            # La firma en el comando de eco es: ##KOGNITERM_''DONE_MARKER##
+                            # 2. Si detectamos la firma de nuestro marcador en el eco, descartar la línea de eco
                             elif "##KOGNITERM_''DONE_MARKER##" in search_buffer:
                                 parts = search_buffer.split("##KOGNITERM_''DONE_MARKER##", 1)
                                 rest = parts[1]
@@ -233,25 +222,20 @@ class CommandExecutor:
                                     rest = rest[1:]
                                 search_buffer = rest
                                 self._echo_filtered = True
-                                
-                            # Si el buffer limpio supera en longitud de forma excesiva al comando,
-                            # desactivamos el filtro por seguridad para no retener salida real
-                            elif len(clean_buf) > len(cmd_stripped) + 150:
-                                # Si el marcador de eco completo está presente en alguna parte, intentamos descartarlo
-                                if "##KOGNITERM_''DONE_MARKER##" in search_buffer:
-                                    parts = search_buffer.split("##KOGNITERM_''DONE_MARKER##", 1)
-                                    rest = parts[1]
-                                    if rest.startswith("'"):
-                                        rest = rest[1:]
-                                    if rest.startswith("\r"):
-                                        rest = rest[1:]
-                                    if rest.startswith("\n"):
-                                        rest = rest[1:]
+                            # 3. Si tenemos un salto de línea completo en el buffer, evaluar la primera línea
+                            elif "\n" in search_buffer:
+                                first_line, rest = search_buffer.split("\n", 1)
+                                clean_first = re.sub(r'\x1b\[[0-9;?]*[a-zA-Z]', '', first_line).strip()
+                                if prefix_len == 0 or (clean_first and (cmd_stripped.startswith(clean_first) or clean_first.startswith(cmd_stripped[:prefix_len]))):
+                                    # La primera línea era el eco del comando, la descartamos
                                     search_buffer = rest
                                 self._echo_filtered = True
-                            else:
-                                # Aún estamos recibiendo la línea de eco, no hacemos yield todavía
-                                continue
+                            # 4. Si el buffer no empieza con el prefijo esperado, ECHO probablemente está desactivado
+                            elif prefix_len > 0 and len(clean_buf) >= prefix_len and not clean_buf.startswith(cmd_stripped[:prefix_len]):
+                                self._echo_filtered = True
+                            # 5. Si el buffer es muy largo, desactivar filtro por seguridad
+                            elif len(clean_buf) > len(cmd_stripped) + 150:
+                                self._echo_filtered = True
 
 
                         # Si el marcador de fin aparece completo, hemos terminado
@@ -285,7 +269,9 @@ class CommandExecutor:
                 
                 # Yield lo que queda en el buffer si no hay datos nuevos y no parece inicio de marcador
                 if search_buffer and master_fd not in readable_fds:
-                    if getattr(self, '_echo_filtered', True) and not marker_to_hide.startswith(search_buffer):
+                    if not getattr(self, '_echo_filtered', True):
+                        self._echo_filtered = True
+                    if not marker_to_hide.startswith(search_buffer):
                         clean_remaining = search_buffer.replace('\r\n', '\n')
                         if clean_remaining:
                             yield clean_remaining

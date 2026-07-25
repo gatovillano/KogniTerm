@@ -266,6 +266,27 @@ class CommandApprovalHandler:
             return False
         return True
 
+    def _pick_applied_diff(self, normalized_result: Dict[str, Any], fallback_diff: str, file_path: str) -> str:
+        """Selecciona el diff aplicado real desde el resultado de la herramienta."""
+        if not isinstance(normalized_result, dict):
+            return fallback_diff
+        applied_diff = normalized_result.get("applied_diff")
+        if applied_diff:
+            return applied_diff
+        legacy_diff = normalized_result.get("diff")
+        if legacy_diff:
+            return legacy_diff
+        matched_span = normalized_result.get("matched_span")
+        if matched_span and isinstance(matched_span, dict) and matched_span.get("matched_text") is not None:
+            original_text = matched_span.get("matched_text", "")
+            replacement_text = matched_span.get("replacement_text") or normalized_result.get("replacement_content") or ""
+            if original_text or replacement_text:
+                try:
+                    return self._ensure_unified_diff(file_path, replacement_text, original_text)
+                except Exception:
+                    return fallback_diff
+        return fallback_diff
+
     def _replace_or_append_tool_message(self, tool_call_id: str, content: str) -> None:
         """
         Reemplaza el ToolMessage provisional asociado a una confirmación.
@@ -618,6 +639,8 @@ class CommandApprovalHandler:
                     normalized_result = self._normalize_tool_result(advanced_result)
                     tool_message_content = self._stringify_tool_result(normalized_result)
                     should_render_applied_diff = self._tool_result_succeeded(normalized_result)
+                    if should_render_applied_diff:
+                        diff_content = self._pick_applied_diff(normalized_result, diff_content, file_path)
 
                 elif tool_name in ["file_operations", "file_operations_tool", "write_file_tool", "write_file", "file_write", "file_write_tool", "write", "append_file_tool", "delete_file_tool", "move_file_tool", "copy_file_tool"]:
                     args_to_pass = {k: v for k, v in original_tool_args.items() if k != "operation"}
@@ -653,12 +676,15 @@ class CommandApprovalHandler:
                     args_to_pass = dict(original_tool_args)
                     args_to_pass["auto_confirm"] = True
                     args_to_pass["confirm"] = True
+                    args_to_pass["terminal_ui"] = self.terminal_ui
                     _py_mod = _load_bundled_skill_module("python-executor", "tool")
                     python_executor = _py_mod.python_executor
                     chunks = []
                     for chunk in python_executor(**args_to_pass):
                         if chunk:
                             chunks.append(str(chunk))
+                            if self.terminal_ui and hasattr(self.terminal_ui, "update_terminal_output"):
+                                self.terminal_ui.update_terminal_output("python_executor", "".join(chunks), command="python")
                     tool_message_content = "".join(chunks)
 
                 if should_render_applied_diff:
