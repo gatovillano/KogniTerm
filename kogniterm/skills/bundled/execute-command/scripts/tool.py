@@ -61,8 +61,9 @@ def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
     with open(temp_path, 'w', encoding='utf-8') as f:
         f.write(code)
     
-    # Construir comando transformado: python ... /tmp/...py [suffix]
-    transformed = f"{prefix} {temp_path}{suffix}"
+    # Construir comando transformado: python ... -u /tmp/...py [suffix]
+    u_flag = "" if "-u" in prefix.split() else "-u "
+    transformed = f"{prefix} {u_flag}{temp_path}{suffix}"
     
     return transformed, True, temp_path
 
