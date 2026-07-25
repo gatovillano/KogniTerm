@@ -9,7 +9,7 @@
 > A diferencia de la mayoría de asistentes, KogniTerm **no depende de las capacidades nativas de *Tool Calling* de los modelos**. Su **Motor de Parseo Universal** interpreta las intenciones de cualquier LLM (Gemini, GPT-4/5, Claude, DeepSeek, Llama 3, Mistral, Qwen…) directamente desde lenguaje natural, JSON embebido o XML, normalizando la salida para ejecutar la herramienta correcta. Eso lo vuelve compatible con modelos abiertos y proveedores locales.
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-1.1.6-ff69b4)](kogniterm/__init__.py)
+[![Version](https://img.shields.io/badge/version-1.2.0-ff69b4)](kogniterm/__init__.py)
 [![License](https://img.shields.io/badge/license-MIT-green)](#-licencia)
 [![PyPI](https://img.shields.io/badge/pypi-kogniterm-orange)](#-instalación-rápida)
 
