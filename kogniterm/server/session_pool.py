@@ -560,7 +560,6 @@ class AgentSession:
             history_file_path=history_file_path,
             max_history_messages=llm_service.max_history_messages,
             max_history_chars=llm_service.max_history_chars,
-            tokenizer=llm_service.tokenizer,
             auto_save_interval=llm_service.auto_save_interval
         )
 
@@ -1024,16 +1023,11 @@ class AgentSession:
         }
 
     async def _try_generate_title(self):
-        """Intenta generar un título en background y notifica al cliente si se generó."""
+        """Intenta generar un título en background si aplica."""
         if self.thread_manager and self.llm_service:
-            new_title = await self.thread_manager.generate_title_if_needed(
+            self.thread_manager.check_and_generate_title(
                 self.session_id, self.agent_state.messages, self.llm_service
             )
-            if new_title:
-                self.ui._push(
-                    "thread_title_updated",
-                    {"thread_id": self.session_id, "title": new_title},
-                )
 
 
 # ── Pool global de sesiones ───────────────────────────────────────────────────

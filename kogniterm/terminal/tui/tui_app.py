@@ -2566,6 +2566,18 @@ class KogniTermTUI(App):
                 tool_call_id_for_cmd = (
                     final_state.get("tool_call_id_to_confirm") or self.agent_state.tool_call_id_to_confirm or "execute_command"
                 )
+                # DIAGNOSTIC LOG
+                logger.info(
+                    "[DIAG] tui_app: final_state keys=%s, file_diff=%s, tool_pend=%s",
+                    list(final_state.keys()) if isinstance(final_state, dict) else type(final_state).__name__,
+                    final_state.get('file_update_diff_pending_confirmation') if isinstance(final_state, dict) else 'N/A',
+                    final_state.get('tool_pending_confirmation') if isinstance(final_state, dict) else 'N/A',
+                )
+                logger.info(
+                    "[DIAG] tui_app: after sync - agent_state.file_diff=%s, agent_state.tool_pend=%s",
+                    self.agent_state.file_update_diff_pending_confirmation,
+                    self.agent_state.tool_pending_confirmation,
+                )
                 # 2. SECCIÓN DE CONFIRMACIONES (Bash y Skills)
                 # -------------------------------------------------------------
 
