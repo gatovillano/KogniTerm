@@ -177,8 +177,11 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Cerrando KogniTerm Server...")
     # Detener canales activos
     for adapter, task in active_tasks:
-        if hasattr(adapter, "stop"):
-            await adapter.stop()
+        try:
+            if hasattr(adapter, "stop"):
+                await adapter.stop()
+        except Exception as e:
+            logger.warning(f"Error al detener canal {adapter}: {e}")
         task.cancel()
 
     pool._executor.shutdown(wait=False)

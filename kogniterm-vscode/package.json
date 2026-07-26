@@ -1,0 +1,146 @@
+{
+  "name": "kogniterm-vscode",
+  "displayName": "KogniTerm - AI Agent Development Environment",
+  "description": "Extensión de VS Code para KogniTerm: trabaja directamente con tu código usando agentes de IA especializados",
+  "version": "0.1.0",
+  "publisher": "kogniterm",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Tools",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "coding",
+    "assistant",
+    "kogniterm",
+    "langchain",
+    "llm"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "KogniTerm",
+      "properties": {
+        "kogniterm.serverUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:8765/ws/chat",
+          "description": "URL del servidor KogniTerm (WebSocket)"
+        },
+        "kogniterm.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Conectar automáticamente al servidor al iniciar VS Code"
+        },
+        "kogniterm.autoSendContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enviar automáticamente el archivo activo como contexto al agente"
+        },
+        "kogniterm.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mostrar notificaciones nativas de VS Code para eventos del agente"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "kogniterm.connect",
+        "title": "KogniTerm: Conectar al Servidor"
+      },
+      {
+        "command": "kogniterm.disconnect",
+        "title": "KogniTerm: Desconectar del Servidor"
+      },
+      {
+        "command": "kogniterm.sendSelection",
+        "title": "KogniTerm: Enviar Selección al Agente"
+      },
+      {
+        "command": "kogniterm.sendFile",
+        "title": "KogniTerm: Enviar Archivo Actual al Agente"
+      },
+      {
+        "command": "kogniterm.clearChat",
+        "title": "KogniTerm: Limpiar Chat"
+      },
+      {
+        "command": "kogniterm.showStatus",
+        "title": "KogniTerm: Mostrar Estado de Conexión"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kogniterm-container",
+          "title": "KogniTerm",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "kogniterm-container": [
+        {
+          "type": "webview",
+          "id": "kogniterm.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "kogniterm.clearChat",
+          "when": "view == kogniterm.chat",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "kogniterm.sendSelection",
+          "when": "editorHasSelection",
+          "group": "kogniterm"
+        },
+        {
+          "command": "kogniterm.sendFile",
+          "group": "kogniterm"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ && cp src/ui/chatPanel.js out/ui/chatPanel.js",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.80.0",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "marked": "^18.0.7",
+    "ws": "^8.16.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kogniterm/kogniterm-vscode.git"
+  },
+  "license": "MIT",
+  "author": "KogniTerm Team"
+}

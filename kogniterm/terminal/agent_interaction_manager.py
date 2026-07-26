@@ -123,6 +123,13 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
         self.agent_state.file_update_diff_pending_confirmation = final_state_dict.get('file_update_diff_pending_confirmation')
         self.agent_state.tool_pending_confirmation = final_state_dict.get('tool_pending_confirmation')
         self.agent_state.tool_args_pending_confirmation = final_state_dict.get('tool_args_pending_confirmation')
+        logger.info(
+            "[DIAG] aim: final_state_dict has file_diff=%s, tool_pend=%s; agent_state.file_diff=%s, agent_state.tool_pend=%s",
+            final_state_dict.get('file_update_diff_pending_confirmation') is not None,
+            final_state_dict.get('tool_pending_confirmation'),
+            self.agent_state.file_update_diff_pending_confirmation is not None,
+            self.agent_state.tool_pending_confirmation,
+        )
 
         # Actualizar los mensajes in-place siempre para evitar pérdida de referencias
         if 'messages' in final_state_dict:

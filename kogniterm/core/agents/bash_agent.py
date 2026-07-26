@@ -857,6 +857,11 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                         state.tool_call_id_to_confirm = tool_id
                         state.file_update_diff_pending_confirmation = exception.raw_tool_output
                         
+                        logger.info("[DIAG] bash_agent: returning TUI confirmation dict - file_diff=%s, tool_pend=%s, tool_id=%s",
+                            exception.raw_tool_output is not None,
+                            exception.tool_name,
+                            tool_id,
+                        )
                         executor.shutdown(wait=False)
                         return {
                             "messages": state.messages,

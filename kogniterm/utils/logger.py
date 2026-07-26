@@ -231,5 +231,11 @@ def configure_server_logging(port: int = 8765, level: int = logging.INFO):
         l.propagate = True
         l.setLevel(level)
 
+    # Console Handler for real-time terminal output
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    console_handler.setFormatter(console_formatter)
+    root.addHandler(console_handler)
+
     # Disable lastResort StreamHandler
     logging.lastResort = logging.NullHandler()
