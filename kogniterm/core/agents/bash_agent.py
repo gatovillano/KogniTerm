@@ -924,40 +924,52 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             terminal_ui.console.print(f"[bold red]Error al solicitar confirmación: {e}[/bold red]")
                             # Continuar con el flujo normal de ejecución manual
                     else:
-                        # Si no hay command_approval_handler, la confirmación se maneja por el flujo normal
-                        # Ejecutar la operación directamente (manual o fallback)
-                        if tool_name == "file_operations":
-                            # Determinar si es write o delete
-                            operation = exception.tool_args.get("operation", "write_file")
-                            if operation == "write_file":
-                                _ft_mod = _load_file_ops_module("tool")
-                                write_result = _ft_mod._write_file(
+                        # Si no hay command_approval_handler, solicitar aprobación con terminal_ui si está disponible
+                        approved = True
+                        if terminal_ui and hasattr(terminal_ui, "ask_approval_sync"):
+                            diff_str = raw_tool_output.get("diff", "")
+                            file_path = exception.tool_args.get("path", "") if exception.tool_args else ""
+                            approved = terminal_ui.ask_approval_sync(
+                                message=exception.message,
+                                title=f"Confirmación de edición: {tool_name}",
+                                diff_content=diff_str,
+                                file_path=file_path,
+                            )
+
+                        content = None
+                        if approved:
+                            if tool_name == "file_operations":
+                                # Determinar si es write o delete
+                                operation = exception.tool_args.get("operation", "write_file")
+                                if operation == "write_file":
+                                    _ft_mod = _load_file_ops_module("tool")
+                                    write_result = _ft_mod._write_file(
+                                        exception.tool_args.get("path", ""),
+                                        exception.tool_args.get("content", "")
+                                    )
+                                    content = write_result
+                                elif operation == "delete_file":
+                                    _ft_mod = _load_file_ops_module("tool")
+                                    delete_result = _ft_mod._delete_file(
+                                        exception.tool_args.get("path", "")
+                                    )
+                                    content = delete_result
+                            elif tool_name in ["file_update_tool", "file_update"]:
+                                from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
+                                update_result = _apply_file_update(
                                     exception.tool_args.get("path", ""),
                                     exception.tool_args.get("content", "")
                                 )
-                                content = write_result
-                            elif operation == "delete_file":
-                                _ft_mod = _load_file_ops_module("tool")
-                                delete_result = _ft_mod._delete_file(
-                                    exception.tool_args.get("path", "")
-                                )
-                                content = delete_result
-                        elif tool_name in ["file_update_tool", "file_update"]:
-                            from kogniterm.skills.bundled.file_update.scripts.tool import _apply_file_update
-                            update_result = _apply_file_update(
-                                exception.tool_args.get("path", ""),
-                                exception.tool_args.get("content", "")
-                            )
-                            content = update_result
-                        elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
-                            from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import advanced_file_editor_tool
-                            args_to_pass = dict(exception.tool_args)
-                            args_to_pass["confirm"] = True
-                            edit_result = advanced_file_editor_tool(**args_to_pass)
-                            content = edit_result
-                        else:
-                            # Para otras herramientas, usar el contenido existente
-                            content = None
+                                content = update_result
+                            elif tool_name in ["advanced_file_editor", "advanced_file_editor_tool"]:
+                                from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import advanced_file_editor_tool
+                                args_to_pass = dict(exception.tool_args)
+                                args_to_pass["confirm"] = True
+                                edit_result = advanced_file_editor_tool(**args_to_pass)
+                                content = edit_result
+                            else:
+                                # Para otras herramientas, usar el contenido existente
+                                content = None
                         
                         # ASEGURAR QUE EL CONTENIDO SEA STRING
                         if content is not None:
