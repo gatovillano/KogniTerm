@@ -903,6 +903,15 @@ class AgentSession:
                     self.agent_state.command_to_confirm = final_state.get(
                         "command_to_confirm"
                     )
+                    self.agent_state.tool_pending_confirmation = final_state.get(
+                        "tool_pending_confirmation", getattr(self.agent_state, "tool_pending_confirmation", None)
+                    )
+                    self.agent_state.tool_args_pending_confirmation = final_state.get(
+                        "tool_args_pending_confirmation", getattr(self.agent_state, "tool_args_pending_confirmation", None)
+                    )
+                    self.agent_state.file_update_diff_pending_confirmation = final_state.get(
+                        "file_update_diff_pending_confirmation", getattr(self.agent_state, "file_update_diff_pending_confirmation", None)
+                    )
 
                     # Caso A: Comando de terminal (Bash)
                     if self.agent_state.command_to_confirm:

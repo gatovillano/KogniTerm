@@ -2553,9 +2553,18 @@ class KogniTermTUI(App):
                 self.agent_state.command_to_confirm = final_state.get(
                     "command_to_confirm"
                 )
+                self.agent_state.tool_pending_confirmation = final_state.get(
+                    "tool_pending_confirmation", self.agent_state.tool_pending_confirmation
+                )
+                self.agent_state.tool_args_pending_confirmation = final_state.get(
+                    "tool_args_pending_confirmation", self.agent_state.tool_args_pending_confirmation
+                )
+                self.agent_state.file_update_diff_pending_confirmation = final_state.get(
+                    "file_update_diff_pending_confirmation", self.agent_state.file_update_diff_pending_confirmation
+                )
                 # También recuperar el tool_call_id para poder crear el ToolMessage correcto
                 tool_call_id_for_cmd = (
-                    final_state.get("tool_call_id_to_confirm") or "execute_command"
+                    final_state.get("tool_call_id_to_confirm") or self.agent_state.tool_call_id_to_confirm or "execute_command"
                 )
                 # 2. SECCIÓN DE CONFIRMACIONES (Bash y Skills)
                 # -------------------------------------------------------------
