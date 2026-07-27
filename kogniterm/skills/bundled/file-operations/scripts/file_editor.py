@@ -679,7 +679,6 @@ common_editor_schema = {
         "fuzzy": {"type": "boolean", "description": "Permitir match flexible en replace_block/insert_*_match. Default: false.", "default": False},
         "require_unique": {"type": "boolean", "description": "Exigir match unico. Default: true.", "default": True},
         "context_hint": {"type": "string", "description": "Substring cercano para desambiguar entre multiples matches."},
-        "confirm": {"type": "boolean", "description": "Confirmacion automatica.", "default": False},
     },
     "required": ["path", "action"],
 }

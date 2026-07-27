@@ -2602,15 +2602,9 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                             injected_args['approval_handler'] = self.skill_manager.approval_handler
                         if 'delegation_context' in sig.parameters and delegation_context is not None:
                             injected_args['delegation_context'] = delegation_context
-                        if delegation_context is not None:
-                            for p in confirm_param_names:
-                                if p in sig.parameters:
-                                    injected_args[p] = True
                     else:
                         if delegation_context is not None:
                             injected_args['delegation_context'] = delegation_context
-                            for p in confirm_param_names:
-                                injected_args[p] = True
 
                 # Soporte para diferentes tipos de ejecución de herramientas
                 if hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
@@ -2630,26 +2624,21 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                     raise Exception(f"La herramienta '{getattr(tool, 'name', tool.__class__.__name__)}' no es ejecutable.")
 
                 if isinstance(result, dict) and result.get("status") == "requires_confirmation":
-                    if delegation_context is not None:
-                        logger.info("Subagente autónomo: auto-aprobando confirmación dict para %s", getattr(tool, 'name', 'tool'))
-                        for p in confirm_param_names:
-                            injected_args[p] = True
-                        result = tool(**injected_args) if callable(tool) else tool.invoke(injected_args)
-                    else:
-                        # Intentar obtener el nombre más descriptivo posible
-                        inferred_tool_name = (
-                            result.get("operation") or 
-                            getattr(tool, 'name', None) or 
-                            getattr(tool, '__name__', None) or 
-                            tool.__class__.__name__
-                        )
-
-                        raise UserConfirmationRequired(
-                            message=result.get("action_description", "Confirmación requerida"),
-                            tool_name=inferred_tool_name,
-                            tool_args=result.get("args", tool_args),
-                            raw_tool_output=result
-                        )
+                    # Siempre lanzar UserConfirmationRequired — la confirmación la gestiona
+                    # el approval_handler (que sí pasa confirm=True internamente).
+                    # Nunca auto-aprobar aquí, independientemente de delegation_context.
+                    inferred_tool_name = (
+                        result.get("operation") or
+                        getattr(tool, 'name', None) or
+                        getattr(tool, '__name__', None) or
+                        tool.__class__.__name__
+                    )
+                    raise UserConfirmationRequired(
+                        message=result.get("action_description", "Confirmación requerida"),
+                        tool_name=inferred_tool_name,
+                        tool_args=result.get("args", tool_args),
+                        raw_tool_output=result
+                    )
                 return result
             except UserConfirmationRequired as e:
                 raise e
@@ -2677,35 +2666,23 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                                 try:
                                     parsed = json.loads(item)
                                     if isinstance(parsed, dict) and parsed.get("status") == "requires_confirmation":
-                                        if delegation_context is not None:
-                                            logger.info("Subagente autónomo: interceptado requires_confirmation en generador. Reejecutando auto-aprobado.")
-                                            re_args = tool_args.copy() if isinstance(tool_args, dict) else {}
-                                            re_args['delegation_context'] = delegation_context
-                                            for p in confirm_param_names:
-                                                re_args[p] = True
-                                            re_res = tool(**re_args) if callable(tool) else tool.invoke(re_args)
-                                            if inspect.isgenerator(re_res):
-                                                yield from re_res
-                                            else:
-                                                yield re_res
-                                            return
-                                        else:
-                                            inferred_tool_name = (
-                                                parsed.get("operation") or 
-                                                getattr(tool, 'name', None) or 
-                                                getattr(tool, '__name__', None) or 
-                                                tool.__class__.__name__
-                                            )
-                                            raise UserConfirmationRequired(
-                                                message=parsed.get("action_description", "Confirmación requerida"),
-                                                tool_name=inferred_tool_name,
-                                                tool_args=parsed.get("args", tool_args),
-                                                raw_tool_output=parsed
-                                            )
+                                        # Siempre lanzar UserConfirmationRequired — nunca auto-aprobar
+                                        inferred_tool_name = (
+                                            parsed.get("operation") or
+                                            getattr(tool, 'name', None) or
+                                            getattr(tool, '__name__', None) or
+                                            tool.__class__.__name__
+                                        )
+                                        raise UserConfirmationRequired(
+                                            message=parsed.get("action_description", "Confirmación requerida"),
+                                            tool_name=inferred_tool_name,
+                                            tool_args=parsed.get("args", tool_args),
+                                            raw_tool_output=parsed
+                                        )
                                 except UserConfirmationRequired as e:
                                     raise e
                                 except Exception as ex:
-                                    logger.warning("Error al procesar auto-confirmación de generador: %s", ex)
+                                    logger.warning("Error al procesar confirmación en generador: %s", ex)
                             yield item
                     else:
                         yield result
