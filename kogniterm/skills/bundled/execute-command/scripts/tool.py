@@ -71,18 +71,21 @@ def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
 def execute_command(
     command: str,
     timeout: int = 30,
-    shell: bool = True
+    shell: bool = True,
+    is_background: bool = False
 ) -> Generator[str, None, None]:
     """
     Ejecuta un comando en la terminal y produce su salida en tiempo real.
+    Si is_background es True, la tarea se lanza en segundo plano y retorna de inmediato el ID.
 
     Args:
         command: El comando a ejecutar
         timeout: Timeout en segundos (default: 30, max: 300)
         shell: Usar shell=True (default: True)
+        is_background: Ejecutar asíncronamente en segundo plano (default: False)
 
     Yields:
-        str: Fragmentos de la salida del comando (stdout o stderr)
+        str: Fragmentos de la salida del comando o la confirmación de inicio en segundo plano.
     """
     # Validación de comandos peligrosos
     dangerous_patterns = [
@@ -97,6 +100,21 @@ def execute_command(
         if pattern in command_lower:
             yield f"⚠️  Comando potencialmente peligroso detectado: {pattern}\nEste comando requiere aprobación manual del usuario.\n"
             return
+
+    # Si se requiere ejecución en segundo plano
+    if is_background:
+        from kogniterm.core.background_task_manager import get_default_background_task_manager
+        # Obtener o crear gestor global de tareas
+        global_service = globals().get('_llm_service')
+        bg_manager = None
+        if global_service and hasattr(global_service, 'command_executor') and global_service.command_executor:
+            bg_manager = getattr(global_service.command_executor, 'background_task_manager', None)
+        if not bg_manager:
+            bg_manager = get_default_background_task_manager()
+
+        task = bg_manager.start_task(command)
+        yield f"🚀 [KogniTerm] Comando enviado a segundo plano con ID: {task.task_id} (PID: {task.pid or 'iniciando'}). Puedes continuar la conversación o usar 'manage_background_task' para consultar su avance.\n"
+        return
 
     # Interceptar comandos 'cd' para cambiar directorio de trabajo
     if command_lower.startswith("cd ") or command_lower == "cd":
@@ -215,12 +233,12 @@ def execute_command(
 
 
 # Función que retorna el string completo consumiendo el generador
-def execute_command_sync(command: str, timeout: int = 30) -> str:
+def execute_command_sync(command: str, timeout: int = 30, is_background: bool = False) -> str:
     """
     Versión síncrona de execute_command que consume el generador.
     """
     output = []
-    for chunk in execute_command(command, timeout):
+    for chunk in execute_command(command, timeout, is_background=is_background):
         output.append(chunk)
     return "".join(output)
 
@@ -230,6 +248,8 @@ def get_action_description(command: str, **kwargs) -> str:
     cmd_preview = command.strip()
     if len(cmd_preview) > 100:
         cmd_preview = cmd_preview[:97] + "..."
+    if kwargs.get("is_background"):
+        return f"Iniciando comando en segundo plano: '{cmd_preview}'"
     return f"Ejecutando comando: '{cmd_preview}'"
 
 
@@ -250,6 +270,11 @@ parameters_schema = {
             "type": "boolean",
             "description": "Usar shell=True (default: true)",
             "default": True
+        },
+        "is_background": {
+            "type": "boolean",
+            "description": "Si es true, ejecuta el comando asíncronamente en segundo plano sin bloquear al agente.",
+            "default": False
         }
     },
     "required": ["command"]
