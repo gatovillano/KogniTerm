@@ -428,6 +428,16 @@ class TextualTerminalUI:
             target_log.write_tool_notification, tool_name, action_desc, skill_name
         )
 
+    def print_background_task_notification(self, task_info: dict, **kwargs):
+        """Notifica sobre el estado o cambio de una tarea en segundo plano."""
+        panel_id = kwargs.get("panel_id")
+        target_log = self._get_chat_log(panel_id)
+        task_id = task_info.get("task_id", "task")
+        status = task_info.get("status", "running")
+        cmd = task_info.get("command", "")
+        msg = f"⚙️ [Segundo Plano] Tarea **{task_id}** ({status.upper()}): `{cmd}`"
+        self._safe_call(target_log.write_message, msg, style="cyan")
+
     def print_success_box(self, message: str, title: str = "Éxito", **kwargs):
         panel_id = kwargs.get("panel_id")
         target_log = self._get_chat_log(panel_id)

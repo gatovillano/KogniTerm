@@ -13,6 +13,7 @@ import shlex
 import logging
 from typing import Optional, Generator, Any
 from .config import settings
+from .background_task_manager import BackgroundTaskManager
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,13 @@ class CommandExecutor:
         self._persistent_slave_fd: Optional[int] = None
         self._persistent_shell_process: Optional[subprocess.Popen] = None
         self._last_command_done_marker = "##KOGNITERM_DONE_MARKER##"
+        self.background_task_manager = BackgroundTaskManager()
+
+    def execute_background(self, command: str, cwd: Optional[str] = None) -> dict:
+        """Ejecuta un comando en segundo plano sin bloquear el flujo principal."""
+        target_cwd = cwd or self.workspace_directory or os.getcwd()
+        task = self.background_task_manager.start_task(command, cwd=target_cwd)
+        return task.to_dict()
 
     def execute(self, command: str, cwd: Optional[str] = None, 
                 interrupt_queue: Optional[queue.Queue] = None, 
