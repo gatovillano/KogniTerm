@@ -78,7 +78,6 @@ parameters_schema = {
     "properties": {
         "path": {"type": "string", "description": "Ruta del archivo"},
         "content": {"type": "string", "description": "Nuevo contenido"},
-        "confirm": {"type": "boolean", "default": False}
     },
     "required": ["path", "content"]
 }

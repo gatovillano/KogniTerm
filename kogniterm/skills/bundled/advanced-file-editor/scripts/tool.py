@@ -499,7 +499,6 @@ parameters_schema = {
         "fuzzy": {"type": "boolean", "description": "Permitir match flexible. Default: false.", "default": False},
         "require_unique": {"type": "boolean", "description": "Exigir match unico. Default: true.", "default": True},
         "context_hint": {"type": "string", "description": "Substring cercano para desambiguar."},
-        "confirm": {"type": "boolean", "description": "Confirmacion automatica.", "default": False},
         "operations": {
             "type": "array",
             "description": (

@@ -90,6 +90,7 @@ export class ChatPanel {
       }
     }
     if (data.response) {
+      // Si llega texto de respuesta final, cerramos la etapa de pensamiento
       this.addAssistantMessage(data.response);
     }
   }

@@ -100,7 +100,9 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
                         role=AgentRole.ORCHESTRATOR
                     )
                 ctx = self.llm_service.delegation_manager.get_context("orchestrator")
-                self.agent_state.delegation_context = ctx
+                # NO asignar delegation_context al agente raíz — el orquestador no es
+                # un subagente delegado. Hacerlo causaba que _invoke_tool_with_interrupt
+                # inyectara confirm=True en todas las herramientas, bypasseando el modal.
                 self.llm_service.current_delegation_context = ctx
             except Exception as e:
                 logger.error(f"Error al registrar el orquestador principal en la delegación: {e}")

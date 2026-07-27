@@ -163,8 +163,11 @@ export class KogniTermClient {
           this.chatPanel.addSystemMessage(`Sesión inicializada: ${message.data?.session_id || 'OK'}`);
           break;
         case 'stream':
+          // El streaming de respuesta final va acumulando texto en el asistente
           const streamText = typeof message.data === 'string' ? message.data : (message.data?.text || '');
-          this.chatPanel.appendStream({ text: streamText });
+          if (streamText) {
+            this.chatPanel.appendStream({ text: streamText });
+          }
           break;
         case 'message':
           const content = typeof message.data === 'string' ? message.data : (message.data?.text || message.data?.content || JSON.stringify(message.data));

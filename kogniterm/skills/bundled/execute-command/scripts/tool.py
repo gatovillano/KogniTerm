@@ -228,8 +228,8 @@ def execute_command_sync(command: str, timeout: int = 30) -> str:
 def get_action_description(command: str, **kwargs) -> str:
     """Devuelve una descripción legible de la acción que realiza la herramienta."""
     cmd_preview = command.strip()
-    if len(cmd_preview) > 50:
-        cmd_preview = cmd_preview[:47] + "..."
+    if len(cmd_preview) > 100:
+        cmd_preview = cmd_preview[:97] + "..."
     return f"Ejecutando comando: '{cmd_preview}'"
 
 
