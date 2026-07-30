@@ -204,7 +204,7 @@ def get_system_message(llm_service: LLMService) -> SystemMessage:
 ⚠️⚠️⚠️ PROTOCOLO DE CUMPLIMIENTO OBLIGATORIO: task_tracker ⚠️⚠️⚠️
 Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrada y actualizada en la herramienta `task_tracker`.
 1. **Inicialización Inmediata**: En tu PRIMER TURNO, antes de realizar cualquier otra acción o ejecutar cualquier herramienta (como leer archivos, buscar en codebase o ejecutar comandos), DEBES llamar a `task_tracker` con `action="init"`, especificando `agent_name="BashAgent"` y la lista de tareas detallada en `plan`.
-2. **Actualizaciones en Tiempo Real**: Cada vez que inicies, completes o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("in-progress", "completed", "failed").
+2. **Actualizaciones en Tiempo Real**: Cada vez que inicies, completes o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("in-progress", "done", "failed").
 3. **Registro Final**: Al concluir el trabajo, asegúrate de marcar la última tarea como completada llamando a `task_tracker`.
 ¡NUNCA OMITAS ESTE PASO! No inicializar el task tracker inmediatamente en el primer turno se considera un fallo de ejecución crítico y una violación del protocolo.
 
@@ -236,12 +236,10 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
 10. **Skills Disponibles**: Tienes acceso a skills especializadas que puedes invocar directamente. Para usar una skill, escribe `/nombre_skill` en el chat. Por ejemplo, `/task_tracker` para gestionar tareas. Las skills disponibles incluyen gestión de tareas, búsqueda de código, y más. Si no existe una skill adecuada, usa primero el adaptador de skills externas para buscar e instalar una nueva.
 11. **Skills Externas**: Para descubrir o instalar capacidades nuevas usa `agent_skills_adapter` con `action="search"` para skills.sh o `action="install_repo"` para repositorios GitHub de colecciones de skills. Si encuentras una coincidencia clara, puedes instalarla automáticamente y luego cargarla como una skill local.
 12. **Memoria y Proactividad**: Eres el guardián del contexto. Usa proactivamente las herramientas de memoria (`memory_init`, `memory_append`, `memory_summarize`) para guardar decisiones clave, preferencias del usuario o progreso importante del proyecto. NO esperes a que el usuario te lo pida. Escribe en tu memoria cuando percibas que se ha logrado un hito, o cuando haya información valiosa.
-13. **Paralelismo de Herramientas (MUY IMPORTANTE para reducir latencia)**:
-    - El sistema ejecuta TODAS tus tool_calls de un mismo turno **en paralelo** de forma automática.
-    - Cuando necesites hacer varias acciones independientes (leer varios archivos, buscar en varios lugares, etc.), emite **todas las llamadas a herramientas en el mismo turno**, no una por una.
-    - *Ejemplo correcto*: leer `archivo_a.py`, `archivo_b.py` y buscar en el codebase → emite las 3 tool_calls a la vez.
-    - *Ejemplo incorrecto*: leer `archivo_a.py`, esperar resultado, luego leer `archivo_b.py`.
-    - La única excepción es `execute_command`: siempre se presenta al usuario tras las demás, no la combines con herramientas que aún necesitas ejecutar antes.
+13. **Paralelismo de Herramientas y Exclusión de `execute_command` (CRÍTICO)**:
+    - El sistema ejecuta tus tool_calls de lectura e investigación de un mismo turno **en paralelo** de forma automática (ej. leer varios archivos o buscar en el codebase a la vez).
+    - **REGLA ESTRICTA DE `execute_command`**: NUNCA emitas más de una llamada a `execute_command` en un mismo turno. No intentes ejecutar comandos en paralelo.
+    - Si necesitas ejecutar múltiples comandos de consola, DEBES encadenarlos en un solo string bash mediante `&&` o `;` (ej. `"command": "cd /ruta/proyecto && npm install && npm test"`), o ejecutarlos de forma estrictamente secuencial en turnos consecutivos. Emitir llamadas paralelas a `execute_command` corrompe el canal PTY de la terminal e interrumpe forzosamente la ejecución.
 """
 
     # Adjuntar instrucciones del usuario (global y del proyecto) si existen
@@ -300,7 +298,7 @@ Estoy analizando la petición del usuario y decido usar tal herramienta...
     base_content += """
 \n## 📌 PROTOCOLO OBLIGATORIO DE SEGUIMIENTO DE TAREAS (task_tracker)
 1. **Inicialización Obligatoria**: Para toda solicitud, DEBES inicializar tu plan de trabajo llamando a `task_tracker` con `action="init"`, especificando tu `agent_name="BashAgent"` y la lista de tareas en `plan`.
-2. **Actualización de Progreso**: Cada vez que completes una tarea o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("completed", "in_progress", "failed").
+2. **Actualización de Progreso**: Cada vez que completes una tarea o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("done", "in_progress", "failed").
 3. **Finalización**: Al terminar todo el trabajo solicitado, DEBES registrar la finalización llamando a `task_tracker` con `action="update"` para marcar la última tarea como completada.
 ¡NUNCA procedas con ninguna tarea o acción sin registrarla y mantenerla al día en `task_tracker`!\n"""
 
