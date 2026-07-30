@@ -22,7 +22,9 @@ class AgentStreamWidget(Vertical):
 
     DEFAULT_CSS = """
     AgentStreamWidget {
-        height: 30;
+        height: auto;
+        min-height: 5;
+        max-height: 30;
         border: round $accent;
         margin: 1 0;
         padding: 0 1;
