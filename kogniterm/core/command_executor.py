@@ -21,37 +21,96 @@ logger = logging.getLogger(__name__)
 
 def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
     """
-    Transforma comandos python -c "..." o python -c '...' (con cualquier ruta de python)
-    a ejecución desde un archivo temporal.
+    Transforma comandos python -c "..." o python -c '...' (con cualquier ruta de python,
+    comillas simples, dobles o triples) a ejecución desde un archivo temporal.
+    
+    Procesamiento determinista en tiempo lineal O(N) sin retroceso catastrófico de regex.
     
     Returns:
         (comando_transformado, fue_transformado, ruta_temp)
     """
     cmd_stripped = command.strip()
     
-    # 1. Intentar con comillas dobles
-    pattern_double = r'^([^\s&|;]*python[0-9.]*(?:\s+[^&|;]*?)*)\s+-c\s+"((?:[^"\\]|\\.)*)"(.*)$'
-    match = re.match(pattern_double, cmd_stripped, re.DOTALL)
-    
-    # 2. Si no coincide, intentar con comillas simples
-    if not match:
-        pattern_single = r"^([^\s&|;]*python[0-9.]*(?:\s+[^&|;]*?)*)\s+-c\s+'((?:[^'\\]|\\.)*)'(.*)$"
-        match = re.match(pattern_single, cmd_stripped, re.DOTALL)
-        
-    if not match:
+    # Localizar la invocación de python seguida de flags opcionales y -c
+    match_py = re.search(r'(?:^|(?<=[\s&|;]))([^\s&|;]*python[0-9.]*)\s+((?:-[a-zA-Z0-9]+\s+)*)-c(?=\s|$)', cmd_stripped)
+    if not match_py:
         return command, False, None
+    
+    py_bin = match_py.group(1)
+    py_flags = match_py.group(2) or ""
+    
+    start_pos = match_py.start()
+    end_c_pos = match_py.end()
+    
+    rest = cmd_stripped[end_c_pos:].lstrip()
+    if not rest:
+        return command, False, None
+    
+    code = ""
+    quote_str = None
+    if rest.startswith('"""'):
+        quote_str = '"""'
+    elif rest.startswith("'''"):
+        quote_str = "'''"
+    elif rest.startswith('"'):
+        quote_str = '"'
+    elif rest.startswith("'"):
+        quote_str = "'"
+    
+    if quote_str:
+        q_len = len(quote_str)
+        content_start = q_len
+        i = content_start
+        escaped = False
+        found_end = False
+        content_end = i
         
-    prefix = match.group(1)  # python ... (hasta -c)
-    code = match.group(2)    # código entre comillas
-    suffix = match.group(3)  # resto del comando (si hay)
-    
-    # Des-escapar las comillas correspondientes del código capturado para guardarlo en un archivo .py real
-    is_double_quotes = cmd_stripped[match.start(2) - 1] == '"'
-    if is_double_quotes:
-        code = code.replace('\\"', '"').replace('\\\\', '\\')
+        while i < len(rest):
+            if escaped:
+                escaped = False
+                i += 1
+                continue
+            if rest[i] == '\\':
+                escaped = True
+                i += 1
+                continue
+            if rest.startswith(quote_str, i):
+                found_end = True
+                content_end = i
+                break
+            i += 1
+            
+        if not found_end:
+            return command, False, None
+            
+        code_raw = rest[content_start:content_end]
+        suffix = rest[content_end + q_len:]
+        
+        if quote_str in ('"', '"""'):
+            code = code_raw.replace('\\"', '"').replace('\\\\', '\\')
+        else:
+            code = code_raw.replace("\\'", "'").replace('\\\\', '\\')
     else:
-        code = code.replace("\\'", "'").replace('\\\\', '\\')
-    
+        # Ejecución sin comillas
+        i = 0
+        escaped = False
+        while i < len(rest):
+            if escaped:
+                escaped = False
+                i += 1
+                continue
+            if rest[i] == '\\':
+                escaped = True
+                i += 1
+                continue
+            if rest[i] in ('&', '|', ';', '\n'):
+                break
+            i += 1
+        code = rest[:i].strip()
+        suffix = rest[i:]
+        if not code:
+            return command, False, None
+
     # Crear archivo temporal
     fd, temp_path = tempfile.mkstemp(suffix='.py', prefix='kogniterm_py_')
     os.close(fd)
@@ -59,12 +118,13 @@ def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
     # Escribir código al archivo
     with open(temp_path, 'w', encoding='utf-8') as f:
         f.write(code)
-    
-    # Construir comando transformado: python ... -u /tmp/...py [suffix]
-    u_flag = "" if "-u" in prefix.split() else "-u "
-    transformed = f"{prefix} {u_flag}{temp_path}{suffix}"
+        
+    prefix_before = cmd_stripped[:start_pos]
+    u_flag = "" if "-u" in py_flags.split() else "-u "
+    transformed = f"{prefix_before}{py_bin} {py_flags}{u_flag}{temp_path}{suffix}"
     
     return transformed, True, temp_path
+
 
 
 class CommandExecutor:
