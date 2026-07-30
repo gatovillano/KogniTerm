@@ -11,6 +11,7 @@ import tty
 import queue
 import shlex
 import logging
+import threading
 from typing import Optional, Generator, Any
 from .config import settings
 from .background_task_manager import BackgroundTaskManager
@@ -81,6 +82,7 @@ class CommandExecutor:
         self._persistent_shell_process: Optional[subprocess.Popen] = None
         self._last_command_done_marker = "##KOGNITERM_DONE_MARKER##"
         self.background_task_manager = BackgroundTaskManager()
+        self._exec_lock = threading.Lock()
 
     def execute_background(self, command: str, cwd: Optional[str] = None) -> dict:
         """Ejecuta un comando en segundo plano sin bloquear el flujo principal."""
@@ -105,7 +107,9 @@ class CommandExecutor:
         Yields:
             Cada fragmento de texto de la salida estándar/error del comando.
         """
-        is_tui = getattr(getattr(self, 'terminal_ui', None), 'is_tui', False)
+        self._exec_lock.acquire()
+        try:
+            is_tui = getattr(getattr(self, 'terminal_ui', None), 'is_tui', False)
         
         # Inicializar sesión persistente si no existe
         if self._persistent_shell_process is None or self._persistent_shell_process.poll() is not None:
@@ -301,6 +305,7 @@ class CommandExecutor:
                     os.unlink(temp_path)
                 except:
                     pass
+            self._exec_lock.release()
 
     def _start_persistent_session(self, cwd=None):
         """Inicia un shell persistente en un PTY."""
