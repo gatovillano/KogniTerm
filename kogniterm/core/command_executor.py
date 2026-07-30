@@ -198,7 +198,7 @@ class CommandExecutor:
                     yield "\n\n⚠️  Comando interrumpido por el usuario.\n"
                     break
  
-                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.02)
+                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.01)
  
                 if master_fd in readable_fds:
                     try:
@@ -328,18 +328,15 @@ class CommandExecutor:
             cwd=cwd or getattr(self, "workspace_directory", None) or os.getcwd(),
             env=os.environ.copy()
         )
-        # Consumir el banner inicial del shell
-        time.sleep(0.2)
+        # Consumir el banner inicial del shell y configurar variables sin demoras estáticas
         try:
             # Desactivar el PROMPT para que no se filtre en la TUI
             # El prompt vacío (PS1="") es vital para una salida limpia en paneles
-            os.write(self._persistent_master_fd, b"export PS1=''\n")
-
+            os.write(self._persistent_master_fd, b"export PS1='' PROMPT_COMMAND=''\n")
             
-            time.sleep(0.1)
-            # Leer todo el buffer inicial para dejar la terminal limpia (banners, mensajes de login, etc)
-            while True:
-                r, _, _ = select.select([self._persistent_master_fd], [], [], 0.1)
+            # Leer el buffer inicial de forma eficiente con timeout mínimo
+            for _ in range(20):
+                r, _, _ = select.select([self._persistent_master_fd], [], [], 0.01)
                 if r:
                     os.read(self._persistent_master_fd, 8192)
                 else:

@@ -25,14 +25,26 @@ Ejecuta un comando en la shell y devuelve la salida.
 **Parámetros:**
 - `command` (string, requerido): El comando a ejecutar
 - `timeout` (integer, opcional): Timeout en segundos (default: 30, max: 300)
+- `is_background` (boolean, opcional): `true` para ejecutar el comando de forma asíncrona en segundo plano sin bloquear la conversación (default: false). Usar obligatoriamente para comandos de larga duración (>30s), servidores/demonios (`npm run dev`, `python app.py`), instalaciones pesadas o monitorización continua.
 
-**Ejemplo:**
+**Ejemplo de ejecución sincrónica:**
 ```json
 {
   "tool": "execute_command",
   "args": {
     "command": "ls -la",
     "timeout": 10
+  }
+}
+```
+
+**Ejemplo de ejecución en segundo plano:**
+```json
+{
+  "tool": "execute_command",
+  "args": {
+    "command": "npm run dev",
+    "is_background": true
   }
 }
 ```

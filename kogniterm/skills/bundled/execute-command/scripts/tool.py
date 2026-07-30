@@ -17,7 +17,7 @@ from typing import Optional, Generator, Any
 
 # Metadata de la herramienta
 name = "execute_command"
-description = "Ejecuta un comando bash y devuelve su salida en tiempo real."
+description = "Ejecuta un comando bash y devuelve su salida en tiempo real. Para comandos de larga duración (>30s), servidores/demonios (ej. 'npm run dev', 'python app.py') o descargas pesadas, usa 'is_background: true' para ejecutarlos asíncronamente en segundo plano sin bloquear."
 
 
 def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:
@@ -187,7 +187,7 @@ def execute_command(
 
             # Usar select para esperar datos del PTY sin bloquear demasiado
             # para poder chequear el timeout y señales de interrupción.
-            r, _, _ = select.select([master_fd], [], [], 0.1)
+            r, _, _ = select.select([master_fd], [], [], 0.01)
             
             if master_fd in r:
                 try:
@@ -208,10 +208,10 @@ def execute_command(
                     # El PTY se cerró o hay error
                     break
             
-            # Si el proceso terminó y no hay más datos, salir
+            # Si el proceso terminó y no hay más datos, salir de inmediato
             if process.poll() is not None:
-                # Hacer una última lectura para capturar el remanente
-                r, _, _ = select.select([master_fd], [], [], 0.05)
+                # Hacer una última lectura no bloqueante para capturar el remanente
+                r, _, _ = select.select([master_fd], [], [], 0.0)
                 if not r:
                     break
 
