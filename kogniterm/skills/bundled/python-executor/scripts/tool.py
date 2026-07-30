@@ -144,7 +144,7 @@ class KogniTermKernel:
                 break
 
             try:
-                msg = self.output_queue.get(timeout=0.1)
+                msg = self.output_queue.get(timeout=0.01)
                 msg_type = msg['header']['msg_type']
                 content = msg['content']
 
