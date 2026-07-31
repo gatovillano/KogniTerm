@@ -308,9 +308,7 @@ class TUIWebSocketClient:
             if output:
                 if agent_id:
                     chat_log = self._get_chat_log(agent_id)
-                    limit = 30
-                    lines = output.splitlines()
-                    displayed = "\n".join(lines[-limit:]) if len(lines) > limit else output
+                    displayed = output
                     self._app.call_from_thread(chat_log.write_tool_output, displayed, tool_name)
                 else:
                     self._app.call_from_thread(
