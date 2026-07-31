@@ -99,10 +99,15 @@ class Terminal(Widget, can_focus=True):
 
         # OPTIMIZE: check a way to use textual.keys
         self.ctrl_keys = {
-            "up": "\x1bOA",
-            "down": "\x1bOB",
-            "right": "\x1bOC",
-            "left": "\x1bOD",
+            "enter": "\r",
+            "return": "\r",
+            "tab": "\t",
+            "backspace": "\x7f",
+            "escape": "\x1b",
+            "up": "\x1b[A",
+            "down": "\x1b[B",
+            "right": "\x1b[C",
+            "left": "\x1b[D",
             "home": "\x1bOH",
             "end": "\x1b[F",
             "delete": "\x1b[3~",

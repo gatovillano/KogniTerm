@@ -24,7 +24,7 @@ class AgentStreamWidget(Vertical):
     AgentStreamWidget {
         height: auto;
         min-height: 5;
-        max-height: 30;
+        max-height: 100%;
         border: round $accent;
         margin: 1 0;
         padding: 0 1;

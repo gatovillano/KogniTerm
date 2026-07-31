@@ -31,7 +31,7 @@ class ToolOutputWidget(Static):
         min-width: 60;
         height: auto;
         min-height: 5;
-        max-height: 30;
+        max-height: 100%;
         border: solid #4b5563;
         margin: 0 4 1 4;
         padding: 0;

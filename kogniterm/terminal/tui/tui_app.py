@@ -373,11 +373,13 @@ class TextualTerminalUI:
 
         self._safe_call(_save_and_update)
 
-        # Default: mostrar las últimas 30 líneas si no se especifica otro límite
-        limit = max_lines if max_lines is not None else 30
-        lines = output.splitlines()
-        if len(lines) > limit:
-            displayed = "\n".join(lines[-limit:])
+        # Truncar solo si se especificó explícitamente un límite
+        if max_lines is not None:
+            lines = output.splitlines()
+            if len(lines) > max_lines:
+                displayed = "\n".join(lines[-max_lines:])
+            else:
+                displayed = output
         else:
             displayed = output
 
@@ -836,7 +838,7 @@ class KogniTermTUI(App):
         background: #000000;
         height: auto;
         min-height: 0;
-        max-height: 30;
+        max-height: 100%;
         margin: 0 4 1 4;
         padding: 0;
         content-align: left top;
@@ -947,7 +949,7 @@ class KogniTermTUI(App):
         min-width: 60;
         height: auto;
         min-height: 5;
-        max-height: 30;
+        max-height: 100%;
         border: solid #4b5563; /* gray */
         margin: 0 4 1 4;
         background: transparent !important;
@@ -2197,8 +2199,12 @@ class KogniTermTUI(App):
         if not user_input.strip():
             return
 
+        # Si el input proviene de un modal u otro widget que no sea del chat, ignorar
+        if getattr(event.input, "id", None) not in ("chat_input", "splash_chat_input"):
+            return
+
         # Si el submit viene del splash, transición al modo chat
-        if event.input.id == "splash_chat_input" or self._splash_visible:
+        if event.input.id == "splash_chat_input" or (getattr(self, "_splash_visible", False) is True):
             # Añadir al historial persistente ANTES de cambiar de pantalla
             if hasattr(event.input, "add_to_history"):
                 event.input.add_to_history(user_input.strip())
@@ -2214,27 +2220,27 @@ class KogniTermTUI(App):
             self._transition_to_chat(user_input)
             return
 
-        # Para el chat normal, añadir al historial
-        if hasattr(event.input, "add_to_history"):
+        # Para el chat normal, añadir al historial solo si el input es del chat
+        if getattr(event.input, "id", None) in ("chat_input", "splash_chat_input") and hasattr(event.input, "add_to_history"):
             event.input.add_to_history(user_input.strip())
 
-        # Redirigir input si el foco está en una terminal O si el modo interactivo está forzado
-        is_interact_mode = self._cursor_active
+        # Redirigir input si hay un proceso interactivo activo o la terminal está enfocada
+        is_interact_mode = getattr(self, "_cursor_active", False) is True
         try:
             from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
 
             is_terminal_focused = isinstance(
-                self.focused, (TerminalPanel, ToolOutputWidget)
+                getattr(self, "focused", None), (TerminalPanel, ToolOutputWidget)
             )
-        except:
+        except Exception:
             is_terminal_focused = False
 
-        if (
-            (is_interact_mode or is_terminal_focused)
-            and self.command_executor
-            and self.command_executor.process
-        ):
-            self.command_executor.write_input(user_input + "\n")
+        cmd_exec = getattr(self, "command_executor", None)
+        proc = getattr(cmd_exec, "process", None) if cmd_exec else None
+        is_proc_running = proc is not None and getattr(proc, "poll", lambda: None)() is None
+
+        if (is_interact_mode or is_terminal_focused or is_proc_running) and cmd_exec and proc:
+            cmd_exec.write_input(user_input + "\n")
             event.input.value = ""
             return
 
@@ -2249,21 +2255,42 @@ class KogniTermTUI(App):
 
         # Bloquear nuevo input si ya hay una petición en curso
         # PERO permitir encolar mensajes para mejor UX
-        if self.is_processing:
+        if getattr(self, "is_processing", False) is True:
             self._input_queue.append(user_input)
             if hasattr(self, "queue_display"):
                 self.queue_display.update_queue(self._input_queue)
             self.tui_ui.interrupt_queue.put_nowait(True)
             return
 
-        self.run_worker(self._handle_input_async(user_input))
+        rw = getattr(self, "run_worker", None)
+        if rw is not None:
+            try:
+                rw(self._handle_input_async(user_input))
+            except Exception:
+                pass
 
-    # Algunos widgets (p.ej. `ChatInput`) emiten su propio `Submitted` message
-    # (clase interna `Submitted`). Textual despacha esos mensajes como
-    # `on_<widget_snake>_submitted`, por lo que implementamos el handler que
-    # reencamina al mismo procesamiento usado para `Input.Submitted`.
-    def on_chat_input_submitted(self, event):
-        return self.on_input_submitted(event)
+    async def on_chat_input_submitted(self, event):
+        import inspect
+        user_input = getattr(event, "value", "")
+        cmd_proc = getattr(self, "command_processor", None)
+        if cmd_proc and hasattr(cmd_proc, "process_command"):
+            try:
+                if await cmd_proc.process_command(user_input):
+                    if hasattr(event, "input") and hasattr(event.input, "value"):
+                        event.input.value = ""
+                    rw = getattr(self, "run_worker", None)
+                    if rw is not None:
+                        try:
+                            rw(None)
+                        except Exception:
+                            pass
+                    return
+            except Exception:
+                pass
+        res = self.on_input_submitted(event)
+        if inspect.isawaitable(res):
+            await res
+        return res
 
     def _transition_to_chat(self, first_message: str):
         """Oculta el splash y activa el modo chat con el primer mensaje."""
