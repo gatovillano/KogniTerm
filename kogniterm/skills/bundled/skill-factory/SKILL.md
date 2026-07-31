@@ -25,6 +25,38 @@ Esta es una **Meta-Skill**. Te permite crear nuevas habilidades para ti mismo de
 
 Al ejecutar esta herramienta, se creará una nueva carpeta en `skills/workspace/` y se registrará automáticamente en tu arsenal. **Podrás usar la nueva herramienta en tu siguiente turno.**
 
+## FORMATO OBLIGATORIO DE `SKILL.MD`
+
+Toda skill creada con `skill_factory` DEBE cumplir con la especificación estándar de formato de Agent Skills:
+
+### 1. Parámetro `description` (Frontmatter YAML)
+- **OBLIGATORIO**: Debe comenzar siempre con `"Use when..."` en tercera persona.
+- Describe únicamente las **condiciones de activación** (síntomas, disparadores, contextos).
+- **NUNCA** debes resumir el flujo o procedimiento interno de la skill en la descripción.
+
+### 2. Parámetro `instructions` (Cuerpo Markdown del `SKILL.md`)
+El markdown debe estructurarse en las siguientes secciones obligatorias:
+
+```markdown
+# Nombre de la Skill
+
+## Overview
+Principio fundamental o propósito central en 1-2 oraciones.
+
+## When to Use
+- Síntomas y condiciones de activación concretas.
+- Cuándo NOT a usar esta habilidad.
+
+## Core Pattern / Instrucciones
+Explicación paso a paso de la lógica, flujo de trabajo, comparaciones antes/después o patrones de implementación.
+
+## Quick Reference / Ejemplos
+Tablas de referencia rápida, comandos o snippets de código reutilizables.
+
+## Common Mistakes / Red Flags
+Errores comunes, trampas y cómo evitarlos.
+```
+
 ## REGLAS CRÍTICAS PARA EL CÓDIGO DE LA HERRAMIENTA (`tool_code`)
 
 Para evitar el error `'str' object has no attribute 'get'` o problemas de parseo:
@@ -43,7 +75,7 @@ logger = logging.getLogger(__name__)
 
 # 1. Función principal con parámetros fuertemente tipados
 def mi_nueva_skill(ruta: str, opcion_extra: bool = False) -> str: # Puede retornar str o dict
-    \"\"\"Docstring acá.\"\"\"
+    """Docstring acá."""
     try:
         # TU LÓGICA AQUÍ
         return f"Éxito procesando {ruta}"
@@ -69,22 +101,22 @@ parameters_schema = {
 
 ## Parámetros
 
-- `skill_name` (string, requerido): Nombre técnico de la skill (ej. `image_optimizer`). Debe ser snake_case.
-- `description` (string, requerido): Una descripción clara de qué hace la nueva skill.
-- `tool_code` (string, requerido): El código Python completo para `scripts/tool.py`. Debe incluir los schemas de Pydantic si es posible.
-- `instructions` (string, requerido): El contenido markdown para el archivo `SKILL.md` (sin el frontmatter YAML, este se genera solo).
+- `skill_name` (string, requerido): Nombre técnico de la skill (ej. `image_optimizer`). Debe ser snake_case o hyphen-case.
+- `description` (string, requerido): Descripción de cuándo debe activarse la skill. DEBE empezar con `"Use when..."` indicando solo disparadores.
+- `tool_code` (string, requerido): El código Python completo para `scripts/tool.py`. Debe incluir `parameters_schema`.
+- `instructions` (string, requerido): El contenido markdown estructurado para el archivo `SKILL.md` (con `# Titulo`, `## Overview`, `## When to Use`, etc.).
 
 ## Ejemplo de uso
 
 ```json
 {
-  "action": "create_skill",
   "skill_name": "text_summarizer",
-  "description": "Una herramienta para resumir textos largos usando algoritmos locales.",
+  "description": "Use when long text files or logs need to be summarized into structured bullet points.",
   "tool_code": "...",
-  "instructions": "# Resumidor...\nUsa esta herramienta para..."
+  "instructions": "# Text Summarizer\n\n## Overview\nSummarizes long text...\n\n## When to Use\n..."
 }
 ```
 
 > [!IMPORTANT]
 > Las nuevas skills se guardan en el directorio `workspace`, lo que significa que son persistentes entre sesiones a menos que se borren manualmente.
+

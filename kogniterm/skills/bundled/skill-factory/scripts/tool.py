@@ -45,11 +45,16 @@ def skill_factory(
         logger.info(f"Directorio de skill creado en: {skill_path}")
         
         # 3. Preparar YAML Frontmatter para SKILL.md
+        # Garantizar que description comience con "Use when..." en tercera persona
+        formatted_description = description.strip()
+        if not formatted_description.lower().startswith("use when"):
+            formatted_description = f"Use when {formatted_description[0].lower() + formatted_description[1:] if formatted_description else ''}"
+
         frontmatter = {
             "name": skill_name,
             "version": version,
             "author": "KogniTerm AI (Autonomous Generation)",
-            "description": description,
+            "description": formatted_description,
             "category": "autonomous",
             "tags": ["autonomous", "generated"],
             "dependencies": [],
@@ -64,7 +69,7 @@ def skill_factory(
             "metadata": {"format": "agent-skills-compatible"}
         }
         
-        skill_md_content = "---\n" + yaml.dump(frontmatter) + "---\n\n" + instructions
+        skill_md_content = "---\n" + yaml.dump(frontmatter, sort_keys=False) + "---\n\n" + instructions
         
         # 4. Escribir archivos
         (skill_path / "SKILL.md").write_text(skill_md_content, encoding="utf-8")
@@ -95,38 +100,36 @@ def skill_factory(
 # Schema para el LLM
 tool_schema = {
     "name": "skill_factory",
-    "description": "Crea una nueva herramienta (skill) personalizada y la integra en tu sistema.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "skill_name": {
-                "type": "string",
-                "description": "Nombre de la skill en snake_case (ej: image_tagger)."
-            },
-            "description": {
-                "type": "string",
-                "description": "Descripción de qué hace la herramienta."
-            },
-            "tool_code": {
-                "type": "string",
-                "description": "Código Python completo para la lógica de la herramienta. CRÍTICO: 1) La función principal debe recibir parámetros con kwargs explícitos (nunca un dict `args`). 2) Debes incluir una variable global `parameters_schema` con el esquema de los parámetros."
-            },
-            "instructions": {
-                "type": "string",
-                "description": "Instrucciones detalladas en Markdown para el archivo SKILL.md."
-            },
-            "version": {
-                "type": "string",
-                "description": "Versión inicial (por defecto 1.0.0).",
-                "default": "1.0.0"
-            },
-            "scope": {
-                "type": "string",
-                "description": "Alcance de la skill: 'workspace' (solo este proyecto) o 'global' (disponible en todos los proyectos).",
-                "enum": ["workspace", "global"],
-                "default": "workspace"
-            }
+    "description": "Crea una nueva herramienta (skill) personalizada siguiendo el formato estándar de SKILL.md y la integra en el sistema.",
+    "properties": {
+        "skill_name": {
+            "type": "string",
+            "description": "Nombre técnico de la skill en snake_case o hyphen-case (ej: image_tagger)."
         },
-        "required": ["skill_name", "description", "instructions"]
-    }
+        "description": {
+            "type": "string",
+            "description": "Descripción de la herramienta. OBLIGATORIO: Debe comenzar con 'Use when...' describiendo únicamente las condiciones de disparo y síntomas (NUNCA resumir el flujo interno)."
+        },
+        "tool_code": {
+            "type": "string",
+            "description": "Código Python completo para la lógica de la herramienta. CRÍTICO: 1) La función principal debe recibir parámetros con kwargs explícitos (nunca un dict `args`). 2) Debes incluir una variable global `parameters_schema` con el esquema de los parámetros."
+        },
+        "instructions": {
+            "type": "string",
+            "description": "Instrucciones Markdown para el cuerpo del SKILL.md. OBLIGATORIO incluir las secciones estándar: # Titulo, ## Overview, ## When to Use, ## Core Pattern / Instrucciones, ## Quick Reference / Ejemplos, ## Common Mistakes / Red Flags."
+        },
+        "version": {
+            "type": "string",
+            "description": "Versión inicial (por defecto 1.0.0).",
+            "default": "1.0.0"
+        },
+        "scope": {
+            "type": "string",
+            "description": "Alcance de la skill: 'workspace' (solo este proyecto) o 'global' (disponible en todos los proyectos).",
+            "enum": ["workspace", "global"],
+            "default": "workspace"
+        }
+    },
+    "required": ["skill_name", "description", "instructions"]
 }
+
