@@ -7,28 +7,28 @@ Al modificar el motor de ejecución de comandos (`CommandExecutor`) o cualquier 
 - **Bloqueos**: Si se descarta erróneamente el marcador de finalización confundiéndolo con un eco de comando, la ejecución del comando se quedará bloqueada en espera de más salida. Siempre verifica de forma estricta que la línea a descartar no sea idéntica al marcador limpio.
 
 ## Formato Estándar para Skills (`SKILL.md`)
-Al crear o modificar cualquier **Skill** (usando `writing-skills`, `workflow-skill-creator` o manualmente), se debe seguir estrictamente la siguiente especificación de formato:
+Al crear o modificar cualquier **Skill** (usando `writing-skills`, `workflow-skill-creator` o manualmente), se debe seguir estrictamente la especificación oficial de **[Agent Skills Specification](https://agentskills.io/specification)**:
 
-1. **Encabezado / Frontmatter (YAML obligatorio)**:
+1. **Estructura de Directorios**:
+   - Cada skill es un directorio cuyo nombre coincide exactamente con el campo `name` de `SKILL.md`.
+   - Contiene un archivo obligatorio `SKILL.md` y subdirectorios opcionales: `scripts/`, `references/`, `assets/`, `resources/`.
+
+2. **Encabezado / Frontmatter (YAML obligatorio)**:
    ```yaml
    ---
-   name: nombre-del-skill-con-guiones
-   description: Use when [condiciones exactas de activación y síntomas del problema]
+   name: nombre-del-skill
+   description: Use when [qué hace el skill y condiciones exactas de activación]
+   metadata:
+     version: "1.0.0"
+     author: "Nombre / Org"
    ---
    ```
-   - **`name`**: Nombre descriptivo en minúsculas separado por guiones (letras, números y guiones únicamente).
-   - **`description`**: Debe comenzar siempre con `"Use when..."` en tercera persona. Describe únicamente las **condiciones de disparo** y los síntomas/contextos del problema. **NUNCA** resumas el flujo ni el proceso interno del skill en la descripción para evitar que los agentes tomen atajos sin leer el cuerpo completo. Longitud máxima recomendada: 500 caracteres (máx. 1024 caracteres en todo el frontmatter).
+   - **`name`**: 1-64 caracteres. Solo letras minúsculas (`a-z`), números (`0-9`) y guiones (`-`). No puede empezar/terminar con guión ni tener guiones consecutivos (`--`). Debe coincidir con el nombre de la carpeta padre.
+   - **`description`**: 1-1024 caracteres. Debe comenzar siempre con `"Use when..."` en tercera persona. Describe qué hace la habilidad y cuándo debe activarse (disparadores, síntomas y palabras clave). **NUNCA** resumas el flujo ni el procedimiento interno para evitar que los agentes se salten el cuerpo del skill.
 
-2. **Estructura del Cuerpo (`SKILL.md`)**:
-   - `# Nombre del Skill`
-   - `## Overview`: Principio fundamental o propósito en 1-2 oraciones.
-   - `## When to Use`: Lista de síntomas, condiciones de activación y cuándo NO usarlo.
-   - `## Core Pattern / Instrucciones`: Explicación clara del patrón, flujo o método paso a paso (ejemplo antes/después si aplica).
-   - `## Quick Reference / Ejemplos`: Comandos, tablas o fragmentos de código reutilizables y listos para ejecutar.
-   - `## Common Mistakes / Red Flags`: Errores comunes, racionalizaciones prohibidas y cómo evitarlos.
+3. **Cuerpo del Documento (`SKILL.md`)**:
+   - Markdown estructurado (recomendado bajo 500 líneas para revelación progresiva).
+   - Secciones recomendadas: `# Nombre`, `## Overview`, `## When to Use`, `## Core Pattern / Instrucciones`, `## Quick Reference / Ejemplos`, `## Common Mistakes / Red Flags`.
+   - Documentación y referencias extensas (>100 líneas) deben moverse a archivos dentro de `references/`.
 
-3. **Organización y Límites de Archivos**:
-   - Mantener el archivo `SKILL.md` por debajo de **500 líneas**.
-   - Para referencias o documentación de más de 100 líneas, mover el contenido a archivos dedicados en un subdirectorio `references/`.
-   - Utilizar subdirectorios opcionales para recursos adicionales: `scripts/` (herramientas/scripts ejecutables), `examples/` (ejemplos extensos) y `resources/` (plantillas o activos).
 

@@ -22,17 +22,24 @@ def skill_factory(
     """
     Crea una nueva skill en el directorio especificado (global o workspace) y la registra en el sistema.
     """
-    # 1. Definir rutas absolutas para robustez
-    # Buscamos la carpeta kogniterm/skills basándonos en este archivo
-    # kogniterm/skills/bundled/skill_factory/scripts/tool.py -> bundled -> skills -> kogniterm
+    # 1. Definir rutas absolutas y validar/normalizar nombre conforme a https://agentskills.io/specification
+    import re
+
+    # Normalizar nombre: minúsculas, guiones, sin caracteres especiales (1-64 caracteres)
+    formatted_name = skill_name.strip().lower().replace("_", "-")
+    formatted_name = re.sub(r'[^a-z0-9-]', '', formatted_name)
+    formatted_name = re.sub(r'-+', '-', formatted_name).strip('-')
+    if not formatted_name or len(formatted_name) > 64:
+        formatted_name = "custom-skill"
+
     current_file = Path(__file__).resolve()
     base_skills_path = current_file.parent.parent.parent.parent
     
     if scope == "global":
-        skill_path = Path.home() / ".kogniterm" / "skills" / "managed" / skill_name
+        skill_path = Path.home() / ".kogniterm" / "skills" / "managed" / formatted_name
     else:
         # Default to workspace
-        skill_path = base_skills_path / "workspace" / skill_name
+        skill_path = base_skills_path / "workspace" / formatted_name
         
     scripts_path = skill_path / "scripts"
     references_path = skill_path / "references"
@@ -40,33 +47,27 @@ def skill_factory(
     resources_path = skill_path / "resources"
     
     try:
-        # 2. Crear directorios
+        # 2. Crear directorios (el directorio padre coincide con formatted_name según la spec)
         scripts_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Directorio de skill creado en: {skill_path}")
         
-        # 3. Preparar YAML Frontmatter para SKILL.md
-        # Garantizar que description comience con "Use when..." en tercera persona
+        # 3. Preparar YAML Frontmatter para SKILL.md según https://agentskills.io/specification
         formatted_description = description.strip()
         if not formatted_description.lower().startswith("use when"):
             formatted_description = f"Use when {formatted_description[0].lower() + formatted_description[1:] if formatted_description else ''}"
 
+        # Truncar a 1024 caracteres máximo (límite de la especificación)
+        if len(formatted_description) > 1024:
+            formatted_description = formatted_description[:1021] + "..."
+
         frontmatter = {
-            "name": skill_name,
-            "version": version,
-            "author": "KogniTerm AI (Autonomous Generation)",
+            "name": formatted_name,
             "description": formatted_description,
-            "category": "autonomous",
-            "tags": ["autonomous", "generated"],
-            "dependencies": [],
-            "required_permissions": ["filesystem"],
-            "allowed-tools": [],
-            "denied-tools": [],
-            "security_level": "standard",
-            "allowlist": False,
-            "auto_approve": True,
-            "resources": [],
-            "assets": [],
-            "metadata": {"format": "agent-skills-compatible"}
+            "metadata": {
+                "version": version,
+                "author": "KogniTerm AI",
+                "format": "agentskills-1.0"
+            }
         }
         
         skill_md_content = "---\n" + yaml.dump(frontmatter, sort_keys=False) + "---\n\n" + instructions
@@ -82,16 +83,12 @@ def skill_factory(
         # Intentar refresco automático si estamos en el entorno de KogniTerm
         refresh_status = ""
         try:
-            # Intentar obtener el tool_manager desde el contexto global o importando si es posible
-            # En la ejecución real, solemos tener acceso a través de llm_service si está inyectado
-            # Como fallback, indicamos que se requiere refresco.
             from kogniterm.core.llm_service import LLMService
-            # Si podemos acceder a una instancia activa o al menos informar al sistema
             refresh_status = "\n\n🔄 **Sincronizando sistema...** La nueva habilidad se está registrando en tu arsenal."
         except Exception:
             refresh_status = "\n\n⚠️ **IMPORTANTE**: Ejecuta `refresh_tools` para activar esta habilidad."
 
-        return f"✅ Skill '{skill_name}' ({scope}) creada con éxito en {skill_path}.{refresh_status}"
+        return f"✅ Skill '{formatted_name}' ({scope}) creada con éxito en {skill_path}.{refresh_status}"
 
     except Exception as e:
         logger.error(f"Error en skill_factory: {e}", exc_info=True)
@@ -100,15 +97,15 @@ def skill_factory(
 # Schema para el LLM
 tool_schema = {
     "name": "skill_factory",
-    "description": "Crea una nueva herramienta (skill) personalizada siguiendo el formato estándar de SKILL.md y la integra en el sistema.",
+    "description": "Crea una nueva herramienta (skill) personalizada siguiendo la especificación oficial https://agentskills.io/specification e integra la habilidad en el sistema.",
     "properties": {
         "skill_name": {
             "type": "string",
-            "description": "Nombre técnico de la skill en snake_case o hyphen-case (ej: image_tagger)."
+            "description": "Nombre técnico de la skill (1-64 caracteres, minúsculas, números y guiones únicamente, ej: pdf-processing)."
         },
         "description": {
             "type": "string",
-            "description": "Descripción de la herramienta. OBLIGATORIO: Debe comenzar con 'Use when...' describiendo únicamente las condiciones de disparo y síntomas (NUNCA resumir el flujo interno)."
+            "description": "Descripción de la herramienta (máx 1024 caracteres). OBLIGATORIO: Debe comenzar con 'Use when...' describiendo lo que hace y cuándo activarla con palabras clave específicas."
         },
         "tool_code": {
             "type": "string",
@@ -116,7 +113,7 @@ tool_schema = {
         },
         "instructions": {
             "type": "string",
-            "description": "Instrucciones Markdown para el cuerpo del SKILL.md. OBLIGATORIO incluir las secciones estándar: # Titulo, ## Overview, ## When to Use, ## Core Pattern / Instrucciones, ## Quick Reference / Ejemplos, ## Common Mistakes / Red Flags."
+            "description": "Instrucciones Markdown para el cuerpo de SKILL.md (máx 500 líneas recomendado). OBLIGATORIO incluir secciones de uso claro: # Titulo, ## Overview, ## When to Use, ## Core Pattern / Instrucciones, ## Quick Reference / Ejemplos, ## Common Mistakes / Red Flags."
         },
         "version": {
             "type": "string",
@@ -132,4 +129,5 @@ tool_schema = {
     },
     "required": ["skill_name", "description", "instructions"]
 }
+
 
