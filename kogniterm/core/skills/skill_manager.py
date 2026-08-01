@@ -60,6 +60,22 @@ class Skill:
         self.references_path = self.path / 'references'
         self.assets_path = self.path / 'assets'
 
+    @property
+    def is_procedural(self) -> bool:
+        """
+        Una skill es procedimental si NO tiene scripts Python (solo contiene instrucciones).
+        Comprueba que no existan archivos .py ni en scripts/ ni en la raíz del directorio de la skill.
+        """
+        if self.scripts_path.exists() and self.scripts_path.is_dir():
+            has_py = any(self.scripts_path.rglob('*.py'))
+            if has_py:
+                return False
+        if self.path.exists() and self.path.is_dir():
+            py_files = [f for f in self.path.glob('*.py') if f.is_file()]
+            if py_files:
+                return False
+        return True
+
 
 class SkillValidator:
     """Valida la estructura y metadatos de una skill."""
@@ -1008,21 +1024,33 @@ class SkillManager:
             if permission in t['permissions']
         ]
 
-    def list_skills(self) -> List[Dict[str, Any]]:
-        """Lista todas las skills con su estado."""
-        return [
-            {
+    def list_skills(self, procedural_only: bool = False) -> List[Dict[str, Any]]:
+        """
+        Lista todas las skills con su estado.
+
+        Args:
+            procedural_only: Si es True, retorna únicamente las skills procedimentales (sin scripts Python).
+        """
+        result = []
+        for skill in self.skills.values():
+            if procedural_only and not skill.is_procedural:
+                continue
+            result.append({
                 'name': skill.name,
                 'version': skill.version,
                 'description': skill.description,
                 'category': skill.category,
                 'tags': skill.tags,
                 'loaded': skill.loaded,
+                'is_procedural': skill.is_procedural,
                 'tool_count': len(skill.tools),
                 'path': str(skill.path)
-            }
-            for skill in self.skills.values()
-        ]
+            })
+        return result
+
+    def get_procedural_skills(self) -> List[Dict[str, Any]]:
+        """Retorna únicamente las skills procedimentales (aquellas sin scripts Python)."""
+        return self.list_skills(procedural_only=True)
 
     def get_skill_info(self, skill_name: str) -> Optional[Dict[str, Any]]:
         """Obtiene información detallada de una skill."""
@@ -1045,6 +1073,7 @@ class SkillManager:
             'auto_approve': skill.auto_approve,
             'instructions': skill.instructions,
             'loaded': skill.loaded,
+            'is_procedural': skill.is_procedural,
             'tool_count': len(skill.tools),
             'tools': [getattr(t, 'name', t.__class__.__name__) for t in skill.tools],
             'resources': skill.resources,
@@ -1053,6 +1082,33 @@ class SkillManager:
             'metadata': skill.metadata,
             'path': str(skill.path)
         }
+
+    def get_skill_instructions(self, skill_name: str) -> Optional[str]:
+        """
+        Obtiene las instrucciones procedimentales de una skill por su nombre.
+        Si la skill existe pero no está cargada, intenta cargarla dinámicamente.
+        """
+        if skill_name not in self.skills:
+            try:
+                self.discover_all_skills()
+            except Exception as e:
+                logger.debug(f"Error al redescubrir skills: {e}")
+
+        if skill_name not in self.skills:
+            return None
+
+        skill = self.skills[skill_name]
+        if not skill.loaded:
+            try:
+                self.load_skill(skill_name)
+            except Exception as e:
+                logger.warning(f"No se pudo cargar la skill '{skill_name}': {e}")
+
+        if skill.instructions and skill.instructions.strip():
+            return skill.instructions
+        elif skill.description:
+            return f"Skill: {skill.name}\nDescripción: {skill.description}"
+        return None
 
     def _score_skill_relevance(self, skill: Skill, query: str, query_embedding: Optional[List[float]] = None) -> float:
         """

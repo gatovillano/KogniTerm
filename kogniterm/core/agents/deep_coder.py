@@ -23,6 +23,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.live import Live
 from rich.padding import Padding
+from kogniterm.core.utils.prompt_processor import process_prompt_references
 from rich.text import Text
 from rich.syntax import Syntax
 
@@ -264,10 +265,11 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
 
     messages = [SystemMessage(content=get_deep_coder_system_prompt(llm_service))] + state.messages
     
-    # Procesar referencias a archivos en el último mensaje del usuario
+    # Procesar referencias a archivos (@) y skills (#) en el último mensaje del usuario
     if state.messages and isinstance(state.messages[-1], HumanMessage):
         workspace_directory = os.getcwd()  # Asumir que el workspace es el cwd
-        processed_content = process_file_references(state.messages[-1].content, workspace_directory)
+        sm = getattr(llm_service, 'skill_manager', None)
+        processed_content = process_prompt_references(state.messages[-1].content, workspace_directory, sm)
         # Actualizar el mensaje en el estado con el contenido procesado
         state.messages[-1] = HumanMessage(content=processed_content)
         # Actualizar messages también

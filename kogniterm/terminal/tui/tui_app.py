@@ -1730,6 +1730,9 @@ class KogniTermTUI(App):
         elif "@" in current_word:
             trigger = "@"
             search_term = current_word.split("@")[-1]
+        elif "#" in current_word:
+            trigger = "#"
+            search_term = current_word.split("#")[-1]
         elif ":" in current_word:
             trigger = ":"
             search_term = current_word.split(":")[-1]
@@ -1886,6 +1889,9 @@ class KogniTermTUI(App):
         elif "@" in current_word:
             trigger = "@"
             search_term = current_word.split("@")[-1]
+        elif "#" in current_word:
+            trigger = "#"
+            search_term = current_word.split("#")[-1]
         elif ":" in current_word:
             trigger = ":"
             search_term = current_word.split(":")[-1]
@@ -1969,6 +1975,19 @@ class KogniTermTUI(App):
                         }
                         for _, path, meta in raw_matches
                     ]
+            elif trigger == "#":
+                skills_info = []
+                if hasattr(self, 'llm_service') and hasattr(self.llm_service, 'skill_manager') and self.llm_service.skill_manager:
+                    sm = self.llm_service.skill_manager
+                    skills_info = sm.get_procedural_skills() if hasattr(sm, 'get_procedural_skills') else sm.list_skills(procedural_only=True)
+                matches = [
+                    {
+                        "name": s["name"],
+                        "display": f"📋 #{s['name']}  [dim]{s.get('description', '')[:40]}[/dim]",
+                    }
+                    for s in skills_info
+                    if s["name"].lower().startswith(search_term.lower())
+                ][:20]
             elif trigger == ":" and suggester:
                 from kogniterm.terminal.tui.components.status_footer import (
                     KogniTermSuggester,
@@ -2054,6 +2073,8 @@ class KogniTermTUI(App):
                 prefix = ""
                 if "@" in last_word:
                     prefix = last_word.split("@")[0] + "@"
+                elif "#" in last_word:
+                    prefix = last_word.split("#")[0] + "#"
                 elif ":" in last_word:
                     prefix = last_word.split(":")[0] + ":"
                 suffix = "" if selected_text.endswith("/") else " "

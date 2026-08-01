@@ -28,6 +28,7 @@ from rich.rule import Rule
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.live import Live
+from kogniterm.core.utils.prompt_processor import process_prompt_references
 from rich.padding import Padding
 from rich.text import Text
 
@@ -172,9 +173,10 @@ def planning_node(
 
     last_message = state.messages[-1].content
 
-    # Procesar referencias a archivos
+    # Procesar referencias a archivos (@) y a skills (#)
     workspace_directory = os.getcwd()  # Asumir que el workspace es el cwd
-    processed_message = process_file_references(last_message, workspace_directory)
+    sm = getattr(llm_service, 'skill_manager', None)
+    processed_message = process_prompt_references(last_message, workspace_directory, sm)
 
     # Actualizar el mensaje en el estado con el contenido procesado
     state.messages[-1] = HumanMessage(content=processed_message)
