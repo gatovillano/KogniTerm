@@ -283,6 +283,39 @@ class FileCompleter(Completer):
                 for container in matches:
                     yield Completion(container, start_position=-len(current_input_part), display_meta="Docker Container")
 
+        # 4. Skills procedimentales (#)
+        idx_hash = -1
+        for i in range(len(text_before_cursor) - 1, -1, -1):
+            if text_before_cursor[i] == '#':
+                if i == 0:
+                    idx_hash = i
+                    break
+                prev_char = text_before_cursor[i - 1]
+                if prev_char.isspace() or prev_char in ('=', '(', '[', '{', ',', '"', "'", '!', '&', '|', ';', '<', '>', '#'):
+                    idx_hash = i
+                    break
+
+        if idx_hash != -1:
+            current_input_part = text_before_cursor[idx_hash + 1:]
+            if self.skill_manager:
+                try:
+                    if hasattr(self.skill_manager, 'get_procedural_skills'):
+                        skills_info = self.skill_manager.get_procedural_skills()
+                    else:
+                        skills_info = self.skill_manager.list_skills(procedural_only=True)
+                    matches = [s for s in skills_info if s['name'].lower().startswith(current_input_part.lower())]
+                    if len(matches) == 1 and matches[0]['name'] == current_input_part:
+                        return
+                    for s in sorted(matches, key=lambda x: x['name']):
+                        s_name = s['name']
+                        s_desc = s.get('description', '')
+                        s_loaded = s.get('loaded', False)
+                        icon = "📋" if s_loaded else "🧩"
+                        display_meta = f"{icon} Skill: {s_desc[:50]}"
+                        yield Completion(s_name, start_position=-len(current_input_part), display_meta=display_meta)
+                except Exception as e:
+                    logger.debug(f"Error autocompletando skills con #: {e}")
+
     def dispose(self):
         """Libera el ThreadPoolExecutor cuando la aplicación se cierra."""
         if self._executor:

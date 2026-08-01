@@ -22,6 +22,7 @@ import importlib.util
 from types import ModuleType
 from pathlib import Path as _Path
 from kogniterm.core.agents.base_agent import BaseAgentNode
+from kogniterm.core.utils.prompt_processor import process_prompt_references
 
 
 def _load_file_ops_module(module_filename: str):
@@ -622,10 +623,11 @@ def call_model_node(state: AgentState, llm_service: LLMService, terminal_ui: Opt
                 "critical_loop_detected": True
             }
 
-    # --- Pre-procesamiento de referencias a archivos (específico de Bash) ---
+    # --- Pre-procesamiento de referencias a archivos (@) y skills (#) ---
     if state.messages and isinstance(state.messages[-1], HumanMessage):
         workspace_directory = os.getcwd()
-        processed_content = process_file_references(state.messages[-1].content, workspace_directory)
+        sm = getattr(llm_service, 'skill_manager', None)
+        processed_content = process_prompt_references(state.messages[-1].content, workspace_directory, sm)
         state.messages[-1] = HumanMessage(content=processed_content)
 
     # --- Obtener system message dinámico (específico de Bash) ---
