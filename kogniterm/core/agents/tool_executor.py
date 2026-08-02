@@ -69,6 +69,16 @@ class ToolExecutor:
 
         tool = llm_service.get_tool(tool_name)
         if not tool:
+            sm = getattr(llm_service, "skill_manager", None)
+            if sm and hasattr(sm, "get_skill_instructions"):
+                instructions = sm.get_skill_instructions(tool_name)
+                if instructions:
+                    return tool_id, (
+                        f"ℹ️ '{tool_name}' es una SKILL PROCEDIMENTAL (instrucciones en texto Markdown), "
+                        f"NO una herramienta ejecutable de código.\n\n"
+                        f"### INSTRUCCIONES DE LA SKILL '{tool_name}' ###\n\n{instructions}\n\n"
+                        f"Por favor, continúa tu respuesta utilizando estas instrucciones sin intentar volver a ejecutar '{tool_name}' como función."
+                    ), None
             return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
 
         action_desc = get_tool_action_description(tool, tool_args)

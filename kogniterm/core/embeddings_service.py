@@ -312,9 +312,23 @@ class EmbeddingsService:
         return self.generate_embeddings(texts)
 
     def embed_query(self, text: str) -> List[float]:
-        """Genera un embedding para una única consulta."""
+        """Genera un embedding para una única consulta (con caché en memoria)."""
         if not self.adapter:
             raise ValueError("EmbeddingsService is not initialized properly.")
         if not text:
             raise ValueError("La consulta no puede estar vacía.")
-        return self.adapter.embed_query(text)
+
+        cache_key = (self.provider, self.model, text.strip())
+        if hasattr(self, '_query_cache') and cache_key in self._query_cache:
+            return self._query_cache[cache_key]
+
+        result = self.adapter.embed_query(text)
+
+        if not hasattr(self, '_query_cache'):
+            self._query_cache = {}
+        if len(self._query_cache) >= 128:
+            self._query_cache.pop(next(iter(self._query_cache)))
+        self._query_cache[cache_key] = result
+
+        return result
+
