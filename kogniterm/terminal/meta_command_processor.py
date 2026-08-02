@@ -1545,6 +1545,21 @@ Example: /autosave restore autosave_20250515_141530
             if tool is not None:
                 await self._invoke_skill_command(skill_cmd, tool, skill_args_raw)
                 return True
+            else:
+                sm = getattr(self.llm_service, 'skill_manager', None)
+                if sm and hasattr(sm, 'get_skill_instructions'):
+                    instructions = sm.get_skill_instructions(skill_cmd)
+                    if instructions:
+                        from rich.panel import Panel
+                        from rich.markdown import Markdown
+                        self.terminal_ui.console.print(
+                            Panel(
+                                Markdown(instructions),
+                                title=f"[bold cyan]📋 Skill Procedimental: /{skill_cmd}[/bold cyan]",
+                                border_style="cyan"
+                            )
+                        )
+                        return True
 
         return is_meta
 

@@ -702,17 +702,7 @@ class SkillManager:
                 return False
 
             if not tools and skill.instructions.strip():
-                # Crear herramienta procedimental por defecto
-                def procedural_tool(**kwargs) -> str:
-                    return f"### INSTRUCCIONES DE LA SKILL '{skill.name}' ###\n\n{skill.instructions}"
-                
-                procedural_tool.name = skill.name
-                procedural_tool.description = skill.description or f"Lee las instrucciones de la skill {skill.name}"
-                procedural_tool.parameters_schema = {"type": "object", "properties": {}}
-                procedural_tool.invoke = lambda *args, **kwargs: procedural_tool()
-                
-                tools.append(procedural_tool)
-                logger.info(f"Creada herramienta procedimental para '{skill_name}'")
+                logger.info(f"Skill '{skill_name}' cargada como procedimental (solo instrucciones en SKILL.md, sin herramientas de código).")
 
             # Inyectar llm_service en el módulo y herramientas
             if self.llm_service:
@@ -1267,13 +1257,21 @@ class SkillManager:
         return blocks
 
     def build_skill_context_message(self, query: Optional[str] = None) -> Optional[SystemMessage]:
-        """Construye un bloque de contexto para skills cargadas, filtrado por query si existe."""
+        """Construye un bloque de contexto para skills cargadas, filtrado por query si existe (con caché)."""
+        cache_key = (query or "").strip()
+        if hasattr(self, '_skill_context_cache') and self._skill_context_cache.get("query") == cache_key:
+            return self._skill_context_cache.get("message")
+
         blocks = self.get_loaded_skill_instructions(query=query)
         if not blocks:
-            return None
+            msg = None
+        else:
+            content = "## 🧩 CONTEXTO DE SKILLS\n\n" + "\n\n".join(blocks)
+            msg = SystemMessage(content=content)
 
-        content = "## 🧩 CONTEXTO DE SKILLS\n\n" + "\n\n".join(blocks)
-        return SystemMessage(content=content)
+        self._skill_context_cache = {"query": cache_key, "message": msg}
+        return msg
+
 
     def refresh_skills(self, agent_context: Optional[dict] = None, force: bool = False):
         """

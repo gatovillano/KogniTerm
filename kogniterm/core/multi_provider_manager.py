@@ -166,7 +166,19 @@ class ProviderConfig:
         return self.api_base
     
     def is_configured(self) -> bool:
-        """Verifica si el proveedor está configurado."""
+        """Verifica si el proveedor está configurado (con caché TTL de 30s)."""
+        now = time.time()
+        if hasattr(self, '_configured_cache_val') and hasattr(self, '_configured_cache_time'):
+            if now - self._configured_cache_time < 30.0:
+                return self._configured_cache_val
+
+        val = self._uncached_is_configured()
+        self._configured_cache_val = val
+        self._configured_cache_time = now
+        return val
+
+    def _uncached_is_configured(self) -> bool:
+        """Evaluación directa sin caché de si el proveedor está configurado."""
         if not self.enabled:
             return False
             
@@ -209,6 +221,7 @@ class ProviderConfig:
             return key is not None
             
         return self.get_api_key() is not None
+
 
 
 # Configuraciones predefinidas de proveedores
