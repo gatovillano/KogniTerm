@@ -2118,8 +2118,11 @@ class KogniTermTUI(App):
 
         is_interactive_mode = False
         if focused_widget and is_terminal_focused:
-            if (self.command_executor and self.command_executor.process) or (
-                self._server_mode and self.interactive_executor
+            if (
+                (self.command_executor and self.command_executor.process)
+                or (self._server_mode and self.interactive_executor)
+                or getattr(self, "interactive_executor", None)
+                or getattr(self, "_cursor_active", False)
             ):
                 is_interactive_mode = True
 
@@ -2134,14 +2137,38 @@ class KogniTermTUI(App):
 
             # Mapeo de teclas de Textual a secuencias PTY
             key_map = {
+                "up": "\x1b[A",
+                "down": "\x1b[B",
                 "right": "\x1b[C",
                 "left": "\x1b[D",
+                "enter": "\r",
+                "return": "\r",
+                "space": " ",
+                "tab": "\t",
+                "backspace": "\x7f",
                 "home": "\x1b[H",
                 "end": "\x1b[F",
                 "delete": "\x1b[3~",
                 "pageup": "\x1b[5~",
                 "pagedown": "\x1b[6~",
+                "shift+tab": "\x1b[Z",
+                "f1": "\x1bOP",
+                "f2": "\x1bOQ",
+                "f3": "\x1bOR",
+                "f4": "\x1bOS",
+                "f5": "\x1b[15~",
+                "f6": "\x1b[17~",
+                "f7": "\x1b[18~",
+                "f8": "\x1b[19~",
+                "f9": "\x1b[20~",
+                "f10": "\x1b[21~",
+                "f11": "\x1b[23~",
+                "f12": "\x1b[24~",
             }
+
+            executor = getattr(self, "interactive_executor", None) or getattr(
+                self, "command_executor", None
+            )
 
             # Manejar Ctrl+Letra
             if event.key.startswith("ctrl+"):
@@ -2149,15 +2176,17 @@ class KogniTermTUI(App):
                 if len(char) == 1:
                     # 'a' es 1, 'b' es 2... 'z' es 26
                     code = ord(char.lower()) - ord("a") + 1
-                    self.interactive_executor.write_input(bytes([code]))
-                    event.prevent_default()
-                    return
+                    if executor and hasattr(executor, "write_input"):
+                        executor.write_input(bytes([code]))
+                        event.prevent_default()
+                        return
 
             to_send = key_map.get(event.key, event.character)
             if to_send:
-                self.interactive_executor.write_input(to_send)
-                event.prevent_default()
-                return
+                if executor and hasattr(executor, "write_input"):
+                    executor.write_input(to_send)
+                    event.prevent_default()
+                    return
 
         if event.key == "escape":
             if self.is_processing:
