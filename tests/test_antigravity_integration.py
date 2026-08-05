@@ -598,6 +598,50 @@ def test_llm_service_excludes_think_tool_for_thinking_models():
     assert "other_tool" in tool_names
 
 
+def test_antigravity_sanitize_tool_name():
+    # Test valid names remain unchanged
+    assert AntigravityClient._sanitize_tool_name("valid_name_123") == "valid_name_123"
+    assert AntigravityClient._sanitize_tool_name("agency-hosting_listData") == "agency-hosting_listData"
+    
+    # Test invalid starting character (numbers, dashes, dots)
+    assert AntigravityClient._sanitize_tool_name("123_action") == "_123_action"
+    assert AntigravityClient._sanitize_tool_name("-dash_action") == "_-dash_action"
+    
+    # Test invalid characters (slashes, spaces, @, #, etc.)
+    assert AntigravityClient._sanitize_tool_name("mcp/server/tool") == "mcp_server_tool"
+    assert AntigravityClient._sanitize_tool_name("tool name with spaces") == "tool_name_with_spaces"
+    assert AntigravityClient._sanitize_tool_name("plugin@v1#action") == "plugin_v1_action"
+    
+    # Test length truncation (>128 chars)
+    long_name = "a" * 150
+    sanitized_long = AntigravityClient._sanitize_tool_name(long_name)
+    assert len(sanitized_long) == 128
+    assert sanitized_long == "a" * 128
+
+    # Test None / empty
+    assert AntigravityClient._sanitize_tool_name(None) == "_unnamed_function"
+    assert AntigravityClient._sanitize_tool_name("") == "_unnamed_function"
+
+
+def test_antigravity_map_tools_sanitization():
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "123_invalid/name@tool",
+                "description": "Test tool description",
+                "parameters": {"type": "object", "properties": {"arg": {"type": "string"}}}
+            }
+        }
+    ]
+    gemini_tools = AntigravityClient.map_tools(tools)
+    assert gemini_tools is not None
+    declarations = gemini_tools[0]["functionDeclarations"]
+    assert len(declarations) == 1
+    assert declarations[0]["name"] == "_123_invalid_name_tool"
+
+
+
 
 
 
