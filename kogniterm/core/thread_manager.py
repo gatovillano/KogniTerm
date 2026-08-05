@@ -342,6 +342,36 @@ class ThreadManager:
             # Si no hay un bucle de eventos corriendo, se ignora
             pass
 
+
+    async def generate_title_if_needed(
+        self,
+        thread_id: str,
+        messages: List[BaseMessage],
+        llm_service: Any,
+    ) -> Optional[str]:
+        """Genera un título para el hilo si aún no tiene uno significativo."""
+        if not thread_id:
+            return None
+
+        metadata = self._load_metadata(thread_id)
+        if not metadata:
+            return None
+
+        current_title = metadata.get("title", "")
+        default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
+        is_generic = current_title in default_titles or current_title == thread_id
+
+        if not is_generic or metadata.get("title_source") == "llm":
+            return None
+
+        # Verificar que tengamos al menos un HumanMessage y un AIMessage
+        human_msgs = [m for m in messages if getattr(m, "type", None) == "human" or isinstance(m, HumanMessage)]
+        ai_msgs = [m for m in messages if getattr(m, "type", None) == "ai" or isinstance(m, AIMessage)]
+        if not human_msgs or not ai_msgs:
+            return None
+
+        return await self._generate_title(thread_id, messages, llm_service)
+
     async def _generate_title(
         self,
         thread_id: str,

@@ -47,6 +47,7 @@ class ChatLogWidget(VerticalScroll):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._active_message_widget = None
+        self._active_thinking_widget = None
         self._last_tracker_widget = None
         self.can_focus = True
 
@@ -105,6 +106,7 @@ class ChatLogWidget(VerticalScroll):
     def write_user_message(self, text: str):
         """Escribe un mensaje de usuario con línea vertical izquierda."""
         self._last_tracker_widget = None
+        self._active_thinking_widget = None
         from rich.text import Text
         from rich.console import Console, Group
         
@@ -271,12 +273,35 @@ class ChatLogWidget(VerticalScroll):
                 renderable = content
             terminal_command = tool_name  # para el caso no-terminal, coincide con tool_name
 
+        def _check_is_thinking(r):
+            from rich.panel import Panel
+            from rich.padding import Padding
+            from rich.console import Group
+
+            if isinstance(r, Panel):
+                title = str(r.title or "").lower()
+                if "pensando" in title or "thinking" in title:
+                    return True
+
+            if isinstance(r, Padding):
+                return _check_is_thinking(r.renderable)
+
+            if isinstance(r, Group):
+                for sub_r in r.renderables:
+                    if _check_is_thinking(sub_r):
+                        return True
+
+            return False
+
         def _mount_or_update(r, terminal_flag, spinner_flag, t_name, t_command=""):
             try:
                 is_new_widget = False
                 was_at_bottom = self.scroll_y >= self.max_scroll_y - 1
+                is_thinking = _check_is_thinking(r)
 
-                if spinner_flag:
+                if is_thinking and self._active_thinking_widget and getattr(self._active_thinking_widget, "parent", None) is not None:
+                    self._active_thinking_widget.update(r)
+                elif spinner_flag:
                     if self._active_message_widget is None or not isinstance(self._active_message_widget, AnimatedSpinnerWidget):
                         if self._active_message_widget:
                             self._active_message_widget.remove()
@@ -301,12 +326,17 @@ class ChatLogWidget(VerticalScroll):
                     self._active_message_widget.update_content(r, command=t_command)
                 else:
                     if self._active_message_widget is None or isinstance(self._active_message_widget, ToolOutputWidget) or isinstance(self._active_message_widget, AnimatedSpinnerWidget):
-                        if self._active_message_widget:
+                        if self._active_message_widget and isinstance(self._active_message_widget, (ToolOutputWidget, AnimatedSpinnerWidget)):
                             self._active_message_widget.remove()
-                        self._active_message_widget = MessageWidget(r)
-                        self.mount(self._active_message_widget)
+                        new_widget = MessageWidget(r)
+                        self._active_message_widget = new_widget
+                        if is_thinking:
+                            self._active_thinking_widget = new_widget
+                        self.mount(new_widget)
                         is_new_widget = True
                     else:
+                        if is_thinking and self._active_thinking_widget is None:
+                            self._active_thinking_widget = self._active_message_widget
                         self._active_message_widget.update(r)
                 
                 if is_new_widget or was_at_bottom:
@@ -431,4 +461,5 @@ class ChatLogWidget(VerticalScroll):
         for child in list(self.children):
             child.remove()
         self._active_message_widget = None
+        self._active_thinking_widget = None
         self._last_tracker_widget = None

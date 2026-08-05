@@ -15,6 +15,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
+from kogniterm.core.delegation.command_rules import CommandRulesResolver
+
 logger = logging.getLogger(__name__)
 
 STATUS_RUNNING = "running"
@@ -81,13 +83,21 @@ class BackgroundTaskManager:
         self._tasks: Dict[str, BackgroundTask] = {}
         self._task_counter = 0
         self._lock = threading.Lock()
+        self._rules = CommandRulesResolver()
+        self._rules.load_rules()
 
     def _generate_task_id(self) -> str:
         with self._lock:
             self._task_counter += 1
             return f"task-{self._task_counter}"
 
-    def start_task(self, command: str, cwd: Optional[str] = None) -> BackgroundTask:
+    def start_task(self, command: str, cwd: Optional[str] = None, approved: bool = False) -> BackgroundTask:
+        action = self._rules.resolve(command)
+        if action == "deny":
+            raise PermissionError(f"Comando bloqueado por política de seguridad: {command!r}")
+        if action == "ask" and not approved:
+            raise PermissionError(f"El comando requiere aprobación explícita para ejecutarse en segundo plano: {command!r}")
+
         task_id = self._generate_task_id()
         task = BackgroundTask(task_id, command, cwd)
         with self._lock:
@@ -124,7 +134,7 @@ class BackgroundTaskManager:
                 stdout=slave_fd,
                 stderr=slave_fd,
                 stdin=slave_fd,
-                preexec_fn=os.setsid,
+                start_new_session=True,
             )
             os.close(slave_fd)
             slave_fd = None

@@ -1055,7 +1055,19 @@ Example: /autosave restore autosave_20250515_141530
                     self.terminal_ui.print_message(f"⚠️ Excepción al conectar con Ollama Local: {e}", style="red")
                     return []
 
-            current_model = self.llm_service.model_name
+            is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
+            current_model = None
+            if is_server_mode or not self.llm_service:
+                try:
+                    from kogniterm.terminal.api_client_tui import get_llm_config
+                    server_conf = await get_llm_config()
+                    current_model = server_conf.get("model")
+                except Exception:
+                    pass
+            if not current_model and self.llm_service:
+                current_model = self.llm_service.model_name
+            if not current_model:
+                current_model = "google/gemini-1.5-flash"
             
             # Detectar proveedor actual
             current_provider = "unknown"
@@ -1187,7 +1199,8 @@ Example: /autosave restore autosave_20250515_141530
                         # Extraer el proveedor del modelo (ej: "openrouter" de "openrouter/google/gemini-...")
                         model_prefix = selected_model.split('/')[0] if '/' in selected_model else None
                         
-                        self.llm_service.set_model(selected_model)
+                        if self.llm_service:
+                            self.llm_service.set_model(selected_model)
                         
                         # Actualizar proveedor preferido en MultiProviderManager
                         from kogniterm.core.multi_provider_manager import set_preferred_provider
@@ -1479,7 +1492,8 @@ Example: /autosave restore autosave_20250515_141530
                             if dotenv_path: set_key(dotenv_path, "OLLAMA_PROVIDER_TARGET", "cloud")
                     
                     # Actualizar LLMService
-                    self.llm_service.set_model(new_model)
+                    if self.llm_service:
+                        self.llm_service.set_model(new_model)
                     # Actualizar proveedor preferido en MultiProviderManager
                     from kogniterm.core.multi_provider_manager import set_preferred_provider
                     set_preferred_provider(selected_provider)

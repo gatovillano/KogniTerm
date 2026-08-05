@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Folder, Sparkles, Paperclip, Settings2, Square, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Folder, Sparkles, Paperclip, Square, ChevronDown, ChevronUp, X, ArrowUp, Zap, Box } from 'lucide-react';
 
 interface ChatInputProps {
     onSendMessage: (message: string) => void;
@@ -11,6 +11,7 @@ interface ChatInputProps {
     messageQueue: string[];
     onRemoveFromQueue: (index: number) => void;
     onProcessNext: () => void;
+    isFloating?: boolean;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({ 
@@ -20,7 +21,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onChangeDir,
     messageQueue,
     onRemoveFromQueue,
-    onProcessNext
+    onProcessNext,
+    isFloating = false
 }) => {
     const [input, setInput] = useState('');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -191,13 +193,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     // Folder basename
     const getFolderBasename = (path: string) => {
-        if (!path) return 'workspace';
+        if (!path) return 'Contabilidad';
         const parts = path.split('/');
-        return parts[parts.length - 1] || path;
+        const name = parts[parts.length - 1] || path;
+        return name === '.' || name === '~' ? 'Contabilidad' : name;
     };
 
+    const containerStyleClass = isFloating
+        ? "w-full max-w-xl mx-auto flex flex-col gap-2 relative z-50"
+        : "w-full max-w-3xl mx-auto px-4 pb-4 absolute bottom-0 left-0 right-0 z-50 flex flex-col gap-2";
+
     return (
-        <div className="w-full max-w-3xl mx-auto px-4 pb-4 absolute bottom-0 left-0 right-0 z-50 flex flex-col gap-2">
+        <div className={containerStyleClass}>
             
             {/* Message Queue Panel */}
             {messageQueue.length > 0 && (
@@ -283,15 +290,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </div>
             )}
 
-            {/* Main Input Form */}
-            <div className={`relative transition-all duration-300 ${isFocused ? 'scale-[1.005]' : ''}`}>
-                <div className={`absolute -inset-0.5 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-2xl opacity-20 blur transition duration-500 ${isFocused ? 'opacity-40' : ''}`}></div>
-
+            {/* Main Input Form - Goose Capsule Style */}
+            <div className={`relative transition-all duration-300 ${isFocused ? 'scale-[1.002]' : ''}`}>
                 <form
                     onSubmit={handleSubmit}
-                    className={`relative flex flex-col bg-[#16161a] border border-zinc-800/80 rounded-2xl p-1 px-1.5 shadow-2xl transition-all ${isFocused ? 'border-zinc-700/60' : ''}`}
+                    className={`relative flex flex-col bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2.5 shadow-sm hover:border-zinc-300 dark:hover:border-zinc-700 transition-all ${isFocused ? 'border-zinc-400 dark:border-zinc-600 shadow-md' : ''}`}
                 >
-                    <div className="flex items-start gap-1 p-1">
+                    <div className="flex items-start gap-1 px-1 pt-1 pb-2">
                         <textarea
                             ref={textareaRef}
                             value={input}
@@ -301,91 +306,88 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                             onBlur={() => {
                                 setTimeout(() => setIsFocused(false), 200);
                             }}
-                            placeholder="Pregúntame algo sobre tu código... (Usa % para comandos)"
+                            placeholder="Ctrl+↑/Ctrl+↓ para navegar entre mensajes"
                             rows={1}
-                            className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 px-3 py-2 focus:outline-none resize-none min-h-[40px] max-h-[140px] text-sm leading-6"
+                            className="flex-1 bg-transparent text-zinc-800 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 px-2 py-1 focus:outline-none resize-none min-h-[36px] max-h-[140px] text-sm leading-6"
                         />
-
-                        {input.trim() && (
-                            <button
-                                type="submit"
-                                className="h-8 w-8 rounded-lg flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 transition-all mt-1"
-                            >
-                                <Send size={14} className="translate-x-0.5" />
-                            </button>
-                        )}
                     </div>
 
-                    {/* Divider */}
-                    <div className="border-t border-zinc-900/80 mx-2 my-0.5"></div>
-
-                    {/* Status Bar */}
-                    <div className="flex items-center justify-between px-3 py-1.5 text-xs text-zinc-500">
-                        <div className="flex items-center gap-3">
+                    {/* Footer Inside Input Capsule (Goose layout) */}
+                    <div className="flex items-center justify-between px-2 pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs">
+                        <div className="flex items-center gap-2">
                             {/* Model selection pill */}
-                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-zinc-900/60 border border-zinc-800/40 text-[10px] text-zinc-400 font-mono hover:bg-zinc-900 hover:text-zinc-300 transition-colors cursor-pointer select-none">
-                                <Sparkles size={10} className="text-indigo-400" />
-                                gemini-3.5-flash
-                            </span>
+                            <button
+                                type="button"
+                                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 text-[11px] font-mono hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                title="Modelo activo"
+                            >
+                                <Box size={12} className="text-zinc-500" />
+                                <span>poolside/laguna-xs.2:free</span>
+                            </button>
 
                             {/* Active Directory Label */}
                             <button 
                                 type="button"
                                 onClick={onChangeDir}
-                                className="flex items-center gap-1.5 px-1 py-0.5 hover:text-zinc-300 transition-colors max-w-[180px] truncate"
+                                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 text-[11px] font-medium hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors max-w-[160px] truncate"
                                 title="Cambiar directorio de trabajo"
                             >
-                                <Folder size={11} className="text-zinc-500" />
+                                <Folder size={12} className="text-zinc-500" />
                                 <span className="truncate">{getFolderBasename(currentDir)}</span>
                             </button>
                         </div>
 
-                        <div className="flex items-center gap-3">
-                            {/* Cost/Tokens mock/placeholder */}
-                            <span className="font-mono text-[10px] tracking-wide select-none">
-                                0.0000 • 51k / 128k
+                        <div className="flex items-center gap-2.5">
+                            {/* Cost/Tokens mock */}
+                            <span className="flex items-center gap-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 select-none">
+                                <Sparkles size={11} className="text-zinc-400" />
+                                0.0000 • 0 / 128k
+                            </span>
+
+                            {/* Skill badge */}
+                            <span className="flex items-center gap-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 select-none">
+                                <Zap size={11} className="text-zinc-400" />
+                                15
                             </span>
 
                             {/* Utility Buttons */}
-                            <div className="flex items-center gap-1.5 border-l border-zinc-900 pl-3">
+                            <div className="flex items-center gap-1.5 pl-1 border-l border-zinc-200 dark:border-zinc-800">
                                 <button
                                     type="button"
-                                    className="p-1 hover:bg-zinc-900 rounded text-zinc-500 hover:text-zinc-300 transition-all"
+                                    className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-all"
                                     title="Adjuntar archivo"
                                 >
                                     <Paperclip size={13} />
                                 </button>
-                                <button
-                                    type="button"
-                                    className="p-1 hover:bg-zinc-900 rounded text-zinc-500 hover:text-zinc-300 transition-all"
-                                    title="Configuración de agente"
-                                >
-                                    <Settings2 size={13} />
-                                </button>
                                 
-                                {/* Processing State Indicator / Stop Button */}
+                                {/* Send Button (Circle with Arrow Up) */}
                                 {isGenerating ? (
                                     <button
                                         type="button"
-                                        className="h-5 w-5 rounded bg-red-600 hover:bg-red-500 flex items-center justify-center text-white transition-all animate-pulse"
+                                        className="h-7 w-7 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center text-white transition-all animate-pulse"
                                         title="Detener respuesta"
                                     >
                                         <Square size={8} fill="white" className="text-white" />
                                     </button>
                                 ) : (
-                                    <div className="w-5 h-5 flex items-center justify-center">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={!input.trim()}
+                                        className={`h-7 w-7 rounded-full flex items-center justify-center transition-all ${
+                                            input.trim()
+                                                ? 'bg-zinc-800 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90'
+                                                : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed'
+                                        }`}
+                                    >
+                                        <ArrowUp size={14} />
+                                    </button>
                                 )}
                             </div>
                         </div>
                     </div>
                 </form>
             </div>
-            
-            <p className="text-center text-[10px] text-zinc-600 font-medium tracking-wide">
-                KogniTerm AI puede cometer errores. Verifica el código generado.
-            </p>
         </div>
     );
 };
+

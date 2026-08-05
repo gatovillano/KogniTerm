@@ -7,7 +7,7 @@ o un mensaje de texto simple para confirmaciones de comandos bash.
 
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, Any
 from dataclasses import dataclass
 
 from textual.app import ComposeResult
@@ -131,7 +131,7 @@ class _DiffLineWidget(Static):
 
 # ─── Modal principal ──────────────────────────────────────────────────────────
 
-class CommandApprovalModal(ModalScreen[bool]):
+class CommandApprovalModal(ModalScreen[Any]):
     """
     Modal de aprobación de comandos/cambios.
 
@@ -140,6 +140,7 @@ class CommandApprovalModal(ModalScreen[bool]):
 
     Teclas:
         s / y / enter  → aprobar
+        a              → aprobar siempre
         n / escape     → rechazar
     """
 
@@ -246,6 +247,12 @@ class CommandApprovalModal(ModalScreen[bool]):
         height: 1;
         min-height: 1;
     }
+    #btn-always {
+        min-width: 12;
+        margin: 0 1;
+        height: 1;
+        min-height: 1;
+    }
     #btn-no {
         min-width: 10;
         margin: 0 1;
@@ -322,8 +329,9 @@ class CommandApprovalModal(ModalScreen[bool]):
 
             # Footer con atajos y botones
             with Horizontal(id="modal-footer"):
-                yield Label("s  aprobar   n  rechazar", id="footer-hint", markup=False)
+                yield Label("s  aprobar   a  siempre   n  rechazar", id="footer-hint", markup=False)
                 yield Button("Sí  [s]", id="btn-yes", variant="success")
+                yield Button("Siempre  [a]", id="btn-always", variant="primary")
                 yield Button("No  [n]", id="btn-no", variant="error")
 
     # ── Eventos ──────────────────────────────────────────────────────────────
@@ -331,12 +339,16 @@ class CommandApprovalModal(ModalScreen[bool]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-yes":
             self.dismiss(True)
+        elif event.button.id == "btn-always":
+            self.dismiss("accept_all")
         elif event.button.id == "btn-no":
             self.dismiss(False)
 
     def on_key(self, event: events.Key) -> None:
         if event.key in ("s", "y", "enter"):
             self.dismiss(True)
+        elif event.key == "a":
+            self.dismiss("accept_all")
         elif event.key in ("n", "escape"):
             self.dismiss(False)
 

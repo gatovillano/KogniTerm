@@ -1,7 +1,50 @@
 import os
 import re
+import shlex
 import yaml
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
+
+_SPLIT_RE = re.compile(r'(?:\|\||&&|\||;|\n)')
+_WRAPPERS = {
+    "sudo", "bash", "sh", "zsh", "env", "nohup", "xargs",
+    "watch", "timeout", "nice", "eval", "doas", "ssh"
+}
+
+
+def _segments(command: str) -> List[str]:
+    parts = [p.strip() for p in _SPLIT_RE.split(command) if p.strip()]
+    out = []
+    for p in parts:
+        for inner in re.findall(r'\$\(([^)]*)\)|`([^`]*)`', p):
+            for candidate in inner:
+                if candidate and isinstance(candidate, str) and candidate.strip():
+                    out.extend(_segments(candidate))
+        out.append(p)
+        norm = _normalize(p)
+        if norm and norm != p:
+            out.append(norm)
+    return [s for s in out if s]
+
+
+def _normalize(seg: str) -> str:
+    try:
+        tokens = shlex.split(seg)
+    except ValueError:
+        return seg.strip()
+    if not tokens:
+        return ""
+    tokens[0] = tokens[0].rsplit("/", 1)[-1]
+    while tokens and tokens[0] in _WRAPPERS and len(tokens) > 1:
+        rest = [t for t in tokens[1:] if not t.startswith("-")]
+        if not rest:
+            break
+        try:
+            tokens = shlex.split(rest[0]) if " " in rest[0] else rest
+        except ValueError:
+            tokens = rest
+        if tokens:
+            tokens[0] = tokens[0].rsplit("/", 1)[-1]
+    return " ".join(tokens)
 
 
 class CommandRulesResolver:
@@ -20,23 +63,23 @@ class CommandRulesResolver:
     """
 
     DEFAULT_RULES: List[Dict[str, str]] = [
-        {"pattern": r"^git status$",           "action": "allow"},
-        {"pattern": r"^git diff$",             "action": "allow"},
-        {"pattern": r"^git log.*$",            "action": "allow"},
-        {"pattern": r"^git branch.*$",         "action": "allow"},
-        {"pattern": r"^ls(\s+.*)?$",           "action": "allow"},
-        {"pattern": r"^pwd$",                  "action": "allow"},
-        {"pattern": r"^whoami$",               "action": "allow"},
-        {"pattern": r"^date$",                 "action": "allow"},
-        {"pattern": r"^cat\s+.*$",             "action": "allow"},
-        {"pattern": r"^echo\s+.*$",            "action": "allow"},
-        {"pattern": r"^rm\s+-rf\s+.*$",        "action": "deny"},
-        {"pattern": r"^rm\s+--recursive.*$",   "action": "deny"},
-        {"pattern": r"^sudo\s+.*$",            "action": "deny"},
-        {"pattern": r"^su\s+.*$",              "action": "deny"},
-        {"pattern": r"^mkfs.*$",               "action": "deny"},
-        {"pattern": r"^dd\s+.*$",              "action": "deny"},
-        {"pattern": r"^chmod\s+777.*$",        "action": "deny"},
+        # DENY primero
+        {"pattern": r"^rm\s+.*-[a-zA-Z]*[rR][a-zA-Z]*f|^rm\s+.*-[a-zA-Z]*f[a-zA-Z]*[rR]", "action": "deny"},
+        {"pattern": r"^rm\s+--recursive", "action": "deny"},
+        {"pattern": r"^(sudo|su|doas)\b", "action": "deny"},
+        {"pattern": r"^(mkfs|fdisk|dd|shred)\b", "action": "deny"},
+        {"pattern": r"^chmod\s+(777|-R\s+777)", "action": "deny"},
+        {"pattern": r"^(nc|ncat|netcat)\b.*-e", "action": "deny"},
+        {"pattern": r"^find\s+.*-delete", "action": "deny"},
+        {"pattern": r"^:\(\)\s*\{", "action": "deny"},
+        {"pattern": r"^(cat|less|more|head|tail|bat|strings)\s+.*(\.env|\.ssh|id_rsa|id_ed25519|/etc/shadow|credentials|\.pem|\.key|\.netrc|\.aws)", "action": "deny"},
+
+        # ALLOW: anclados y sin metacaracteres / redirecciones
+        {"pattern": r"^git (status|diff|log|branch)(\s+[\w\-./=]+)*$", "action": "allow"},
+        {"pattern": r"^ls(\s+-[a-zA-Z]+)*(\s+[\w\-./]+)*$", "action": "allow"},
+        {"pattern": r"^(pwd|whoami|date|uptime|id)$", "action": "allow"},
+        {"pattern": r"^cat\s+[\w\-./]+$", "action": "allow"},
+        {"pattern": r"^echo\s+[\w\s\-.,:'\"]+$", "action": "allow"},
     ]
 
     def __init__(self, rules_file_path: Optional[str] = None):
@@ -85,15 +128,28 @@ class CommandRulesResolver:
         if not self._loaded:
             self.load_rules()
 
-        cmd_stripped = command.strip()
-        for rule in self.rules:
-            pattern = rule.get("pattern")
-            action = rule.get("action")
-            if pattern and action:
-                try:
-                    if re.match(pattern, cmd_stripped):
-                        return action
-                except re.error:
-                    pass
+        segments = _segments(command)
+        if not segments:
+            return "ask"
 
-        return "ask"  # acción por defecto
+        actions: Set[str] = set()
+        for seg in segments:
+            matched = "ask"
+            for rule in self.rules:
+                pattern = rule.get("pattern")
+                action = rule.get("action")
+                if not (pattern and action):
+                    continue
+                try:
+                    if re.match(pattern, seg):
+                        matched = action
+                        break
+                except re.error:
+                    continue
+            actions.add(matched)
+
+        if "deny" in actions:
+            return "deny"  # deny-wins
+        if actions == {"allow"}:
+            return "allow"  # todos allow
+        return "ask"  # fail-safe

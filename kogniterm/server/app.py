@@ -22,20 +22,34 @@ import asyncio
 import json
 import logging
 import os
+import os
+import secrets
 import shlex
 import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional, List, Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Body
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+    Body,
+    Depends,
+    Header,
+    Query,
+    Request,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from kogniterm.core.llm_service import LLMService
 from kogniterm.server.session_pool import pool
-from kogniterm.server.config import server_config, ChannelConfig
+from kogniterm.server.config import server_config, ChannelConfig, HeartbeatConfig
+from kogniterm.server.heartbeat_manager import heartbeat_scheduler
 from kogniterm.server.channel_adapters import (
     WebhookAdapter,
     SlackAdapter,
@@ -171,10 +185,16 @@ async def lifespan(app: FastAPI):
                         f"⚠️ Canal Telegram '{cfg.name}' habilitado pero falta 'token' en params."
                     )
 
+    # Inicializar scheduler de heartbeats
+    heartbeat_scheduler.start()
+
     logger.info("✅ KogniTerm Server listo.")
     yield
 
     logger.info("🛑 Cerrando KogniTerm Server...")
+    # Detener scheduler de heartbeats
+    heartbeat_scheduler.stop()
+
     # Detener canales activos
     for adapter, task in active_tasks:
         try:
@@ -187,10 +207,44 @@ async def lifespan(app: FastAPI):
     pool._executor.shutdown(wait=False)
 
 
+# ── Seguridad y Autenticación ──────────────────────────────────────────────────
+
+API_TOKEN = os.environ.get("KOGNITERM_API_TOKEN") or secrets.token_urlsafe(32)
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "KOGNITERM_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765",
+    ).split(",")
+    if o.strip()
+]
+
+
+def require_token(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None),
+):
+    if request.url.path in ("/health", "/docs", "/openapi.json", "/redoc"):
+        return
+    provided = None
+    if authorization and authorization.startswith("Bearer "):
+        provided = authorization[7:]
+    elif token:
+        provided = token
+
+    if not provided or not secrets.compare_digest(provided, API_TOKEN):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de API inválido o no suministrado",
+        )
+
+
 # ── Aplicación ─────────────────────────────────────────────────────────────────
 
 
 def create_app() -> FastAPI:
+    enable_docs = os.environ.get("KOGNITERM_ENABLE_DOCS", "false").lower() in ("true", "1")
     application = FastAPI(
         title="KogniTerm Backend API",
         description=(
@@ -199,16 +253,17 @@ def create_app() -> FastAPI:
         ),
         version="1.0.0",
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url="/docs" if enable_docs else None,
+        redoc_url="/redoc" if enable_docs else None,
+        dependencies=[Depends(require_token)],
     )
 
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Session-ID"],
     )
 
     # ── Health Check ────────────────────────────────────────────────────────────
@@ -250,6 +305,48 @@ def create_app() -> FastAPI:
         """Activa o desactiva un canal sin eliminarlo."""
         server_config.toggle_channel(name, enabled)
         return {"status": "updated", "channel": name, "enabled": enabled}
+
+    # ── Gestión de Configuración (Heartbeats) ──────────────────────────────────
+
+    @application.get("/config/heartbeats", tags=["Configuración"])
+    async def list_configured_heartbeats():
+        """Lista todos los heartbeats configurados."""
+        return {"heartbeats": server_config.settings.heartbeats}
+
+    @application.post("/config/heartbeats", tags=["Configuración"])
+    @application.put("/config/heartbeats/{heartbeat_id}", tags=["Configuración"])
+    async def add_or_update_heartbeat(cfg: HeartbeatConfig, heartbeat_id: Optional[str] = None):
+        """Añade o actualiza la configuración de un heartbeat."""
+        if heartbeat_id:
+            cfg.id = heartbeat_id
+        server_config.upsert_heartbeat(cfg)
+        heartbeat_scheduler.sync_tasks()
+        return {"status": "ok", "heartbeat": cfg}
+
+    @application.delete("/config/heartbeats/{heartbeat_id}", tags=["Configuración"])
+    async def remove_heartbeat(heartbeat_id: str):
+        """Elimina un heartbeat de la configuración."""
+        server_config.remove_heartbeat(heartbeat_id)
+        heartbeat_scheduler.sync_tasks()
+        return {"status": "deleted", "id": heartbeat_id}
+
+    @application.patch("/config/heartbeats/{heartbeat_id}/toggle", tags=["Configuración"])
+    async def toggle_heartbeat(heartbeat_id: str, enabled: bool):
+        """Activa o desactiva un heartbeat dinámicamente."""
+        server_config.toggle_heartbeat(heartbeat_id, enabled)
+        heartbeat_scheduler.sync_tasks()
+        return {"status": "updated", "id": heartbeat_id, "enabled": enabled}
+
+    @application.post("/config/heartbeats/{heartbeat_id}/trigger", tags=["Configuración"])
+    async def trigger_heartbeat_now(heartbeat_id: str):
+        """Dispara manualmente la ejecución inmediata de un heartbeat."""
+        hb = next((h for h in server_config.settings.heartbeats if h.id == heartbeat_id), None)
+        if not hb:
+            raise HTTPException(status_code=404, detail=f"Heartbeat {heartbeat_id} no encontrado")
+        success = await heartbeat_scheduler.trigger_heartbeat(heartbeat_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Error ejecutando heartbeat")
+        return {"status": "triggered", "id": heartbeat_id}
 
     # ── Gestión de Configuración (LLM) ──────────────────────────────────────
 
@@ -536,8 +633,10 @@ def create_app() -> FastAPI:
 
         cm = ConfigManager()
 
-        model = cm.get_config("default_model") or os.environ.get(
-            "LITELLM_MODEL", "google/gemini-1.5-flash"
+        model = (
+            (pool._llm_service.model_name if pool._llm_service else None)
+            or cm.get_config("default_model")
+            or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash")
         )
 
         # Detectar proveedor basado en el modelo
@@ -570,14 +669,17 @@ def create_app() -> FastAPI:
     @application.post("/api/config/llm", tags=["Configuración"])
     @application.post("/config/llm", tags=["Configuración"])
     async def update_llm_config(req: LLMConfigRequest):
-        """Actualiza el modelo y la API key del LLM en el ConfigManager."""
+        """Actualiza el modelo y la API key del LLM en el ConfigManager y en las sesiones activas."""
         from kogniterm.terminal.config_manager import ConfigManager
 
         cm = ConfigManager()
+        target_model = req.model
 
         # Guardar el modelo por defecto si se proporcionó, o si se especificó un proveedor
         if req.model:
             cm.set_project_config("default_model", req.model)
+            cm.set_global_config("default_model", req.model)
+            os.environ["LITELLM_MODEL"] = req.model
         elif req.provider:
             default_models = {
                 "google": "google/gemini-1.5-flash",
@@ -590,7 +692,10 @@ def create_app() -> FastAPI:
             }
             new_model = default_models.get(req.provider.lower())
             if new_model:
+                target_model = new_model
                 cm.set_project_config("default_model", new_model)
+                cm.set_global_config("default_model", new_model)
+                os.environ["LITELLM_MODEL"] = new_model
 
         # Guardar la API key si se proporcionó
         if req.api_key:
@@ -598,8 +703,8 @@ def create_app() -> FastAPI:
             provider = req.provider
             if not provider:
                 # Mapeo simple basado en el nombre del modelo
-                target_model = req.model or cm.get_config("default_model") or ""
-                model_lower = target_model.lower()
+                t_model = target_model or cm.get_config("default_model") or ""
+                model_lower = t_model.lower()
                 if "gemini" in model_lower or "google" in model_lower:
                     provider = "google"
                 elif "openai" in model_lower or "gpt" in model_lower:
@@ -617,13 +722,25 @@ def create_app() -> FastAPI:
 
             cm.set_api_key(provider, req.api_key)
 
-        # Recargar la configuración en el LLMService del pool si ya existe
+        # Recargar/Actualizar la configuración en el LLMService del pool si ya existe
         if pool._llm_service:
-            pool._llm_service.reload_config()
+            if target_model:
+                pool._llm_service.set_model(target_model)
+            else:
+                pool._llm_service.reload_config()
+
+        # Sincronizar dinámicamente el nuevo modelo en todas las sesiones de agente activas en el pool
+        with pool._lock:
+            for session in pool._sessions.values():
+                if session.llm_service:
+                    if target_model:
+                        session.llm_service.set_model(target_model)
+                    else:
+                        session.llm_service.reload_config()
 
         return {
             "status": "ok",
-            "model": req.model,
+            "model": target_model or cm.get_config("default_model"),
             "provider": req.provider or "inferred/ignored",
         }
 
@@ -1186,7 +1303,21 @@ def create_app() -> FastAPI:
           {"type": "done",         "data": {...}, "ts": "..."}  → fin de ciclo
           {"type": "error",        "data": {...}, "ts": "..."}  → error
           {"type": "pong",         "data": {},    "ts": "..."}  → respuesta keep-alive
-        """
+        # Validar Token
+        token = websocket.query_params.get("token")
+        if not token or not secrets.compare_digest(token, API_TOKEN):
+            logger.warning("[WS] Intento de conexión WebSocket rechazado por token inválido.")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        # Validar Origin
+        origin = websocket.headers.get("origin")
+        if origin and ALLOWED_ORIGINS and "*" not in ALLOWED_ORIGINS:
+            if origin not in ALLOWED_ORIGINS:
+                logger.warning(f"[WS] Intento de conexión WebSocket rechazado por origen no permitido: {origin}")
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+
         await websocket.accept()
 
         await pool.wait_until_ready()

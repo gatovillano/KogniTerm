@@ -589,14 +589,34 @@ class TUIWebSocketClient:
         Monta el InlineApprovalWidget y envía la respuesta al servidor
         cuando el usuario decide. Se ejecuta en el hilo principal de Textual.
         """
+        # Si la auto-aprobación está activa globalmente en el cliente TUI, responder de inmediato
+        if getattr(self._app, "_auto_approve_all", False):
+            logger.info(f"[WS] Auto-aprobando solicitud {request_id} debido a _auto_approve_all=True")
+            try:
+                import asyncio
+                import threading
+                if threading.current_thread() is threading.main_thread():
+                    asyncio.create_task(self.send_approval(request_id, True))
+                else:
+                    asyncio.run_coroutine_threadsafe(
+                        self.send_approval(request_id, True),
+                        self._app.loop,
+                    )
+            except Exception as e:
+                logger.error(f"[WS] Error al enviar auto-aprobación al servidor: {e}")
+            return
+
         try:
             from kogniterm.terminal.tui.components.inline_approval import InlineApprovalWidget
             import concurrent.futures
 
             def callback(result: str) -> None:
-                approved = result in ("accept", "accept_all")
+                approved = result in ("accept", "accept_all", True)
                 if result == "accept_all":
-                    self._app._auto_approve_all = True
+                    if hasattr(self._app, "set_auto_approve_all"):
+                        self._app.set_auto_approve_all(True)
+                    else:
+                        self._app._auto_approve_all = True
                 
                 logger.info(f"[WS] Aprobación del usuario recibida: {result} (approved={approved}) para request_id={request_id}")
                 
