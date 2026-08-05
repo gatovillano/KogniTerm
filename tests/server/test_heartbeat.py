@@ -117,6 +117,9 @@ async def test_heartbeat_scheduler_execution():
 
     mock_session = MagicMock()
     mock_session.send = AsyncMock()
+    mock_session.thread_manager = None
+    mock_session.agent_state = MagicMock()
+    mock_session.agent_state.messages = []
 
     with patch("kogniterm.server.heartbeat_manager.pool") as mock_pool:
         mock_pool.wait_until_ready = AsyncMock()
@@ -135,3 +138,52 @@ async def test_heartbeat_scheduler_execution():
         hb_config = server_config.settings.heartbeats[0]
         assert hb_config.last_status == "success"
         assert hb_config.last_run is not None
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_telegram_notification():
+    """Prueba el envío de notificación a Telegram cuando el canal está activo."""
+    from kogniterm.server.config import ChannelConfig
+    scheduler = HeartbeatScheduler()
+    hb = HeartbeatConfig(id="hb_tg", name="Telegram HB", prompt="Check status", interval_seconds=30)
+    server_config.add_heartbeat(hb)
+
+    # Configurar canal Telegram activo
+    tg_chan = ChannelConfig(
+        name="telegram_bot_default",
+        type="telegram_bot",
+        enabled=True,
+        params={"token": "fake_token_123", "chat_id": 987654321}
+    )
+    server_config.add_channel(tg_chan)
+
+    mock_msg = MagicMock()
+    mock_msg.type = "ai"
+    mock_msg.content = "Estado del servidor OK"
+
+    mock_session = MagicMock()
+    mock_session.send = AsyncMock()
+    mock_session.thread_manager = None
+    mock_session.agent_state = MagicMock()
+    mock_session.agent_state.messages = [mock_msg]
+
+    with patch("kogniterm.server.heartbeat_manager.pool") as mock_pool, \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_pool.wait_until_ready = AsyncMock()
+        mock_pool.get_or_create.return_value = mock_session
+        mock_pool._executor = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
+
+        success = await scheduler.trigger_heartbeat("hb_tg")
+        assert success is True
+
+        mock_post.assert_awaited()
+        call_kwargs = mock_post.call_args.kwargs
+        assert "sendMessage" in mock_post.call_args.args[0]
+        assert call_kwargs["json"]["chat_id"] == 987654321
+        assert "Telegram HB" in call_kwargs["json"]["text"]
+        assert "Estado del servidor OK" in call_kwargs["json"]["text"]
+
