@@ -1303,6 +1303,7 @@ def create_app() -> FastAPI:
           {"type": "done",         "data": {...}, "ts": "..."}  → fin de ciclo
           {"type": "error",        "data": {...}, "ts": "..."}  → error
           {"type": "pong",         "data": {},    "ts": "..."}  → respuesta keep-alive
+        """
         # Validar Token
         token = websocket.query_params.get("token")
         if not token or not secrets.compare_digest(token, API_TOKEN):
