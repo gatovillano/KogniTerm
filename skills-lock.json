@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "security-auditor": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/security-auditor/SKILL.md",
+      "computedHash": "4b92bcdbc4ee6c7eba56538f20187574039557c74e30b57aa7247c22e0cc7223"
+    }
+  }
+}

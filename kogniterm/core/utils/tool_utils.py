@@ -189,11 +189,16 @@ def convert_langchain_tool_to_litellm(tool: BaseTool) -> Dict[str, Any]:
 
     args_schema = normalize_tool_parameters_schema(args_schema)
 
+    tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    tool_desc = getattr(tool, 'description', None) or getattr(tool, '__doc__', '') or ''
+    if not isinstance(tool_desc, str):
+        tool_desc = str(tool_desc)
+
     return {
         "type": "function",
         "function": {
-            "name": tool.name,
-            "description": tool.description,
+            "name": tool_name,
+            "description": tool_desc[:1024] if tool_desc else f"Herramienta {tool_name}",
             "parameters": args_schema
         }
     }

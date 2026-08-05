@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>informe_auditoria_seguridad</title>
+  <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<h1 id="informe-de-auditoría-de-seguridad---kogniterm">Informe de
+Auditoría de Seguridad - KogniTerm</h1>
+<p><strong>Proyecto:</strong> KogniTerm<br />
+<strong>Alcance:</strong> Codigo fuente, sistema de skills, gestion de
+memoria, configuracion y dependencias<br />
+<strong>Estandares:</strong> OWASP Top 10 / ASVS, Secure Coding
+Practices<br />
+<strong>Auditoria ejecutada con:</strong> Skill
+<code>security-auditor</code> (metodologia de 7 pasos)<br />
+<strong>Fecha:</strong> 2025-01-27<br />
+<strong>Estado:</strong> Paso 6 completado - Informe final</p>
+<hr />
+<h2 id="resumen-ejecutivo">Resumen Ejecutivo</h2>
+<p>KogniTerm es un agente de terminal AI con backend FastAPI, frontend
+TUI basado en Rich, orquestacion de agentes con LangGraph, sistema de
+skills dinamicas y soporte para multiples proveedores LLM (OpenRouter,
+Gemini, Ollama).</p>
+<p>La auditoria de seguridad ha identificado <strong>13
+hallazgos</strong> clasificados por severidad: - <strong>5
+Criticos</strong> - <strong>4 Altos</strong> - <strong>3 Medios</strong>
+- <strong>1 Bajo</strong></p>
+<p>Los hallazgos mas criticos giran en torno a la <strong>ausencia total
+de autenticacion/autorizacion</strong> en la API, <strong>ejecucion de
+comandos sin validacion</strong>, <strong>exposicion de secrets en
+almacenamiento plano</strong> y <strong>configuracion CORS
+insegura</strong>.</p>
+<hr />
+<h2 id="metodologia">1. Metodologia</h2>
+<p>Se aplico la metodologia de 7 pasos de la skill
+<code>security-auditor</code>:</p>
+<ol type="1">
+<li>Confirmar alcance y activos</li>
+<li>Revisar arquitectura y controles existentes (base:
+<code>auditoria_arquitectura.md</code>, puntuacion 7.2/10)</li>
+<li>Mapear entry points y trazar flujos de datos hasta
+almacenamiento</li>
+<li>Analizar fallos logicos y vectores de ataque por feature</li>
+<li>Verificar controles de autenticacion/autorizacion y detectar secrets
+expuestos</li>
+<li>Clasificar hallazgos por severidad y elaborar informe final</li>
+<li>Entregar plan de remediacion (este documento incluye
+recomendaciones)</li>
+</ol>
+<p>Herramientas utilizadas: - Revision manual de codigo fuente -
+<code>bandit</code> (analisis estatico): 236 low, 14 medium, 2 high -
+<code>grep</code> de patrones de secrets - Analisis de arquitectura
+previa</p>
+<hr />
+<h2 id="arquitectura-y-activos">2. Arquitectura y Activos</h2>
+<h3 id="activos-principales">Activos principales</h3>
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 37%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr>
+<th>Activo</th>
+<th>Descripcion</th>
+<th>Sensibilidad</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API Keys LLM</td>
+<td>Claves de OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud</td>
+<td>Critica</td>
+</tr>
+<tr>
+<td>Tokens Telegram</td>
+<td>Bot tokens para integracion con Telegram</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>Historial de chat</td>
+<td><code>.kogniterm/history.json</code> por sesion</td>
+<td>Media</td>
+</tr>
+<tr>
+<td>Configuracion</td>
+<td><code>config.json</code> global y por proyecto</td>
+<td>Alta</td>
+</tr>
+<tr>
+<td>Codigo fuente</td>
+<td>Logica de ejecucion de comandos, skills, agentes</td>
+<td>Critica</td>
+</tr>
+<tr>
+<td>Sesiones</td>
+<td>Estado de agentes en memoria + disco</td>
+<td>Media</td>
+</tr>
+</tbody>
+</table>
+<h3 id="entry-points-identificados">Entry Points identificados</h3>
+<table>
+<colgroup>
+<col style="width: 28%" />
+<col style="width: 28%" />
+<col style="width: 42%" />
+</colgroup>
+<thead>
+<tr>
+<th>Tipo</th>
+<th>Ruta</th>
+<th>Funcion</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>REST</td>
+<td><code>POST /api/execute</code></td>
+<td>Ejecucion de comandos shell</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>POST /api/files/list</code></td>
+<td>Listado de directorios</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>POST /api/config/llm</code></td>
+<td>Modificacion de configuracion LLM y API keys</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>POST /api/config/set</code></td>
+<td>Escritura arbitraria de config</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>GET /api/config/all</code></td>
+<td>Lectura de configuracion completa</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>POST /config/channels</code></td>
+<td>Gestion de canales (incluye tokens)</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>DELETE /config/channels/{name}</code></td>
+<td>Eliminacion de canales</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>PATCH /config/channels/{name}/toggle</code></td>
+<td>Activacion/desactivacion</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>GET /health</code></td>
+<td>Informacion de sesiones y canales</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>GET /sessions</code></td>
+<td>Listado de sesiones</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>POST /sessions</code></td>
+<td>Creacion de sesiones</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>DELETE /sessions/{session_id}</code></td>
+<td>Eliminacion de sesiones</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>POST /api/chat/message</code></td>
+<td>Chat sincrono</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>POST /chat/{session_id}</code></td>
+<td>Chat por sesion</td>
+</tr>
+<tr>
+<td>REST</td>
+<td><code>GET /sse/{session_id}</code></td>
+<td>SSE streaming</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td><code>/ws/chat</code></td>
+<td>Sesion desktop unica</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td><code>/ws/{session_id}</code></td>
+<td>Sesion persistente</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td><code>terminal_input</code></td>
+<td>Input directo a PTY</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td><code>start_indexing</code></td>
+<td>Indexacion de codebase</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td><code>approval_response</code></td>
+<td>Respuestas de aprobacion</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="hallazgos-por-severidad">3. Hallazgos por Severidad</h2>
+<h3 id="hallazgos-criticos">3.1 Hallazgos Criticos</h3>
+<h4 id="auth-01-sin-autenticacionautorizacion-en-la-api">AUTH-01: Sin
+autenticacion/autorizacion en la API</h4>
+<p><strong>Severidad:</strong> Critica<br />
+<strong>CWE:</strong> CWE-306 (Missing Authentication for Critical
+Function)<br />
+<strong>OWASP:</strong> A01:2025 - Broken Access Control<br />
+<strong>Ubicacion:</strong> <code>server/app.py</code> - todos los
+endpoints</p>
+<p><strong>Descripcion:</strong><br />
+Ningun endpoint de la API requiere autenticacion, autorizacion o
+verificacion de identidad. Cualquier cliente que pueda alcanzar el
+servidor puede ejecutar comandos, leer/escribir configuracion, gestionar
+sesiones y acceder a datos sensibles.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py - ejemplo de endpoint sin proteccion</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="at">@app.post</span>(<span class="st">&quot;/api/execute&quot;</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="cf">async</span> <span class="kw">def</span> execute_command(request: CommandRequest):</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    session <span class="op">=</span> pool.get_or_create(<span class="st">&quot;default&quot;</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># ... ejecucion directa sin verificar identidad</span></span></code></pre></div>
+<p><strong>Impacto:</strong> - Acceso total a funcionalidades
+administrativas y operativas - Ejecucion remota de codigo (RCE) via
+endpoint de comandos - Exfiltracion de API keys y tokens - Manipulacion
+de configuraciones y sesiones</p>
+<p><strong>Recomendacion:</strong> 1. Implementar middleware de
+autenticacion (API key, JWT, o similar) 2. Agregar verificacion de
+autorizacion por rol/usuario 3. Proteger especialmente endpoints
+sensibles: <code>/api/execute</code>, <code>/api/config/*</code>,
+<code>/config/channels</code> 4. Considerar OAuth2 o mTLS para entornos
+multi-usuario</p>
+<hr />
+<h4 id="cmd-01-ejecucion-de-comandos-sin-validacion">CMD-01: Ejecucion
+de comandos sin validacion</h4>
+<p><strong>Severidad:</strong> Critica<br />
+<strong>CWE:</strong> CWE-78 (OS Command Injection)<br />
+<strong>OWASP:</strong> A03:2025 - Injection<br />
+<strong>Ubicacion:</strong> <code>server/app.py:847-876</code>,
+<code>core/command_executor.py:153-366</code></p>
+<p><strong>Descripcion:</strong><br />
+El endpoint <code>POST /api/execute</code> y el WebSocket
+<code>terminal_input</code> permiten enviar comandos shell arbitrarios
+que se ejecutan en el servidor sin validacion de contenido, filtrado de
+caracteres peligrosos o restriccion de privilegios.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="at">@app.post</span>(<span class="st">&quot;/api/execute&quot;</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="cf">async</span> <span class="kw">def</span> execute_command(request: CommandRequest):</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    session <span class="op">=</span> pool.get_or_create(<span class="st">&quot;default&quot;</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># El comando se ejecuta directamente sin validacion</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> chunk <span class="kw">in</span> session.command_executor.execute(request.command):</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">yield</span> chunk</span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># core/command_executor.py</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> execute(<span class="va">self</span>, command: <span class="bu">str</span>, ...):</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="co"># El comando se envia al PTY sin validacion</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    os.write(master_fd, full_cmd.encode())</span></code></pre></div>
+<p><strong>Impacto:</strong> - Ejecucion arbitraria de comandos en el
+servidor - Acceso a archivos sensibles (<code>/etc/passwd</code>,
+<code>.env</code>, <code>config.json</code>) - Posible pivoting a otros
+sistemas de la red - Exfiltracion de datos</p>
+<p><strong>Recomendacion:</strong> 1. Implementar allowlist de comandos
+permitidos por rol 2. Agregar filtrado de caracteres peligrosos
+(<code>;</code>, <code>|</code>, <code>&amp;</code>, <code>$()</code>,
+<code>`</code>) 3. Ejecutar comandos en contenedor/sandbox aislado
+(Docker, gVisor) 4. Implementar principio de minimo privilegio (usuario
+no-root) 5. Agregar logging detallado de todos los comandos
+ejecutados</p>
+<hr />
+<h4 id="path-01-path-traversal-en-listado-de-archivos">PATH-01: Path
+Traversal en listado de archivos</h4>
+<p><strong>Severidad:</strong> Critica<br />
+<strong>CWE:</strong> CWE-22 (Path Traversal)<br />
+<strong>OWASP:</strong> A01:2025 - Broken Access Control<br />
+<strong>Ubicacion:</strong> <code>server/app.py:873-876</code></p>
+<p><strong>Descripcion:</strong><br />
+El endpoint <code>POST /api/files/list</code> usa
+<code>os.path.abspath(request.path)</code> sin validacion de que la ruta
+resultante este dentro del workspace permitido. Un atacante puede
+especificar rutas como <code>../../../etc/passwd</code> para leer
+archivos fuera del workspace.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="at">@app.post</span>(<span class="st">&quot;/api/files/list&quot;</span>)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="cf">async</span> <span class="kw">def</span> list_directory(request: DirectoryRequest):</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    target_path <span class="op">=</span> os.path.abspath(request.path)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># No hay validacion de que target_path este dentro del workspace</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    entries <span class="op">=</span> os.scandir(target_path)</span></code></pre></div>
+<p><strong>Impacto:</strong> - Lectura de archivos sensibles del sistema
+(<code>/etc/passwd</code>, <code>/etc/shadow</code>) - Lectura de
+archivos de configuracion con API keys - Exfiltracion de codigo fuente y
+datos de usuario</p>
+<p><strong>Recomendacion:</strong> 1. Validar que la ruta resultante
+este dentro del workspace permitido 2. Usar
+<code>os.path.realpath()</code> para resolver symlinks 3. Implementar
+allowlist de directorios accesibles 4. Negar acceso a rutas que
+contengan <code>..</code> o symlinks a directorios sensibles</p>
+<hr />
+<h4 id="conf-01-api-keys-y-secrets-en-json-plano-sin-cifrado">CONF-01:
+API keys y secrets en JSON plano sin cifrado</h4>
+<p><strong>Severidad:</strong> Critica<br />
+<strong>CWE:</strong> CWE-312 (Cleartext Storage of Sensitive
+Information)<br />
+<strong>OWASP:</strong> A02:2025 - Cryptographic Failures<br />
+<strong>Ubicacion:</strong>
+<code>terminal/config_manager.py:42-45</code>,
+<code>server/config.py:42-45</code></p>
+<p><strong>Descripcion:</strong><br />
+Las API keys, tokens y otros secrets se almacenan en archivos JSON
+planos (<code>config.json</code>, <code>server_config.json</code>) sin
+cifrado. Cualquier proceso con acceso al filesystem puede leer estas
+credenciales.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># terminal/config_manager.py</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> _save_json(<span class="va">self</span>, path: Path, data: Dict[<span class="bu">str</span>, Any]):</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> <span class="bu">open</span>(path, <span class="st">&#39;w&#39;</span>, encoding<span class="op">=</span><span class="st">&#39;utf-8&#39;</span>) <span class="im">as</span> f:</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        json.dump(data, f, indent<span class="op">=</span><span class="dv">4</span>)  <span class="co"># Sin cifrado</span></span></code></pre></div>
+<p><strong>Impacto:</strong> - Exfiltracion de API keys de proveedores
+LLM - Robo de tokens de Telegram/Discord/Slack - Acceso a servicios
+externos con las credenciales del usuario - Posible facturacion
+fraudulenta</p>
+<p><strong>Recomendacion:</strong> 1. Implementar cifrado de secrets
+usando <code>cryptography</code> (Fernet, AES-GCM) 2. Usar un keyring
+del sistema (keyring, libsecret, Windows Credential Manager) 3. Cifrar
+el archivo de configuracion con una clave derivada de contrasena maestra
+4. Nunca escribir secrets en logs o archivos temporales</p>
+<hr />
+<h4 id="conf-02-escritura-de-configuracion-sin-validacion">CONF-02:
+Escritura de configuracion sin validacion</h4>
+<p><strong>Severidad:</strong> Critica<br />
+<strong>CWE:</strong> CWE-94 (Improper Control of Generation of
+Code)<br />
+<strong>OWASP:</strong> A03:2025 - Injection<br />
+<strong>Ubicacion:</strong> <code>server/app.py:664-680</code></p>
+<p><strong>Descripcion:</strong><br />
+El endpoint <code>POST /api/config/set</code> acepta cualquier clave y
+valor sin validacion de tipo, formato o rango. Un atacante puede
+inyectar valores maliciosos que afecten el comportamiento del
+sistema.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="at">@app.post</span>(<span class="st">&quot;/api/config/set&quot;</span>)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="cf">async</span> <span class="kw">def</span> set_config_value(req: SetConfigRequest <span class="op">=</span> Body(...)):</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    cm.set_global_config(req.key, req.value)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># No hay validacion de req.key ni req.value</span></span></code></pre></div>
+<p><strong>Impacto:</strong> - Modificacion de configuracion critica
+(modelos LLM, endpoints) - Posible inyeccion de configuraciones
+maliciosas - Denegacion de servicio por configuraciones invalidas</p>
+<p><strong>Recomendacion:</strong> 1. Implementar allowlist de claves
+configurables 2. Validar tipos y formatos de valores 3. Agregar
+verificacion de firma para cambios criticos 4. Implementar auditoria de
+cambios de configuracion</p>
+<hr />
+<h3 id="hallazgos-altos">3.2 Hallazgos Altos</h3>
+<h4 id="ssrf-01-ssrf-en-endpoint-de-modelos-disponibles">SSRF-01: SSRF
+en endpoint de modelos disponibles</h4>
+<p><strong>Severidad:</strong> Alta<br />
+<strong>CWE:</strong> CWE-918 (Server-Side Request Forgery)<br />
+<strong>OWASP:</strong> A10:2025 - Server-Side Request Forgery<br />
+<strong>Ubicacion:</strong> <code>server/app.py:304-498</code></p>
+<p><strong>Descripcion:</strong><br />
+El endpoint <code>GET /api/models/available</code> realiza peticiones a
+APIs externas (OpenRouter, Google, etc.) usando las API keys del
+sistema. Un atacante podria manipular parametros para acceder a recursos
+internos o exfiltrar credenciales.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py - lineas 304-498</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="co"># El endpoint hace peticiones a URLs externas sin validacion</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="co"># usando las API keys del sistema</span></span></code></pre></div>
+<p><strong>Impacto:</strong> - Acceso a metadatos de red interna -
+Exfiltracion de API keys en URLs de peticion - Acceso a servicios
+internos no expuestos publicamente</p>
+<p><strong>Recomendacion:</strong> 1. Implementar allowlist de dominios
+permitidos 2. No incluir API keys en URLs (usar headers) 3. Validar y
+sanitizar todas las URLs de destino 4. Considerar un proxy inverso para
+peticiones externas</p>
+<hr />
+<h4 id="cors-01-cors-completamente-abierto">CORS-01: CORS completamente
+abierto</h4>
+<p><strong>Severidad:</strong> Alta<br />
+<strong>CWE:</strong> CWE-942 (Overly Permissive Cross-domain
+Whitelist)<br />
+<strong>OWASP:</strong> A05:2025 - Security Misconfiguration<br />
+<strong>Ubicacion:</strong> <code>server/app.py:206-212</code></p>
+<p><strong>Descripcion:</strong><br />
+La configuracion CORS permite cualquier origen (<code>*</code>) con
+credenciales (<code>allow_credentials=True</code>), lo que permite a
+cualquier dominio web realizar peticiones autenticadas al servidor.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>app.add_middleware(</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    CORSMiddleware,</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    allow_origins<span class="op">=</span>[<span class="st">&quot;*&quot;</span>],  <span class="co"># Permite cualquier origen</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    allow_credentials<span class="op">=</span><span class="va">True</span>,  <span class="co"># Con credenciales</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>    allow_methods<span class="op">=</span>[<span class="st">&quot;*&quot;</span>],</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>    allow_headers<span class="op">=</span>[<span class="st">&quot;*&quot;</span>],</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div>
+<p><strong>Impacto:</strong> - CSRF (Cross-Site Request Forgery) - Robo
+de sesiones y credenciales - Ejecucion de acciones no autorizadas desde
+sitios maliciosos</p>
+<p><strong>Recomendacion:</strong> 1. Especificar dominios permitidos
+explicitamente en <code>allow_origins</code> 2. Deshabilitar
+<code>allow_credentials</code> si no es estrictamente necesario 3.
+Limitar metodos y headers a los estrictamente necesarios 4. Considerar
+usar tokens CSRF para operaciones sensibles</p>
+<hr />
+<h4 id="ws-01-manipulacion-de-workspace_dir-en-websocket">WS-01:
+Manipulacion de <code>workspace_dir</code> en WebSocket</h4>
+<p><strong>Severidad:</strong> Alta<br />
+<strong>CWE:</strong> CWE-22 (Path Traversal)<br />
+<strong>OWASP:</strong> A01:2025 - Broken Access Control<br />
+<strong>Ubicacion:</strong> <code>server/app.py:1164-1170</code>,
+<code>server/session_pool.py:542</code></p>
+<p><strong>Descripcion:</strong><br />
+El WebSocket <code>/ws/{session_id}</code> acepta un parametro
+<code>workspace_dir</code> opcional que se usa para establecer el
+directorio de trabajo de la sesion sin validacion. Un atacante puede
+especificar rutas arbitrarias para acceder a archivos fuera del
+workspace esperado.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="at">@app.websocket</span>(<span class="st">&quot;/ws/</span><span class="sc">{session_id}</span><span class="st">&quot;</span>)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="cf">async</span> <span class="kw">def</span> websocket_chat(websocket: WebSocket, session_id: <span class="bu">str</span>, workspace_dir: Optional[<span class="bu">str</span>] <span class="op">=</span> <span class="va">None</span>):</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    session <span class="op">=</span> pool.get_or_create(session_id, workspace_dir<span class="op">=</span>workspace_dir)</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># workspace_dir se usa sin validacion</span></span></code></pre></div>
+<p><strong>Impacto:</strong> - Acceso a archivos fuera del workspace
+permitido - Lectura de archivos sensibles del sistema - Modificacion de
+archivos en directorios no autorizados</p>
+<p><strong>Recomendacion:</strong> 1. Validar que
+<code>workspace_dir</code> este dentro de rutas permitidas 2.
+Implementar allowlist de workspaces accesibles por sesion 3. Usar
+<code>os.path.realpath()</code> para resolver symlinks 4. Negar acceso a
+rutas que contengan <code>..</code></p>
+<hr />
+<h4 id="race-01-race-condition-en-sessionpool.get_or_create">RACE-01:
+Race condition en <code>SessionPool.get_or_create()</code></h4>
+<p><strong>Severidad:</strong> Alta<br />
+<strong>CWE:</strong> CWE-362 (Race Condition)<br />
+<strong>OWASP:</strong> A04:2025 - Insecure Design<br />
+<strong>Ubicacion:</strong>
+<code>server/session_pool.py:1086-1118</code></p>
+<p><strong>Descripcion:</strong><br />
+El metodo <code>get_or_create()</code> no es thread-safe. Multiples
+requests concurrentes pueden crear sesiones duplicadas o acceder a
+estado inconsistente, permitiendo potencialmente bypassear logica de
+sesiones.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/session_pool.py</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> get_or_create(<span class="va">self</span>, session_id: <span class="bu">str</span>, workspace_dir: Optional[<span class="bu">str</span>] <span class="op">=</span> <span class="va">None</span>) <span class="op">-&gt;</span> AgentSession:</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> session_id <span class="kw">in</span> <span class="va">self</span>.sessions:</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="va">self</span>.sessions[session_id]</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Race condition: multiples threads pueden crear la misma sesion</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>    session <span class="op">=</span> AgentSession(...)</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    <span class="va">self</span>.sessions[session_id] <span class="op">=</span> session</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> session</span></code></pre></div>
+<p><strong>Impacto:</strong> - Creacion de sesiones duplicadas - Estado
+inconsistente de sesiones - Potencial bypass de controles de sesion</p>
+<p><strong>Recomendacion:</strong> 1. Usar <code>threading.Lock()</code>
+o <code>asyncio.Lock()</code> para proteger la seccion critica 2.
+Implementar patron double-checked locking 3. Considerar usar un
+diccionario thread-safe (<code>collections.defaultdict</code> con
+lock)</p>
+<hr />
+<h3 id="hallazgos-medios">3.3 Hallazgos Medios</h3>
+<h4 id="info-01-health-check-expone-informacion-sensible">INFO-01:
+Health check expone informacion sensible</h4>
+<p><strong>Severidad:</strong> Media<br />
+<strong>CWE:</strong> CWE-200 (Exposure of Sensitive Information to an
+Unauthorized Actor)<br />
+<strong>OWASP:</strong> A01:2025 - Broken Access Control<br />
+<strong>Ubicacion:</strong> <code>server/app.py:217-235</code></p>
+<p><strong>Descripcion:</strong><br />
+El endpoint <code>GET /health</code> devuelve informacion detallada
+sobre sesiones activas, configuracion de canales y estado del sistema,
+lo que facilita la fase de reconocimiento de un atacante.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/app.py</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="at">@app.get</span>(<span class="st">&quot;/health&quot;</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="cf">async</span> <span class="kw">def</span> health():</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>    sessions <span class="op">=</span> pool.list_all()</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>    channels <span class="op">=</span> server_config.settings.channels</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;status&quot;</span>: <span class="st">&quot;ok&quot;</span>,</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;sessions&quot;</span>: [s.session_id <span class="cf">for</span> s <span class="kw">in</span> sessions],</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;channels&quot;</span>: [c.name <span class="cf">for</span> c <span class="kw">in</span> channels <span class="cf">if</span> c.enabled],</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>        <span class="co"># ... mas informacion sensible</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>    }</span></code></pre></div>
+<p><strong>Impacto:</strong> - Revela estructura interna del sistema -
+Enumera sesiones activas para targeting - Expone configuracion de
+canales</p>
+<p><strong>Recomendacion:</strong> 1. Limitar informacion devuelta a
+estado basico (up/down) 2. Requerir autenticacion para detalles
+adicionales 3. No exponer nombres de sesiones o configuracion
+interna</p>
+<hr />
+<h4 id="secret-01-tokens-y-secrets-hardcodeados">SECRET-01: Tokens y
+secrets hardcodeados</h4>
+<p><strong>Severidad:</strong> Media<br />
+<strong>CWE:</strong> CWE-798 (Use of Hard-coded Credentials)<br />
+<strong>OWASP:</strong> A07:2025 - Identification and Authentication
+Failures<br />
+<strong>Ubicacion:</strong> <code>core/llm_service.py:214</code>,
+<code>server/config.py:22</code></p>
+<p><strong>Descripcion:</strong><br />
+Se detectaron secrets hardcodeados en el codigo fuente: -
+<code>llm_service.py:214</code>:
+<code>self.api_key = "antigravity-session-token"</code> -
+<code>server_config.py:22</code>: <code>"YOUR_TELEGRAM_BOT_TOKEN"</code>
+como valor default</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># core/llm_service.py</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="va">self</span>.model_name.startswith(<span class="st">&quot;antigravity/&quot;</span>):</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>    <span class="va">self</span>.api_key <span class="op">=</span> <span class="st">&quot;antigravity-session-token&quot;</span>  <span class="co"># Hardcodeado</span></span></code></pre></div>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># server/config.py</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>ChannelConfig(</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    name<span class="op">=</span><span class="st">&quot;telegram_bot_default&quot;</span>,</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>    <span class="bu">type</span><span class="op">=</span><span class="st">&quot;telegram_bot&quot;</span>,</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>    enabled<span class="op">=</span><span class="va">False</span>,</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>    params<span class="op">=</span>{<span class="st">&quot;token&quot;</span>: <span class="st">&quot;YOUR_TELEGRAM_BOT_TOKEN&quot;</span>}  <span class="co"># Placeholder hardcodeado</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div>
+<p><strong>Impacto:</strong> - Credenciales expuestas en el repositorio
+de codigo - Dificultad para rotar secrets - Posible uso de secrets de
+prueba en produccion</p>
+<p><strong>Recomendacion:</strong> 1. Mover todos los secrets a
+variables de entorno o archivos de configuracion externos 2. Usar
+gestores de secretos (HashiCorp Vault, AWS Secrets Manager) 3.
+Implementar rotacion automatica de credenciales 4. Escanear repositorios
+regularmente en busca de secrets</p>
+<hr />
+<h4 id="bandit-01-generador-no-criptografico-b311">BANDIT-01: Generador
+no criptografico (B311)</h4>
+<p><strong>Severidad:</strong> Media<br />
+<strong>CWE:</strong> CWE-330 (Use of Insufficiently Random
+Values)<br />
+<strong>OWASP:</strong> A02:2025 - Cryptographic Failures<br />
+<strong>Ubicacion:</strong> <code>ui/visual_components.py:692</code></p>
+<p><strong>Descripcion:</strong><br />
+Se detecto el uso de <code>random</code> (no criptografico) en un
+contexto que podria requerir valores aleatorios seguros.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ui/visual_components.py:692</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Uso de random para generacion de valores que podrian ser sensibles</span></span></code></pre></div>
+<p><strong>Impacto:</strong> - Valores predecibles en contextos
+sensibles - Potencial explotacion si se usa para tokens, IDs, etc.</p>
+<p><strong>Recomendacion:</strong> 1. Reemplazar <code>random</code> por
+<code>secrets</code> para valores criptograficos 2. Usar
+<code>os.urandom()</code> o <code>secrets.token_bytes()</code> para
+bytes aleatorios 3. Auditar todos los usos de <code>random</code> en el
+codigo</p>
+<hr />
+<h3 id="hallazgos-bajos">3.4 Hallazgos Bajos</h3>
+<h4 id="bandit-02-tryexcept-pass-b110">BANDIT-02: try/except pass
+(B110)</h4>
+<p><strong>Severidad:</strong> Baja<br />
+<strong>CWE:</strong> CWE-703 (Improper Check of Special
+Conditions)<br />
+<strong>OWASP:</strong> A04:2025 - Insecure Design<br />
+<strong>Ubicacion:</strong> Multiples archivos</p>
+<p><strong>Descripcion:</strong><br />
+Multiples bloques <code>try/except</code> con <code>pass</code>
+silencian errores sin logging ni manejo apropiado, dificultando la
+deteccion de problemas.</p>
+<p><strong>Evidencia:</strong></p>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Ejemplo en command_executor.py</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>    <span class="co"># ... operacion</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span>:</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">pass</span>  <span class="co"># Error silenciado</span></span></code></pre></div>
+<p><strong>Impacto:</strong> - Errores ocultos que dificultan el
+debugging - Posible fallo silencioso de controles de seguridad - Perdida
+de informacion de auditoria</p>
+<p><strong>Recomendacion:</strong> 1. Reemplazar
+<code>except: pass</code> por
+<code>except Exception as e: logger.error(...)</code> 2. Definir
+politicas de manejo de errores especificas por tipo 3. No capturar
+excepciones de forma generica sin logging</p>
+<hr />
+<h2 id="resumen-de-hallazgos">4. Resumen de Hallazgos</h2>
+<table>
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 21%" />
+<col style="width: 23%" />
+<col style="width: 10%" />
+<col style="width: 14%" />
+<col style="width: 19%" />
+</colgroup>
+<thead>
+<tr>
+<th>ID</th>
+<th>Hallazgo</th>
+<th>Severidad</th>
+<th>CWE</th>
+<th>OWASP</th>
+<th>Archivo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AUTH-01</td>
+<td>Sin autenticacion en API</td>
+<td>Critica</td>
+<td>CWE-306</td>
+<td>A01:2025</td>
+<td><code>server/app.py</code></td>
+</tr>
+<tr>
+<td>CMD-01</td>
+<td>Ejecucion de comandos sin validacion</td>
+<td>Critica</td>
+<td>CWE-78</td>
+<td>A03:2025</td>
+<td><code>server/app.py</code>,
+<code>core/command_executor.py</code></td>
+</tr>
+<tr>
+<td>PATH-01</td>
+<td>Path traversal en listado de archivos</td>
+<td>Critica</td>
+<td>CWE-22</td>
+<td>A01:2025</td>
+<td><code>server/app.py</code></td>
+</tr>
+<tr>
+<td>CONF-01</td>
+<td>API keys en JSON plano sin cifrado</td>
+<td>Critica</td>
+<td>CWE-312</td>
+<td>A02:2025</td>
+<td><code>terminal/config_manager.py</code>,
+<code>server/config.py</code></td>
+</tr>
+<tr>
+<td>CONF-02</td>
+<td>Escritura de configuracion sin validacion</td>
+<td>Critica</td>
+<td>CWE-94</td>
+<td>A03:2025</td>
+<td><code>server/app.py</code></td>
+</tr>
+<tr>
+<td>SSRF-01</td>
+<td>SSRF en endpoint de modelos</td>
+<td>Alta</td>
+<td>CWE-918</td>
+<td>A10:2025</td>
+<td><code>server/app.py</code></td>
+</tr>
+<tr>
+<td>CORS-01</td>
+<td>CORS completamente abierto</td>
+<td>Alta</td>
+<td>CWE-942</td>
+<td>A05:2025</td>
+<td><code>server/app.py</code></td>
+</tr>
+<tr>
+<td>WS-01</td>
+<td>Manipulacion de workspace_dir</td>
+<td>Alta</td>
+<td>CWE-22</td>
+<td>A01:2025</td>
+<td><code>server/app.py</code>, <code>server/session_pool.py</code></td>
+</tr>
+<tr>
+<td>RACE-01</td>
+<td>Race condition en sesiones</td>
+<td>Alta</td>
+<td>CWE-362</td>
+<td>A04:2025</td>
+<td><code>server/session_pool.py</code></td>
+</tr>
+<tr>
+<td>INFO-01</td>
+<td>Health check expone informacion</td>
+<td>Media</td>
+<td>CWE-200</td>
+<td>A01:2025</td>
+<td><code>server/app.py</code></td>
+</tr>
+<tr>
+<td>SECRET-01</td>
+<td>Tokens hardcodeados</td>
+<td>Media</td>
+<td>CWE-798</td>
+<td>A07:2025</td>
+<td><code>core/llm_service.py</code>, <code>server/config.py</code></td>
+</tr>
+<tr>
+<td>BANDIT-01</td>
+<td>Generador no criptografico</td>
+<td>Media</td>
+<td>CWE-330</td>
+<td>A02:2025</td>
+<td><code>ui/visual_components.py</code></td>
+</tr>
+<tr>
+<td>BANDIT-02</td>
+<td>try/except pass</td>
+<td>Baja</td>
+<td>CWE-703</td>
+<td>A04:2025</td>
+<td>Multiples archivos</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="recomendaciones-priorizadas">5. Recomendaciones Priorizadas</h2>
+<h3 id="prioridad-1-critica---implementar-inmediatamente">Prioridad 1
+(Critica) - Implementar inmediatamente</h3>
+<ol type="1">
+<li><strong>Implementar autenticacion en la API</strong>
+<ul>
+<li>Agregar middleware de autenticacion (API key, JWT)</li>
+<li>Proteger todos los endpoints sensibles</li>
+<li>Implementar autorizacion por rol</li>
+</ul></li>
+<li><strong>Agregar validacion de comandos</strong>
+<ul>
+<li>Implementar allowlist de comandos permitidos</li>
+<li>Agregar filtrado de caracteres peligrosos</li>
+<li>Ejecutar en sandbox aislado</li>
+</ul></li>
+<li><strong>Corregir path traversal</strong>
+<ul>
+<li>Validar rutas contra workspace permitido</li>
+<li>Usar <code>os.path.realpath()</code> para resolver symlinks</li>
+<li>Implementar allowlist de directorios</li>
+</ul></li>
+<li><strong>Cifrar secrets en almacenamiento</strong>
+<ul>
+<li>Implementar cifrado de <code>config.json</code></li>
+<li>Usar keyring del sistema</li>
+<li>Nunca escribir secrets en logs</li>
+</ul></li>
+</ol>
+<h3 id="prioridad-2-alta---implementar-en-corto-plazo">Prioridad 2
+(Alta) - Implementar en corto plazo</h3>
+<ol start="5" type="1">
+<li><strong>Corregir CORS</strong>
+<ul>
+<li>Especificar dominios permitidos</li>
+<li>Revisar necesidad de <code>allow_credentials</code></li>
+</ul></li>
+<li><strong>Validar workspace_dir</strong>
+<ul>
+<li>Agregar validacion en WebSocket</li>
+<li>Implementar allowlist de workspaces</li>
+</ul></li>
+<li><strong>Corregir race conditions</strong>
+<ul>
+<li>Agregar locks en <code>SessionPool</code></li>
+<li>Revisar concurrencia en sesiones</li>
+</ul></li>
+<li><strong>Implementar rate limiting</strong>
+<ul>
+<li>Aplicar rate limiting en endpoints sensibles</li>
+<li>Configurar limites por usuario/IP</li>
+</ul></li>
+</ol>
+<h3 id="prioridad-3-media---mejora-continua">Prioridad 3 (Media) -
+Mejora continua</h3>
+<ol start="9" type="1">
+<li><strong>Reducir informacion en health check</strong>
+<ul>
+<li>Limitar a estado basico</li>
+<li>Requerir auth para detalles</li>
+</ul></li>
+<li><strong>Eliminar secrets hardcodeados</strong>
+<ul>
+<li>Mover a variables de entorno</li>
+<li>Implementar rotacion</li>
+</ul></li>
+<li><strong>Mejorar manejo de errores</strong>
+<ul>
+<li>Reemplazar <code>try/except pass</code> por logging apropiado</li>
+</ul></li>
+</ol>
+<hr />
+<h2 id="conclusiones">6. Conclusiones</h2>
+<p>KogniTerm presenta <strong>vulnerabilidades criticas</strong> que
+deben ser addressed antes de exponer el servicio a redes no confiables o
+usuarios no autenticados. Los hallazgos mas criticos giran en torno
+a:</p>
+<ol type="1">
+<li><strong>Ausencia total de controles de acceso</strong>
+(AUTH-01)</li>
+<li><strong>Ejecucion arbitraria de comandos</strong> (CMD-01)</li>
+<li><strong>Exposicion de credenciales en almacenamiento plano</strong>
+(CONF-01)</li>
+</ol>
+<p><strong>Recomendacion principal:</strong> No exponer la API de
+KogniTerm a redes publicas o usuarios no confiables hasta implementar al
+menos: - Autenticacion obligatoria en todos los endpoints - Validacion y
+sandboxing de comandos - Cifrado de secrets en almacenamiento</p>
+<hr />
+<h2 id="anexos">7. Anexos</h2>
+<h3 id="a.-herramientas-utilizadas">A. Herramientas utilizadas</h3>
+<ul>
+<li><code>bandit</code> - Analisis estatico de seguridad</li>
+<li><code>grep</code> - Busqueda de patrones de secrets</li>
+<li>Revision manual de codigo</li>
+<li>Auditoria de arquitectura previa
+(<code>auditoria_arquitectura.md</code>)</li>
+</ul>
+<h3 id="b.-referencias">B. Referencias</h3>
+<ul>
+<li>OWASP Top 10 (2025)</li>
+<li>OWASP ASVS (Application Security Verification Standard)</li>
+<li>CWE Top 25</li>
+<li>Secure Coding Practices (OWASP)</li>
+</ul>
+<h3 id="c.-contacto">C. Contacto</h3>
+<p>Para consultas sobre este informe, contactar al equipo de
+seguridad.</p>
+<hr />
+<p><em>Informe generado automaticamente por el agente de auditoria de
+seguridad.</em><br />
+<em>Skill utilizada: <code>security-auditor</code></em></p>
+</body>
+</html>
