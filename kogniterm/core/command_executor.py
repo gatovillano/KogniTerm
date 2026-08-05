@@ -260,7 +260,7 @@ class CommandExecutor:
                     yield "\n\n⚠️  Comando interrumpido por el usuario.\n"
                     break
  
-                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.01)
+                readable_fds, _, _ = select.select([master_fd, self._input_pipe_read], [], [], 0.002)
  
                 if master_fd in readable_fds:
                     try:
@@ -398,7 +398,7 @@ class CommandExecutor:
             
             # Leer el buffer inicial de forma eficiente con timeout mínimo
             for _ in range(20):
-                r, _, _ = select.select([self._persistent_master_fd], [], [], 0.01)
+                r, _, _ = select.select([self._persistent_master_fd], [], [], 0.001)
                 if r:
                     os.read(self._persistent_master_fd, 8192)
                 else:

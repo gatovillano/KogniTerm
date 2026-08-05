@@ -241,8 +241,8 @@ class TUIWebSocketClient:
             text = str(data) if data else ""
             if text:
                 import time
-                # Solo suprimir stream del agente principal si hay live_update reciente
-                if agent_id or time.time() - self._last_live_update_time > 2.0:
+                # Renderizado fluido de stream (latencia mínima tras live_update)
+                if agent_id or time.time() - self._last_live_update_time > 0.05:
                     accumulated = self._get_stream_accumulator(agent_id) + text
                     self._set_stream_accumulator(accumulated, agent_id)
                     chat_log = self._get_chat_log(agent_id)

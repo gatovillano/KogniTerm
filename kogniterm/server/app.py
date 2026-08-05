@@ -1066,7 +1066,7 @@ def create_app() -> FastAPI:
         collect_task = asyncio.create_task(collector())
         await session.send(req.message, pool._executor)
         done_event.set()
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
         collect_task.cancel()
 
         text_chunks = [e["data"] for e in collected if e["type"] == "chunk"]
@@ -1111,7 +1111,7 @@ def create_app() -> FastAPI:
         collect_task = asyncio.create_task(collector())
         await session.send(req.message, pool._executor)
         done_event.set()  # Asegurar que collector termine
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
         collect_task.cancel()
 
         # Extraer texto de respuesta del AI desde los eventos

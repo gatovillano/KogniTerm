@@ -98,7 +98,7 @@ class ProgressManager:
             await self._notify_ui('completed', task_id)
         
         # Limpiar la tarea después de un breve delay
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.05)
         async with self._lock:
             if task_id in self.active_tasks:
                 del self.active_tasks[task_id]
@@ -124,7 +124,7 @@ class ProgressManager:
             await self._notify_ui('error', task_id)
         
         # Limpiar la tarea después de un breve delay
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.05)
         async with self._lock:
             if task_id in self.active_tasks:
                 del self.active_tasks[task_id]
