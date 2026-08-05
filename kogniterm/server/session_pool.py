@@ -1026,12 +1026,16 @@ class AgentSession:
         }
 
     async def _try_generate_title(self):
-        """Intenta generar un título en background si aplica."""
+        """Intenta generar un título en background y notifica al cliente si se generó."""
         if self.thread_manager and self.llm_service:
-            self.thread_manager.check_and_generate_title(
+            new_title = await self.thread_manager.generate_title_if_needed(
                 self.session_id, self.agent_state.messages, self.llm_service
             )
-
+            if new_title:
+                self.ui._push(
+                    "thread_title_updated",
+                    {"thread_id": self.session_id, "title": new_title},
+                )
 
 # ── Pool global de sesiones ───────────────────────────────────────────────────
 
