@@ -202,41 +202,40 @@ function App() {
     <div className="flex h-screen bg-[#fafafa] text-slate-800 font-sans overflow-hidden selection:bg-indigo-100">
       
       {/* Redesigned Minimalist Sidebar */}
+      {/* Redesigned Minimalist Sidebar */}
       <aside 
         className={`${
-          isSidebarCollapsed ? 'w-[64px]' : 'w-[250px]'
-        } bg-[#f4f5f8] border-r border-[#e9ecef] flex flex-col transition-all duration-300 z-30 select-none shadow-xs`}
+          isSidebarCollapsed ? 'w-[56px]' : 'w-[230px]'
+        } bg-[#f7f8fa] border-r border-slate-200/60 flex flex-col transition-all duration-200 z-30 select-none`}
       >
         {/* Sidebar Header with Brand */}
-        <div className="h-14 flex items-center justify-between px-4 border-b border-[#e9ecef]/60">
+        <div className="h-12 flex items-center justify-between px-3.5 border-b border-slate-200/50">
           {!isSidebarCollapsed && (
-            <div className="flex items-center gap-2.5">
-              <div className="h-6 w-6 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-xs">
-                <Sparkles size={13} className="text-white" />
+            <div className="flex items-center gap-2">
+              <div className="h-5 w-5 rounded-md bg-slate-900 flex items-center justify-center">
+                <Sparkles size={11} className="text-white" />
               </div>
-              <span className="font-semibold text-xs text-slate-900 tracking-tight">KogniTerm</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-slate-200/60 text-[9px] text-slate-500 font-medium">Desktop</span>
+              <span className="font-semibold text-[13px] text-slate-800 tracking-tight">KogniTerm</span>
+              <span className="px-1.5 py-0.2 rounded bg-slate-200/50 text-[9px] text-slate-500 font-medium">Desktop</span>
             </div>
           )}
           <button 
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="p-1.5 hover:bg-slate-200/60 rounded-lg text-slate-500 hover:text-slate-800 transition-colors ml-auto"
+            className="p-1 hover:bg-slate-200/50 rounded-md text-slate-400 hover:text-slate-700 transition-colors ml-auto"
             title={isSidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
           >
-            <PanelLeft size={16} />
+            <PanelLeft size={15} />
           </button>
         </div>
 
         {/* Navigation / Actions */}
-        <div className="p-3 flex flex-col gap-2">
-          {/* New Chat Button (Modern White Pill) */}
+        <div className="p-2 flex flex-col gap-1.5">
+          {/* New Chat Button */}
           <button 
             onClick={createThread}
-            className={`flex items-center gap-2.5 px-3.5 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/80 rounded-2xl text-xs font-semibold shadow-card-light hover:shadow-md transition-all duration-200 active:scale-[0.98] ${isSidebarCollapsed ? 'justify-center' : ''}`}
+            className={`flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-100/80 text-slate-700 hover:text-slate-900 border border-slate-200/70 rounded-lg text-xs font-medium transition-all shadow-2xs active:scale-[0.98] ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
           >
-            <div className="w-4 h-4 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
-              <Plus size={11} />
-            </div>
+            <Plus size={14} className="text-slate-500" />
             {!isSidebarCollapsed && <span>Nuevo chat</span>}
           </button>
 
@@ -262,13 +261,13 @@ function App() {
                     setActiveView('chat');
                   }
                 }}
-                className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-all duration-150 ${
+                className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12.5px] transition-colors ${
                   activeView === item.id
-                    ? 'bg-white text-slate-900 font-semibold shadow-card-light border border-slate-200/60'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-                }`}
+                    ? 'bg-slate-200/60 text-slate-900 font-medium'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/30'
+                } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
               >
-                <item.icon size={15} className={`shrink-0 ${activeView === item.id ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                <item.icon size={14} className={`shrink-0 ${activeView === item.id ? 'text-slate-900' : 'text-slate-400'}`} />
                 {!isSidebarCollapsed && <span>{item.label}</span>}
               </button>
             ))}
@@ -277,22 +276,22 @@ function App() {
 
         {/* Collapsible CHATS Section */}
         {!isSidebarCollapsed && (
-          <div className="flex-1 flex flex-col min-h-0 border-t border-[#e9ecef]/80 mt-2 pt-2">
+          <div className="flex-1 flex flex-col min-h-0 border-t border-slate-200/50 mt-1.5 pt-2">
             <button 
               onClick={() => setIsChatsExpanded(!isChatsExpanded)}
-              className="flex items-center justify-between px-4 py-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider transition-colors text-left"
+              className="flex items-center justify-between px-3 py-1 text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-wider transition-colors text-left"
             >
-              <div className="flex items-center gap-1.5">
-                <span className="text-[9px]">v</span>
+              <div className="flex items-center gap-1">
+                <span className="text-[8px] text-slate-400">▾</span>
                 <span>CHATS</span>
               </div>
-              <span className="px-1.5 py-0.2 rounded-full bg-slate-200/60 text-[9px] font-semibold text-slate-500">
+              <span className="text-[10px] text-slate-400 font-mono">
                 {threads.length}
               </span>
             </button>
 
             {isChatsExpanded && (
-              <div className="flex-1 overflow-y-auto goose-scrollbar px-2.5 py-1 space-y-0.5">
+              <div className="flex-1 overflow-y-auto goose-scrollbar px-1.5 py-1 space-y-0.5">
                 {threads.map(thread => {
                   const isCurrent = currentThreadId === thread.id;
                   return (
@@ -302,21 +301,20 @@ function App() {
                         setCurrentThreadId(thread.id);
                         setActiveView('chat');
                       }}
-                      className={`group flex items-center justify-between px-2.5 py-2 rounded-xl cursor-pointer transition-all duration-200 ${
+                      className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md cursor-pointer text-xs transition-colors ${
                         isCurrent 
-                          ? 'bg-white text-slate-900 font-semibold shadow-xs border border-slate-200/60' 
-                          : 'text-slate-600 hover:bg-slate-200/40 hover:text-slate-900'
+                          ? 'bg-slate-200/60 text-slate-900 font-medium' 
+                          : 'text-slate-600 hover:bg-slate-200/30 hover:text-slate-900'
                       }`}
                     >
                       <div className="flex items-center space-x-2 truncate flex-1 min-w-0 pr-1">
-                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCurrent ? 'bg-indigo-600' : 'bg-slate-300'}`} />
-                        <span className="text-xs truncate" title={thread.title}>
+                        <span className="text-[12px] truncate" title={thread.title}>
                           {thread.title || 'Conversación'}
                         </span>
                       </div>
                       <button 
                         onClick={(e) => deleteThread(e, thread.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all rounded-lg hover:bg-red-50"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 transition-all rounded hover:bg-slate-200/60"
                       >
                         <Trash2 size={12} />
                       </button>
@@ -324,7 +322,7 @@ function App() {
                   );
                 })}
                 {threads.length === 0 && (
-                  <div className="px-3 py-2 text-[11px] text-slate-400 italic">
+                  <div className="px-2.5 py-1.5 text-[11px] text-slate-400 italic">
                     Sin hilos guardados.
                   </div>
                 )}
@@ -334,12 +332,12 @@ function App() {
         )}
 
         {/* Sidebar Footer with Settings */}
-        <div className="p-3 border-t border-[#e9ecef]/80 mt-auto">
+        <div className="p-2 border-t border-slate-200/50 mt-auto">
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="w-full flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-xl text-xs font-medium transition-colors"
+            className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/40 rounded-lg text-[12.5px] transition-colors ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
           >
-            <Settings size={15} className="text-slate-400" />
+            <Settings size={14} className="text-slate-400" />
             {!isSidebarCollapsed && <span>Ajustes</span>}
           </button>
         </div>
