@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 
 from kogniterm.server.config import server_config, HeartbeatConfig, ServerSettings
 from kogniterm.server.heartbeat_manager import HeartbeatScheduler, heartbeat_scheduler
-from kogniterm.server.app import create_app
+from kogniterm.server.app import create_app, API_TOKEN
+
 
 
 @pytest.fixture(autouse=True)
@@ -65,9 +66,10 @@ def test_heartbeat_rest_api_endpoints():
     """Prueba los endpoints REST de administración de heartbeats."""
     app = create_app()
     client = TestClient(app)
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
 
     # GET inicial
-    res = client.get("/config/heartbeats")
+    res = client.get("/config/heartbeats", headers=headers)
     assert res.status_code == 200
     assert res.json() == {"heartbeats": []}
 
@@ -79,30 +81,30 @@ def test_heartbeat_rest_api_endpoints():
         "interval_seconds": 120,
         "enabled": True,
     }
-    res = client.post("/config/heartbeats", json=payload)
+    res = client.post("/config/heartbeats", json=payload, headers=headers)
     assert res.status_code == 200
     data = res.json()
     assert data["status"] == "ok"
     assert data["heartbeat"]["id"] == "test_hb_1"
 
     # GET (listar)
-    res = client.get("/config/heartbeats")
+    res = client.get("/config/heartbeats", headers=headers)
     assert res.status_code == 200
     heartbeats = res.json()["heartbeats"]
     assert len(heartbeats) == 1
     assert heartbeats[0]["name"] == "System Health"
 
     # PATCH toggle
-    res = client.patch("/config/heartbeats/test_hb_1/toggle?enabled=false")
+    res = client.patch(f"/config/heartbeats/test_hb_1/toggle?enabled=false", headers=headers)
     assert res.status_code == 200
     assert res.json()["enabled"] is False
 
     # DELETE
-    res = client.delete("/config/heartbeats/test_hb_1")
+    res = client.delete("/config/heartbeats/test_hb_1", headers=headers)
     assert res.status_code == 200
     assert res.json()["status"] == "deleted"
 
-    res = client.get("/config/heartbeats")
+    res = client.get("/config/heartbeats", headers=headers)
     assert len(res.json()["heartbeats"]) == 0
 
 

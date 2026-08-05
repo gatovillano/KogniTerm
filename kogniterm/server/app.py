@@ -44,6 +44,8 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.requests import HTTPConnection
+
 from pydantic import BaseModel, Field
 
 from kogniterm.core.llm_service import LLMService
@@ -221,11 +223,11 @@ ALLOWED_ORIGINS = [
 
 
 def require_token(
-    request: Request,
+    request: HTTPConnection,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None),
 ):
-    if request.url.path in ("/health", "/docs", "/openapi.json", "/redoc"):
+    if request.url.path in ("/health", "/docs", "/openapi.json", "/redoc") or request.scope.get("type") == "websocket":
         return
     provided = None
     if authorization and authorization.startswith("Bearer "):
@@ -241,6 +243,7 @@ def require_token(
 
 
 # ── Aplicación ─────────────────────────────────────────────────────────────────
+
 
 
 def create_app() -> FastAPI:

@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Save, Cpu, CheckCircle, AlertCircle, 
   Trash2, Plus, Globe, Folder, Settings, MessageSquare, 
-  Send, Eye, EyeOff, Loader2, Sparkles, Activity
+  Send, Eye, EyeOff, Loader2, Sparkles 
 } from 'lucide-react';
-import { HeartbeatsTab } from './HeartbeatsTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,7 +24,7 @@ interface ProviderModel {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'llm' | 'advanced' | 'instructions' | 'telegram' | 'heartbeats'>('llm');
+  const [activeTab, setActiveTab] = useState<'llm' | 'advanced' | 'instructions' | 'telegram'>('llm');
   const [activeScope, setActiveScope] = useState<'global' | 'project'>('project');
   
   // Config loaded from backend
@@ -52,7 +51,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [telegramToken, setTelegramToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [isTelegramModified, setIsTelegramModified] = useState(false);
-  const [originalTelegram, setOriginalTelegram] = useState<any>(null);
 
   // Telegram chat_id detection
   const [isDetectingChatId, setIsDetectingChatId] = useState(false);
@@ -126,13 +124,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         const channels = data.channels || [];
         const tgChannel = channels.find((c: any) => c.type === 'telegram_bot');
         if (tgChannel) {
-          setOriginalTelegram(tgChannel);
           setTelegramEnabled(tgChannel.enabled);
           setTelegramName(tgChannel.name);
           setTelegramToken(tgChannel.params?.token || '');
           setTelegramChatId(tgChannel.params?.chat_id?.toString() || '');
         } else {
-          setOriginalTelegram(null);
           setTelegramEnabled(false);
           setTelegramName('telegram_bot_default');
           setTelegramToken('');
@@ -245,55 +241,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       }
 
       // 3. Save modified API Keys
-      const activeKeysScope = activeScope; // Guardar las llaves en el scope activo
+      const activeKeysScope = activeScope; 
       const providersKeys = ['google', 'openai', 'anthropic', 'openrouter', 'kilocode', 'ollama_cloud'];
       for (const provider of providersKeys) {
         const inputKey = apiKeys[provider];
         if (inputKey && inputKey.trim() !== '') {
           savePromises.push(
-            fetch('http://localhost:8765/api/config/set', {
+            fetch('http://localhost:8765/api/config/set_key', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
-                key: `api_key_${provider}`, 
-                value: inputKey.trim(), 
-                scope: activeKeysScope 
+                provider, 
+                key_value: inputKey.trim(),
+                scope: activeKeysScope
               })
             })
           );
         }
       }
 
-      // 4. Save Telegram channel configuration if modified
-      const currentTgState = {
-        enabled: telegramEnabled,
-        name: telegramName,
-        token: telegramToken,
-        chat_id: telegramChatId
-      };
-      
-      const originalTgState = originalTelegram ? {
-        enabled: originalTelegram.enabled,
-        name: originalTelegram.name,
-        token: originalTelegram.params?.token || '',
-        chat_id: originalTelegram.params?.chat_id?.toString() || ''
-      } : {
-        enabled: false,
-        name: 'telegram_bot_default',
-        token: '',
-        chat_id: ''
-      };
-
-      const tgModified = JSON.stringify(currentTgState) !== JSON.stringify(originalTgState) || isTelegramModified;
-
-      if (tgModified) {
+      // 4. Save Telegram Bot Configuration
+      if (isTelegramModified) {
         const tgPayload = {
-          name: telegramName || "telegram_bot_default",
-          type: "telegram_bot",
+          name: telegramName,
+          type: 'telegram_bot',
           enabled: telegramEnabled,
           params: {
             token: telegramToken,
-            chat_id: telegramChatId ? parseInt(telegramChatId, 10) || telegramChatId : null
+            chat_id: telegramChatId ? parseInt(telegramChatId, 10) : undefined
           }
         };
 
@@ -314,7 +289,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           setStatus({ type: 'success', message: 'Configuraciones guardadas con éxito.' });
           setTimeout(() => {
             onClose();
-            window.location.reload(); // Recargar para aplicar los cambios del socket y backend
+            window.location.reload();
           }, 1500);
         } else {
           setStatus({ type: 'error', message: 'Algunos cambios no pudieron guardarse.' });
@@ -343,52 +318,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const activeInstructions = getScopeValue('agent_instructions', activeScope) || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-3xl h-[600px] bg-[#111113] border border-zinc-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden glass-panel select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-md animate-fade-in">
+      <div className="w-full max-w-3xl h-[620px] bg-white border border-slate-200/90 rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.12)] flex flex-col overflow-hidden select-none">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/80 bg-zinc-900/40 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-1.5 rounded-lg bg-indigo-600/10 text-indigo-400">
+            <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
               <Settings size={18} />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white leading-none">Panel de Configuración</h2>
-              <p className="text-[10px] text-zinc-500 mt-1">Configura el comportamiento, modelos y bot de KogniTerm</p>
+              <h2 className="text-sm font-semibold text-slate-900 leading-none">Ajustes del Sistema</h2>
+              <p className="text-xs text-slate-500 mt-1">Personaliza modelos, preferencias globales y canales de KogniTerm</p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-zinc-800/80 text-zinc-500 hover:text-white transition-colors"
+            className="p-1.5 rounded-full hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-colors"
           >
             <X size={16} />
           </button>
         </div>
 
-        {/* Scope selector bar */}
-        <div className="px-6 py-2.5 bg-zinc-900/20 border-b border-zinc-800/60 flex items-center justify-between shrink-0 text-xs text-zinc-400">
-          <span className="font-semibold text-zinc-500">ÁMBITO A EDITAR:</span>
-          <div className="flex bg-zinc-900 border border-zinc-800 p-0.5 rounded-lg">
+        {/* Scope Selector Bar */}
+        <div className="px-6 py-3 bg-slate-50/30 border-b border-slate-100 flex items-center justify-between shrink-0 text-xs">
+          <span className="font-semibold text-slate-400 tracking-wide text-[11px]">ÁMBITO DE APLICACIÓN:</span>
+          <div className="flex bg-slate-200/60 p-1 rounded-xl gap-1">
             <button
               onClick={() => setActiveScope('global')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs transition-all ${
                 activeScope === 'global'
-                  ? 'bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 font-semibold'
-                  : 'border border-transparent hover:text-zinc-200'
+                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Globe size={13} />
+              <Globe size={13} className="text-slate-400" />
               Global (Usuario)
             </button>
             <button
               onClick={() => setActiveScope('project')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs transition-all ${
                 activeScope === 'project'
-                  ? 'bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 font-semibold'
-                  : 'border border-transparent hover:text-zinc-200'
+                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Folder size={13} />
+              <Folder size={13} className="text-slate-400" />
               Proyecto (Local)
             </button>
           </div>
@@ -398,23 +373,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         <div className="flex flex-1 min-h-0">
           
           {/* Sidebar Tabs */}
-          <aside className="w-[200px] border-r border-zinc-800/60 bg-zinc-900/10 flex flex-col p-3 gap-1 shrink-0">
+          <aside className="w-[210px] border-r border-slate-100 bg-slate-50/60 flex flex-col p-3 gap-1.5 shrink-0">
             {[
               { id: 'llm', name: 'Modelos y Llaves', icon: Cpu },
               { id: 'advanced', name: 'Ajustes Avanzados', icon: Settings },
               { id: 'instructions', name: 'Instrucciones', icon: MessageSquare },
               { id: 'telegram', name: 'Bot de Telegram', icon: Send },
-              { id: 'heartbeats', name: 'Heartbeats / Tareas', icon: Activity },
             ].map(tab => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all text-left ${
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs transition-all text-left ${
                     activeTab === tab.id
-                      ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20 shadow-md shadow-indigo-500/5'
-                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 border border-transparent'
+                      ? 'bg-white text-indigo-600 font-semibold border border-slate-200/80 shadow-card-light'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
                   }`}
                 >
                   <Icon size={15} />
@@ -425,93 +399,93 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </aside>
 
           {/* Main Panel Pane */}
-          <main className="flex-1 overflow-y-auto custom-scrollbar p-6">
+          <main className="flex-1 overflow-y-auto goose-scrollbar p-6">
             
             {/* LLM Models and Keys Tab */}
             {activeTab === 'llm' && (
-              <div className="space-y-5 animate-in fade-in duration-150">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">Configuración LLM</h3>
-                      {/* Providers list selection */}
+              <div className="space-y-6 animate-fade-in">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Modelos de Lenguaje</h3>
+                  
+                  {/* Providers Grid */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-medium text-slate-500">Proveedor</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { id: 'google', name: 'Google AI' },
+                        { id: 'openai', name: 'OpenAI' },
+                        { id: 'anthropic', name: 'Anthropic' },
+                        { id: 'openrouter', name: 'OpenRouter' },
+                        { id: 'ollama', name: 'Ollama (Local)' },
+                        { id: 'ollama_cloud', name: 'Ollama Cloud' },
+                        { id: 'antigravity', name: 'Antigravity' },
+                        { id: 'kilocode', name: 'KiloCode' },
+                      ].map(prov => (
+                        <button
+                          key={prov.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedProvider(prov.id);
+                            const p = providers.find(pr => pr.id === prov.id);
+                            const defaultM = p?.models[0] || (prov.id === 'google' ? 'gemini/gemini-1.5-flash' : '');
+                            if (defaultM) {
+                              setScopeValue('default_model', defaultM, activeScope);
+                            }
+                          }}
+                          className={`px-3 py-2.5 rounded-xl border text-xs font-medium transition-all text-left flex items-center justify-between ${
+                            selectedProvider === prov.id
+                              ? 'bg-indigo-50/80 border-indigo-200 text-indigo-700 font-semibold shadow-xs'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                          }`}
+                        >
+                          {prov.name}
+                          {selectedProvider === prov.id && <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Model Dropdown */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Proveedor de Inteligencia Artificial</label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      { id: 'google', name: 'Google AI' },
-                      { id: 'openai', name: 'OpenAI' },
-                      { id: 'anthropic', name: 'Anthropic' },
-                      { id: 'openrouter', name: 'OpenRouter' },
-                      { id: 'ollama', name: 'Ollama (Local)' },
-                      { id: 'ollama_cloud', name: 'Ollama Cloud' },
-                      { id: 'antigravity', name: 'Antigravity' },
-                      { id: 'kilocode', name: 'KiloCode' },
-                    ].map(prov => (
-                      <button
-                        key={prov.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedProvider(prov.id);
-                          // Default model assignment if empty
-                          const p = providers.find(pr => pr.id === prov.id);
-                          const defaultM = p?.models[0] || (prov.id === 'google' ? 'gemini/gemini-1.5-flash' : '');
-                          if (defaultM) {
-                            setScopeValue('default_model', defaultM, activeScope);
-                          }
-                        }}
-                        className={`px-2.5 py-2.5 rounded-lg border text-[11px] font-medium transition-all text-left flex items-center justify-between ${
-                          selectedProvider === prov.id
-                            ? 'bg-indigo-600/10 border-indigo-500/30 text-indigo-300 shadow-[0_0_10px_rgba(99,102,241,0.15)] font-semibold'
-                            : 'bg-zinc-900/50 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:border-zinc-700'
-                        }`}
-                      >
-                        {prov.name}
-                        {selectedProvider === prov.id && <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Model dropdown selection */}
-                <div className="space-y-1.5">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Modelo Predeterminado</label>
+                    <label className="text-[11px] font-medium text-slate-500">Modelo Predeterminado</label>
                     {activeScope === 'project' && getInheritedValue('default_model') && (
-                      <span className="text-[9px] text-zinc-600 font-mono">Heredado global: {getInheritedValue('default_model')}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">Heredado global: {getInheritedValue('default_model')}</span>
                     )}
                   </div>
-                  <div className="relative">
-                    {currentModels.length > 0 ? (
-                      <select
-                        value={getScopeValue('default_model', activeScope) || ''}
-                        onChange={(e) => setScopeValue('default_model', e.target.value, activeScope)}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
-                      >
-                        <option value="">Selecciona un modelo...</option>
-                        {currentModels.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={getScopeValue('default_model', activeScope) || ''}
-                        onChange={(e) => setScopeValue('default_model', e.target.value, activeScope)}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
-                        placeholder="Ej: gemini/gemini-1.5-flash o gpt-4o"
-                      />
-                    )}
-                  </div>
+                  {currentModels.length > 0 ? (
+                    <select
+                      value={getScopeValue('default_model', activeScope) || ''}
+                      onChange={(e) => setScopeValue('default_model', e.target.value, activeScope)}
+                      className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
+                    >
+                      <option value="">Selecciona un modelo...</option>
+                      {currentModels.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={getScopeValue('default_model', activeScope) || ''}
+                      onChange={(e) => setScopeValue('default_model', e.target.value, activeScope)}
+                      className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
+                      placeholder="Ej: gemini/gemini-1.5-flash o gpt-4o"
+                    />
+                  )}
                 </div>
 
-                {/* API Key inputs */}
+                {/* API Keys */}
                 {selectedProvider !== 'ollama' && selectedProvider !== 'antigravity' && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">
+                      <label className="text-[11px] font-medium text-slate-500">
                         API Key para {selectedProvider.toUpperCase()}
                       </label>
                       {originalConfig?.has_keys[`api_key_${selectedProvider}`] && (
-                        <span className="text-[9px] text-emerald-500/80 font-bold flex items-center gap-1">
-                          <CheckCircle size={10} /> Registrada en Backend
+                        <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                          <CheckCircle size={11} /> Registrada en Backend
                         </span>
                       )}
                     </div>
@@ -520,52 +494,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         type={showKeys[selectedProvider] ? 'text' : 'password'}
                         value={apiKeys[selectedProvider] || ''}
                         onChange={(e) => setApiKeys({ ...apiKeys, [selectedProvider]: e.target.value })}
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 pr-10 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 transition-colors font-mono"
+                        className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 pr-10 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 font-mono transition-all focus:outline-none"
                         placeholder={
                           originalConfig?.has_keys[`api_key_${selectedProvider}`] 
                             ? "••••••••••••••••••••••••••••••••" 
-                            : "Escribe o pega la clave de API aquí..."
+                            : "Escribe o pega tu API Key..."
                         }
                       />
                       <button
                         type="button"
                         onClick={() => toggleShowKey(selectedProvider)}
-                        className="absolute right-3 text-zinc-500 hover:text-zinc-300"
+                        className="absolute right-3 text-slate-400 hover:text-slate-600"
                       >
                         {showKeys[selectedProvider] ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
                     </div>
-                    <p className="text-[9px] text-zinc-650 italic">
-                      Las llaves de API se enmascaran en tránsito y se almacenan de forma segura de acuerdo a la configuración local o de usuario.
-                    </p>
                   </div>
                 )}
 
                 {selectedProvider === 'antigravity' && (
-                  <div className="p-3.5 bg-indigo-950/20 border border-indigo-900/35 rounded-xl text-xs text-indigo-300 leading-relaxed flex flex-col gap-2">
-                    <span className="font-bold flex items-center gap-1.5 text-indigo-400">
-                      <Sparkles size={13} className="animate-pulse" /> Autenticación por Sesión de Antigravity
+                  <div className="p-4 bg-indigo-50/70 border border-indigo-100 rounded-2xl text-xs text-indigo-800 leading-relaxed flex flex-col gap-2">
+                    <span className="font-semibold flex items-center gap-1.5 text-indigo-900">
+                      <Sparkles size={14} className="text-indigo-600" /> Sesión Antigravity
                     </span>
                     <span>
-                      Google Antigravity no requiere una clave de API estática. En su lugar, utiliza las credenciales de tu sesión OAuth2 de Google Cloud SDK local. Asegúrate de haber iniciado sesión ejecutando <code>agy login</code> o <code>gcloud auth application-default login</code> en tu terminal de trabajo.
+                      Autenticado mediante sesión local de Google Cloud SDK. No requiere API Key estática.
                     </span>
                   </div>
                 )}
 
-                {/* Local Ollama API URL (if selectedProvider === 'ollama') */}
                 {selectedProvider === 'ollama' && (
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Servidor de Ollama (Base URL)</label>
-                      {activeScope === 'project' && getInheritedValue('ollama_api_base') && (
-                        <span className="text-[9px] text-zinc-600 font-mono">Heredado: {getInheritedValue('ollama_api_base')}</span>
-                      )}
-                    </div>
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-medium text-slate-500">Servidor de Ollama (Base URL)</label>
                     <input
                       type="text"
                       value={getScopeValue('ollama_api_base', activeScope) || ''}
                       onChange={(e) => setScopeValue('ollama_api_base', e.target.value, activeScope)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                      className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
                       placeholder="http://127.0.0.1:11434"
                     />
                   </div>
@@ -575,130 +540,85 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
             {/* Advanced Settings Tab */}
             {activeTab === 'advanced' && (
-              <div className="space-y-5 animate-in fade-in duration-150">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">Ajustes Avanzados</h3>
+              <div className="space-y-6 animate-fade-in">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Parámetros del Sistema</h3>
 
                 {/* Reasoning Effort setting */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Esfuerzo de Razonamiento (Reasoning Effort)</label>
-                    {activeScope === 'project' && getInheritedValue('reasoning_effort') && (
-                      <span className="text-[9px] text-zinc-600 uppercase font-bold">Heredado: {getInheritedValue('reasoning_effort')}</span>
-                    )}
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-medium text-slate-500">Esfuerzo de Razonamiento</label>
                   <select
                     value={getScopeValue('reasoning_effort', activeScope) || 'medium'}
                     onChange={(e) => setScopeValue('reasoning_effort', e.target.value, activeScope)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                    className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
                   >
                     <option value="low">Bajo (Low)</option>
                     <option value="medium">Medio (Medium)</option>
                     <option value="high">Alto (High)</option>
                   </select>
-                  <p className="text-[9px] text-zinc-500">Afecta el nivel de procesamiento y el tiempo de respuesta en modelos con razonamiento nativo.</p>
                 </div>
 
                 {/* Summary Model setting */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Modelo de Resumen (Summary Model)</label>
-                    {activeScope === 'project' && getInheritedValue('summary_model') && (
-                      <span className="text-[9px] text-zinc-600 font-mono">Heredado: {getInheritedValue('summary_model')}</span>
-                    )}
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-medium text-slate-500">Modelo de Resumen (Summary Model)</label>
                   <input
                     type="text"
                     value={getScopeValue('summary_model', activeScope) || ''}
                     onChange={(e) => setScopeValue('summary_model', e.target.value, activeScope)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                    className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
                     placeholder="Ej: gemini/gemini-1.5-flash"
                   />
-                  <p className="text-[9px] text-zinc-500">Modelo utilizado para generar resúmenes cortos al consolidar hilos de conversación.</p>
-                </div>
-
-                {/* TUI Theme setting */}
-                <div className="space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Tema de la TUI</label>
-                    {activeScope === 'project' && getInheritedValue('theme') && (
-                      <span className="text-[9px] text-zinc-600 font-semibold">Heredado: {getInheritedValue('theme')}</span>
-                    )}
-                  </div>
-                  <select
-                    value={getScopeValue('theme', activeScope) || 'default'}
-                    onChange={(e) => setScopeValue('theme', e.target.value, activeScope)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
-                  >
-                    <option value="default">Por Defecto</option>
-                    <option value="dracula">Dracula</option>
-                    <option value="nord">Nord</option>
-                    <option value="monokai">Monokai</option>
-                    <option value="solarized-dark">Solarized Dark</option>
-                    <option value="solarized-light">Solarized Light</option>
-                    <option value="github-dark">GitHub Dark</option>
-                    <option value="github-light">GitHub Light</option>
-                    <option value="gruvbox">Gruvbox</option>
-                    <option value="one-dark">One Dark</option>
-                  </select>
-                  <p className="text-[9px] text-zinc-500">Cambia la paleta de colores empleada al interactuar con el asistente en la terminal (TUI).</p>
                 </div>
               </div>
             )}
 
-            {/* Agent System Instructions Tab */}
+            {/* System Instructions Tab */}
             {activeTab === 'instructions' && (
-              <div className="space-y-5 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Instrucciones del Agente</h3>
-                  <span className="text-[9px] text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full font-bold uppercase">
+              <div className="space-y-5 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Instrucciones del Agente</h3>
+                  <span className="text-[10px] text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-full font-medium uppercase">
                     Ámbito: {activeScope}
                   </span>
                 </div>
 
-                <p className="text-[10px] text-zinc-500 leading-normal mb-3">
-                  Añade pautas de comportamiento fijas para el asistente (ej. *"Responde siempre en español"*, *"Evita modificar código sin antes justificarlo"*).
-                </p>
-
-                {/* Instructions List */}
-                <div className="space-y-1.5 max-h-[220px] overflow-y-auto custom-scrollbar border border-zinc-800/80 bg-zinc-950/40 p-2.5 rounded-xl">
+                <div className="space-y-2 max-h-[240px] overflow-y-auto goose-scrollbar border border-slate-200/80 bg-slate-50/50 p-3 rounded-2xl">
                   {activeInstructions.length > 0 ? (
                     activeInstructions.map((instr: string, index: number) => (
                       <div 
                         key={index}
-                        className="flex items-start justify-between gap-3 p-2 bg-[#17171a] border border-zinc-800/50 rounded-lg text-xs hover:border-zinc-800 transition-colors animate-in slide-in-from-bottom-2 duration-100"
+                        className="flex items-center justify-between gap-3 p-3 bg-white border border-slate-200/80 rounded-xl text-xs shadow-xs"
                       >
-                        <span className="text-zinc-300 break-words flex-1 pr-2">{instr}</span>
+                        <span className="text-slate-700 flex-1">{instr}</span>
                         <button
                           type="button"
                           onClick={() => handleRemoveInstruction(index)}
-                          className="p-1 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded transition-all shrink-0 mt-0.5"
-                          title="Eliminar instrucción"
+                          className="p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
                         >
-                          <Trash2 size={13} />
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     ))
                   ) : (
-                    <div className="py-8 text-center text-[10px] text-zinc-500 italic">
+                    <div className="py-8 text-center text-xs text-slate-400 italic">
                       No hay instrucciones personalizadas configuradas en este ámbito.
                     </div>
                   )}
                 </div>
 
-                {/* Add new Instruction input */}
-                <div className="flex items-center gap-2 mt-2">
+                {/* Add instruction */}
+                <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={newInstruction}
                     onChange={(e) => setNewInstruction(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddInstruction(); }}
-                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 placeholder-zinc-650 transition-colors"
-                    placeholder="Añadir una nueva pauta o instrucción de sistema..."
+                    className="flex-1 bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
+                    placeholder="Añadir una pauta..."
                   />
                   <button
                     type="button"
                     onClick={handleAddInstruction}
-                    className="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors flex items-center justify-center shrink-0 shadow-lg shadow-indigo-600/10"
+                    className="p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-xs"
                   >
                     <Plus size={16} />
                   </button>
@@ -708,11 +628,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
             {/* Telegram Bot Integration Tab */}
             {activeTab === 'telegram' && (
-              <div className="space-y-4 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between border-b border-zinc-800/60 pb-3">
+              <div className="space-y-5 animate-fade-in">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                   <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 leading-none">Integración Telegram Bot</h3>
-                    <p className="text-[9px] text-zinc-500 mt-1.5">Permite controlar tu asistente de forma remota a través de Telegram</p>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Telegram Bot</h3>
+                    <p className="text-xs text-slate-500 mt-1">Control remoto del asistente mediante Telegram</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer select-none">
                     <input 
@@ -724,53 +644,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       }}
                       className="sr-only peer" 
                     />
-                    <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-450 after:border-zinc-350 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 peer-checked:after:bg-white peer-checked:after:border-white"></div>
+                    <div className="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:bg-indigo-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all shadow-xs"></div>
                   </label>
                 </div>
 
                 {telegramEnabled && (
-                  <div className="space-y-4 pt-1 animate-in slide-in-from-top-3 duration-200">
-                    {/* Name input */}
-                    <div className="grid grid-cols-3 items-center gap-4">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Nombre del Bot</label>
-                      <div className="col-span-2">
-                        <input
-                          type="text"
-                          value={telegramName}
-                          onChange={(e) => {
-                            setTelegramName(e.target.value);
-                            setIsTelegramModified(true);
-                          }}
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors"
-                          placeholder="MiAsistenteBot"
-                        />
-                      </div>
+                  <div className="space-y-4 pt-1">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-slate-500">Nombre del Bot</label>
+                      <input
+                        type="text"
+                        value={telegramName}
+                        onChange={(e) => {
+                          setTelegramName(e.target.value);
+                          setIsTelegramModified(true);
+                        }}
+                        className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
+                        placeholder="MiAsistenteBot"
+                      />
                     </div>
 
-                    {/* Token input */}
-                    <div className="grid grid-cols-3 items-center gap-4">
-                      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Bot Token (BotFather)</label>
-                      <div className="col-span-2">
-                        <input
-                          type="password"
-                          value={telegramToken}
-                          onChange={(e) => {
-                            setTelegramToken(e.target.value);
-                            setIsTelegramModified(true);
-                          }}
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors font-mono"
-                          placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ..."
-                        />
-                      </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-slate-500">Bot Token (BotFather)</label>
+                      <input
+                        type="password"
+                        value={telegramToken}
+                        onChange={(e) => {
+                          setTelegramToken(e.target.value);
+                          setIsTelegramModified(true);
+                        }}
+                        className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
+                        placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ..."
+                      />
                     </div>
 
-                    {/* Chat ID input & Detection Button */}
-                    <div className="grid grid-cols-3 items-start gap-4">
-                      <div className="space-y-0.5">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wide">Chat ID Permitido</label>
-                        <p className="text-[9px] text-zinc-600">Solo este chat controlará el bot</p>
-                      </div>
-                      <div className="col-span-2 flex gap-2">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-slate-500">Chat ID Permitido</label>
+                      <div className="flex gap-2">
                         <input
                           type="text"
                           value={telegramChatId}
@@ -778,35 +688,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                             setTelegramChatId(e.target.value);
                             setIsTelegramModified(true);
                           }}
-                          className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors font-mono"
+                          className="flex-1 bg-slate-50 border border-slate-200/90 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-mono focus:bg-white focus:border-indigo-500 transition-all focus:outline-none"
                           placeholder="Ej: 987654321"
                         />
                         <button
                           type="button"
                           onClick={detectTelegramChatId}
                           disabled={isDetectingChatId || !telegramToken}
-                          className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-indigo-400 hover:text-indigo-300 font-semibold border border-zinc-850 rounded-lg text-xs transition-colors shrink-0 flex items-center gap-1.5"
+                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-indigo-600 font-semibold border border-slate-200 rounded-xl text-xs transition-colors shrink-0 flex items-center gap-1.5"
                         >
-                          {isDetectingChatId ? (
-                            <Loader2 size={13} className="animate-spin" />
-                          ) : (
-                            <Send size={12} />
-                          )}
+                          {isDetectingChatId ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                           Detectar ID
                         </button>
                       </div>
                     </div>
 
-                    {/* Detection Status alert box */}
                     {detectionStatus && (
-                      <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-[10px] text-zinc-400 leading-normal animate-in fade-in duration-200">
-                        {detectionStatus.includes('éxito') ? (
-                          <span className="text-emerald-400 font-bold block mb-1">✓ Éxito</span>
-                        ) : detectionStatus.includes('Error') ? (
-                          <span className="text-rose-400 font-bold block mb-1">✗ Error</span>
-                        ) : (
-                          <span className="text-indigo-400 font-bold block mb-1">ℹ Instrucciones</span>
-                        )}
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
                         {detectionStatus}
                       </div>
                     )}
@@ -815,24 +713,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             )}
 
-            {/* Heartbeats / Periodic Tasks Tab */}
-            {activeTab === 'heartbeats' && <HeartbeatsTab />}
-
           </main>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-zinc-900/40 border-t border-zinc-850 flex items-center justify-between shrink-0">
-          
-          {/* Status Message */}
+        <div className="px-6 py-4 bg-slate-50/60 border-t border-slate-100 flex items-center justify-between shrink-0">
           <div className="flex-1 pr-4">
             {status && (
-              <div className={`p-2.5 rounded-lg text-[10px] font-medium flex items-center gap-2 animate-in fade-in duration-300 max-w-sm ${
-                status.type === 'success' 
-                  ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' 
-                  : 'bg-rose-500/10 border border-rose-500/20 text-rose-400'
+              <div className={`p-2 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                status.type === 'success' ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 'text-rose-700 bg-rose-50 border border-rose-200'
               }`}>
-                {status.type === 'success' ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
+                {status.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
                 {status.message}
               </div>
             )}
@@ -842,20 +733,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             <button
               onClick={onClose}
               disabled={isLoading}
-              className="px-4 py-2 rounded-lg text-xs font-semibold text-zinc-500 hover:text-white hover:bg-zinc-900 transition-colors"
+              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all"
             >
               Cancelar
             </button>
             <button
               onClick={handleSaveAll}
               disabled={isLoading}
-              className="px-4 py-2 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+              className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white shadow-card-light hover:shadow-md transition-all flex items-center gap-2 active:scale-[0.98]"
             >
-              {isLoading ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Save size={13} />
-              )}
+              {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               Guardar Cambios
             </button>
           </div>

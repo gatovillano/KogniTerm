@@ -4,6 +4,7 @@ import { ChatInput } from './components/chat/ChatInput';
 import { FileExplorer } from './components/files/FileExplorer';
 import { SkillsPanel } from './components/skills/SkillsPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
+import { HeartbeatsPanel } from './components/heartbeats/HeartbeatsPanel';
 import { TaskTracker } from './components/chat/TaskTracker';
 import { TerminalPanel } from './components/chat/TerminalPanel';
 import { CommandApproval } from './components/chat/CommandApproval';
@@ -11,11 +12,11 @@ import { useChat } from './hooks/useChat';
 import { 
   Settings, Files, ShieldCheck, 
   Zap, History, PanelLeft, 
-  Trash2, Plus, FileText, HeartPulse
+  Trash2, Plus, FileText, HeartPulse, Sparkles
 } from 'lucide-react';
 import './App.css';
 
-type ViewType = 'chat' | 'files' | 'skills';
+type ViewType = 'chat' | 'files' | 'skills' | 'heartbeat';
 
 function App() {
   const [currentThreadId, setCurrentThreadId] = useState<string>(() => {
@@ -198,220 +199,266 @@ function App() {
 
 
   return (
-    <div className="flex flex-col h-screen bg-white text-zinc-800 font-sans overflow-hidden selection:bg-zinc-200">
+    <div className="flex h-screen bg-[#fafafa] text-slate-800 font-sans overflow-hidden selection:bg-indigo-100">
       
-      {/* Goose Top Window Menu Bar */}
-      <div className="h-8 bg-[#f3f4f6] border-b border-[#e5e7eb] flex items-center justify-between px-3 text-xs text-zinc-600 select-none z-40">
-        <div className="flex items-center gap-4">
-          <span className="hover:text-zinc-900 cursor-pointer">File</span>
-          <span className="hover:text-zinc-900 cursor-pointer">Edit</span>
-          <span className="hover:text-zinc-900 cursor-pointer">View</span>
-          <span className="hover:text-zinc-900 cursor-pointer">Window</span>
-          <span className="hover:text-zinc-900 cursor-pointer">Help</span>
-        </div>
-
-        {/* Center Title */}
-        <div className="font-semibold text-zinc-700 text-xs tracking-wide">
-          Goose
-        </div>
-
-        {/* Window Control Buttons */}
-        <div className="flex items-center gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-orange-400"></div>
-          <div className="w-3 h-3 rounded-full bg-red-500"></div>
-        </div>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
-        
-        {/* Redesigned Sidebar (Goose exact style) */}
-        <aside 
-          className={`${
-            isSidebarCollapsed ? 'w-[60px]' : 'w-[240px]'
-          } bg-[#f3f4f6] border-r border-[#e5e7eb] flex flex-col transition-all duration-200 z-30 select-none`}
-        >
-          {/* Top panel toggle icon */}
-          <div className="h-10 flex items-center px-3 pt-2">
-            <button 
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="p-1 hover:bg-zinc-200 rounded text-zinc-600 hover:text-zinc-900 transition-colors"
-              title={isSidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-            >
-              <PanelLeft size={16} />
-            </button>
-          </div>
-
-          {/* Navigation / Actions */}
-          <div className="p-3 flex flex-col gap-1.5">
-            {/* New Chat Button (Pill matching Goose) */}
-            <button 
-              onClick={createThread}
-              className={`flex items-center gap-2.5 px-3 py-2 bg-zinc-200/80 hover:bg-zinc-200 text-zinc-800 border border-zinc-300/60 rounded-xl text-xs font-medium transition-all duration-200 ${isSidebarCollapsed ? 'justify-center' : ''}`}
-            >
-              <div className="w-4 h-4 rounded-md border border-zinc-400 flex items-center justify-center">
-                <Plus size={12} className="text-zinc-700" />
-              </div>
-              {!isSidebarCollapsed && <span>Nuevo chat</span>}
-            </button>
-
-            {/* Nav Items List */}
-            <nav className="flex flex-col gap-0.5 mt-2">
-              {[
-                { id: 'recipes', icon: FileText, label: 'Recetas' },
-                { id: 'skills', icon: Zap, label: 'Skills' },
-                { id: 'heartbeat', icon: HeartPulse, label: 'Heartbeat' },
-                { id: 'session', icon: History, label: 'Historial de sesiones' },
-                { id: 'files', icon: Files, label: 'Archivos' }
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    if (item.id === 'files') {
-                      setActiveView('files');
-                    } else if (item.id === 'skills') {
-                      setActiveView('skills');
-                    } else {
-                      setActiveView('chat');
-                    }
-                  }}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all duration-150 ${
-                    activeView === item.id
-                      ? 'bg-zinc-200 text-zinc-900 font-medium'
-                      : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/50'
-                  }`}
-                >
-                  <item.icon size={15} className="shrink-0 text-zinc-500 group-hover:text-zinc-700" />
-                  {!isSidebarCollapsed && <span>{item.label}</span>}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          {/* Collapsible CHATS Section */}
+      {/* Redesigned Minimalist Sidebar */}
+      <aside 
+        className={`${
+          isSidebarCollapsed ? 'w-[64px]' : 'w-[250px]'
+        } bg-[#f4f5f8] border-r border-[#e9ecef] flex flex-col transition-all duration-300 z-30 select-none shadow-xs`}
+      >
+        {/* Sidebar Header with Brand */}
+        <div className="h-14 flex items-center justify-between px-4 border-b border-[#e9ecef]/60">
           {!isSidebarCollapsed && (
-            <div className="flex-1 flex flex-col min-h-0 border-t border-[#e5e7eb] mt-2 pt-1">
-              <button 
-                onClick={() => setIsChatsExpanded(!isChatsExpanded)}
-                className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold text-zinc-400 hover:text-zinc-600 uppercase tracking-wider transition-colors text-left"
-              >
-                <span className="text-[10px]">v</span>
-                <span>CHATS</span>
-              </button>
-
-              {isChatsExpanded && (
-                <div className="flex-1 overflow-y-auto goose-scrollbar px-2 pb-2 space-y-0.5">
-                  {threads.map(thread => {
-                    const isCurrent = currentThreadId === thread.id;
-                    return (
-                      <div 
-                        key={thread.id}
-                        onClick={() => {
-                          setCurrentThreadId(thread.id);
-                          setActiveView('chat');
-                        }}
-                        className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition-all duration-200 ${
-                          isCurrent 
-                            ? 'bg-zinc-200/80 text-zinc-900 font-medium' 
-                            : 'text-zinc-600 hover:bg-zinc-200/40 hover:text-zinc-900'
-                        }`}
-                      >
-                        <span className="text-xs truncate flex-1 pr-2" title={thread.title}>
-                          {thread.title || 'New Chat'}
-                        </span>
-                        <button 
-                          onClick={(e) => deleteThread(e, thread.id)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-red-500 transition-all rounded hover:bg-red-100"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                  {threads.length === 0 && (
-                    <div className="px-3 py-2 text-[11px] text-zinc-400 italic">
-                      Sin hilos guardados.
-                    </div>
-                  )}
-                </div>
-              )}
+            <div className="flex items-center gap-2.5">
+              <div className="h-6 w-6 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-xs">
+                <Sparkles size={13} className="text-white" />
+              </div>
+              <span className="font-semibold text-xs text-slate-900 tracking-tight">KogniTerm</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-slate-200/60 text-[9px] text-slate-500 font-medium">Desktop</span>
             </div>
           )}
+          <button 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="p-1.5 hover:bg-slate-200/60 rounded-lg text-slate-500 hover:text-slate-800 transition-colors ml-auto"
+            title={isSidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+          >
+            <PanelLeft size={16} />
+          </button>
+        </div>
 
-          {/* Sidebar Footer with Settings */}
-          <div className="p-3 border-t border-[#e5e7eb] mt-auto">
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="w-full flex items-center gap-3 px-3 py-2 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-lg text-xs transition-colors"
+        {/* Navigation / Actions */}
+        <div className="p-3 flex flex-col gap-2">
+          {/* New Chat Button (Modern White Pill) */}
+          <button 
+            onClick={createThread}
+            className={`flex items-center gap-2.5 px-3.5 py-2.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/80 rounded-2xl text-xs font-semibold shadow-card-light hover:shadow-md transition-all duration-200 active:scale-[0.98] ${isSidebarCollapsed ? 'justify-center' : ''}`}
+          >
+            <div className="w-4 h-4 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+              <Plus size={11} />
+            </div>
+            {!isSidebarCollapsed && <span>Nuevo chat</span>}
+          </button>
+
+          {/* Nav Items List */}
+          <nav className="flex flex-col gap-0.5 mt-1">
+            {[
+              { id: 'recipes', icon: FileText, label: 'Recetas' },
+              { id: 'skills', icon: Zap, label: 'Skills' },
+              { id: 'heartbeat', icon: HeartPulse, label: 'Heartbeat' },
+              { id: 'session', icon: History, label: 'Historial de sesiones' },
+              { id: 'files', icon: Files, label: 'Archivos' }
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === 'files') {
+                    setActiveView('files');
+                  } else if (item.id === 'skills') {
+                    setActiveView('skills');
+                  } else if (item.id === 'heartbeat') {
+                    setActiveView('heartbeat');
+                  } else {
+                    setActiveView('chat');
+                  }
+                }}
+                className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs transition-all duration-150 ${
+                  activeView === item.id
+                    ? 'bg-white text-slate-900 font-semibold shadow-card-light border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                }`}
+              >
+                <item.icon size={15} className={`shrink-0 ${activeView === item.id ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                {!isSidebarCollapsed && <span>{item.label}</span>}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* Collapsible CHATS Section */}
+        {!isSidebarCollapsed && (
+          <div className="flex-1 flex flex-col min-h-0 border-t border-[#e9ecef]/80 mt-2 pt-2">
+            <button 
+              onClick={() => setIsChatsExpanded(!isChatsExpanded)}
+              className="flex items-center justify-between px-4 py-1.5 text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider transition-colors text-left"
             >
-              <Settings size={15} />
-              {!isSidebarCollapsed && <span>Ajustes</span>}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px]">v</span>
+                <span>CHATS</span>
+              </div>
+              <span className="px-1.5 py-0.2 rounded-full bg-slate-200/60 text-[9px] font-semibold text-slate-500">
+                {threads.length}
+              </span>
             </button>
-          </div>
-        </aside>
 
-        {/* Main Content Area */}
-        <main className="flex-1 flex flex-col min-w-0 relative bg-white">
-          
-          {/* Content Area */}
-          {activeView === 'chat' && (
-            <div className="flex flex-1 overflow-hidden relative">
-              <div className="flex-1 flex flex-col relative min-w-0">
-                
-                <section className={`flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth ${isTerminalVisible ? 'pb-16' : 'pb-32'}`}>
-                  <div className="max-w-3xl mx-auto py-8">
-                    {messages.length === 0 ? (
-                      <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
-                        {/* Clock display matching Goose */}
-                        <div className="flex items-baseline mb-1">
-                          <span className="text-6xl font-light tracking-tight text-zinc-800 font-sans">
-                            {currentTime.replace(/ AM| PM/i, '') || '4:51'}
-                          </span>
-                          <span className="text-2xl font-normal text-zinc-400 ml-2 uppercase">
-                            {currentTime.includes('AM') ? 'AM' : 'PM'}
-                          </span>
-                        </div>
-                        <p className="text-xl font-normal text-zinc-500 mb-8">
-                          {greeting}
-                        </p>
-
-                        {/* Floating Center ChatInput Capsule */}
-                        <ChatInput 
-                          onSendMessage={handleSendMessage} 
-                          isGenerating={isGenerating} 
-                          currentDir={currentDir}
-                          onChangeDir={handleChangeDir}
-                          messageQueue={messageQueue}
-                          onRemoveFromQueue={handleRemoveFromQueue}
-                          onProcessNext={handleProcessNextQueueItem}
-                          isFloating={true}
-                        />
+            {isChatsExpanded && (
+              <div className="flex-1 overflow-y-auto goose-scrollbar px-2.5 py-1 space-y-0.5">
+                {threads.map(thread => {
+                  const isCurrent = currentThreadId === thread.id;
+                  return (
+                    <div 
+                      key={thread.id}
+                      onClick={() => {
+                        setCurrentThreadId(thread.id);
+                        setActiveView('chat');
+                      }}
+                      className={`group flex items-center justify-between px-2.5 py-2 rounded-xl cursor-pointer transition-all duration-200 ${
+                        isCurrent 
+                          ? 'bg-white text-slate-900 font-semibold shadow-xs border border-slate-200/60' 
+                          : 'text-slate-600 hover:bg-slate-200/40 hover:text-slate-900'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 truncate flex-1 min-w-0 pr-1">
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCurrent ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+                        <span className="text-xs truncate" title={thread.title}>
+                          {thread.title || 'Conversación'}
+                        </span>
                       </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {messages.map((msg) => (
-                          <ChatMessage key={msg.id} message={msg} />
+                      <button 
+                        onClick={(e) => deleteThread(e, thread.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all rounded-lg hover:bg-red-50"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+                {threads.length === 0 && (
+                  <div className="px-3 py-2 text-[11px] text-slate-400 italic">
+                    Sin hilos guardados.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sidebar Footer with Settings */}
+        <div className="p-3 border-t border-[#e9ecef]/80 mt-auto">
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="w-full flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 rounded-xl text-xs font-medium transition-colors"
+          >
+            <Settings size={15} className="text-slate-400" />
+            {!isSidebarCollapsed && <span>Ajustes</span>}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col min-w-0 relative bg-[#fafafa]">
+        
+        {/* Minimal Header */}
+        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200/60 bg-white/70 backdrop-blur-md z-20">
+          <div className="flex items-center gap-3 select-none">
+            {isSidebarCollapsed && (
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-xs text-slate-800 tracking-tight">KogniTerm</span>
+              </div>
+            )}
+          </div>
+
+          {/* Central Directory Pill */}
+          <button
+            onClick={handleChangeDir}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/80 hover:bg-slate-200/80 border border-slate-200/60 transition-all text-xs font-medium text-slate-600 hover:text-slate-900 select-none"
+            title="Cambiar directorio de trabajo"
+          >
+            <span>Ubicación actual</span>
+            <span className="text-slate-400 font-mono text-[11px]">({currentDir})</span>
+          </button>
+
+          {/* Right Status Indicator */}
+          <div className="flex items-center gap-3 select-none">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>kogniterm</span>
+            </div>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        {activeView === 'chat' && (
+          <div className="flex flex-1 overflow-hidden relative">
+            <div className="flex-1 flex flex-col relative min-w-0">
+              
+              <section className={`flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth ${isTerminalVisible ? 'pb-16' : 'pb-32'}`}>
+                <div className="max-w-3xl mx-auto py-8">
+                  {messages.length === 0 ? (
+                    <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
+                      {/* Ultra-Light Large Digital Clock */}
+                      <div className="flex items-baseline mb-2">
+                        <span className="text-7xl font-extralight tracking-tight text-slate-800 font-sans">
+                          {currentTime.replace(/ AM| PM/i, '') || '4:51'}
+                        </span>
+                        <span className="text-xl font-normal text-slate-400 ml-2.5 uppercase tracking-wide">
+                          {currentTime.includes('AM') ? 'AM' : 'PM'}
+                        </span>
+                      </div>
+                      
+                      {/* Dynamic Greeting */}
+                      <p className="text-lg font-normal text-slate-500 mb-8 tracking-normal">
+                        {greeting}, ¿en qué te puedo ayudar hoy?
+                      </p>
+
+                      {/* Centered Floating ChatInput Capsule */}
+                      <ChatInput 
+                        onSendMessage={handleSendMessage} 
+                        isGenerating={isGenerating} 
+                        currentDir={currentDir}
+                        onChangeDir={handleChangeDir}
+                        messageQueue={messageQueue}
+                        onRemoveFromQueue={handleRemoveFromQueue}
+                        onProcessNext={handleProcessNextQueueItem}
+                        isFloating={true}
+                      />
+
+                      {/* Quick Suggestion Action Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-8 w-full max-w-xl">
+                        {[
+                          { title: "Analizar código", desc: "Explora la estructura y componentes del proyecto.", prompt: "Analiza la estructura de este código" },
+                          { title: "Guía de despliegue", desc: "Instrucciones de compilación y deployment.", prompt: "Genera una guía de deployment" }
+                        ].map((card, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handleSendMessage(card.prompt)}
+                            className="group p-3.5 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 hover:shadow-card-light text-left transition-all hover:-translate-y-0.5"
+                          >
+                            <div className="flex justify-between items-start mb-1">
+                              <p className="text-xs font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors">{card.title}</p>
+                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600 text-xs">→</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-normal">{card.desc}</p>
+                          </button>
                         ))}
                       </div>
-                    )}
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {messages.map((msg) => (
+                        <ChatMessage key={msg.id} message={msg} />
+                      ))}
+                    </div>
+                  )}
 
-                    {error && (
-                      <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl mb-6 mx-4 text-xs flex items-center gap-2">
-                        <ShieldCheck size={14} />
-                        {error}
-                      </div>
-                    )}
+                  {error && (
+                    <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-2xl mb-6 mx-4 text-xs flex items-center gap-2 shadow-xs">
+                      <ShieldCheck size={14} />
+                      {error}
+                    </div>
+                  )}
 
-                    <div ref={messagesEndRef} />
-                  </div>
-                </section>
+                  <div ref={messagesEndRef} />
+                </div>
+              </section>
 
-                {/* Terminal Panel — docked at bottom when visible */}
-                <TerminalPanel
-                  entries={terminalEntries}
-                  isVisible={isTerminalVisible}
-                  onClose={closeTerminal}
-                  onTerminalInput={sendTerminalInput}
-                />
+              {/* Terminal Panel — docked at bottom when visible */}
+              <TerminalPanel
+                entries={terminalEntries}
+                isVisible={isTerminalVisible}
+                onClose={closeTerminal}
+                onTerminalInput={sendTerminalInput}
+              />
 
                 {/* Bottom Fixed ChatInput when messages exist */}
                 {messages.length > 0 && (
@@ -446,23 +493,27 @@ function App() {
               <SkillsPanel />
             </div>
           )}
+
+          {activeView === 'heartbeat' && (
+            <div className="flex-1 overflow-y-auto bg-zinc-950 text-zinc-100">
+              <HeartbeatsPanel />
+            </div>
+          )}
         </main>
+
+        {/* Command Approval Modal */}
+        {pendingApproval && (
+          <CommandApproval
+            request={pendingApproval}
+            onApprove={(id) => respondApproval(id, true)}
+            onReject={(id) => respondApproval(id, false)}
+          />
+        )}
+
+        {/* Settings Modal */}
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       </div>
-
-      {/* Command Approval Modal */}
-      {pendingApproval && (
-        <CommandApproval
-          request={pendingApproval}
-          onApprove={(id) => respondApproval(id, true)}
-          onReject={(id) => respondApproval(id, false)}
-        />
-      )}
-
-      {/* Settings Modal */}
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-    </div>
   );
 }
 
 export default App;
-
