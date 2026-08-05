@@ -97,12 +97,17 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> 
 
     # Usar el formato estándar de OpenAI "tools" (type: function) por defecto
     # Esto es compatible con la mayoría de proveedores modernos y requerido por SiliconFlow
-    logger.info(f"🔧 Generando definición de herramienta para: {tool.name}")
+    tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    tool_desc = getattr(tool, 'description', None) or getattr(tool, '__doc__', '') or ''
+    if not isinstance(tool_desc, str):
+        tool_desc = str(tool_desc)
+
+    logger.info(f"🔧 Generando definición de herramienta para: {tool_name}")
     tool_definition = {
         "type": "function",
         "function": {
-            "name": tool.name,
-            "description": tool.description[:1024],
+            "name": tool_name,
+            "description": tool_desc[:1024] if tool_desc else f"Herramienta {tool_name}",
             "parameters": cleaned_schema,
         }
     }
@@ -948,15 +953,19 @@ class LLMService:
             converted_tools = []
             is_thinking = self.is_thinking_model()
             for tool in self.skill_manager.get_tools():
-                if is_thinking and getattr(tool, 'name', '') == 'think':
+                tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+                if is_thinking and tool_name == 'think':
                     logger.info("🧠 Excluyendo la herramienta 'think' porque el modelo soporta razonamiento nativo.")
                     continue
-                converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
-                logger.info(f"✅ Herramienta convertida: {tool.name} -> {converted.get('type', 'standard')}")
-                converted_tools.append(converted)
+                try:
+                    converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
+                    logger.info(f"✅ Herramienta convertida: {tool_name} -> {converted.get('type', 'standard')}")
+                    converted_tools.append(converted)
+                except Exception as e:
+                    logger.error(f"Error al convertir herramienta {tool_name}: {e}", exc_info=True)
             # Reconstruir el mapa de herramientas para incluir las recién cargadas
             try:
-                self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.skill_manager.get_tools()}
+                self.tool_map = {getattr(tool, 'name', getattr(tool, '__name__', tool.__class__.__name__)): tool for tool in self.skill_manager.get_tools()}
             except Exception:
                 pass
             self.litellm_tools = converted_tools

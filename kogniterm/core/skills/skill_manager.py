@@ -251,7 +251,7 @@ class SkillLoader:
                 module_tools = self._load_module_tools(script_file, skill.name)
                 tools.extend(module_tools)
                 logger.debug(f"Cargados {len(module_tools)} herramientas desde {script_file.name}")
-            except Exception as e:
+            except (Exception, SystemExit) as e:
                 logger.error(f"Error cargando módulo {script_file}: {e}", exc_info=True)
 
         return tools
@@ -299,6 +299,15 @@ class SkillLoader:
                  # Solo procesar objetos definidos en el módulo (no imports)
                 if getattr(attr, '__module__', None) != module_name:
                     continue
+                if isinstance(attr, type):
+                    if hasattr(attr, 'run') or hasattr(attr, '_run'):
+                        try:
+                            inst = attr()
+                            if hasattr(inst, 'name') or hasattr(inst, 'run'):
+                                tools.append(inst)
+                        except Exception as e:
+                            logger.warning(f"No se pudo instanciar la clase de herramienta {attr_name}: {e}")
+                    continue
                 if hasattr(attr, 'name') or hasattr(attr, 'run'):
                     tools.append(attr)
 
@@ -315,8 +324,14 @@ class SkillLoader:
                 if callable(attr) and getattr(attr, '__module__', None) == module_name:
                     # Evitar clases de esquema (Pydantic models) o clases que no son herramientas
                     if isinstance(attr, type):
-                        # Solo permitir clases si tienen 'run' o 'name' (clases legacy)
-                        if not (hasattr(attr, 'run') or hasattr(attr, 'name')):
+                        # Solo permitir clases si tienen 'run' o '_run' y se pueden instanciar
+                        if hasattr(attr, 'run') or hasattr(attr, '_run'):
+                            try:
+                                attr = attr()
+                            except Exception as e:
+                                logger.warning(f"No se pudo instanciar la clase {attr_name}: {e}")
+                                continue
+                        else:
                             continue
                             
                     if id(attr) in seen_objects:

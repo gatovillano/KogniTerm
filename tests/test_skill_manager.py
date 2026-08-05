@@ -441,5 +441,41 @@ class TestSkillIntegration:
                 print(f"✅ Skill '{expected}' encontrada")
 
 
+    def test_load_class_based_tool_without_name_attribute(self, tmp_path):
+        """Verifica que si una skill contiene una definición de clase sin atributo instance.name no cause crash."""
+        skill_dir = tmp_path / "bundled" / "gcp_auditor_skill"
+        skill_dir.mkdir(parents=True)
+        scripts_dir = skill_dir / "scripts"
+        scripts_dir.mkdir()
+
+        (skill_dir / "SKILL.md").write_text("""---
+name: gcp_auditor_skill
+description: "Skill auditor de GCP"
+---
+# Instrucciones
+""")
+
+        # Módulo Python con una clase GCPAuditor que no es un objeto de herramienta instanciado
+        (scripts_dir / "tool.py").write_text("""
+class GCPAuditor:
+    def run(self, query: str):
+        return f"Auditing {query}"
+""")
+
+        loader = SkillLoader()
+        skill = Skill(
+            name="gcp_auditor_skill",
+            path=skill_dir,
+            instructions="Instrucciones"
+        )
+
+        tools = loader.load_tools_from_skill(skill)
+        # La clase debe haber sido instanciada y añadida, o descartada sin lanzar error
+        from kogniterm.core.llm_service import _convert_langchain_tool_to_litellm
+        for tool in tools:
+            converted = _convert_langchain_tool_to_litellm(tool, "gpt-4o")
+            assert "name" in converted["function"]
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

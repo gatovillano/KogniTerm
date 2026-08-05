@@ -58,11 +58,16 @@ def convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> d
     if not cleaned_schema.get("properties"):
         cleaned_schema = {"type": "object", "properties": {}, "required": []}
 
+    tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    tool_desc = getattr(tool, 'description', None) or getattr(tool, '__doc__', '') or ''
+    if not isinstance(tool_desc, str):
+        tool_desc = str(tool_desc)
+
     return {
         "type": "function",
         "function": {
-            "name": tool.name,
-            "description": tool.description[:1024],
+            "name": tool_name,
+            "description": tool_desc[:1024] if tool_desc else f"Herramienta {tool_name}",
             "parameters": cleaned_schema,
         }
     }
