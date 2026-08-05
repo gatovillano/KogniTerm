@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 logger = logging.getLogger("kogniterm.tui.ws_client")
@@ -27,6 +29,28 @@ if TYPE_CHECKING:
 _SERVER_PROBE_TIMEOUT = 2.0
 # Intervalo de reintento de reconexión (segundos)
 _RECONNECT_DELAY = 5.0
+
+
+def get_api_token() -> str:
+    """Obtiene el token de API para autenticación WebSocket/REST."""
+    token = os.environ.get("KOGNITERM_API_TOKEN")
+    if token:
+        return token
+    try:
+        from kogniterm.server.app import API_TOKEN
+        if API_TOKEN:
+            return API_TOKEN
+    except Exception:
+        pass
+    try:
+        token_file = Path.home() / ".kogniterm" / "api_token"
+        if token_file.exists():
+            content = token_file.read_text().strip()
+            if content:
+                return content
+    except Exception:
+        pass
+    return ""
 
 
 async def probe_server(server_url: str) -> bool:
@@ -166,7 +190,11 @@ class TUIWebSocketClient:
         import urllib.parse
         workspace_dir = getattr(self._app, "workspace_directory", None) or os.getcwd()
         encoded_workspace = urllib.parse.quote(workspace_dir)
-        ws_url = f"{self._server_url}/ws/{self._session_id}?workspace_dir={encoded_workspace}"
+        token = get_api_token()
+        params = [f"workspace_dir={encoded_workspace}"]
+        if token:
+            params.append(f"token={urllib.parse.quote(token)}")
+        ws_url = f"{self._server_url}/ws/{self._session_id}?{'&'.join(params)}"
         logger.info(f"[WS] Conectando a {ws_url} …")
 
         async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:

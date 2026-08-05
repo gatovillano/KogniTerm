@@ -27,3 +27,19 @@ pub fn get_cwd() -> Result<String, String> {
     }
 }
 
+#[command]
+pub fn get_api_token() -> Result<String, String> {
+    if let Ok(token) = std::env::var("KOGNITERM_API_TOKEN") {
+        if !token.trim().is_empty() {
+            return Ok(token.trim().to_string());
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let token_path = std::path::Path::new(&home).join(".kogniterm").join("api_token");
+        if let Ok(token) = std::fs::read_to_string(token_path) {
+            return Ok(token.trim().to_string());
+        }
+    }
+    Ok(String::new())
+}
+

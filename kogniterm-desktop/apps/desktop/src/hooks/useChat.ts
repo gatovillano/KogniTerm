@@ -39,17 +39,22 @@ export function useChat(threadId: string | null) {
 
         const initWs = async () => {
             let workspaceDir: string | undefined = undefined;
+            let token: string | undefined = undefined;
             try {
                 const { invoke } = await import('@tauri-apps/api/core');
                 workspaceDir = await invoke<string>('get_cwd');
+                token = await invoke<string>('get_api_token');
                 console.log("CWD de Tauri para WebSocket:", workspaceDir);
             } catch (err) {
-                console.warn("No se pudo obtener el CWD de Tauri para WebSocket:", err);
+                console.warn("No se pudo obtener CWD/token de Tauri para WebSocket:", err);
             }
 
             if (!active) return;
 
-            const queryParams = workspaceDir ? `?workspace_dir=${encodeURIComponent(workspaceDir)}` : '';
+            const params = new URLSearchParams();
+            if (workspaceDir) params.set('workspace_dir', workspaceDir);
+            if (token) params.set('token', token);
+            const queryParams = params.toString() ? `?${params.toString()}` : '';
             const wsUrl = `ws://127.0.0.1:8765/ws/${threadId}${queryParams}`;
             ws = new WebSocket(wsUrl);
             socketRef.current = ws;
