@@ -495,7 +495,7 @@ function App() {
           )}
 
           {activeView === 'heartbeat' && (
-            <div className="flex-1 overflow-y-auto bg-zinc-950 text-zinc-100">
+            <div className="flex-1 overflow-y-auto bg-[#fafafa] text-slate-800">
               <HeartbeatsPanel />
             </div>
           )}

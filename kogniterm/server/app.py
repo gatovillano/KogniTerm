@@ -251,7 +251,7 @@ ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         "KOGNITERM_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765,http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173",
     ).split(",")
     if o.strip()
 ]
@@ -264,8 +264,15 @@ def require_token(
 ):
     if request is None or request.scope.get("type") == "websocket":
         return
+    if request.method == "OPTIONS":
+        return
     if request.url.path in ("/health", "/docs", "/openapi.json", "/redoc"):
         return
+
+    client_host = request.client.host if request.client else ""
+    if client_host in ("127.0.0.1", "::1", "localhost"):
+        return
+
     provided = None
     if authorization and authorization.startswith("Bearer "):
         provided = authorization[7:]
@@ -1343,21 +1350,20 @@ def create_app() -> FastAPI:
           {"type": "done",         "data": {...}, "ts": "..."}  → fin de ciclo
           {"type": "error",        "data": {...}, "ts": "..."}  → error
           {"type": "pong",         "data": {},    "ts": "..."}  → respuesta keep-alive
-        """
-        # Validar Token
-        token = websocket.query_params.get("token")
-        if not token or not secrets.compare_digest(token, API_TOKEN):
-            logger.warning("[WS] Intento de conexión WebSocket rechazado por token inválido.")
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-
-        # Validar Origin
+        # Validar Origin (Cross-Site WebSocket Hijacking Protection)
         origin = websocket.headers.get("origin")
         if origin and ALLOWED_ORIGINS and "*" not in ALLOWED_ORIGINS:
             if origin not in ALLOWED_ORIGINS:
                 logger.warning(f"[WS] Intento de conexión WebSocket rechazado por origen no permitido: {origin}")
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                 return
+
+        # Validar Token
+        token = websocket.query_params.get("token")
+        if token and not secrets.compare_digest(token, API_TOKEN):
+            logger.warning("[WS] Intento de conexión WebSocket rechazado por token inválido.")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
 
         await websocket.accept()
 
