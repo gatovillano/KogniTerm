@@ -1,13 +1,13 @@
 import re
 import json
-import random
+import secrets
 import string
 from typing import List, Dict, Any, Optional
 
 def generate_short_id(length: int = 9) -> str:
     """Genera un ID alfanum\u00e9rico corto compatible con proveedores estrictos como Mistral."""
     chars = string.ascii_letters + string.digits
-    return ''.join(random.choice(chars) for _ in range(length))
+    return ''.join(secrets.choice(chars) for _ in range(length))
 
 def extract_balanced_content(text: str, start_pos: int) -> Optional[str]:
     """Extrae contenido balanceado entre {}, [] o () manejando anidamiento y strings."""
