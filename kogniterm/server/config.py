@@ -13,6 +13,19 @@ class ChannelConfig(BaseModel):
     enabled: bool = True
     params: Dict[str, Any] = Field(default_factory=dict)
 
+import uuid
+
+class HeartbeatConfig(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = Field(..., description="Nombre descriptivo del heartbeat")
+    prompt: str = Field(..., description="Prompt a ejecutar periódicamente")
+    interval_seconds: int = Field(default=300, ge=5, description="Frecuencia de ejecución en segundos")
+    enabled: bool = Field(default=True, description="Estado activo del heartbeat")
+    session_id: Optional[str] = Field(default=None, description="ID de sesión objetivo. Si es None, se usa un ID por defecto.")
+    last_run: Optional[str] = Field(default=None, description="Fecha/hora ISO del último ciclo ejecutado")
+    last_status: Optional[str] = Field(default=None, description="Resultado de la última ejecución (success/error)")
+    last_error: Optional[str] = Field(default=None, description="Detalle del último error si ocurrió")
+
 class ServerSettings(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8765
@@ -21,6 +34,7 @@ class ServerSettings(BaseModel):
         ChannelConfig(name="webhook_default", type="webhook", enabled=False, params={"url": "http://localhost:5000/hook"}),
         ChannelConfig(name="telegram_bot_default", type="telegram_bot", enabled=False, params={"token": "YOUR_TELEGRAM_BOT_TOKEN"})
     ]
+    heartbeats: List[HeartbeatConfig] = []
 
 class ServerConfigManager:
     """
@@ -72,6 +86,39 @@ class ServerConfigManager:
         for c in self.settings.channels:
             if c.name == channel_name:
                 c.enabled = enabled
+                break
+        self.save_config(self.settings)
+
+    def upsert_heartbeat(self, heartbeat: HeartbeatConfig):
+        for index, existing in enumerate(self.settings.heartbeats):
+            if existing.id == heartbeat.id:
+                self.settings.heartbeats[index] = heartbeat
+                self.save_config(self.settings)
+                return
+
+        self.settings.heartbeats.append(heartbeat)
+        self.save_config(self.settings)
+
+    def add_heartbeat(self, heartbeat: HeartbeatConfig):
+        self.upsert_heartbeat(heartbeat)
+
+    def remove_heartbeat(self, heartbeat_id: str):
+        self.settings.heartbeats = [hb for hb in self.settings.heartbeats if hb.id != heartbeat_id]
+        self.save_config(self.settings)
+
+    def toggle_heartbeat(self, heartbeat_id: str, enabled: bool):
+        for hb in self.settings.heartbeats:
+            if hb.id == heartbeat_id:
+                hb.enabled = enabled
+                break
+        self.save_config(self.settings)
+
+    def update_heartbeat_status(self, heartbeat_id: str, status: str, error: Optional[str] = None, run_time: Optional[str] = None):
+        for hb in self.settings.heartbeats:
+            if hb.id == heartbeat_id:
+                hb.last_status = status
+                hb.last_error = error
+                hb.last_run = run_time
                 break
         self.save_config(self.settings)
 

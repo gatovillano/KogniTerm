@@ -359,3 +359,33 @@ body {
   margin-top: 0.5rem;
   margin-bottom: 0.75rem;
 }
+
+/* Goose theme utilities */
+.bg-goose-app {
+  background-color: #ffffff;
+}
+
+.bg-goose-sidebar {
+  background-color: #f3f4f6;
+}
+
+.border-goose {
+  border-color: #e5e7eb;
+}
+
+.goose-scrollbar {
+  &::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+  }
+}

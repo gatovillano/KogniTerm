@@ -20,9 +20,13 @@ class ConfigManager:
         self._ensure_global_dir_exists()
 
     def _ensure_global_dir_exists(self):
-        """Ensures the global configuration directory exists."""
+        """Ensures the global configuration directory exists with 0700 permissions."""
         if not self.GLOBAL_CONFIG_DIR.exists():
             self.GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(self.GLOBAL_CONFIG_DIR, 0o700)
+        except Exception:
+            pass
 
     def _ensure_project_dir_exists(self):
         """Ensures the project configuration directory exists."""
@@ -40,9 +44,13 @@ class ConfigManager:
             return {}
 
     def _save_json(self, path: Path, data: Dict[str, Any]):
-        """Saves a dictionary to a JSON file."""
+        """Saves a dictionary to a JSON file with 0600 permissions."""
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4)
+        try:
+            os.chmod(path, 0o600)
+        except Exception:
+            pass
 
     def load_global_config(self) -> Dict[str, Any]:
         """Loads the global configuration."""

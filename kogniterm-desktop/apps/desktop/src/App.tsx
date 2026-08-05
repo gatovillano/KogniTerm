@@ -10,8 +10,8 @@ import { CommandApproval } from './components/chat/CommandApproval';
 import { useChat } from './hooks/useChat';
 import { 
   Settings, Files, ShieldCheck, 
-  BookOpen, Zap, Grid, Clock, Puzzle, History, PanelLeft, 
-  ChevronDown, Trash2, Plus, Sparkles
+  Zap, History, PanelLeft, 
+  Trash2, Plus, FileText, HeartPulse
 } from 'lucide-react';
 import './App.css';
 
@@ -27,7 +27,6 @@ function App() {
     isGenerating,
     error,
     sendMessage,
-    isConnected,
     taskPlans,
     pendingApproval,
     respondApproval,
@@ -54,6 +53,31 @@ function App() {
   
   // Threads list state (lifted from ThreadList.tsx)
   const [threads, setThreads] = useState<any[]>([]);
+
+  // Live Clock & Greeting State (Goose UI)
+  const [currentTime, setCurrentTime] = useState<string>('');
+  const [greeting, setGreeting] = useState<string>('Buenas tardes');
+
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+      setCurrentTime(timeStr);
+
+      const hour = now.getHours();
+      if (hour < 12) {
+        setGreeting('Buenos días');
+      } else if (hour < 20) {
+        setGreeting('Buenas tardes');
+      } else {
+        setGreeting('Buenas noches');
+      }
+    };
+
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -174,283 +198,256 @@ function App() {
 
 
   return (
-    <div className="flex h-screen bg-[#0e0e11] text-zinc-300 font-sans overflow-hidden selection:bg-indigo-500/20">
+    <div className="flex flex-col h-screen bg-white text-zinc-800 font-sans overflow-hidden selection:bg-zinc-200">
       
-      {/* Redesigned Sidebar (Unified style matching Goose screenshot) */}
-      <aside 
-        className={`${
-          isSidebarCollapsed ? 'w-[68px]' : 'w-[260px]'
-        } bg-[#151518] border-r border-[#27272a]/40 flex flex-col transition-all duration-300 z-30 select-none`}
-      >
-        {/* Sidebar Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-[#27272a]/20">
-          {!isSidebarCollapsed && (
-            <div className="flex items-center gap-2.5">
-              <div className="h-6 w-6 rounded-md bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-                <Sparkles size={13} className="text-white" />
-              </div>
-              <span className="font-bold text-sm text-white tracking-wide">KogniTerm</span>
-            </div>
-          )}
-          <button 
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="p-1.5 hover:bg-zinc-800/60 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors ml-auto"
-            title={isSidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-          >
-            <PanelLeft size={16} />
-          </button>
+      {/* Goose Top Window Menu Bar */}
+      <div className="h-8 bg-[#f3f4f6] border-b border-[#e5e7eb] flex items-center justify-between px-3 text-xs text-zinc-600 select-none z-40">
+        <div className="flex items-center gap-4">
+          <span className="hover:text-zinc-900 cursor-pointer">File</span>
+          <span className="hover:text-zinc-900 cursor-pointer">Edit</span>
+          <span className="hover:text-zinc-900 cursor-pointer">View</span>
+          <span className="hover:text-zinc-900 cursor-pointer">Window</span>
+          <span className="hover:text-zinc-900 cursor-pointer">Help</span>
         </div>
 
-        {/* Navigation / Actions */}
-        <div className="p-3 flex flex-col gap-1.5">
-          {/* New Chat Button */}
-          <button 
-            onClick={createThread}
-            className={`flex items-center gap-3 px-3 py-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/20 rounded-lg text-xs font-semibold transition-all duration-200 justify-center`}
-          >
-            <Plus size={14} className="shrink-0" />
-            {!isSidebarCollapsed && <span>New Chat</span>}
-          </button>
-
-          {/* Nav Items List */}
-          <nav className="flex flex-col gap-0.5 mt-2">
-            {[
-              { id: 'recipes', icon: BookOpen, label: 'Recipes' },
-              { id: 'skills', icon: Zap, label: 'Skills' },
-              { id: 'apps', icon: Grid, label: 'Apps' },
-              { id: 'scheduler', icon: Clock, label: 'Scheduler' },
-              { id: 'extensions', icon: Puzzle, label: 'Extensions' },
-              { id: 'session', icon: History, label: 'Session History' },
-              { id: 'files', icon: Files, label: 'Archivos' }
-            ].map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  if (item.id === 'files') {
-                    setActiveView('files');
-                  } else if (item.id === 'skills') {
-                    setActiveView('skills');
-                  } else {
-                    setActiveView('chat');
-                  }
-                }}
-                className={`flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-xs transition-all duration-150 ${
-                  activeView === item.id
-                    ? 'bg-zinc-800 text-white font-medium'
-                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
-                }`}
-              >
-                <item.icon size={16} className="shrink-0 text-zinc-500 group-hover:text-zinc-300" />
-                {!isSidebarCollapsed && <span>{item.label}</span>}
-              </button>
-            ))}
-          </nav>
+        {/* Center Title */}
+        <div className="font-semibold text-zinc-700 text-xs tracking-wide">
+          Goose
         </div>
 
-        {/* Collapsible CHATS Section */}
-        {!isSidebarCollapsed && (
-          <div className="flex-1 flex flex-col min-h-0 border-t border-[#27272a]/20 mt-2">
+        {/* Window Control Buttons */}
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-orange-400"></div>
+          <div className="w-3 h-3 rounded-full bg-red-500"></div>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        
+        {/* Redesigned Sidebar (Goose exact style) */}
+        <aside 
+          className={`${
+            isSidebarCollapsed ? 'w-[60px]' : 'w-[240px]'
+          } bg-[#f3f4f6] border-r border-[#e5e7eb] flex flex-col transition-all duration-200 z-30 select-none`}
+        >
+          {/* Top panel toggle icon */}
+          <div className="h-10 flex items-center px-3 pt-2">
             <button 
-              onClick={() => setIsChatsExpanded(!isChatsExpanded)}
-              className="flex items-center gap-1.5 px-4 py-3 text-[10px] font-bold text-zinc-500 hover:text-zinc-400 uppercase tracking-wider transition-colors text-left"
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="p-1 hover:bg-zinc-200 rounded text-zinc-600 hover:text-zinc-900 transition-colors"
+              title={isSidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
             >
-              <ChevronDown size={12} className={`transition-transform duration-200 ${isChatsExpanded ? '' : '-rotate-90'}`} />
-              <span>Chats</span>
+              <PanelLeft size={16} />
+            </button>
+          </div>
+
+          {/* Navigation / Actions */}
+          <div className="p-3 flex flex-col gap-1.5">
+            {/* New Chat Button (Pill matching Goose) */}
+            <button 
+              onClick={createThread}
+              className={`flex items-center gap-2.5 px-3 py-2 bg-zinc-200/80 hover:bg-zinc-200 text-zinc-800 border border-zinc-300/60 rounded-xl text-xs font-medium transition-all duration-200 ${isSidebarCollapsed ? 'justify-center' : ''}`}
+            >
+              <div className="w-4 h-4 rounded-md border border-zinc-400 flex items-center justify-center">
+                <Plus size={12} className="text-zinc-700" />
+              </div>
+              {!isSidebarCollapsed && <span>Nuevo chat</span>}
             </button>
 
-            {isChatsExpanded && (
-              <div className="flex-1 overflow-y-auto custom-scrollbar px-2 pb-2 space-y-0.5">
-                {threads.map(thread => {
-                  const isCurrent = currentThreadId === thread.id;
-                  return (
-                    <div 
-                      key={thread.id}
-                      onClick={() => {
-                        setCurrentThreadId(thread.id);
-                        setActiveView('chat');
-                      }}
-                      className={`group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-all duration-200 ${
-                        isCurrent 
-                          ? 'bg-zinc-800/60 text-white font-medium' 
-                          : 'text-zinc-500 hover:bg-zinc-800/30 hover:text-zinc-300'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5 overflow-hidden min-w-0 flex-1">
-                        {/* Status dot representation */}
-                        {isCurrent ? (
-                          <div className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0"></div>
-                        ) : (
-                          <div className="h-1.5 w-1.5 rounded-full bg-green-500/80 shrink-0"></div>
-                        )}
-                        <span className="text-xs truncate" title={thread.title}>
-                          {thread.title || 'Nueva conversación'}
-                        </span>
-                      </div>
-                      <button 
-                        onClick={(e) => deleteThread(e, thread.id)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-600 hover:text-red-400 transition-all rounded hover:bg-red-400/10 ml-2"
+            {/* Nav Items List */}
+            <nav className="flex flex-col gap-0.5 mt-2">
+              {[
+                { id: 'recipes', icon: FileText, label: 'Recetas' },
+                { id: 'skills', icon: Zap, label: 'Skills' },
+                { id: 'heartbeat', icon: HeartPulse, label: 'Heartbeat' },
+                { id: 'session', icon: History, label: 'Historial de sesiones' },
+                { id: 'files', icon: Files, label: 'Archivos' }
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    if (item.id === 'files') {
+                      setActiveView('files');
+                    } else if (item.id === 'skills') {
+                      setActiveView('skills');
+                    } else {
+                      setActiveView('chat');
+                    }
+                  }}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-all duration-150 ${
+                    activeView === item.id
+                      ? 'bg-zinc-200 text-zinc-900 font-medium'
+                      : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/50'
+                  }`}
+                >
+                  <item.icon size={15} className="shrink-0 text-zinc-500 group-hover:text-zinc-700" />
+                  {!isSidebarCollapsed && <span>{item.label}</span>}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Collapsible CHATS Section */}
+          {!isSidebarCollapsed && (
+            <div className="flex-1 flex flex-col min-h-0 border-t border-[#e5e7eb] mt-2 pt-1">
+              <button 
+                onClick={() => setIsChatsExpanded(!isChatsExpanded)}
+                className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold text-zinc-400 hover:text-zinc-600 uppercase tracking-wider transition-colors text-left"
+              >
+                <span className="text-[10px]">v</span>
+                <span>CHATS</span>
+              </button>
+
+              {isChatsExpanded && (
+                <div className="flex-1 overflow-y-auto goose-scrollbar px-2 pb-2 space-y-0.5">
+                  {threads.map(thread => {
+                    const isCurrent = currentThreadId === thread.id;
+                    return (
+                      <div 
+                        key={thread.id}
+                        onClick={() => {
+                          setCurrentThreadId(thread.id);
+                          setActiveView('chat');
+                        }}
+                        className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition-all duration-200 ${
+                          isCurrent 
+                            ? 'bg-zinc-200/80 text-zinc-900 font-medium' 
+                            : 'text-zinc-600 hover:bg-zinc-200/40 hover:text-zinc-900'
+                        }`}
                       >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
-                {threads.length === 0 && (
-                  <div className="px-4 py-2 text-[11px] text-zinc-600 italic">
-                    Sin hilos guardados.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Sidebar Footer with Settings */}
-        <div className="p-3 border-t border-[#27272a]/20 mt-auto">
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="w-full flex items-center gap-3.5 px-3 py-2.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 rounded-lg text-xs transition-colors"
-          >
-            <Settings size={16} />
-            {!isSidebarCollapsed && <span>Settings</span>}
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 relative bg-[#0e0e11]">
-        
-        {/* Header Redesigned to support Center dropdown & Right status */}
-        <header className="h-16 flex items-center justify-between px-6 border-b border-[#27272a]/20 z-20">
-          <div className="flex items-center gap-3 select-none">
-            {isSidebarCollapsed && (
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm text-white tracking-wide">KogniTerm</span>
-                <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[9px] text-zinc-500 font-bold uppercase">Desktop</span>
-              </div>
-            )}
-          </div>
-
-          {/* Central Directory Dropdown (Goose style) */}
-          <button
-            onClick={handleChangeDir}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-zinc-800/50 transition-all text-xs font-semibold text-zinc-400 hover:text-zinc-200 select-none border border-transparent hover:border-zinc-800/40"
-            title="Cambiar directorio de trabajo"
-          >
-            <span>Current directory location</span>
-            <ChevronDown size={12} className="text-zinc-500" />
-          </button>
-
-          {/* Right Status Panel */}
-          <div className="flex items-center gap-4 select-none">
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider ${
-              isConnected
-                ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400'
-                : 'bg-red-500/5 border-red-500/10 text-red-400'
-            }`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-              <span>{isConnected ? 'kogniterm' : 'offline'}</span>
-            </div>
-          </div>
-        </header>
-
-        {/* Content Area */}
-        {activeView === 'chat' && (
-          <div className="flex flex-1 overflow-hidden">
-            <div className="flex-1 flex flex-col relative min-w-0">
-              
-              <section className={`flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-0 scroll-smooth ${isTerminalVisible ? 'pb-16' : 'pb-32'}`}>
-                <div className="max-w-3xl mx-auto py-8">
-                  {messages.length === 0 ? (
-                    <div className="h-[60vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
-                      <div className="relative mb-8">
-                        <div className="absolute -inset-4 bg-indigo-500/10 rounded-full blur-2xl"></div>
-                        <div className="relative h-20 w-20 bg-gradient-to-tr from-zinc-900 to-zinc-950 rounded-2xl flex items-center justify-center border border-zinc-800/80 shadow-2xl rotate-3 transition-transform hover:rotate-0 duration-500">
-                          <Sparkles size={36} className="text-indigo-500" />
-                        </div>
+                        <span className="text-xs truncate flex-1 pr-2" title={thread.title}>
+                          {thread.title || 'New Chat'}
+                        </span>
+                        <button 
+                          onClick={(e) => deleteThread(e, thread.id)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-red-500 transition-all rounded hover:bg-red-100"
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </div>
+                    );
+                  })}
+                  {threads.length === 0 && (
+                    <div className="px-3 py-2 text-[11px] text-zinc-400 italic">
+                      Sin hilos guardados.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
-                      <h2 className="text-2xl font-bold text-zinc-100 mb-2.5 tracking-tight">¿En qué trabajamos hoy?</h2>
-                      <p className="text-zinc-500 max-w-sm text-xs leading-relaxed">
-                        Tu asistente inteligente de terminal y código.<br />Comienza escribiendo un comando o haz una pregunta.
-                      </p>
+          {/* Sidebar Footer with Settings */}
+          <div className="p-3 border-t border-[#e5e7eb] mt-auto">
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="w-full flex items-center gap-3 px-3 py-2 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60 rounded-lg text-xs transition-colors"
+            >
+              <Settings size={15} />
+              {!isSidebarCollapsed && <span>Ajustes</span>}
+            </button>
+          </div>
+        </aside>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-10 w-full max-w-xl">
-                        {[
-                          { title: "Analiza la arquitectura", desc: "Explora la estructura del proyecto y dependencias.", prompt: "Analiza la arquitectura de este proyecto" },
-                          { title: "¿Cómo desplegar?", desc: "Genera una guía de deployment paso a paso.", prompt: "Genera una guía de deployment para esta app" }
-                        ].map((card, i) => (
-                          <button
-                            key={i}
-                            onClick={() => handleSendMessage(card.prompt)}
-                            className="group p-4 rounded-xl bg-[#151518]/60 border border-zinc-850 hover:border-indigo-500/20 hover:bg-[#151518] text-left transition-all hover:shadow-lg hover:shadow-indigo-500/2 hover:-translate-y-0.5"
-                          >
-                            <div className="flex justify-between items-start mb-1">
-                              <p className="text-xs font-semibold text-zinc-300 group-hover:text-indigo-400 transition-colors">{card.title}</p>
-                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-500 text-xs">→</span>
-                            </div>
-                            <p className="text-[10px] text-zinc-500 leading-normal">{card.desc}</p>
-                          </button>
+        {/* Main Content Area */}
+        <main className="flex-1 flex flex-col min-w-0 relative bg-white">
+          
+          {/* Content Area */}
+          {activeView === 'chat' && (
+            <div className="flex flex-1 overflow-hidden relative">
+              <div className="flex-1 flex flex-col relative min-w-0">
+                
+                <section className={`flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth ${isTerminalVisible ? 'pb-16' : 'pb-32'}`}>
+                  <div className="max-w-3xl mx-auto py-8">
+                    {messages.length === 0 ? (
+                      <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
+                        {/* Clock display matching Goose */}
+                        <div className="flex items-baseline mb-1">
+                          <span className="text-6xl font-light tracking-tight text-zinc-800 font-sans">
+                            {currentTime.replace(/ AM| PM/i, '') || '4:51'}
+                          </span>
+                          <span className="text-2xl font-normal text-zinc-400 ml-2 uppercase">
+                            {currentTime.includes('AM') ? 'AM' : 'PM'}
+                          </span>
+                        </div>
+                        <p className="text-xl font-normal text-zinc-500 mb-8">
+                          {greeting}
+                        </p>
+
+                        {/* Floating Center ChatInput Capsule */}
+                        <ChatInput 
+                          onSendMessage={handleSendMessage} 
+                          isGenerating={isGenerating} 
+                          currentDir={currentDir}
+                          onChangeDir={handleChangeDir}
+                          messageQueue={messageQueue}
+                          onRemoveFromQueue={handleRemoveFromQueue}
+                          onProcessNext={handleProcessNextQueueItem}
+                          isFloating={true}
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {messages.map((msg) => (
+                          <ChatMessage key={msg.id} message={msg} />
                         ))}
                       </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {messages.map((msg) => (
-                        <ChatMessage key={msg.id} message={msg} />
-                      ))}
-                    </div>
-                  )}
+                    )}
 
-                  {error && (
-                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl mb-6 mx-4 text-xs flex items-center gap-2">
-                      <ShieldCheck size={14} />
-                      {error}
-                    </div>
-                  )}
+                    {error && (
+                      <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl mb-6 mx-4 text-xs flex items-center gap-2">
+                        <ShieldCheck size={14} />
+                        {error}
+                      </div>
+                    )}
 
-                  <div ref={messagesEndRef} />
-                </div>
-              </section>
+                    <div ref={messagesEndRef} />
+                  </div>
+                </section>
 
-              {/* Terminal Panel — docked at bottom when visible */}
-              <TerminalPanel
-                entries={terminalEntries}
-                isVisible={isTerminalVisible}
-                onClose={closeTerminal}
-                onTerminalInput={sendTerminalInput}
-              />
+                {/* Terminal Panel — docked at bottom when visible */}
+                <TerminalPanel
+                  entries={terminalEntries}
+                  isVisible={isTerminalVisible}
+                  onClose={closeTerminal}
+                  onTerminalInput={sendTerminalInput}
+                />
 
-              <ChatInput 
-                onSendMessage={handleSendMessage} 
-                isGenerating={isGenerating} 
-                currentDir={currentDir}
-                onChangeDir={handleChangeDir}
-                messageQueue={messageQueue}
-                onRemoveFromQueue={handleRemoveFromQueue}
-                onProcessNext={handleProcessNextQueueItem}
-              />
+                {/* Bottom Fixed ChatInput when messages exist */}
+                {messages.length > 0 && (
+                  <ChatInput 
+                    onSendMessage={handleSendMessage} 
+                    isGenerating={isGenerating} 
+                    currentDir={currentDir}
+                    onChangeDir={handleChangeDir}
+                    messageQueue={messageQueue}
+                    onRemoveFromQueue={handleRemoveFromQueue}
+                    onProcessNext={handleProcessNextQueueItem}
+                    isFloating={false}
+                  />
+                )}
+              </div>
+
+              {/* Task Tracker Panel */}
+              {hasActiveTasks && (
+                <TaskTracker taskPlans={taskPlans} />
+              )}
             </div>
+          )}
 
-            {/* Task Tracker Panel */}
-            {hasActiveTasks && (
-              <TaskTracker taskPlans={taskPlans} />
-            )}
-          </div>
-        )}
+          {activeView === 'files' && (
+            <div className="flex-1 overflow-hidden">
+              <FileExplorer workspacePath={currentDir} />
+            </div>
+          )}
 
-        {activeView === 'files' && (
-          <div className="flex-1 overflow-hidden">
-            <FileExplorer workspacePath={currentDir} />
-          </div>
-        )}
-
-        {activeView === 'skills' && (
-          <div className="flex-1 overflow-hidden">
-            <SkillsPanel />
-          </div>
-        )}
-      </main>
+          {activeView === 'skills' && (
+            <div className="flex-1 overflow-hidden">
+              <SkillsPanel />
+            </div>
+          )}
+        </main>
+      </div>
 
       {/* Command Approval Modal */}
       {pendingApproval && (
@@ -468,3 +465,4 @@ function App() {
 }
 
 export default App;
+

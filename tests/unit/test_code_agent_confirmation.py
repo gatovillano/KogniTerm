@@ -1,4 +1,5 @@
 import pytest
+import json
 from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage, ToolMessage
 from kogniterm.core.agent_state import AgentState

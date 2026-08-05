@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Save, Cpu, CheckCircle, AlertCircle, 
   Trash2, Plus, Globe, Folder, Settings, MessageSquare, 
-  Send, Eye, EyeOff, Loader2, Sparkles 
+  Send, Eye, EyeOff, Loader2, Sparkles, Activity
 } from 'lucide-react';
+import { HeartbeatsTab } from './HeartbeatsTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -24,7 +25,7 @@ interface ProviderModel {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'llm' | 'advanced' | 'instructions' | 'telegram'>('llm');
+  const [activeTab, setActiveTab] = useState<'llm' | 'advanced' | 'instructions' | 'telegram' | 'heartbeats'>('llm');
   const [activeScope, setActiveScope] = useState<'global' | 'project'>('project');
   
   // Config loaded from backend
@@ -403,6 +404,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               { id: 'advanced', name: 'Ajustes Avanzados', icon: Settings },
               { id: 'instructions', name: 'Instrucciones', icon: MessageSquare },
               { id: 'telegram', name: 'Bot de Telegram', icon: Send },
+              { id: 'heartbeats', name: 'Heartbeats / Tareas', icon: Activity },
             ].map(tab => {
               const Icon = tab.icon;
               return (
@@ -812,6 +814,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 )}
               </div>
             )}
+
+            {/* Heartbeats / Periodic Tasks Tab */}
+            {activeTab === 'heartbeats' && <HeartbeatsTab />}
 
           </main>
         </div>

@@ -1147,6 +1147,7 @@ class KogniTermTUI(App):
 
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
+        ("shift+tab", "toggle_auto_approve", "Auto-aprobación"),
     ]
 
     def _build_splash_title(self) -> str:
@@ -1287,6 +1288,16 @@ class KogniTermTUI(App):
         self._ws_client = TUIWebSocketClient(self, self._server_url, self._session_id)
         # Crear tarea de conexión persistente en el loop de Textual
         self._ws_task = asyncio.create_task(self._ws_client.run())
+
+        # Sincronizar el modelo activo del servidor con la TUI
+        try:
+            from kogniterm.terminal.api_client_tui import get_llm_config
+            server_config = await get_llm_config()
+            server_model = server_config.get("model")
+            if server_model:
+                self.update_status_footer(server_model)
+        except Exception as ex:
+            logger.warning(f"No se pudo sincronizar el modelo inicial del servidor: {ex}")
 
     async def _send_to_server(self, text: str) -> None:
         """Envía un mensaje al servidor vía WebSocket y actualiza el estado."""
@@ -2816,6 +2827,23 @@ class KogniTermTUI(App):
         self.call_after_refresh(lambda: self.push_screen(screen, callback))
         return await future
 
+    def set_auto_approve_all(self, active: bool = True) -> None:
+        """Activa o desactiva la auto-aprobación global para todas las acciones y actualiza la UI."""
+        self._auto_approve_all = active
+        try:
+            from kogniterm.terminal.tui.components.status_footer import StatusFooter
+            footer = self.query_one(StatusFooter)
+            footer.set_auto_approve(active)
+        except Exception:
+            pass
+
+    def action_toggle_auto_approve(self) -> None:
+        """Conmuta el estado de auto-aprobación mediante atajo de teclado (Shift+Tab)."""
+        current = getattr(self, "_auto_approve_all", False)
+        self.set_auto_approve_all(not current)
+        status = "activada ⚡" if not current else "desactivada"
+        self.notify(f"Auto-aprobación {status}", severity="info" if not current else "warning")
+
     async def ask_for_approval_async(
         self,
         message: str,
@@ -2854,8 +2882,8 @@ class KogniTermTUI(App):
 
         raw_result = await future
         if raw_result == "accept_all":
-            self._auto_approve_all = True
-        return raw_result in ("accept", "accept_all")
+            self.set_auto_approve_all(True)
+        return raw_result in (True, "accept", "accept_all")
 
     async def ask_for_input_async(
         self, title: str, text: str, password: bool = False
@@ -2920,8 +2948,8 @@ class KogniTermTUI(App):
         raw_result = future.result()  # Bloquea hasta decisión del usuario
 
         if raw_result == "accept_all":
-            self._auto_approve_all = True
-        return raw_result in ("accept", "accept_all")
+            self.set_auto_approve_all(True)
+        return raw_result in (True, "accept", "accept_all")
 
     def ask_for_input_sync(self, title: str, text: str, password: bool = False) -> str:
         """Helper para pedir una entrada de texto mediante Modal de forma síncrona."""
