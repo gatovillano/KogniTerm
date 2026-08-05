@@ -478,5 +478,17 @@ class TerminalUI:
         self.console.print(Align.center(welcome_panel))
         self.console.print()  # Margen inferior
 
+    def clear_chat(self):
+        """Limpia la pantalla de la consola y vuelve a mostrar el banner de bienvenida."""
+        try:
+            self.console.clear()
+        except Exception:
+            pass
+        try:
+            self.refresh_theme()
+        except Exception:
+            pass
+        self.print_welcome_banner()
+
 
 

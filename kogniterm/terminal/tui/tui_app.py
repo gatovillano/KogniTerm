@@ -565,11 +565,27 @@ class TextualTerminalUI:
         )
 
     def clear_chat(self):
-        """Limpia visualmente el chat log y vuelve a mostrar el banner de bienvenida."""
+        """Limpia visualmente el chat log y vuelve a mostrar la pantalla de bienvenida (splash)."""
 
         def _do_clear():
             self.app.chat_log.clear()
-            self._do_print_banner()
+            try:
+                splash = self.app.query_one("#splash_overlay")
+                splash.display = True
+                self.app._splash_visible = True
+                try:
+                    splash_input = self.app.query_one("#splash_chat_input")
+                    splash_input.value = ""
+                    splash_input.focus()
+                except Exception:
+                    pass
+                try:
+                    bottom_container = self.app.query_one("#bottom_container")
+                    bottom_container.display = False
+                except Exception:
+                    pass
+            except Exception:
+                self._do_print_banner()
 
         self._safe_call(_do_clear)
 
