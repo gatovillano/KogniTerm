@@ -22,11 +22,11 @@ import asyncio
 import json
 import logging
 import os
-import os
 import secrets
 import shlex
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator, Optional, List, Any
 
 import uvicorn
@@ -212,6 +212,28 @@ async def lifespan(app: FastAPI):
 # ── Seguridad y Autenticación ──────────────────────────────────────────────────
 
 API_TOKEN = os.environ.get("KOGNITERM_API_TOKEN") or secrets.token_urlsafe(32)
+
+
+def _save_api_token(token: str) -> None:
+    try:
+        token_dir = Path.home() / ".kogniterm"
+        token_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(token_dir, 0o700)
+        except Exception:
+            pass
+        token_file = token_dir / "api_token"
+        token_file.write_text(token)
+        try:
+            os.chmod(token_file, 0o600)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"No se pudo guardar api_token: {e}")
+
+
+_save_api_token(API_TOKEN)
+
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(

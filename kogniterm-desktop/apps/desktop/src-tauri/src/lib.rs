@@ -8,7 +8,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::send_message,
             commands::check_server_status,
-            commands::get_cwd
+            commands::get_cwd,
+            commands::get_api_token
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -21,3 +21,10 @@ def test_websocket_invalid_token():
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ws/test-session?token=invalid_token"):
             pass
+
+def test_get_api_token_resolution():
+    """Verifica que get_api_token() devuelva el token activo del servidor."""
+    from kogniterm.terminal.tui.ws_client import get_api_token
+    token = get_api_token()
+    assert token == API_TOKEN
+
