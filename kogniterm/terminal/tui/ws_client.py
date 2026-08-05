@@ -13,6 +13,7 @@ Estrategia híbrida:
 
 from __future__ import annotations
 
+import sys
 import asyncio
 import json
 import logging
@@ -37,12 +38,6 @@ def get_api_token() -> str:
     if token:
         return token
     try:
-        from kogniterm.server.app import API_TOKEN
-        if API_TOKEN:
-            return API_TOKEN
-    except Exception:
-        pass
-    try:
         token_file = Path.home() / ".kogniterm" / "api_token"
         if token_file.exists():
             content = token_file.read_text().strip()
@@ -50,6 +45,13 @@ def get_api_token() -> str:
                 return content
     except Exception:
         pass
+    if "kogniterm.server.app" in sys.modules:
+        try:
+            from kogniterm.server.app import API_TOKEN
+            if API_TOKEN:
+                return API_TOKEN
+        except Exception:
+            pass
     return ""
 
 

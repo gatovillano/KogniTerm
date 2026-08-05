@@ -211,19 +211,30 @@ async def lifespan(app: FastAPI):
 
 # ── Seguridad y Autenticación ──────────────────────────────────────────────────
 
-API_TOKEN = os.environ.get("KOGNITERM_API_TOKEN") or secrets.token_urlsafe(32)
+def _get_or_create_api_token() -> str:
+    env_token = os.environ.get("KOGNITERM_API_TOKEN")
+    if env_token:
+        return env_token
 
+    token_dir = Path.home() / ".kogniterm"
+    token_file = token_dir / "api_token"
 
-def _save_api_token(token: str) -> None:
+    if token_file.exists():
+        try:
+            content = token_file.read_text().strip()
+            if content:
+                return content
+        except Exception:
+            pass
+
+    new_token = secrets.token_urlsafe(32)
     try:
-        token_dir = Path.home() / ".kogniterm"
         token_dir.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(token_dir, 0o700)
         except Exception:
             pass
-        token_file = token_dir / "api_token"
-        token_file.write_text(token)
+        token_file.write_text(new_token)
         try:
             os.chmod(token_file, 0o600)
         except Exception:
@@ -231,8 +242,10 @@ def _save_api_token(token: str) -> None:
     except Exception as e:
         logger.warning(f"No se pudo guardar api_token: {e}")
 
+    return new_token
 
-_save_api_token(API_TOKEN)
+
+API_TOKEN = _get_or_create_api_token()
 
 ALLOWED_ORIGINS = [
     o.strip()
@@ -245,11 +258,13 @@ ALLOWED_ORIGINS = [
 
 
 def require_token(
-    request: HTTPConnection,
+    request: Request = None,
     authorization: Optional[str] = Header(None),
     token: Optional[str] = Query(None),
 ):
-    if request.url.path in ("/health", "/docs", "/openapi.json", "/redoc") or request.scope.get("type") == "websocket":
+    if request is None or request.scope.get("type") == "websocket":
+        return
+    if request.url.path in ("/health", "/docs", "/openapi.json", "/redoc"):
         return
     provided = None
     if authorization and authorization.startswith("Bearer "):
