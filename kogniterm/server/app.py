@@ -1350,6 +1350,7 @@ def create_app() -> FastAPI:
           {"type": "done",         "data": {...}, "ts": "..."}  → fin de ciclo
           {"type": "error",        "data": {...}, "ts": "..."}  → error
           {"type": "pong",         "data": {},    "ts": "..."}  → respuesta keep-alive
+        """
         # Validar Origin (Cross-Site WebSocket Hijacking Protection)
         origin = websocket.headers.get("origin")
         if origin and ALLOWED_ORIGINS and "*" not in ALLOWED_ORIGINS:
