@@ -13,6 +13,18 @@ def _get_api_base_url() -> str:
 
 API_BASE_URL = _get_api_base_url()  # Sin /api, para coincidir con el backend real
 
+
+def _get_headers() -> dict:
+    try:
+        from kogniterm.terminal.tui.ws_client import get_api_token
+        token = get_api_token()
+        if token:
+            return {"Authorization": f"Bearer {token}"}
+    except Exception:
+        pass
+    return {}
+
+
 async def send_chat_message(message: str, workspace_id: str = None, session_id: str = None, thread_id: str = None):
     """
     Envía un mensaje de chat al backend centralizado y retorna la respuesta.
@@ -24,25 +36,28 @@ async def send_chat_message(message: str, workspace_id: str = None, session_id: 
         payload["workspace_id"] = workspace_id
     if thread_id:
         payload["thread_id"] = thread_id
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(headers=_get_headers(), timeout=60) as client:
         resp = await client.post(f"{API_BASE_URL}/chat/{sid}", json=payload)
         resp.raise_for_status()
         return resp.json()
+
 
 async def get_available_models():
     """
     Consulta la lista de modelos y proveedores disponibles desde el backend.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers=_get_headers()) as client:
         resp = await client.get(f"{API_BASE_URL}/models/available")
         resp.raise_for_status()
         return resp.json()
 
+
 async def get_llm_config():
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers=_get_headers()) as client:
         resp = await client.get(f"{API_BASE_URL}/config/llm")
         resp.raise_for_status()
         return resp.json()
+
 
 async def set_llm_config(model_name: str = None, provider: str = None, api_key: str = None):
     payload = {}
@@ -52,14 +67,15 @@ async def set_llm_config(model_name: str = None, provider: str = None, api_key: 
         payload["provider"] = provider
     if api_key:
         payload["api_key"] = api_key
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers=_get_headers()) as client:
         resp = await client.post(f"{API_BASE_URL}/config/llm", json=payload)
         resp.raise_for_status()
         return resp.json()
 
+
 async def set_config_value(key: str, value: str, scope: str = "global"):
     payload = {"key": key, "value": value, "scope": scope}
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers=_get_headers()) as client:
         resp = await client.post(f"{API_BASE_URL}/api/config/set", json=payload)
         resp.raise_for_status()
         return resp.json()
