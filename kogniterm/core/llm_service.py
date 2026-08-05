@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import queue
+import secrets
 from typing import List, Any, Generator, Optional, Union, Dict
 from collections import deque
 from langchain_core.tools import BaseTool
@@ -18,6 +19,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 from typing import Union # ¡Nueva importación para Union!
 import contextvars
+
+_ANTIGRAVITY_SESSION_TOKEN = "antigravity-session-token"
 
 # Importar ConfigManager para gestión centralizada de credenciales
 from kogniterm.terminal.config_manager import ConfigManager
@@ -216,7 +219,7 @@ class LLMService:
             
         # Determinar API Key de forma inteligente según el modelo inicial (prioriza config.json)
         if self.model_name.startswith("antigravity/"):
-            self.api_key = "antigravity-session-token"
+            self.api_key = _ANTIGRAVITY_SESSION_TOKEN
         elif self.model_name.startswith("gemini/"):
             self.api_key = config_manager.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("LITELLM_API_KEY")
             if self.api_key:
@@ -523,9 +526,9 @@ class LLMService:
         self.history_manager.conversation_history = value
 
     def _generate_short_id(self, length: int = 9) -> str:
-        """Genera un ID alfanumérico corto compatible con proveedores estrictos como Mistral."""
+        """Genera un ID alfanumérico corto compatible con proveedores strictly como Mistral."""
         chars = string.ascii_letters + string.digits
-        return ''.join(random.choice(chars) for _ in range(length))
+        return ''.join(secrets.choice(chars) for _ in range(length))
 
     def _normalize_reasoning_effort(self, effort: Optional[str]) -> Optional[str]:
         """Normaliza y valida el esfuerzo de razonamiento soportado por modelos compatibles."""
@@ -1068,7 +1071,7 @@ class LLMService:
             logger.info(f"🤖 Cambiado a KiloCode: {model_name}")
 
         elif provider == "antigravity":
-            self.api_key = "antigravity-session-token"
+            self.api_key = _ANTIGRAVITY_SESSION_TOKEN
             os.environ["LITELLM_API_KEY"] = self.api_key
             litellm.api_base = None
             litellm.headers = {}

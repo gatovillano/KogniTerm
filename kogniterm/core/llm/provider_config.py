@@ -1,6 +1,6 @@
 import os
 import sys
-import random
+import secrets
 import string
 import logging
 from typing import Optional, Dict, Any
@@ -183,4 +183,4 @@ class ProviderConfig:
 
 def generate_id(length: int = 12) -> str:
     chars = string.ascii_letters + string.digits
-    return ''.join(random.choice(chars) for _ in range(length))
+    return ''.join(secrets.choice(chars) for _ in range(length))
