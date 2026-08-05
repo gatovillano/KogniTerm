@@ -753,11 +753,14 @@ class AgentSession:
             processed = False
             msg_lower = message.lower().strip()
 
-            if msg_lower in ("%reset", "/reset"):
+            if msg_lower in ("%reset", "/reset", "reset"):
                 self.agent_state.reset()
                 if self.thread_manager:
                     self.thread_manager.save_thread_messages(self.session_id, [])
-                self.ui.print_message("Sesión reiniciada correctamente.", style="green")
+                if hasattr(self.ui, "clear_chat"):
+                    self.ui.clear_chat()
+                else:
+                    self.ui.print_message("Sesión reiniciada correctamente.", style="green")
                 processed = True
             elif msg_lower in ("%index", "/index"):
                 self.ui.print_message(

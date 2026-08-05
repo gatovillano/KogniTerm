@@ -78,7 +78,7 @@ class MetaCommandProcessor:
                 return True
             sys.exit()
 
-        if user_input.lower().strip() == '/reset':
+        if user_input.lower().strip() in ('/reset', '%reset', 'reset'):
             self.agent_state.reset() # Reiniciar el estado
             # También reiniciamos el historial de llm_service al resetear la conversación
             self.llm_service.conversation_history = []
@@ -89,7 +89,7 @@ class MetaCommandProcessor:
             # Sincronizar agent_state.messages con el historial
             self.agent_state.messages = self.llm_service.conversation_history.copy()
             
-            # Clear chat screen
+            # Clear chat screen and return to welcome screen
             if hasattr(self.terminal_ui, "clear_chat"):
                 self.terminal_ui.clear_chat()
             else:
@@ -105,7 +105,6 @@ class MetaCommandProcessor:
                     pass
                 # Finally print banner again
                 self.terminal_ui.print_welcome_banner()
-            self.terminal_ui.print_message(f"Conversation reset.", style="green")
             if hasattr(self.kogniterm_app, "session_manager") and self.kogniterm_app.session_manager:
                 self.kogniterm_app.session_manager.current_session_name = None
             
