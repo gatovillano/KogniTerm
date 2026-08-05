@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import uuid
 import time
@@ -205,9 +206,10 @@ class AntigravityClient:
                         if not thought_sig:
                             thought_sig = "skip_thought_signature_validator"
                         tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                        raw_name = fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None)
                         fc_part = {
                             "functionCall": {
-                                "name": fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None),
+                                "name": AntigravityClient._sanitize_tool_name(raw_name),
                                 "args": args,
                             }
                         }
@@ -261,7 +263,7 @@ class AntigravityClient:
                 
                 fn_resp = {
                     "functionResponse": {
-                        "name": name,
+                        "name": AntigravityClient._sanitize_tool_name(name),
                         "response": resp_obj,
                         "id": tool_call_id
                     }
@@ -430,6 +432,26 @@ class AntigravityClient:
         return alternated
 
     @staticmethod
+    def _sanitize_tool_name(name: Optional[str]) -> str:
+        """
+        Sanea el nombre de una herramienta para cumplir con el formato estricto de la API de Gemini:
+        - Debe comenzar con una letra [a-zA-Z] o un guion bajo [_].
+        - Solo puede contener caracteres alfanuméricos [a-zA-Z0-9], guiones bajos [_], puntos [.], dos puntos [:] o guiones [-].
+        - Longitud máxima de 128 caracteres.
+        """
+        if not name or not isinstance(name, str):
+            return "_unnamed_function"
+        
+        sanitized = re.sub(r'[^a-zA-Z0-9_.:-]', '_', name)
+        if not sanitized or not re.match(r'^[a-zA-Z_]', sanitized):
+            sanitized = f"_{sanitized}"
+            
+        if len(sanitized) > 128:
+            sanitized = sanitized[:128]
+            
+        return sanitized
+
+    @staticmethod
     def map_tools(openai_tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
         """
         Normaliza herramientas al formato estricto de Gemini (función por functionDeclarations).
@@ -487,7 +509,7 @@ class AntigravityClient:
                     return new_schema
                 
                 decl = {
-                    "name": fn.get("name"),
+                    "name": AntigravityClient._sanitize_tool_name(fn.get("name")),
                     "description": fn.get("description") or "",
                     "parameters": convert_schema(fn.get("parameters", {}))
                 }

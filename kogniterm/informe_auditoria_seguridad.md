@@ -609,10 +609,20 @@ def _replace_or_append_tool_message(self, tool_call_id: str, content: str) -> No
 | SECRET-01 | Tokens hardcodeados | Media | CWE-798 | A07:2025 | `core/llm_service.py`, `server/config.py` |
 | BANDIT-01 | Generador no criptografico | Media | CWE-330 | A02:2025 | `ui/visual_components.py` |
 | BANDIT-02 | try/except pass | Baja | CWE-703 | A04:2025 | Multiples archivos |
-| APPR-01 | Bypass de aprobacion por tool_name fallback | Media | CWE-22 | A01:2025 | `terminal/command_approval_handler.py` |
 | APPR-02 | Race condition en aprobacion concurrente | Media | CWE-362 | A04:2025 | `terminal/command_approval_handler.py` |
 
----2. **Agregar validacion de comandos**
+---
+
+## 5. Recomendaciones Priorizadas
+
+### Prioridad 1 (Critica) - Implementar inmediatamente
+
+1. **Implementar autenticacion en la API**
+   - Agregar middleware de autenticacion (API key, JWT)
+   - Proteger todos los endpoints sensibles
+   - Implementar autorizacion por rol
+
+2. **Agregar validacion de comandos**
    - Implementar allowlist de comandos permitidos
    - Agregar filtrado de caracteres peligrosos
    - Ejecutar en sandbox aislado
@@ -634,6 +644,20 @@ def _replace_or_append_tool_message(self, tool_call_id: str, content: str) -> No
    - Revisar necesidad de `allow_credentials`
 
 6. **Validar workspace_dir**
+   - Agregar validacion en WebSocket
+   - Implementar allowlist de workspaces
+
+7. **Corregir race conditions**
+   - Agregar locks en `SessionPool`
+   - Revisar concurrencia en sesiones
+
+8. **Implementar rate limiting**
+   - Aplicar rate limiting en endpoints sensibles
+   - Configurar limites por usuario/IP
+
+### Prioridad 3 (Media) - Mejora continua
+
+9. **Reducir informacion en health check**6. **Validar workspace_dir**
    - Agregar validacion en WebSocket
    - Implementar allowlist de workspaces
 
