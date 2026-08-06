@@ -38,8 +38,18 @@ export const RightSidebar: React.FC<{
         }
     }, [pendingApproval?.id]);
 
+    const totalActiveTasks = Object.values(taskPlans).reduce(
+        (acc, plan) => acc + (plan?.filter((t: any) => t.status !== 'done').length || 0),
+        0
+    );
+
     const tabs: { id: TabId; label: string; icon: React.ElementType; badge?: number }[] = [
-        { id: 'tasks', label: 'Tareas', icon: ListTodo },
+        {
+            id: 'tasks',
+            label: 'Tareas',
+            icon: ListTodo,
+            badge: totalActiveTasks > 0 ? totalActiveTasks : undefined,
+        },
         {
             id: 'terminal',
             label: 'Terminal',

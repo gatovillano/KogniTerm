@@ -30,7 +30,7 @@ export function TaskTracker({ taskPlans }: TaskTrackerProps) {
   };
 
   return (
-    <div className="flex flex-col w-72 border-l border-zinc-800 bg-zinc-950/50 overflow-y-auto animate-slide-in-right">
+    <div className="flex flex-col w-full bg-zinc-950/50 overflow-y-auto">
       <div className="p-4 border-b border-zinc-800/50 sticky top-0 bg-zinc-950/80 backdrop-blur-md z-10 flex items-center gap-2">
         <ListTodo size={18} className="text-indigo-400" />
         <h3 className="font-medium text-sm text-zinc-200">Plan de Tareas</h3>

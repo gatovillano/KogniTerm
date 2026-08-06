@@ -27,6 +27,7 @@ function App() {
     isGenerating,
     error,
     sendMessage,
+    stopGeneration,
     taskPlans,
     pendingApproval,
     respondApproval,
@@ -416,6 +417,7 @@ function App() {
                       <ChatInput 
                         onSendMessage={handleSendMessage} 
                         isGenerating={isGenerating} 
+                        onStopGeneration={stopGeneration}
                         currentDir={currentDir}
                         onChangeDir={handleChangeDir}
                         messageQueue={messageQueue}
@@ -468,6 +470,7 @@ function App() {
                 <ChatInput 
                   onSendMessage={handleSendMessage} 
                   isGenerating={isGenerating} 
+                  onStopGeneration={stopGeneration}
                   currentDir={currentDir}
                   onChangeDir={handleChangeDir}
                   messageQueue={messageQueue}

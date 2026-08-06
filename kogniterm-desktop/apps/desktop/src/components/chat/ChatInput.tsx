@@ -4,6 +4,7 @@ import { Folder, Sparkles, Paperclip, Square, ChevronDown, ChevronUp, X, ArrowUp
 interface ChatInputProps {
     onSendMessage: (message: string) => void;
     isGenerating: boolean;
+    onStopGeneration?: () => void;
     currentDir: string;
     onChangeDir: () => void;
     onOpenSettings?: () => void;
@@ -18,6 +19,7 @@ interface ChatInputProps {
 export const ChatInput: React.FC<ChatInputProps> = ({ 
     onSendMessage, 
     isGenerating, 
+    onStopGeneration,
     currentDir, 
     onChangeDir,
     onOpenSettings,
@@ -506,7 +508,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                                 {isGenerating ? (
                                     <button
                                         type="button"
-                                        className="h-7 w-7 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center text-white transition-all animate-pulse"
+                                        onClick={onStopGeneration}
+                                        className="h-7 w-7 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center text-white transition-all animate-pulse cursor-pointer"
                                         title="Detener respuesta"
                                     >
                                         <Square size={8} fill="white" className="text-white" />

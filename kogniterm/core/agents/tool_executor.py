@@ -109,23 +109,43 @@ class ToolExecutor:
         try:
             full_tool_output = ""
             last_ui_update = 0
+            is_terminal_tool = (
+                tool_name in {"execute_command", "execute_command_tool", "run_command", "run_command_tool", "bash", "cmd_execution", "python_executor", "python_executor_tool", "shell", "terminal"}
+                or any(kw in tool_name.lower() for kw in ["command", "bash", "terminal", "shell", "python_exec"])
+            )
+
             for part in llm_service._invoke_tool_with_interrupt(
                 tool, tool_args, delegation_context
             ):
                 if part:
                     full_tool_output += str(part)
                     current_time = time.time()
-                    # Solo refrescar live UI en CLI; en TUI el render final se gestiona al acabar
                     if (
                         not is_tui
                         and terminal_ui
-                        and hasattr(terminal_ui, "update_tool_display")
                         and (current_time - last_ui_update > ui_update_interval)
                     ):
-                        terminal_ui.update_tool_display(
-                            tool_name, full_tool_output, command=command_hint
-                        )
+                        if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
+                            terminal_ui.update_terminal_output(
+                                tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
+                            )
+                        if hasattr(terminal_ui, "update_tool_display"):
+                            terminal_ui.update_tool_display(
+                                tool_name, full_tool_output, command=command_hint
+                            )
                         last_ui_update = current_time
+
+            # Emitir actualización final para la UI
+            if not is_tui and terminal_ui:
+                if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
+                    terminal_ui.update_terminal_output(
+                        tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
+                    )
+                if hasattr(terminal_ui, "update_tool_display"):
+                    terminal_ui.update_tool_display(
+                        tool_name, full_tool_output, command=command_hint
+                    )
+
             # Post-procesamiento (Skills refresh, etc.)
             full_tool_output = ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)
 
