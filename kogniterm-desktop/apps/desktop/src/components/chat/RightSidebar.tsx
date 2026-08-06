@@ -128,7 +128,7 @@ export const RightSidebar: React.FC<{
     return (
         <aside
             style={{ width: `${width}px` }}
-            className={`relative flex h-full shrink-0 flex-col border-l border-zinc-800 bg-zinc-950 animate-slide-in-right ${
+            className={`relative flex h-full shrink-0 flex-col border-l border-zinc-200 bg-white animate-slide-in-right ${
                 isResizing ? 'select-none transition-none' : ''
             }`}
         >
@@ -142,7 +142,7 @@ export const RightSidebar: React.FC<{
                 <div className={`h-full w-0.5 transition-colors ${isResizing ? 'bg-indigo-500' : 'bg-transparent group-hover:bg-indigo-500/60'}`} />
             </div>
 
-            <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-950/80 px-2 pt-2 backdrop-blur-sm">
+            <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50/80 px-2 pt-2 backdrop-blur-sm">
                 <div className="flex items-center justify-center gap-1">
                     {tabs.map((tab) => {
                         const isActive = activeTab === tab.id;
@@ -153,19 +153,19 @@ export const RightSidebar: React.FC<{
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`relative flex h-9 w-9 shrink-0 appearance-none items-center justify-center rounded-lg border-0 bg-transparent transition-colors ${
                                     isActive
-                                        ? 'text-zinc-100'
-                                        : 'text-zinc-500 hover:text-zinc-300'
+                                        ? 'text-indigo-600 bg-indigo-50/80 font-semibold'
+                                        : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100/70'
                                 }`}
                                 title={tab.label}
                             >
                                 <Icon size={15} />
                                 {tab.badge !== undefined && tab.badge > 0 && (
-                                    <span className="absolute -right-1 -top-1 rounded-full bg-indigo-500 px-1 font-mono text-[10px] font-semibold leading-none text-white">
+                                    <span className="absolute -right-1 -top-1 rounded-full bg-indigo-600 px-1 font-mono text-[10px] font-semibold leading-none text-white">
                                         {tab.badge}
                                     </span>
                                 )}
                                 {isActive && (
-                                    <div className="absolute bottom-0 left-1/2 h-[2px] w-4 -translate-x-1/2 rounded-full bg-indigo-500" />
+                                    <div className="absolute bottom-0 left-1/2 h-[2px] w-4 -translate-x-1/2 rounded-full bg-indigo-600" />
                                 )}
                             </button>
                         );
@@ -174,7 +174,7 @@ export const RightSidebar: React.FC<{
                 <button
                     onClick={onToggle}
                     title={isOpen ? 'Ocultar panel' : 'Mostrar panel'}
-                    className="flex h-8 w-8 appearance-none items-center justify-center rounded-lg border-0 bg-transparent text-zinc-500 transition-colors hover:text-zinc-200"
+                    className="flex h-8 w-8 appearance-none items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
                 >
                     {isOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
                 </button>
@@ -188,9 +188,9 @@ export const RightSidebar: React.FC<{
                                 {hasActiveTasks ? (
                                     <TaskTracker taskPlans={taskPlans} />
                                 ) : (
-                                    <div className="flex h-full flex-col items-center justify-center gap-2 text-zinc-600">
-                                        <ListTodo size={24} className="text-zinc-600" />
-                                        <p className="text-[12px]">Sin tareas activas</p>
+                                    <div className="flex h-full flex-col items-center justify-center gap-2 text-zinc-400">
+                                        <ListTodo size={24} className="text-zinc-400" />
+                                        <p className="text-[12px] font-medium text-zinc-500">Sin tareas activas</p>
                                     </div>
                                 )}
                             </div>
@@ -220,9 +220,9 @@ export const RightSidebar: React.FC<{
                             </div>
                         )}
                         {activeTab === 'approval' && !pendingApproval && (
-                            <div className="flex h-full flex-col items-center justify-center gap-2 text-zinc-600">
-                                <ShieldCheck size={24} className="text-zinc-600" />
-                                <p className="text-[12px]">Sin aprobaciones pendientes</p>
+                            <div className="flex h-full flex-col items-center justify-center gap-2 text-zinc-400">
+                                <ShieldCheck size={24} className="text-zinc-400" />
+                                <p className="text-[12px] font-medium text-zinc-500">Sin aprobaciones pendientes</p>
                             </div>
                         )}
 

@@ -124,12 +124,12 @@ export const TerminalSidebar: React.FC<TerminalSidebarProps> = ({
 
     return (
         <div className="flex h-full w-full flex-col bg-[#0c0c0e]">
-            <div className="flex items-center justify-between border-b border-zinc-800/60 px-3 py-2">
+            <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-3 py-2">
                 <div className="flex items-center gap-2">
-                    <TerminalIcon size={13} className="text-emerald-400" />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Terminal</span>
+                    <TerminalIcon size={13} className="text-emerald-600" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-700">Terminal</span>
                     {entries.length > 0 && (
-                        <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400 border border-emerald-500/20">
+                        <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 font-mono text-[10px] text-emerald-700 border border-emerald-200 font-medium">
                             {entries.length}
                         </span>
                     )}
@@ -137,7 +137,7 @@ export const TerminalSidebar: React.FC<TerminalSidebarProps> = ({
                 {onClear && (
                     <button
                         onClick={onClear}
-                        className="rounded-lg p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                        className="rounded-lg p-1 text-zinc-400 transition-colors hover:bg-zinc-200/60 hover:text-zinc-700"
                         title="Limpiar terminal"
                     >
                         <X size={13} />

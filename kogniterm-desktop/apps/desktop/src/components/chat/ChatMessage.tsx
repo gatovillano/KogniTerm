@@ -197,39 +197,50 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                     {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
                                 </ReactMarkdown>
                             </div>
-                        ) : (
-                            <div className="assistant-msg-text markdown-content w-full px-1">
-                                <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-                                        code({ node, inline, className, children, ...props }: any) {
-                                            const match = /language-(\w+)/.exec(className || '');
-                                            return !inline && match ? (
-                                                <SyntaxHighlighter
-                                                    style={vs}
-                                                    language={match[1]}
-                                                    PreTag="div"
-                                                    className="rounded-xl !mt-3 !mb-3 !bg-zinc-50 !border !border-zinc-200 p-4 shadow-sm"
-                                                    {...props}
-                                                >
-                                                    {String(children).replace(/\n$/, '')}
-                                                </SyntaxHighlighter>
-                                            ) : (
-                                                <code className={`${className} bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-indigo-600 font-mono text-[13px]`} {...props}>
-                                                    {children}
-                                                </code>
-                                            );
-                                        },
-                                        p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed text-zinc-800">{children}</p>,
-                                        ul: ({ children }) => <ul className="list-disc ml-5 mb-3 marker:text-indigo-600">{children}</ul>,
-                                        ol: ({ children }) => <ol className="list-decimal ml-5 mb-3 marker:text-indigo-600">{children}</ol>,
-                                        hr: () => <hr className="border-t border-zinc-200 my-6" />,
-                                    }}
-                                >
-                                    {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
-                                </ReactMarkdown>
-                            </div>
-                        )
+                        ) : (() => {
+                            const rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+                            const parsedDiff = parseAppliedDiff(rawText);
+                            if (parsedDiff) {
+                                return (
+                                    <div className="w-full my-1">
+                                        <AppliedDiffCard diff={parsedDiff} defaultExpanded={true} />
+                                    </div>
+                                );
+                            }
+                            return (
+                                <div className="assistant-msg-text markdown-content w-full px-1">
+                                    <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        components={{
+                                            code({ node, inline, className, children, ...props }: any) {
+                                                const match = /language-(\w+)/.exec(className || '');
+                                                return !inline && match ? (
+                                                    <SyntaxHighlighter
+                                                        style={vs}
+                                                        language={match[1]}
+                                                        PreTag="div"
+                                                        className="rounded-xl !mt-3 !mb-3 !bg-zinc-50 !border !border-zinc-200 p-4 shadow-sm"
+                                                        {...props}
+                                                    >
+                                                        {String(children).replace(/\n$/, '')}
+                                                    </SyntaxHighlighter>
+                                                ) : (
+                                                    <code className={`${className} bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-indigo-600 font-mono text-[13px]`} {...props}>
+                                                        {children}
+                                                    </code>
+                                                );
+                                            },
+                                            p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed text-zinc-800">{children}</p>,
+                                            ul: ({ children }) => <ul className="list-disc ml-5 mb-3 marker:text-indigo-600">{children}</ul>,
+                                            ol: ({ children }) => <ol className="list-decimal ml-5 mb-3 marker:text-indigo-600">{children}</ol>,
+                                            hr: () => <hr className="border-t border-zinc-200 my-6" />,
+                                        }}
+                                    >
+                                        {rawText}
+                                    </ReactMarkdown>
+                                </div>
+                            );
+                        })()
                     )}
 
                     {/* Timestamp */}
