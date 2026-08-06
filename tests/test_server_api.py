@@ -1,7 +1,7 @@
 import pytest
 import os
 from fastapi.testclient import TestClient
-from kogniterm.server.app import create_app
+from kogniterm.server.app import create_app, API_TOKEN
 
 def test_workspace_files_endpoint(tmp_path, monkeypatch):
     # Setup mock workspace files
@@ -14,7 +14,8 @@ def test_workspace_files_endpoint(tmp_path, monkeypatch):
     app = create_app()
     client = TestClient(app)
 
-    response = client.get("/api/workspace/files?query=app_spec")
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    response = client.get("/api/workspace/files?query=app_spec", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert "results" in data
