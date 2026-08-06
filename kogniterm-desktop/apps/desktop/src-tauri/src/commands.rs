@@ -21,6 +21,11 @@ pub async fn check_server_status() -> bool {
 
 #[command]
 pub fn get_cwd() -> Result<String, String> {
+    if let Ok(workspace) = std::env::var("KOGNITERM_WORKSPACE") {
+        if !workspace.trim().is_empty() {
+            return Ok(workspace.trim().to_string());
+        }
+    }
     match std::env::current_dir() {
         Ok(path) => Ok(path.to_string_lossy().into_owned()),
         Err(e) => Err(e.to_string()),

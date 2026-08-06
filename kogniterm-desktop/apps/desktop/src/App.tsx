@@ -5,18 +5,17 @@ import { FileExplorer } from './components/files/FileExplorer';
 import { SkillsPanel } from './components/skills/SkillsPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { HeartbeatsPanel } from './components/heartbeats/HeartbeatsPanel';
-import { TaskTracker } from './components/chat/TaskTracker';
-import { TerminalPanel } from './components/chat/TerminalPanel';
-import { CommandApproval } from './components/chat/CommandApproval';
+import { RightSidebar } from './components/chat/RightSidebar';
+import { SessionHistoryPanel } from './components/session/SessionHistoryPanel';
 import { useChat } from './hooks/useChat';
 import { 
   Settings, Files, ShieldCheck, 
   Zap, History, PanelLeft, 
-  Trash2, Plus, FileText, HeartPulse, Sparkles
+  Trash2, Plus, HeartPulse, Sparkles, PanelRightOpen
 } from 'lucide-react';
 import './App.css';
 
-type ViewType = 'chat' | 'files' | 'skills' | 'heartbeat';
+type ViewType = 'chat' | 'files' | 'skills' | 'heartbeat' | 'session';
 
 function App() {
   const [currentThreadId, setCurrentThreadId] = useState<string>(() => {
@@ -32,9 +31,8 @@ function App() {
     pendingApproval,
     respondApproval,
     terminalEntries,
-    isTerminalVisible,
     sendTerminalInput,
-    closeTerminal,
+    clearTerminal,
   } = useChat(currentThreadId);
 
   const hasActiveTasks = Object.values(taskPlans).some((plan) => plan.length > 0);
@@ -48,12 +46,17 @@ function App() {
   // Sidebar state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isChatsExpanded, setIsChatsExpanded] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   
   // Message queue state
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
   
   // Threads list state (lifted from ThreadList.tsx)
   const [threads, setThreads] = useState<any[]>([]);
+
+  // Derived: título del hilo activo para mostrar en el encabezado
+  const activeThread = threads.find(t => t.id === currentThreadId);
+  const activeTitle = activeThread?.title || 'Nueva conversación';
 
   // Live Clock & Greeting State (Goose UI)
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -229,57 +232,62 @@ function App() {
         </div>
 
         {/* Navigation / Actions */}
-        <div className="p-2 flex flex-col gap-1.5">
-          {/* New Chat Button */}
-          <button 
+        <div className="px-2.5 py-2 flex flex-col gap-1">
+          {/* New Chat Item */}
+          <div 
             onClick={createThread}
-            className={`flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-100/80 text-slate-700 hover:text-slate-900 border border-slate-200/70 rounded-lg text-xs font-medium transition-all shadow-2xs active:scale-[0.98] ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+            className={`flex items-center gap-2.5 px-2 py-1.5 text-[13px] font-medium text-slate-700 hover:text-slate-900 cursor-pointer rounded-md hover:bg-slate-200/40 transition-colors ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+            title="Nuevo chat"
           >
-            <Plus size={14} className="text-slate-500" />
+            <Plus size={15} className="text-slate-500 shrink-0" />
             {!isSidebarCollapsed && <span>Nuevo chat</span>}
-          </button>
+          </div>
 
           {/* Nav Items List */}
           <nav className="flex flex-col gap-0.5 mt-1">
             {[
-              { id: 'recipes', icon: FileText, label: 'Recetas' },
               { id: 'skills', icon: Zap, label: 'Skills' },
               { id: 'heartbeat', icon: HeartPulse, label: 'Heartbeat' },
               { id: 'session', icon: History, label: 'Historial de sesiones' },
               { id: 'files', icon: Files, label: 'Archivos' }
-            ].map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  if (item.id === 'files') {
-                    setActiveView('files');
-                  } else if (item.id === 'skills') {
-                    setActiveView('skills');
-                  } else if (item.id === 'heartbeat') {
-                    setActiveView('heartbeat');
-                  } else {
-                    setActiveView('chat');
-                  }
-                }}
-                className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-[12.5px] transition-colors ${
-                  activeView === item.id
-                    ? 'bg-slate-200/60 text-slate-900 font-medium'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/30'
-                } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
-              >
-                <item.icon size={14} className={`shrink-0 ${activeView === item.id ? 'text-slate-900' : 'text-slate-400'}`} />
-                {!isSidebarCollapsed && <span>{item.label}</span>}
-              </button>
-            ))}
+            ].map((item) => {
+              const isActive = activeView === item.id;
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    if (item.id === 'files') {
+                      setActiveView('files');
+                    } else if (item.id === 'skills') {
+                      setActiveView('skills');
+                    } else if (item.id === 'heartbeat') {
+                      setActiveView('heartbeat');
+                    } else if (item.id === 'session') {
+                      setActiveView('session');
+                    } else {
+                      setActiveView('chat');
+                    }
+                  }}
+                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] cursor-pointer transition-colors ${
+                    isActive
+                      ? 'text-slate-900 font-semibold bg-slate-200/60'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/40'
+                  } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+                >
+                  <item.icon size={15} className={`shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
+                  {!isSidebarCollapsed && <span>{item.label}</span>}
+                </div>
+              );
+            })}
           </nav>
         </div>
 
         {/* Collapsible CHATS Section */}
         {!isSidebarCollapsed && (
-          <div className="flex-1 flex flex-col min-h-0 border-t border-slate-200/50 mt-1.5 pt-2">
-            <button 
+          <div className="flex-1 flex flex-col min-h-0 border-t border-slate-200/40 mt-1 pt-2">
+            <div 
               onClick={() => setIsChatsExpanded(!isChatsExpanded)}
-              className="flex items-center justify-between px-3 py-1 text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-wider transition-colors text-left"
+              className="flex items-center justify-between px-4 py-1 text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-wider transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-1">
                 <span className="text-[8px] text-slate-400">▾</span>
@@ -288,10 +296,10 @@ function App() {
               <span className="text-[10px] text-slate-400 font-mono">
                 {threads.length}
               </span>
-            </button>
+            </div>
 
             {isChatsExpanded && (
-              <div className="flex-1 overflow-y-auto goose-scrollbar px-1.5 py-1 space-y-0.5">
+              <div className="flex-1 overflow-y-auto goose-scrollbar px-2 py-1 space-y-0.5">
                 {threads.map(thread => {
                   const isCurrent = currentThreadId === thread.id;
                   return (
@@ -301,10 +309,10 @@ function App() {
                         setCurrentThreadId(thread.id);
                         setActiveView('chat');
                       }}
-                      className={`group flex items-center justify-between px-2.5 py-1.5 rounded-md cursor-pointer text-xs transition-colors ${
+                      className={`group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors ${
                         isCurrent 
-                          ? 'bg-slate-200/60 text-slate-900 font-medium' 
-                          : 'text-slate-600 hover:bg-slate-200/30 hover:text-slate-900'
+                          ? 'text-slate-900 font-semibold bg-slate-200/60' 
+                          : 'text-slate-600 hover:bg-slate-200/40 hover:text-slate-900'
                       }`}
                     >
                       <div className="flex items-center space-x-2 truncate flex-1 min-w-0 pr-1">
@@ -322,7 +330,7 @@ function App() {
                   );
                 })}
                 {threads.length === 0 && (
-                  <div className="px-2.5 py-1.5 text-[11px] text-slate-400 italic">
+                  <div className="px-2 py-1.5 text-[11px] text-slate-400 italic">
                     Sin hilos guardados.
                   </div>
                 )}
@@ -332,14 +340,14 @@ function App() {
         )}
 
         {/* Sidebar Footer with Settings */}
-        <div className="p-2 border-t border-slate-200/50 mt-auto">
-          <button
+        <div className="px-2.5 py-2 border-t border-slate-200/40 mt-auto">
+          <div
             onClick={() => setIsSettingsOpen(true)}
-            className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/40 rounded-lg text-[12.5px] transition-colors ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+            className={`flex items-center gap-2.5 px-2 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/40 rounded-md text-[13px] cursor-pointer transition-colors ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
           >
-            <Settings size={14} className="text-slate-400" />
+            <Settings size={15} className="text-slate-400 shrink-0" />
             {!isSidebarCollapsed && <span>Ajustes</span>}
-          </button>
+          </div>
         </div>
       </aside>
 
@@ -353,6 +361,11 @@ function App() {
               <div className="flex items-center gap-2">
                 <span className="font-bold text-xs text-slate-800 tracking-tight">KogniTerm</span>
               </div>
+            )}
+            {!isSidebarCollapsed && (
+              <span className="text-xs font-medium text-slate-500 truncate max-w-[180px]" title={activeTitle}>
+                {activeTitle}
+              </span>
             )}
           </div>
 
@@ -380,7 +393,7 @@ function App() {
           <div className="flex flex-1 overflow-hidden relative">
             <div className="flex-1 flex flex-col relative min-w-0">
               
-              <section className={`flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth ${isTerminalVisible ? 'pb-16' : 'pb-32'}`}>
+              <section className="flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth pb-32">
                 <div className="max-w-3xl mx-auto py-8">
                   {messages.length === 0 ? (
                     <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
@@ -450,34 +463,46 @@ function App() {
                 </div>
               </section>
 
-              {/* Terminal Panel — docked at bottom when visible */}
-              <TerminalPanel
-                entries={terminalEntries}
-                isVisible={isTerminalVisible}
-                onClose={closeTerminal}
-                onTerminalInput={sendTerminalInput}
-              />
-
-                {/* Bottom Fixed ChatInput when messages exist */}
-                {messages.length > 0 && (
-                  <ChatInput 
-                    onSendMessage={handleSendMessage} 
-                    isGenerating={isGenerating} 
-                    currentDir={currentDir}
-                    onChangeDir={handleChangeDir}
-                    messageQueue={messageQueue}
-                    onRemoveFromQueue={handleRemoveFromQueue}
-                    onProcessNext={handleProcessNextQueueItem}
-                    isFloating={false}
-                  />
-                )}
-              </div>
-
-              {/* Task Tracker Panel */}
-              {hasActiveTasks && (
-                <TaskTracker taskPlans={taskPlans} />
+              {/* Bottom Fixed ChatInput when messages exist */}
+              {messages.length > 0 && (
+                <ChatInput 
+                  onSendMessage={handleSendMessage} 
+                  isGenerating={isGenerating} 
+                  currentDir={currentDir}
+                  onChangeDir={handleChangeDir}
+                  messageQueue={messageQueue}
+                  onRemoveFromQueue={handleRemoveFromQueue}
+                  onProcessNext={handleProcessNextQueueItem}
+                  isFloating={false}
+                />
               )}
             </div>
+
+            {/* Right Sidebar: Tareas | Terminal | Aprobación */}
+            {isRightSidebarOpen && (
+                <RightSidebar
+                    taskPlans={taskPlans}
+                    hasActiveTasks={hasActiveTasks}
+                    pendingApproval={pendingApproval}
+                    onApprove={(id) => respondApproval(id, true)}
+                    onReject={(id) => respondApproval(id, false)}
+                    terminalEntries={terminalEntries}
+                    onTerminalInput={sendTerminalInput}
+                    onClearTerminal={clearTerminal}
+                    isOpen={isRightSidebarOpen}
+                    onToggle={() => setIsRightSidebarOpen((prev) => !prev)}
+                />
+            )}
+            {!isRightSidebarOpen && (
+                <button
+                    onClick={() => setIsRightSidebarOpen(true)}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-l border-zinc-800 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                    title="Mostrar panel lateral"
+                >
+                    <PanelRightOpen size={16} />
+                </button>
+            )}
+          </div>
           )}
 
           {activeView === 'files' && (
@@ -497,16 +522,22 @@ function App() {
               <HeartbeatsPanel />
             </div>
           )}
-        </main>
 
-        {/* Command Approval Modal */}
-        {pendingApproval && (
-          <CommandApproval
-            request={pendingApproval}
-            onApprove={(id) => respondApproval(id, true)}
-            onReject={(id) => respondApproval(id, false)}
-          />
-        )}
+          {activeView === 'session' && (
+            <div className="flex-1 overflow-hidden">
+              <SessionHistoryPanel
+                threads={threads}
+                currentThreadId={currentThreadId}
+                onSelectThread={(id) => {
+                  setCurrentThreadId(id);
+                  setActiveView('chat');
+                }}
+                onDeleteThread={deleteThread}
+                onNewSession={createThread}
+              />
+            </div>
+          )}
+        </main>
 
         {/* Settings Modal */}
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />

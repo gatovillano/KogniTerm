@@ -6,6 +6,7 @@ interface ChatInputProps {
     isGenerating: boolean;
     currentDir: string;
     onChangeDir: () => void;
+    onOpenSettings?: () => void;
     
     // Queue props
     messageQueue: string[];
@@ -19,6 +20,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     isGenerating, 
     currentDir, 
     onChangeDir,
+    onOpenSettings,
     messageQueue,
     onRemoveFromQueue,
     onProcessNext,
@@ -28,6 +30,23 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [isFocused, setIsFocused] = useState(false);
     const [isQueueExpanded, setIsQueueExpanded] = useState(true);
+    const [configuredModel, setConfiguredModel] = useState<string>('gemini/gemini-1.5-flash');
+
+    useEffect(() => {
+        const fetchConfiguredModel = async () => {
+            try {
+                const res = await fetch('http://localhost:8765/api/config/all');
+                if (res.ok) {
+                    const data = await res.json();
+                    const model = data.merged?.default_model || 'gemini/gemini-1.5-flash';
+                    setConfiguredModel(model);
+                }
+            } catch (err) {
+                console.error("Error al obtener modelo configurado:", err);
+            }
+        };
+        fetchConfiguredModel();
+    }, []);
 
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [suggestions, setSuggestions] = useState<{ command: string; desc: string }[]>([]);
@@ -318,11 +337,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                             {/* Model selection pill */}
                             <button
                                 type="button"
-                                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 text-[11px] font-mono hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
-                                title="Modelo activo"
+                                onClick={onOpenSettings}
+                                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 text-[11px] font-mono hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none cursor-pointer"
+                                title="Click para cambiar el modelo activo en Ajustes"
                             >
                                 <Box size={12} className="text-zinc-500" />
-                                <span>poolside/laguna-xs.2:free</span>
+                                <span>{configuredModel}</span>
                             </button>
 
                             {/* Active Directory Label */}

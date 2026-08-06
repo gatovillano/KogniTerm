@@ -161,7 +161,7 @@ class HistoryManager:
     SUMMARY_TRUNCATION_SUFFIX = "... [Resumen truncado para evitar bucles]"
     MAX_TOOL_MESSAGE_CONTENT_LENGTH_ASSUMED = 100000
     
-    def __init__(self, history_file_path: str, max_history_messages: int = 100, max_history_chars: int = 150000, auto_save_interval: Optional[float] = None, thread_manager: Optional[Any] = None):
+    def __init__(self, history_file_path: str, max_history_messages: int = 100, max_history_chars: int = 150000, auto_save_interval: Optional[float] = None, thread_manager: Optional[Any] = None, llm_service: Optional[Any] = None):
         self.history_file_path = history_file_path
         self.max_history_messages = max_history_messages
         self.max_history_chars = max_history_chars
@@ -174,6 +174,7 @@ class HistoryManager:
         # El sistema de persistencia ahora es gestionado por ThreadManager.
         self.autosave_manager = None
         self._thread_manager = thread_manager
+        self._llm_service = llm_service
         self._logger = __import__('logging').getLogger(__name__)
         
         # Autoguardado periódico
@@ -200,6 +201,10 @@ class HistoryManager:
         """Inyecta (o reemplaza) el ThreadManager en tiempo de ejecución."""
         self._thread_manager = thread_manager
 
+    def set_llm_service(self, llm_service) -> None:
+        """Inyecta (o reemplaza) el LLMService en tiempo de ejecución para generación de títulos."""
+        self._llm_service = llm_service
+
     def _save_to_active_thread(self, history: List[BaseMessage]) -> None:
         """Persiste el historial en el hilo activo del ThreadManager, si existe."""
         if not self._thread_manager:
@@ -208,7 +213,7 @@ class HistoryManager:
         if not thread_id:
             return
         try:
-            self._thread_manager.save_thread_messages(thread_id, history)
+            self._thread_manager.save_thread_messages(thread_id, history, llm_service=self._llm_service)
         except Exception as exc:
             self._logger.error("Error persistiendo historial en hilo %s: %s", thread_id, exc)
 
