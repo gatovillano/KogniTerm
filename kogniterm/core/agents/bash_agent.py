@@ -415,8 +415,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
         tool_output_str = f"Operación denegada por el usuario: {state.tool_pending_confirmation or state.tool_code_tool_name}"
         state.add_message(ToolMessage(content=tool_output_str, tool_call_id=tool_id))
 
-    state.reset_tool_confirmation() # Limpiar el estado de confirmación
-    state.tool_call_id_to_confirm = None # Limpiar también el tool_call_id guardado
+    state.pop_pending_confirmation() # Avanzar a la siguiente confirmación si existe
     return state
 
 
@@ -859,10 +858,12 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     # que causan cierres silenciosos.
                     if terminal_ui and getattr(terminal_ui, "is_tui", False):
                         logger.info(f"Agente: Postergando confirmación de '{exception.tool_name}' para el hilo principal TUI.")
-                        state.tool_pending_confirmation = exception.tool_name
-                        state.tool_args_pending_confirmation = exception.tool_args
-                        state.tool_call_id_to_confirm = tool_id
-                        state.file_update_diff_pending_confirmation = exception.raw_tool_output
+                        state.add_pending_confirmation(
+                            tool_name=exception.tool_name,
+                            tool_args=exception.tool_args,
+                            tool_call_id=tool_id,
+                            raw_tool_output=exception.raw_tool_output,
+                        )
                         
                         logger.info("[DIAG] bash_agent: returning TUI confirmation dict - file_diff=%s, tool_pend=%s, tool_id=%s",
                             exception.raw_tool_output is not None,
@@ -872,10 +873,10 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                         executor.shutdown(wait=False)
                         return {
                             "messages": state.messages,
-                            "tool_pending_confirmation": exception.tool_name,
-                            "tool_args_pending_confirmation": exception.tool_args,
-                            "tool_call_id_to_confirm": tool_id,
-                            "file_update_diff_pending_confirmation": exception.raw_tool_output
+                            "tool_pending_confirmation": state.tool_pending_confirmation,
+                            "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
+                            "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                            "file_update_diff_pending_confirmation": state.file_update_diff_pending_confirmation,
                         }
 
                     # MODO CLI (O NO-TUI): Manejar la confirmación DIRECTAMENTE sin involucrar al LLM

@@ -2774,9 +2774,8 @@ class KogniTermTUI(App):
                             file_path=file_path,
                         )
 
-                    # Limpiar estado de confirmación
-                    self.agent_state.reset_tool_confirmation()
-                    self.agent_state.tool_call_id_to_confirm = None
+                    # Desencolar/avanzar la confirmación actual
+                    self.agent_state.pop_pending_confirmation()
 
                     if not approved:
                         self.tui_ui.print_warning_box(

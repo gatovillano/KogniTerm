@@ -1,26 +1,188 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Message } from '../types/chat';
+import { Message, AppliedDiff } from '../types/chat';
 import { ApprovalRequest } from '../components/chat/CommandApproval';
 import { TerminalEntry } from '../components/chat/TerminalPanel';
 
+export function parseAppliedDiff(
+    rawContent: string,
+    fallbackFilePath?: string,
+    toolName?: string
+): AppliedDiff | null {
+    if (!rawContent || typeof rawContent !== 'string') return null;
+
+    let diffText = rawContent;
+    let filePath = fallbackFilePath || '';
+
+    if (rawContent.trim().startsWith('{') && rawContent.trim().endsWith('}')) {
+        try {
+            const parsed = JSON.parse(rawContent);
+            if (parsed.diff_content) diffText = parsed.diff_content;
+            else if (parsed.diff) diffText = parsed.diff;
+            if (parsed.file_path || parsed.filePath) filePath = parsed.file_path || parsed.filePath;
+            if (parsed.tool || parsed.tool_name) toolName = parsed.tool || parsed.tool_name;
+        } catch (e) {
+            // Ignore parse errors
+        }
+    }
+
+    const lines = diffText.split('\n');
+    let additions = 0;
+    let deletions = 0;
+    let hasDiffLines = false;
+
+    for (const line of lines) {
+        if (line.startsWith('+++ ') || line.startsWith('--- ')) {
+            if (!filePath && line.length > 4) {
+                filePath = line.substring(4).replace(/^a\//, '').replace(/^b\//, '');
+            }
+            hasDiffLines = true;
+            continue;
+        }
+        if (line.startsWith('+') && !line.startsWith('+++')) {
+            additions++;
+            hasDiffLines = true;
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+            deletions++;
+            hasDiffLines = true;
+        } else if (line.startsWith('@@')) {
+            hasDiffLines = true;
+        }
+    }
+
+    if (!hasDiffLines && additions === 0 && deletions === 0) {
+        return null;
+    }
+
+    return {
+        id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 7),
+        filePath: filePath || 'archivo_modificado',
+        toolName: toolName || 'edición',
+        diffContent: diffText,
+        additions,
+        deletions,
+        timestamp: Date.now(),
+    };
+}
+
+export interface SingleThreadState {
+    messages: Message[];
+    taskPlans: Record<string, { task: string; status: string }[]>;
+    terminalEntries: TerminalEntry[];
+    pendingApproval: ApprovalRequest | null;
+    appliedDiffs: AppliedDiff[];
+    isGenerating: boolean;
+    scrollPosition: number;
+    isUserNearBottom: boolean;
+}
+
 export function useChat(threadId: string | null) {
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [isGenerating, setIsGenerating] = useState(false);
+    const threadsCacheRef = useRef<Record<string, SingleThreadState>>({});
+    const activeThreadIdRef = useRef<string | null>(threadId);
+    activeThreadIdRef.current = threadId;
+
+    const [messages, setMessages] = useState<Message[]>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].messages;
+        }
+        return [];
+    });
+    const [isGenerating, setIsGenerating] = useState<boolean>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].isGenerating;
+        }
+        return false;
+    });
     const [error, setError] = useState<string | null>(null);
     const [isConnected, setIsConnected] = useState(false);
-    const [taskPlans, setTaskPlans] = useState<Record<string, {task: string, status: string}[]>>({});
-    const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);
-    const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([]);
+    const [taskPlans, setTaskPlans] = useState<Record<string, { task: string; status: string }[]>>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].taskPlans;
+        }
+        return {};
+    });
+    const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].pendingApproval;
+        }
+        return null;
+    });
+    const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].terminalEntries;
+        }
+        return [];
+    });
     const [isTerminalVisible, setIsTerminalVisible] = useState(false);
+    const [appliedDiffs, setAppliedDiffs] = useState<AppliedDiff[]>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].appliedDiffs;
+        }
+        return [];
+    });
+    const [scrollPosition, setScrollPosition] = useState<number>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].scrollPosition;
+        }
+        return 0;
+    });
+    const [isUserNearBottom, setIsUserNearBottom] = useState<boolean>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].isUserNearBottom;
+        }
+        return true;
+    });
+
     const socketRef = useRef<WebSocket | null>(null);
+
+    // Keep cache synchronized with active states
+    useEffect(() => {
+        if (!threadId) return;
+        threadsCacheRef.current[threadId] = {
+            messages,
+            taskPlans,
+            terminalEntries,
+            pendingApproval,
+            appliedDiffs,
+            isGenerating,
+            scrollPosition,
+            isUserNearBottom,
+        };
+    }, [threadId, messages, taskPlans, terminalEntries, pendingApproval, appliedDiffs, isGenerating, scrollPosition, isUserNearBottom]);
+
+    const setThreadScrollPosition = useCallback((scrollTop: number, isNearBottom: boolean) => {
+        setScrollPosition(scrollTop);
+        setIsUserNearBottom(isNearBottom);
+        if (threadId) {
+            if (threadsCacheRef.current[threadId]) {
+                threadsCacheRef.current[threadId].scrollPosition = scrollTop;
+                threadsCacheRef.current[threadId].isUserNearBottom = isNearBottom;
+            }
+        }
+    }, [threadId]);
 
     useEffect(() => {
         let active = true;
         
-        setMessages([]); // Clear on switch
-        setTaskPlans({}); // Clear task plans on switch
-        setTerminalEntries([]); // Clear terminal on switch
-        setPendingApproval(null); // Clear pending approvals
+        if (threadId && threadsCacheRef.current[threadId]) {
+            const cached = threadsCacheRef.current[threadId];
+            setMessages(cached.messages);
+            setTaskPlans(cached.taskPlans);
+            setTerminalEntries(cached.terminalEntries);
+            setPendingApproval(cached.pendingApproval);
+            setAppliedDiffs(cached.appliedDiffs);
+            setIsGenerating(cached.isGenerating);
+            setScrollPosition(cached.scrollPosition);
+            setIsUserNearBottom(cached.isUserNearBottom);
+        } else {
+            setMessages([]);
+            setTaskPlans({});
+            setTerminalEntries([]);
+            setPendingApproval(null);
+            setAppliedDiffs([]);
+            setIsGenerating(false);
+            setScrollPosition(0);
+            setIsUserNearBottom(true);
+        }
 
         // Fetch thread messages from API
         fetch(`http://127.0.0.1:8765/api/threads/${threadId}/messages`)
@@ -233,12 +395,19 @@ export function useChat(threadId: string | null) {
                     });
                 } else if (data.type === 'tool_result') {
                     const payload = data.data || data;
+                    const contentStr = typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.content || '');
+                    
+                    const parsedDiff = parseAppliedDiff(contentStr, payload.file_path || payload.filePath, payload.tool || payload.tool_name);
+                    if (parsedDiff) {
+                        setAppliedDiffs((prev) => [parsedDiff, ...prev]);
+                    }
+
                     setMessages((prev) => [
                         ...prev,
                         {
                             id: Date.now().toString(),
                             role: 'tool',
-                            content: typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.content || ''),
+                            content: contentStr,
                             tool_call_id: payload.tool_call_id || data.tool_call_id,
                             timestamp: Date.now(),
                         },
@@ -301,6 +470,7 @@ export function useChat(threadId: string | null) {
         // 1. Manejo de Meta-comandos locales
         if (trimmed === '/clear' || trimmed === '%clear') {
             setMessages([]);
+            setAppliedDiffs([]);
             return;
         }
 
@@ -325,6 +495,16 @@ export function useChat(threadId: string | null) {
     }, []);
 
     const respondApproval = useCallback((requestId: string, approved: boolean) => {
+        if (approved && pendingApproval && pendingApproval.diff_content) {
+            const parsedDiff = parseAppliedDiff(
+                pendingApproval.diff_content,
+                pendingApproval.file_path,
+                'Aprobación'
+            );
+            if (parsedDiff) {
+                setAppliedDiffs((prev) => [parsedDiff, ...prev]);
+            }
+        }
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({
                 type: 'approval_response',
@@ -333,7 +513,7 @@ export function useChat(threadId: string | null) {
             }));
         }
         setPendingApproval(null);
-    }, []);
+    }, [pendingApproval]);
 
     const sendTerminalInput = useCallback((text: string) => {
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -374,5 +554,10 @@ export function useChat(threadId: string | null) {
         sendTerminalInput,
         closeTerminal,
         clearTerminal,
+        appliedDiffs,
+        scrollPosition,
+        isUserNearBottom,
+        setThreadScrollPosition,
     };
 }
+

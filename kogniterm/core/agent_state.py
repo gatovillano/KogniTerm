@@ -56,6 +56,9 @@ class AgentState:
     file_update_diff_pending_confirmation: Optional[Union[str, Dict[str, Any]]] = (
         None  # Nuevo campo para el diff de file_update_tool
     )
+    pending_confirmations: List[Dict[str, Any]] = field(
+        default_factory=list
+    )  # Cola de confirmaciones pendientes para llamadas a herramientas en paralelo
     search_memory: List[Dict[str, Any]] = field(
         default_factory=list
     )  # ¡Nuevo campo para la memoria de búsqueda!
@@ -90,8 +93,61 @@ class AgentState:
         self.history_manager_ref = history_manager
         self.messages = self.messages
 
+    def add_pending_confirmation(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        tool_call_id: str,
+        raw_tool_output: Union[str, Dict[str, Any]],
+    ):
+        """Añade una confirmación de herramienta a la cola. Si es la primera, la activa."""
+        item = {
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "tool_call_id": tool_call_id,
+            "raw_tool_output": raw_tool_output,
+        }
+        self.pending_confirmations.append(item)
+        if self.tool_pending_confirmation is None and self.file_update_diff_pending_confirmation is None:
+            self._activate_confirmation(item)
+
+    def _activate_confirmation(self, item: Dict[str, Any]):
+        """Carga una confirmación de la cola como activa."""
+        self.tool_pending_confirmation = item["tool_name"]
+        self.tool_args_pending_confirmation = item["tool_args"]
+        self.tool_call_id_to_confirm = item["tool_call_id"]
+        self.file_update_diff_pending_confirmation = item["raw_tool_output"]
+
+    def has_pending_confirmations(self) -> bool:
+        """Indica si hay confirmaciones activas o pendientes en cola."""
+        return bool(
+            self.pending_confirmations
+            or self.tool_pending_confirmation is not None
+            or self.file_update_diff_pending_confirmation is not None
+        )
+
+    def pop_pending_confirmation(self) -> Optional[Dict[str, Any]]:
+        """Remueve la confirmación activa actual y activa la siguiente si existe."""
+        if self.pending_confirmations:
+            self.pending_confirmations.pop(0)
+
+        if self.pending_confirmations:
+            next_item = self.pending_confirmations[0]
+            self._activate_confirmation(next_item)
+            return next_item
+        else:
+            self.tool_pending_confirmation = None
+            self.tool_args_pending_confirmation = None
+            self.tool_code_to_confirm = None
+            self.tool_code_tool_name = None
+            self.tool_code_tool_args = None
+            self.file_update_diff_pending_confirmation = None
+            self.tool_call_id_to_confirm = None
+            return None
+
     def reset_tool_confirmation(self):
-        """Reinicia el estado de la confirmación de herramientas."""
+        """Reinicia el estado de la confirmación de herramientas y la cola."""
+        self.pending_confirmations.clear()
         self.tool_pending_confirmation = None
         self.tool_args_pending_confirmation = None
         self.tool_code_to_confirm = None

@@ -402,13 +402,6 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = N
     content = Text.from_ansi(formatted_content, style="normal", no_wrap=True, overflow="crop")
 
     elements = []
-    if tool_name:
-        # Título más profesional
-        title_text = Text.from_markup(f" {Icons.TOOL}  [bold {ColorPalette.SECONDARY}]TERMINAL[/] [dim]│[/dim] {tool_name} ", style="normal")
-        elements.append(title_text)
-        elements.append(Rule(style=f"dim {ColorPalette.GRAY_700}"))
-        elements.append(Text("")) # Espacio divisor
-    
     # Añadir el contenido con fondo oscuro para resaltar que es una terminal
     terminal_style = f"on #0c0c0c" if "#0c0c0c" else "on black"
     elements.append(Padding(content, (1, 4), style=terminal_style))

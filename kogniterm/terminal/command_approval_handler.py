@@ -122,7 +122,10 @@ class CommandApprovalHandler:
         self.prompt_session = prompt_session
         self.terminal_ui = terminal_ui
         self.agent_state = agent_state
-        self.interrupt_queue = terminal_ui.get_interrupt_queue()
+        if terminal_ui and hasattr(terminal_ui, "get_interrupt_queue"):
+            self.interrupt_queue = terminal_ui.get_interrupt_queue()
+        else:
+            self.interrupt_queue = getattr(terminal_ui, "interrupt_queue", None)
         self.file_update_tool = file_update_tool
         self.advanced_file_editor_tool = advanced_file_editor_tool
         self.file_operations_tool = file_operations_tool
@@ -365,8 +368,10 @@ class CommandApprovalHandler:
                                  is_user_confirmation: bool = False, is_file_update_confirmation: bool = False, confirmation_prompt: Optional[str] = None,
                                  tool_name: Optional[str] = None, raw_tool_output: Optional[str] = None,
                                  original_tool_args: Optional[Dict[str, Any]] = None) -> dict:
-        # Usar el estado interno si no se pasa uno explícito
+        # Usar el estado interno si no se pasa uno explícito (re-consultando ConfigManager)
         if auto_approve is None:
+            from kogniterm.terminal.config_manager import ConfigManager
+            self.auto_approve = bool(ConfigManager().get_config("auto_approve"))
             auto_approve = self.auto_approve
             
         logger.debug(f"DEBUG: handle_command_approval - auto_approve: {auto_approve}, raw_tool_output recibido: {raw_tool_output}")
