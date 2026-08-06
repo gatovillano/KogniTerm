@@ -941,6 +941,77 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"indexed": False, "error": str(e), "path": os.getcwd()}
 
+    @application.get("/api/workspace/files", tags=["Desktop"])
+    async def search_workspace_files(
+        query: str = "",
+        session_id: Optional[str] = None,
+        max_results: int = 20
+    ):
+        """Busca archivos del workspace utilizando la búsqueda difusa de file_completer."""
+        try:
+            workspace_path = os.getcwd()
+            if session_id:
+                s = pool.get(session_id)
+                if s and getattr(s, "workspace_dir", None):
+                    workspace_path = s.workspace_dir
+
+            from kogniterm.terminal.file_completer import is_ignored_path, fuzzy_match_files
+
+            exclude_extensions = {'.pyc', '.tmp', '.log', '.swp', '.bak', '.old', '.pyfly'}
+            items = []
+
+            for root, dirs, files in os.walk(workspace_path):
+                dirs[:] = [d for d in dirs if not is_ignored_path(d)]
+                try:
+                    rel_root = os.path.relpath(root, workspace_path)
+                except ValueError:
+                    continue
+
+                for d in dirs:
+                    rel_dir = os.path.join(rel_root, d) + '/' if rel_root != '.' else d + '/'
+                    items.append(rel_dir)
+
+                for f in files:
+                    if f.startswith('.') or any(f.endswith(ext) for ext in exclude_extensions):
+                        continue
+                    rel_path = os.path.join(rel_root, f) if rel_root != '.' else f
+                    items.append(rel_path)
+
+                    if len(items) > 3000:
+                        break
+                if len(items) > 3000:
+                    break
+
+            if query and query.strip():
+                matches = fuzzy_match_files(query, items, workspace_path, max_results=max_results)
+                results = []
+                for score, path_str, meta in matches:
+                    is_dir = path_str.endswith('/') or os.path.isdir(os.path.join(workspace_path, path_str))
+                    results.append({
+                        "path": path_str,
+                        "display": path_str,
+                        "is_dir": is_dir,
+                        "meta": meta
+                    })
+            else:
+                results = []
+                for item in items[:max_results]:
+                    is_dir = item.endswith('/') or os.path.isdir(os.path.join(workspace_path, item))
+                    ext = os.path.splitext(item)[1]
+                    from kogniterm.terminal.file_completer import _get_file_meta_icon
+                    meta = "📁 dir" if is_dir else _get_file_meta_icon(ext)
+                    results.append({
+                        "path": item,
+                        "display": item,
+                        "is_dir": is_dir,
+                        "meta": meta
+                    })
+
+            return {"query": query, "results": results}
+        except Exception as e:
+            logger.error(f"Error buscando archivos del workspace: {e}")
+            return {"query": query, "results": [], "error": str(e)}
+
     @application.post("/api/workspace/index", tags=["Desktop"])
     async def trigger_indexing(session_id: Optional[str] = None):
         """Inicia el proceso de indexación del codebase en segundo plano."""
