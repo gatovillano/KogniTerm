@@ -29,80 +29,100 @@ export function parseAppliedDiff(
         }
     }
 
-    // 2. Markdown code block format ```diff ... ``` or ``` ... ```
-    const codeBlockMatch = diffText.match(/```(?:diff)?\n([\s\S]*?)\n```/);
-    if (codeBlockMatch) {
+    // 2. Explicit ```diff ... ``` code block format
+    const explicitDiffBlockMatch = diffText.match(/```diff\n([\s\S]*?)\n```/i);
+    let isExplicitDiffBlock = false;
+    if (explicitDiffBlockMatch) {
+        isExplicitDiffBlock = true;
         const headerText = diffText.substring(0, diffText.indexOf('```'));
         const opMatch = headerText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?/i);
         if (opMatch && !extractedTool) extractedTool = opMatch[1];
         const pathMatch = headerText.match(/Cambios aplicados en\s*`?([^`\n]+)`?/i);
         if (pathMatch && !filePath) filePath = pathMatch[1];
 
-        diffText = codeBlockMatch[1];
+        diffText = explicitDiffBlockMatch[1];
+    } else {
+        // Look for header pattern like "Operación: tool_name --- a/path"
+        const opLineMatch = diffText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?\s*/i);
+        if (opLineMatch) {
+            if (!extractedTool) extractedTool = opLineMatch[1];
+            diffText = diffText.replace(/Operación:\s*`?[a-zA-Z0-9_\-]+`?\s*/i, '');
+        }
+
+        const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n]+)/i) || diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n]+)`?/i);
+        if (titleMatch && !filePath) {
+            filePath = titleMatch[1].trim();
+        }
     }
 
-    // 3. Header pattern like "Operación: tool_name --- a/path" or "✅ Diff aplicado: path"
-    const opLineMatch = diffText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?\s*/i);
-    if (opLineMatch) {
-        if (!extractedTool) extractedTool = opLineMatch[1];
-        diffText = diffText.replace(/Operación:\s*`?[a-zA-Z0-9_\-]+`?\s*/i, '');
+    // STRICT VALIDATION: MUST have valid unified diff header markers or explicit ```diff block
+    const hasHeaderLines = /--- (a\/|\/|[^\s]+)[\s\S]*?\+\+\+ (b\/|\/|[^\s]+)/.test(diffText) || /diff --git a\//.test(diffText) || /Index:\s+/.test(diffText);
+    const hasHunkHeader = /^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@/m.test(diffText);
+
+    // If no header lines, no hunk header (@@ -X,Y +A,B @@), and not explicit ```diff, reject as NOT a diff
+    if (!hasHeaderLines && !hasHunkHeader && !isExplicitDiffBlock) {
+        return null;
     }
 
-    const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n]+)/i) || diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n]+)`?/i);
-    if (titleMatch && !filePath) {
-        filePath = titleMatch[1].trim();
+    // Extract file path from unified diff headers if not already set
+    if (!filePath) {
+        const pathMatch = diffText.match(/\+\+\+\s+(?:b\/)?([^\s\n]+)/) || diffText.match(/---\s+(?:a\/)?([^\s\n]+)/);
+        if (pathMatch && pathMatch[1] !== '/dev/null' && pathMatch[1] !== 'a' && pathMatch[1] !== 'b') {
+            filePath = pathMatch[1];
+        }
     }
 
-    // 4. Parse diff lines & count additions/deletions
+    // 4. Parse diff lines & count additions/deletions accurately
     const lines = diffText.split('\n');
     let additions = 0;
     let deletions = 0;
-    let hasDiffHeader = false;
+    let inHunk = false;
 
     for (const line of lines) {
         const trimmed = line.trim();
 
-        if (line.includes('--- ') || line.includes('+++ ')) {
-            hasDiffHeader = true;
-            if (!filePath) {
-                const match = line.match(/(?:\+\+\+|---)\s+(?:[ab]\/)+([^\s\n]+)/) || line.match(/(?:\+\+\+|---)\s+([^\s\n]+)/);
-                if (match && match[1] !== '/dev/null' && match[1] !== 'a' && match[1] !== 'b') {
-                    filePath = match[1];
-                }
-            }
-            continue;
-        }
-
         if (trimmed.startsWith('@@')) {
-            hasDiffHeader = true;
+            inHunk = true;
             continue;
         }
 
-        // Standard diff lines
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-            additions++;
-            hasDiffHeader = true;
-        } else if (line.startsWith('-') && !line.startsWith('---')) {
-            deletions++;
-            hasDiffHeader = true;
+        if (line.includes('--- ') || line.includes('+++ ') || line.includes('Index:') || line.includes('diff --git')) {
+            inHunk = true;
+            continue;
         }
-        // Rich Console line numbers format: e.g. "188+" or "185 185 - ..." or "195+ - ..."
-        else if (/^\d+(\s+\d+)?\s*\+/.test(trimmed)) {
-            additions++;
-            hasDiffHeader = true;
-        } else if (/^\d+(\s+\d+)?\s*-/.test(trimmed)) {
-            deletions++;
-            hasDiffHeader = true;
+
+        if (inHunk || isExplicitDiffBlock) {
+            // Standard diff additions and deletions
+            if (line.startsWith('+') && !line.startsWith('+++')) {
+                additions++;
+            } else if (line.startsWith('-') && !line.startsWith('---')) {
+                deletions++;
+            }
+            // Rich Console line numbers format: e.g. "188+" or "185 185 - ..." or "195+ - ..."
+            else if (/^\d+(\s+\d+)?\s*\+/.test(trimmed)) {
+                additions++;
+            } else if (/^\d+(\s+\d+)?\s*-/.test(trimmed)) {
+                deletions++;
+            }
         }
     }
 
-    if (!hasDiffHeader && additions === 0 && deletions === 0) {
+    if (additions === 0 && deletions === 0) {
         return null;
+    }
+
+    // Clean up file path if it starts with extra slashes or prefixes like "a//"
+    let cleanPath = filePath.replace(/^a\/+/, '').replace(/^b\/+/, '').trim();
+    if (!cleanPath || cleanPath === 'archivo_modificado') {
+        const fallbackMatch = diffText.match(/(?:[a-zA-Z0-9_\-\.]+\/)+[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+/);
+        if (fallbackMatch) {
+            cleanPath = fallbackMatch[0];
+        }
     }
 
     return {
         id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 7),
-        filePath: filePath || 'archivo_modificado',
+        filePath: cleanPath || 'archivo_modificado',
         toolName: extractedTool || toolName || 'edición',
         diffContent: diffText.trim(),
         additions,
