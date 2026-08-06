@@ -370,7 +370,44 @@ export function useChat(threadId: string | null) {
                 if (!active) return;
                 const data = JSON.parse(event.data);
 
-                if (data.type === 'chunk') {
+                if (data.type === 'connected') {
+                    const payload = data.data || data;
+                    if (payload.is_running) {
+                        setIsGenerating(true);
+                        if (payload.live_state) {
+                            const { thinking, response, terminal_entries } = payload.live_state;
+                            if (thinking || response) {
+                                setMessages((prev) => {
+                                    const lastMessage = prev[prev.length - 1];
+                                    if (lastMessage && lastMessage.role === 'assistant') {
+                                        return prev.map((m, idx) => idx === prev.length - 1 ? {
+                                            ...m,
+                                            reasoning: thinking || m.reasoning,
+                                            content: response || m.content,
+                                        } : m);
+                                    } else {
+                                        return [
+                                            ...prev,
+                                            {
+                                                id: Date.now().toString(),
+                                                role: 'assistant',
+                                                content: response || '',
+                                                reasoning: thinking || '',
+                                                timestamp: Date.now(),
+                                            },
+                                        ];
+                                    }
+                                });
+                            }
+                            if (terminal_entries && Array.isArray(terminal_entries) && terminal_entries.length > 0) {
+                                setTerminalEntries(terminal_entries);
+                                setIsTerminalVisible(true);
+                            }
+                        }
+                    } else {
+                        setIsGenerating(false);
+                    }
+                } else if (data.type === 'chunk') {
                     const payload = data.data || data;
                     const chunkContent = payload.content || '';
                     if (chunkContent) recordDiffIfAny(chunkContent);
