@@ -22,7 +22,6 @@ export const TerminalSidebar: React.FC<TerminalSidebarProps> = ({
     const termRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTerminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
-    const lastWrittenRef = useRef<number>(0);
 
     useEffect(() => {
         if (!termRef.current || xtermRef.current) return;
@@ -101,12 +100,18 @@ export const TerminalSidebar: React.FC<TerminalSidebarProps> = ({
 
     useEffect(() => {
         const term = xtermRef.current;
-        if (!term || entries.length === 0) return;
+        if (!term) return;
 
-        const newEntries = entries.slice(lastWrittenRef.current);
-        for (const entry of newEntries) {
-            if (entry.command && entry.command !== entry.tool) {
-                term.writeln(`\x1b[38;5;99m❯\x1b[0m \x1b[1m${entry.command}\x1b[0m`);
+        if (entries.length === 0) {
+            term.clear();
+            return;
+        }
+
+        term.clear();
+        for (const entry of entries) {
+            const cmdLabel = entry.command || entry.tool;
+            if (cmdLabel) {
+                term.writeln(`\x1b[38;5;99m❯\x1b[0m \x1b[1m${cmdLabel}\x1b[0m`);
             }
             if (entry.output) {
                 const lines = entry.output.split('\n');
@@ -115,15 +120,7 @@ export const TerminalSidebar: React.FC<TerminalSidebarProps> = ({
                 }
             }
         }
-        lastWrittenRef.current = entries.length;
     }, [entries]);
-
-    useEffect(() => {
-        if (entries.length === 0) {
-            lastWrittenRef.current = 0;
-            xtermRef.current?.clear();
-        }
-    }, [entries.length]);
 
     return (
         <div className="flex h-full w-full flex-col bg-[#0c0c0e]">
