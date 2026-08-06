@@ -35,19 +35,17 @@ def _clear_persisted_state():
 
 
 def _update_ui():
-    """Actualiza el panel lateral de tareas en la TUI."""
+    """Actualiza el panel lateral de tareas en la UI (TUI o ServerUI)."""
     global _agent_plans, _llm_service
-    if not _llm_service:
-        return
-
     try:
-        tui = None
-        if hasattr(_llm_service, 'terminal_ui') and _llm_service.terminal_ui:
-            tui = _llm_service.terminal_ui
-        elif hasattr(_llm_service, 'skill_manager') and _llm_service.skill_manager and getattr(_llm_service.skill_manager, 'terminal_ui', None):
-            tui = _llm_service.skill_manager.terminal_ui
-        elif globals().get('_terminal_ui'):
-            tui = globals().get('_terminal_ui')
+        tui = globals().get('_terminal_ui')
+        llm_svc = _llm_service or globals().get('_llm_service')
+
+        if not tui and llm_svc:
+            if hasattr(llm_svc, 'terminal_ui') and llm_svc.terminal_ui:
+                tui = llm_svc.terminal_ui
+            elif hasattr(llm_svc, 'skill_manager') and llm_svc.skill_manager and getattr(llm_svc.skill_manager, 'terminal_ui', None):
+                tui = llm_svc.skill_manager.terminal_ui
 
         if tui and hasattr(tui, 'update_task_tracker'):
             tui.update_task_tracker(_agent_plans)

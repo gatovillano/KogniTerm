@@ -181,16 +181,24 @@ export function useChat(threadId: string | null) {
                 } else if (data.type === 'terminal_output') {
                     // Terminal output from command execution
                     const payload = data.data || data;
-                    setTerminalEntries((prev) => [
-                        ...prev,
-                        {
-                            id: Date.now().toString(),
+                    const entryId = payload.tool_call_id || payload.id || Date.now().toString();
+                    setTerminalEntries((prev) => {
+                        const existingIndex = prev.findIndex((e) => e.id === entryId);
+                        const newEntry: TerminalEntry = {
+                            id: entryId,
                             tool: payload.tool || '',
-                            command: payload.tool || '',
-                            output: payload.content || '',
+                            command: payload.command || payload.tool || '',
+                            output: payload.content || payload.output || '',
                             timestamp: Date.now(),
-                        },
-                    ]);
+                        };
+                        if (existingIndex >= 0) {
+                            const updated = [...prev];
+                            updated[existingIndex] = newEntry;
+                            return updated;
+                        } else {
+                            return [...prev, newEntry];
+                        }
+                    });
                     setIsTerminalVisible(true);
                 } else if (data.type === 'tool_call') {
                     const payload = data.data || data;
@@ -336,6 +344,13 @@ export function useChat(threadId: string | null) {
         }
     }, []);
 
+    const stopGeneration = useCallback(() => {
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ type: 'interrupt' }));
+        }
+        setIsGenerating(false);
+    }, []);
+
     const closeTerminal = useCallback(() => {
         setIsTerminalVisible(false);
     }, []);
@@ -349,6 +364,7 @@ export function useChat(threadId: string | null) {
         isGenerating,
         error,
         sendMessage,
+        stopGeneration,
         isConnected,
         taskPlans,
         pendingApproval,

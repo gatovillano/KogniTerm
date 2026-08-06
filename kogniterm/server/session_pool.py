@@ -381,9 +381,15 @@ class ServerUI(TerminalUI):
     ) -> None:
         logger.info(f"[{self.session_id}] ServerUI.update_terminal_output: {tool_name}")
         agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
+        command_str = kwargs.get("command") or tool_name
         self._push(
             "terminal_output",
-            {"content": output, "tool": tool_name, "tool_call_id": tool_call_id},
+            {
+                "content": output,
+                "tool": tool_name,
+                "command": command_str,
+                "tool_call_id": tool_call_id,
+            },
             agent_id=agent_id,
         )
 
