@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { ListTodo, Terminal, ShieldCheck, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { TaskTracker } from './TaskTracker';
 import { CommandApproval, ApprovalRequest } from './CommandApproval';
@@ -31,12 +31,63 @@ export const RightSidebar: React.FC<{
     onToggle,
 }) => {
     const [activeTab, setActiveTab] = useState<TabId>('tasks');
+    const [width, setWidth] = useState<number>(() => {
+        const saved = localStorage.getItem('kogniterm_right_sidebar_width');
+        if (saved) {
+            const parsed = parseInt(saved, 10);
+            if (!isNaN(parsed) && parsed >= 240 && parsed <= 800) {
+                return parsed;
+            }
+        }
+        return 320;
+    });
+    const [isResizing, setIsResizing] = useState(false);
 
     useEffect(() => {
         if (pendingApproval) {
             setActiveTab('approval');
         }
     }, [pendingApproval?.id]);
+
+    const startResizing = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsResizing(true);
+    }, []);
+
+    const handleDoubleClick = useCallback(() => {
+        setWidth(320);
+        localStorage.setItem('kogniterm_right_sidebar_width', '320');
+    }, []);
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isResizing) return;
+            const newWidth = window.innerWidth - e.clientX;
+            const minWidth = 240;
+            const maxWidth = Math.min(800, window.innerWidth * 0.6);
+            const clampedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+            setWidth(clampedWidth);
+            localStorage.setItem('kogniterm_right_sidebar_width', clampedWidth.toString());
+        };
+
+        const handleMouseUp = () => {
+            setIsResizing(false);
+        };
+
+        if (isResizing) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'col-resize';
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+        };
+    }, [isResizing]);
 
     const totalActiveTasks = Object.values(taskPlans).reduce(
         (acc, plan) => acc + (plan?.filter((t: any) => t.status !== 'done').length || 0),
@@ -65,7 +116,22 @@ export const RightSidebar: React.FC<{
     ];
 
     return (
-        <aside className="flex h-full w-80 shrink-0 flex-col border-l border-zinc-800 bg-zinc-950 animate-slide-in-right">
+        <aside
+            style={{ width: `${width}px` }}
+            className={`relative flex h-full shrink-0 flex-col border-l border-zinc-800 bg-zinc-950 animate-slide-in-right ${
+                isResizing ? 'select-none transition-none' : ''
+            }`}
+        >
+            {/* Handle de redimensionamiento */}
+            <div
+                onMouseDown={startResizing}
+                onDoubleClick={handleDoubleClick}
+                className="group absolute -left-1 top-0 bottom-0 z-20 w-2 cursor-col-resize hover:bg-indigo-500/20 active:bg-indigo-500/30 transition-colors flex items-center justify-center"
+                title="Arrastrar para redimensionar (doble clic para restablecer a 320px)"
+            >
+                <div className={`h-full w-0.5 transition-colors ${isResizing ? 'bg-indigo-500' : 'bg-transparent group-hover:bg-indigo-500/60'}`} />
+            </div>
+
             <div className="flex items-center justify-between border-b border-zinc-800/80 bg-zinc-950/80 px-2 pt-2 backdrop-blur-sm">
                 <div className="flex items-center justify-center gap-1">
                     {tabs.map((tab) => {
@@ -135,7 +201,10 @@ export const RightSidebar: React.FC<{
                             <div className="h-full overflow-y-auto">
                                 <CommandApproval
                                     request={pendingApproval}
-                                    onApprove={onApprove}
+                                    onApprove={(id) => {
+                                        onApprove(id);
+                                        setActiveTab('terminal');
+                                    }}
                                     onReject={onReject}
                                 />
                             </div>

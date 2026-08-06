@@ -126,8 +126,13 @@ class TUIWebSocketClient:
         self._server_url = server_url  # e.g. "ws://127.0.0.1:8765"
         self._session_id = session_id
         self._ws = None
-        self._connected = False
         self._stopped = False
+        if not hasattr(self._app, "_auto_approve_all"):
+            try:
+                from kogniterm.terminal.config_manager import ConfigManager
+                self._app._auto_approve_all = bool(ConfigManager().get_config("auto_approve"))
+            except Exception:
+                pass
         self._send_queue: asyncio.Queue = asyncio.Queue()
         # Acumuladores de streaming por agente: clave = agent_id o "__main__"
         self._stream_accumulators: dict = {}

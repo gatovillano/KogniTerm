@@ -957,17 +957,17 @@ class AgentSession:
                     if self.agent_state.command_to_confirm:
                         command = self.agent_state.command_to_confirm
 
-                        # Bloquear el hilo worker hasta que el usuario decida (TUI/WebSocket)
-                        approved = self.ui.ask_approval_sync(
-                            message=f"¿Ejecutar comando: {command}?",
-                            title="Confirmación de Comando",
-                            diff_content=command,
-                            file_path="bash",
-                        )
-
                         if command and self.command_approval_handler:
-                            self.command_approval_handler.handle_command_approval(
-                                command_to_execute=command, auto_approve=approved
+                            approval_result = self.command_approval_handler.handle_command_approval(
+                                command_to_execute=command
+                            )
+                            approved = approval_result.get("approved", False)
+                        else:
+                            approved = self.ui.ask_approval_sync(
+                                message=f"¿Ejecutar comando: {command}?",
+                                title="Confirmación de Comando",
+                                diff_content=command,
+                                file_path="bash",
                             )
 
                         # Limpiar estado de confirmación tras procesar
@@ -1001,15 +1001,8 @@ class AgentSession:
                         elif isinstance(diff_info, str):
                             diff_content = diff_info
 
-                        approved = self.ui.ask_approval_sync(
-                            message=message,
-                            title=f"Confirmación: {tool_name}",
-                            diff_content=diff_content,
-                            file_path=file_path,
-                        )
-
                         if self.command_approval_handler:
-                            self.command_approval_handler.handle_command_approval(
+                            approval_result = self.command_approval_handler.handle_command_approval(
                                 command_to_execute="",  # No es un comando bash
                                 raw_tool_output=diff_info
                                 if isinstance(diff_info, dict)
@@ -1019,9 +1012,16 @@ class AgentSession:
                                     "path": file_path,
                                     "operation": tool_name,
                                 },
-                                auto_approve=approved,
                                 tool_name=tool_name,
                                 original_tool_args=self.agent_state.tool_args_pending_confirmation,
+                            )
+                            approved = approval_result.get("approved", False)
+                        else:
+                            approved = self.ui.ask_approval_sync(
+                                message=message,
+                                title=f"Confirmación: {tool_name}",
+                                diff_content=diff_content,
+                                file_path=file_path,
                             )
 
                         # Limpiar estado de confirmación
