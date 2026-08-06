@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Folder, Sparkles, Paperclip, Square, ChevronDown, ChevronUp, X, ArrowUp, Zap, Box } from 'lucide-react';
+import { Folder, Sparkles, Paperclip, Square, ChevronDown, ChevronUp, X, ArrowUp, Zap, Box, FileText, Terminal } from 'lucide-react';
 
 interface ChatInputProps {
     onSendMessage: (message: string) => void;
@@ -48,10 +48,45 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         fetchConfiguredModel();
     }, []);
 
+    interface SuggestionItem {
+        id: string;
+        label: string;
+        desc: string;
+        type: 'command' | 'skill' | 'file';
+        scope?: string;
+        meta?: string;
+        insertValue: string;
+    }
+
     const [showSuggestions, setShowSuggestions] = useState(false);
-    const [suggestions, setSuggestions] = useState<{ command: string; desc: string }[]>([]);
+    const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [cursorOffset, setCursorOffset] = useState<{ top: number; left: number } | null>(null);
+    const [activeTrigger, setActiveTrigger] = useState<'@' | '#' | '/' | '%' | null>(null);
+    const [cachedSkills, setCachedSkills] = useState<SuggestionItem[]>([]);
+
+    useEffect(() => {
+        const fetchSkills = async () => {
+            try {
+                const res = await fetch('http://localhost:8765/api/skills');
+                if (res.ok) {
+                    const data = await res.json();
+                    const items: SuggestionItem[] = (data.skills || []).map((s: any) => ({
+                        id: `skill-${s.name}`,
+                        label: `#${s.name}`,
+                        desc: s.description || 'Skill personalizada',
+                        type: 'skill',
+                        scope: s.scope || 'global',
+                        insertValue: `#${s.name} `
+                    }));
+                    setCachedSkills(items);
+                }
+            } catch (err) {
+                console.error('Error cargando skills para autocompletado:', err);
+            }
+        };
+        fetchSkills();
+    }, []);
 
     const getCursorOffset = useCallback(() => {
         const textarea = textareaRef.current;
@@ -111,6 +146,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 textareaRef.current.style.height = 'auto';
             }
             setShowSuggestions(false);
+            setActiveTrigger(null);
         }
     };
 
@@ -136,46 +172,112 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
         const cursorPosition = e.target.selectionStart;
         const textBeforeCursor = value.substring(0, cursorPosition);
-        const match = textBeforeCursor.match(/([%/])(\w*)$/);
 
-        if (match) {
-            const query = match[2].toLowerCase();
-            const filtered = COMMANDS.filter(c =>
-                c.command.toLowerCase().includes(query) || 
-                c.desc.toLowerCase().includes(query)
+        // 1. Skill trigger: #
+        const skillMatch = textBeforeCursor.match(/#([a-zA-Z0-9_-]*)$/);
+        if (skillMatch) {
+            const query = skillMatch[1].toLowerCase();
+            const filtered = cachedSkills.filter(s =>
+                s.label.toLowerCase().includes(query) || 
+                s.desc.toLowerCase().includes(query)
             );
-
             if (filtered.length > 0) {
                 setSuggestions(filtered);
                 setShowSuggestions(true);
+                setActiveTrigger('#');
                 setSelectedIndex(0);
                 requestAnimationFrame(updateCursorPosition);
                 return;
             }
         }
+
+        // 2. File trigger: @
+        const fileMatch = textBeforeCursor.match(/@([^\s@]*)$/);
+        if (fileMatch) {
+            const query = fileMatch[1];
+            setActiveTrigger('@');
+            setShowSuggestions(true);
+            setSelectedIndex(0);
+            requestAnimationFrame(updateCursorPosition);
+
+            fetch(`http://localhost:8765/api/workspace/files?query=${encodeURIComponent(query)}`)
+                .then(res => res.ok ? res.json() : { results: [] })
+                .then(data => {
+                    const items: SuggestionItem[] = (data.results || []).map((f: any) => ({
+                        id: `file-${f.path}`,
+                        label: `@${f.path}`,
+                        desc: f.is_dir ? 'Carpeta' : f.meta || 'Archivo',
+                        type: 'file',
+                        meta: f.meta,
+                        insertValue: `@${f.path} `
+                    }));
+                    setSuggestions(items);
+                })
+                .catch(err => console.error('Error buscando archivos:', err));
+            return;
+        }
+
+        // 3. Command trigger: % or /
+        const cmdMatch = textBeforeCursor.match(/([%/])(\w*)$/);
+        if (cmdMatch) {
+            const triggerChar = cmdMatch[1];
+            const query = cmdMatch[2].toLowerCase();
+            const items: SuggestionItem[] = COMMANDS.map(c => ({
+                id: `cmd-${c.command}`,
+                label: c.command,
+                desc: c.desc,
+                type: 'command' as const,
+                insertValue: `${c.command} `
+            })).filter(c =>
+                c.label.toLowerCase().includes(query) || 
+                c.desc.toLowerCase().includes(query)
+            );
+
+            if (items.length > 0) {
+                setSuggestions(items);
+                setShowSuggestions(true);
+                setActiveTrigger(triggerChar as '%' | '/');
+                setSelectedIndex(0);
+                requestAnimationFrame(updateCursorPosition);
+                return;
+            }
+        }
+
         setShowSuggestions(false);
+        setActiveTrigger(null);
     };
 
-    const handleSelectCommand = (cmd: string) => {
+    const handleSelectSuggestion = (item: SuggestionItem) => {
         const cursorPosition = textareaRef.current?.selectionStart || 0;
         const textBeforeCursor = input.substring(0, cursorPosition);
         const textAfterCursor = input.substring(cursorPosition);
         
-        const newValue = textBeforeCursor.replace(/([%/])(\w*)$/, cmd + ' ') + textAfterCursor;
+        let regex: RegExp;
+        if (activeTrigger === '#') {
+            regex = /#([a-zA-Z0-9_-]*)$/;
+        } else if (activeTrigger === '@') {
+            regex = /@([^\s@]*)$/;
+        } else {
+            regex = /([%/])(\w*)$/;
+        }
+
+        const newTextBefore = textBeforeCursor.replace(regex, item.insertValue);
+        const newValue = newTextBefore + textAfterCursor;
         setInput(newValue);
         setShowSuggestions(false);
+        setActiveTrigger(null);
         
         setTimeout(() => {
             if (textareaRef.current) {
                 textareaRef.current.focus();
-                const newPos = textBeforeCursor.replace(/([%/])(\w*)$/, cmd + ' ').length;
+                const newPos = newTextBefore.length;
                 textareaRef.current.setSelectionRange(newPos, newPos);
             }
         }, 0);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (showSuggestions) {
+        if (showSuggestions && suggestions.length > 0) {
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setSelectedIndex(prev => (prev > 0 ? prev - 1 : suggestions.length - 1));
@@ -188,11 +290,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             }
             if (e.key === 'Tab' || e.key === 'Enter') {
                 e.preventDefault();
-                handleSelectCommand(suggestions[selectedIndex].command);
+                handleSelectSuggestion(suggestions[selectedIndex]);
                 return;
             }
             if (e.key === 'Escape') {
                 setShowSuggestions(false);
+                setActiveTrigger(null);
                 return;
             }
         }
@@ -275,34 +378,53 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </div>
             )}
 
-            {/* Command Suggestions Menu */}
-            {showSuggestions && (
+            {/* Command & Skills & Files Suggestions Menu */}
+            {showSuggestions && suggestions.length > 0 && (
                 <div
                     className="absolute z-[100] bg-[#16161a] border border-zinc-800 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden transition-all duration-200"
                     style={{
                         bottom: 'calc(100% + 12px)',
                         left: cursorOffset ? `${Math.min(Math.max(cursorOffset.left + 52, 16), 400)}px` : '50%',
                         transform: cursorOffset ? 'none' : 'translateX(-50%)',
-                        width: 'min(350px, calc(100vw - 32px))',
+                        width: 'min(380px, calc(100vw - 32px))',
                         opacity: 1,
                         visibility: 'visible',
                     }}
                 >
-                    <div className="max-h-60 overflow-y-auto custom-scrollbar p-1.5">
-                        <div className="px-2 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                            Comandos Disponibles
+                    <div className="max-h-64 overflow-y-auto custom-scrollbar p-1.5">
+                        <div className="px-2 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider flex items-center justify-between">
+                            <span>
+                                {activeTrigger === '#' && '⚡ Skills Disponibles'}
+                                {activeTrigger === '@' && '📁 Archivos del Workspace'}
+                                {(activeTrigger === '/' || activeTrigger === '%') && '💻 Comandos del Sistema'}
+                            </span>
+                            <span className="text-[9px] text-zinc-600 font-mono">↑↓ para navegar</span>
                         </div>
-                        {suggestions.map((cmd, index) => (
+                        {suggestions.map((item, index) => (
                             <button
-                                key={cmd.command}
-                                onClick={() => handleSelectCommand(cmd.command)}
+                                key={item.id}
+                                type="button"
+                                onClick={() => handleSelectSuggestion(item)}
                                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${index === selectedIndex
-                                    ? 'bg-indigo-500/10 text-indigo-300'
-                                    : 'text-zinc-400 hover:bg-zinc-900'
+                                    ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
+                                    : 'text-zinc-300 hover:bg-zinc-900 border border-transparent'
                                     }`}
                             >
-                                <span className="font-mono font-medium">{cmd.command}</span>
-                                <span className="text-zinc-500 text-[10px]">{cmd.desc}</span>
+                                <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                    {item.type === 'skill' && <Zap size={13} className="text-yellow-400 shrink-0" />}
+                                    {item.type === 'file' && <FileText size={13} className="text-blue-400 shrink-0" />}
+                                    {item.type === 'command' && <Terminal size={13} className="text-emerald-400 shrink-0" />}
+                                    <span className="font-mono font-medium truncate">{item.label}</span>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {item.scope && (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                            {item.scope}
+                                        </span>
+                                    )}
+                                    <span className="text-zinc-500 text-[10px] truncate max-w-[120px]">{item.desc}</span>
+                                </div>
                             </button>
                         ))}
                     </div>
