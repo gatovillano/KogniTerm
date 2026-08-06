@@ -54,3 +54,20 @@ def test_command_approval_modal_accept_all():
     event_key.key = "a"
     modal.on_key(event_key)
     modal.dismiss.assert_called_with("accept_all")
+
+
+@pytest.mark.anyio
+async def test_command_approval_handler_respects_config_manager_auto_approve():
+    """Verifica que CommandApprovalHandler consulte auto_approve de ConfigManager si no está seteado explícitamente."""
+    from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+
+    with patch("kogniterm.terminal.config_manager.ConfigManager.get_config", return_value=True):
+        handler = CommandApprovalHandler(
+            llm_service=MagicMock(),
+            command_executor=MagicMock(),
+            prompt_session=None,
+            terminal_ui=MagicMock(),
+            agent_state=MagicMock(),
+        )
+        assert handler.auto_approve is True
+

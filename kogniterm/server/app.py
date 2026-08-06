@@ -840,7 +840,13 @@ def create_app() -> FastAPI:
         if req.key in ("default_model", "reasoning_effort") or req.key.startswith("api_key_"):
             if pool._llm_service:
                 pool._llm_service.reload_config()
-                
+
+        if req.key == "auto_approve":
+            with pool._lock:
+                for session in pool._sessions.values():
+                    if getattr(session, "command_approval_handler", None):
+                        session.command_approval_handler.auto_approve = bool(req.value)
+
         return {"status": "ok", "key": req.key, "scope": req.scope}
 
     @application.post("/api/config/telegram/detect-chat-id", tags=["Configuración"])

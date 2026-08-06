@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { X, Check, Terminal, FileCode } from 'lucide-react';
+import { X, Check, Terminal, FileCode, Zap } from 'lucide-react';
 
 export interface ApprovalRequest {
     id: string;
@@ -24,6 +24,19 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
     const approveRef = useRef<HTMLButtonElement>(null);
     const isBash = request.file_path === 'bash';
 
+    const handleApproveAlways = async () => {
+        try {
+            await fetch('http://127.0.0.1:8765/api/config/set', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'auto_approve', value: true, scope: 'project' }),
+            });
+        } catch (e) {
+            console.error("Error setting auto_approve:", e);
+        }
+        onApprove(request.id);
+    };
+
     useEffect(() => {
         approveRef.current?.focus();
         const handleKey = (e: KeyboardEvent) => {
@@ -33,6 +46,9 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
             } else if (e.key === 'Escape') {
                 e.preventDefault();
                 onReject(request.id);
+            } else if (e.key === 'a' || e.key === 'A') {
+                e.preventDefault();
+                handleApproveAlways();
             }
         };
         window.addEventListener('keydown', handleKey);
@@ -110,22 +126,33 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
 
             {/* Actions */}
             <div className="border-t border-zinc-800/60 px-4 py-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
                     <button
-                        onClick={() => onReject(request.id)}
-                        title="Rechazar (Esc)"
-                        className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                        onClick={handleApproveAlways}
+                        title="Aprobar este y todos los siguientes (A)"
+                        className="px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
-                        <X size={16} />
+                        <Zap size={13} />
+                        <span>Aceptar siempre (A)</span>
                     </button>
-                    <button
-                        ref={approveRef}
-                        onClick={() => onApprove(request.id)}
-                        title="Aprobar (Enter)"
-                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm transition-colors hover:bg-indigo-500"
-                    >
-                        <Check size={16} />
-                    </button>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => onReject(request.id)}
+                            title="Rechazar (Esc)"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
+                        >
+                            <X size={16} />
+                        </button>
+                        <button
+                            ref={approveRef}
+                            onClick={() => onApprove(request.id)}
+                            title="Aprobar (Enter)"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm transition-colors hover:bg-indigo-500 cursor-pointer"
+                        >
+                            <Check size={16} />
+                        </button>
+                    </div>
                 </div>
             </div>
         </aside>
