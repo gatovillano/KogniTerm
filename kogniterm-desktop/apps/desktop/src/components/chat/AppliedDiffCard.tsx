@@ -97,14 +97,19 @@ export const AppliedDiffCard: React.FC<AppliedDiffCardProps> = ({
                     <pre className="goose-scrollbar max-h-80 overflow-y-auto font-mono text-[12px] leading-relaxed">
                         {diff.diffContent ? (
                             diff.diffContent.split('\n').map((line, i) => {
+                                const trimmed = line.trim();
                                 let lineClass = 'text-zinc-400 py-[1px]';
-                                if (line.startsWith('+')) {
-                                    lineClass = 'bg-emerald-950/30 text-emerald-300 border-l-2 border-emerald-500/80 pl-2.5 my-[1px]';
-                                } else if (line.startsWith('-')) {
-                                    lineClass = 'bg-rose-950/30 text-rose-300 border-l-2 border-rose-500/80 pl-2.5 my-[1px]';
-                                } else if (line.startsWith('@')) {
+                                if (line.startsWith('+') && !line.startsWith('+++')) {
+                                    lineClass = 'bg-emerald-950/40 text-emerald-300 border-l-2 border-emerald-500/80 pl-2.5 my-[1px]';
+                                } else if (line.startsWith('-') && !line.startsWith('---')) {
+                                    lineClass = 'bg-rose-950/40 text-rose-300 border-l-2 border-rose-500/80 pl-2.5 my-[1px]';
+                                } else if (/^\d+(\s+\d+)?\s*\+/.test(trimmed)) {
+                                    lineClass = 'bg-emerald-950/40 text-emerald-300 border-l-2 border-emerald-500/80 pl-2.5 my-[1px]';
+                                } else if (/^\d+(\s+\d+)?\s*-/.test(trimmed)) {
+                                    lineClass = 'bg-rose-950/40 text-rose-300 border-l-2 border-rose-500/80 pl-2.5 my-[1px]';
+                                } else if (trimmed.startsWith('@@') || line.startsWith('@')) {
                                     lineClass = 'bg-indigo-950/40 text-indigo-300 border-l-2 border-indigo-500/80 font-semibold pl-2.5 my-[2px]';
-                                } else if (line.startsWith('Index:') || line.startsWith('===')) {
+                                } else if (line.startsWith('Index:') || line.startsWith('===') || line.startsWith('---') || line.startsWith('+++')) {
                                     lineClass = 'text-zinc-500 font-semibold pl-2.5';
                                 } else {
                                     lineClass = 'text-zinc-400 pl-3';
