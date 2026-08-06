@@ -21,11 +21,11 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
     onApprove,
     onReject,
 }) => {
-    const panelRef = useRef<HTMLDivElement>(null);
+    const approveRef = useRef<HTMLButtonElement>(null);
     const isBash = request.file_path === 'bash';
 
-    // Auto-focus the approve button and handle keyboard shortcuts
     useEffect(() => {
+        approveRef.current?.focus();
         const handleKey = (e: KeyboardEvent) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -39,96 +39,95 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
         return () => window.removeEventListener('keydown', handleKey);
     }, [request.id, onApprove, onReject]);
 
-    return (
-        <div className="approval-overlay">
-            <div className="approval-panel" ref={panelRef}>
-                {/* Header */}
-                <div className="approval-header">
-                    <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-lg ${isBash ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-indigo-500/10 border border-indigo-500/20'}`}>
-                            {isBash
-                                ? <Terminal size={16} className="text-amber-400" />
-                                : <FileCode size={16} className="text-indigo-400" />
-                            }
-                        </div>
-                        <div>
-                            <h3 className="text-sm font-semibold text-zinc-100 tracking-tight">
-                                {request.title}
-                            </h3>
-                            <p className="text-[11px] text-zinc-500 mt-0.5">
-                                Aprobación requerida para continuar
-                            </p>
-                        </div>
-                    </div>
-                    <button
-                        onClick={() => onReject(request.id)}
-                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                    >
-                        <X size={14} />
-                    </button>
-                </div>
+    const accentChip = isBash
+        ? 'bg-amber-500/10 border border-amber-500/20'
+        : 'bg-indigo-500/10 border border-indigo-500/20';
+    const accentIcon = isBash ? 'text-amber-400' : 'text-indigo-400';
 
-                {/* Message */}
-                <div className="approval-body">
-                    <p className="text-sm text-zinc-300 leading-relaxed mb-3">
+    return (
+        <aside className="flex h-full flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-800/60 px-4 py-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${accentChip}`}>
+                        {isBash
+                            ? <Terminal size={15} className={accentIcon} />
+                            : <FileCode size={15} className={accentIcon} />
+                        }
+                    </div>
+                    <div className="min-w-0">
+                        <p className="truncate text-[13px] font-semibold leading-tight text-zinc-100">
+                            {request.title}
+                        </p>
+                        <p className="text-[11px] leading-tight text-zinc-500">
+                            Requiere tu aprobación
+                        </p>
+                    </div>
+                </div>
+                <button
+                    onClick={() => onReject(request.id)}
+                    title="Rechazar (Esc)"
+                    className="shrink-0 rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                >
+                    <X size={15} />
+                </button>
+            </div>
+
+            {/* Body */}
+            <div className="goose-scrollbar flex-1 space-y-4 overflow-y-auto px-4 py-4">
+                {request.message && (
+                    <p className="text-[13px] leading-relaxed text-zinc-300">
                         {request.message}
                     </p>
+                )}
 
-                    {/* Diff / Command Preview */}
-                    {request.diff_content && (
-                        <div className="approval-code-block">
-                            <div className="flex items-center gap-2 mb-2">
-                                {request.file_path && (
-                                    <span className="text-[11px] font-mono text-zinc-500">
-                                        {request.file_path}
-                                    </span>
-                                )}
+                {request.diff_content && (
+                    <div className="overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/40">
+                        {request.file_path && (
+                            <div className="flex items-center gap-1.5 border-b border-zinc-800/60 bg-zinc-900/60 px-3 py-2">
+                                <FileCode size={12} className="shrink-0 text-zinc-500" />
+                                <span className="truncate font-mono text-[11px] text-zinc-400">
+                                    {request.file_path}
+                                </span>
                             </div>
-                            <pre className="text-[12px] font-mono leading-relaxed whitespace-pre-wrap break-all">
-                                {request.diff_content.split('\n').map((line, i) => {
-                                    let lineClass = 'text-zinc-400';
-                                    if (line.startsWith('+')) lineClass = 'text-emerald-400';
-                                    else if (line.startsWith('-')) lineClass = 'text-red-400';
-                                    else if (line.startsWith('@')) lineClass = 'text-indigo-400';
-                                    return (
-                                        <span key={i} className={lineClass}>
-                                            {line}{'\n'}
-                                        </span>
-                                    );
-                                })}
-                            </pre>
-                        </div>
-                    )}
-                </div>
+                        )}
+                        <pre className="goose-scrollbar max-h-64 overflow-y-auto whitespace-pre-wrap break-words p-3 font-mono text-[12px] leading-relaxed">
+                            {request.diff_content.split('\n').map((line, i) => {
+                                let lineClass = 'text-zinc-400';
+                                if (line.startsWith('+')) lineClass = 'text-emerald-400';
+                                else if (line.startsWith('-')) lineClass = 'text-red-400';
+                                else if (line.startsWith('@')) lineClass = 'text-indigo-400';
+                                return (
+                                    <span key={i} className={lineClass}>
+                                        {line}{'\n'}
+                                    </span>
+                                );
+                            })}
+                        </pre>
+                    </div>
+                )}
+            </div>
 
-                {/* Actions */}
-                <div className="approval-actions">
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-600">
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700/50 font-mono text-[10px]">Enter</span>
-                        <span>aprobar</span>
-                        <span className="mx-1 text-zinc-700">·</span>
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700/50 font-mono text-[10px]">Esc</span>
-                        <span>rechazar</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => onReject(request.id)}
-                            className="approval-btn-reject"
-                        >
-                            <X size={14} />
-                            Rechazar
-                        </button>
-                        <button
-                            onClick={() => onApprove(request.id)}
-                            className="approval-btn-approve"
-                            autoFocus
-                        >
-                            <Check size={14} />
-                            Aprobar
-                        </button>
-                    </div>
+            {/* Actions */}
+            <div className="border-t border-zinc-800/60 px-4 py-3">
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => onReject(request.id)}
+                        title="Rechazar (Esc)"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                    >
+                        <X size={16} />
+                    </button>
+                    <button
+                        ref={approveRef}
+                        onClick={() => onApprove(request.id)}
+                        title="Aprobar (Enter)"
+                        className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm transition-colors hover:bg-indigo-500"
+                    >
+                        <Check size={16} />
+                    </button>
                 </div>
             </div>
-        </div>
+        </aside>
     );
 };

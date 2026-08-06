@@ -543,8 +543,12 @@ class AgentSession:
         self.workspace_dir = os.path.abspath(self.workspace_dir)
 
         # Configurar thread_manager específico de este workspace
+        # IMPORTANTE: Usar el thread_manager del pool si se proporciona,
+        # para que todas las sesiones compartan el mismo almacenamiento de hilos
+        # y no se pierdan al cambiar entre sesiones con diferentes workspace_dir.
         from kogniterm.core.thread_manager import ThreadManager
-        self.thread_manager = ThreadManager(workspace_dir=self.workspace_dir)
+        self.thread_manager = thread_manager or ThreadManager(workspace_dir=self.workspace_dir)
+        self._thread_manager_owned = thread_manager is None
 
         # Inicializar vector_db_manager para la sesión
         from kogniterm.core.context.vector_db_manager import VectorDBManager
@@ -687,9 +691,11 @@ class AgentSession:
         logger.info(f"[Session:{self.session_id}] Actualizando workspace_dir de {self.workspace_dir} a {workspace_dir}")
         self.workspace_dir = workspace_dir
 
-        # Actualizar thread manager
-        from kogniterm.core.thread_manager import ThreadManager
-        self.thread_manager = ThreadManager(workspace_dir=workspace_dir)
+        # Solo recrear thread_manager si lo creamos nosotros mismos;
+        # si vino del pool, se mantiene para preservar los hilos compartidos.
+        if getattr(self, "_thread_manager_owned", False):
+            from kogniterm.core.thread_manager import ThreadManager
+            self.thread_manager = ThreadManager(workspace_dir=workspace_dir)
 
         # Actualizar vector_db_manager para la sesión
         from kogniterm.core.context.vector_db_manager import VectorDBManager
@@ -834,6 +840,32 @@ class AgentSession:
             # 2. Flujo normal de agente
             self.ui._push("user_message", {"text": message})
             self.agent_state.add_message(HumanMessage(content=message))
+
+            # Nombrado inmediato del hilo si aún no tiene título significativo
+            if self.thread_manager:
+                try:
+                    current = self.thread_manager.get_thread(self.session_id)
+                    generic_titles = {
+                        "Nueva conversación", "Nueva Conversación",
+                        "Conversación sin título", "Conversación", "",
+                    }
+                    if current and (
+                        current.title in generic_titles
+                        or current.title == self.session_id
+                    ):
+                        immediate_title = ThreadManager._fallback_title(message)
+                        if immediate_title and immediate_title != "Conversación":
+                            self.thread_manager.rename_thread(
+                                self.session_id, immediate_title, source="fallback"
+                            )
+                            self.ui._push(
+                                "thread_title_updated",
+                                {"thread_id": self.session_id, "title": immediate_title},
+                            )
+                except Exception as exc:
+                    logger.debug(
+                        f"[Session:{self.session_id}] No se pudo aplicar nombrado inmediato: {exc}"
+                    )
 
             loop = asyncio.get_event_loop()
             try:
