@@ -215,6 +215,16 @@ class ServerUI(TerminalUI):
         self._pending_approvals = {}  # {request_id: (threading.Event, bool)}
         self._pending_approvals_async = {}  # {request_id: (asyncio.Event, bool)}
         self._pending_lock = threading.Lock()
+        # Búfer de estado en vivo para re-acoplamiento WebSocket
+        self.current_thinking: str = ""
+        self.current_response: str = ""
+        self.active_terminal_entries: list = []
+
+    def reset_live_buffer(self) -> None:
+        """Limpia el búfer del estado en vivo cuando concluye la generación."""
+        self.current_thinking = ""
+        self.current_response = ""
+        self.active_terminal_entries.clear()
 
     def add_telegram_adapter(self, adapter):
         self.telegram_adapters.append(adapter)
@@ -233,6 +243,23 @@ class ServerUI(TerminalUI):
         event = {"type": event_type, "data": data, "ts": datetime.utcnow().isoformat()}
         if agent_id:
             event["agent_id"] = agent_id
+        # Actualizar búfer de estado en vivo
+        if event_type == "live_update" and isinstance(data, dict):
+            if "thinking" in data:
+                self.current_thinking = data["thinking"] or self.current_thinking
+            if "response" in data:
+                self.current_response = data["response"] or self.current_response
+        elif event_type in ("done", "error"):
+            self.reset_live_buffer()
+        elif event_type == "terminal_output" and isinstance(data, dict):
+            self.active_terminal_entries.append({
+                "id": str(data.get("tool_call_id") or uuid.uuid4().hex[:8]),
+                "tool": data.get("tool", ""),
+                "command": data.get("command", ""),
+                "output": data.get("content") or data.get("output") or "",
+                "timestamp": int(datetime.utcnow().timestamp() * 1000)
+            })
+
         try:
             # Broadcast a todas las colas activas
             with self._queues_lock:
@@ -849,6 +876,10 @@ class AgentSession:
             # 2. Flujo normal de agente
             self.ui._push("user_message", {"text": message})
             self.agent_state.add_message(HumanMessage(content=message))
+            if self.thread_manager:
+                self.thread_manager.save_thread_messages(
+                    self.session_id, self.agent_state.messages
+                )
 
             # Nombrado inmediato del hilo si aún no tiene título significativo
             if self.thread_manager:
