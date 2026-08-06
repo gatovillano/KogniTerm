@@ -5,6 +5,9 @@ import { vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
 import { User, Bot, ChevronRight, Terminal } from 'lucide-react';
 import { Message } from '../../types/chat';
+import { ThinkingSpinner } from './ThinkingSpinner';
+import { AppliedDiffCard } from './AppliedDiffCard';
+import { parseAppliedDiff } from '../../hooks/useChat';
 
 interface ChatMessageProps {
     message: Message;
@@ -24,19 +27,30 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     };
 
     if (isTool) {
+        const rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+        const parsedDiff = parseAppliedDiff(rawText);
+
+        if (parsedDiff) {
+            return (
+                <div className="flex w-full mb-4 justify-start pl-12 pr-4 animate-fade-in max-w-[95%]">
+                    <AppliedDiffCard diff={parsedDiff} defaultExpanded={true} />
+                </div>
+            );
+        }
+
         return (
             <div className="flex w-full mb-4 justify-start pl-12 animate-fade-in">
                 <div className="flex flex-col gap-1 w-full max-w-[90%]">
                     <button 
                         onClick={() => setIsToolOpen(!isToolOpen)}
-                        className="flex items-center gap-2 text-[11px] font-bold text-zinc-500 uppercase tracking-widest ml-1 hover:text-zinc-700 transition-colors w-fit"
+                        className="flex items-center gap-2 text-[11px] font-bold text-zinc-500 uppercase tracking-widest ml-1 hover:text-zinc-700 transition-colors w-fit cursor-pointer"
                     >
                         <ChevronRight size={12} className={`text-emerald-600 transition-transform duration-300 ${isToolOpen ? 'rotate-90' : ''}`} />
                         <span>Resultado de Herramienta</span>
                     </button>
                     {isToolOpen && (
                         <div className="output-code-card mt-1 whitespace-pre-wrap max-h-96 overflow-y-auto custom-scrollbar">
-                            {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
+                            {rawText}
                         </div>
                     )}
                 </div>
@@ -87,7 +101,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                     size={12}
                                     className={`transition-transform duration-300 text-zinc-400 ${isReasoningOpen ? 'rotate-90' : ''}`}
                                 />
-                                <span>Thinking</span>
+                                <ThinkingSpinner compact text="KogniTerm está pensando..." />
                             </button>
 
                             {isReasoningOpen && (

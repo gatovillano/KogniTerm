@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { ChatMessage } from './components/chat/ChatMessage';
 import { ChatInput } from './components/chat/ChatInput';
+import { ThinkingSpinner } from './components/chat/ThinkingSpinner';
 import { FileExplorer } from './components/files/FileExplorer';
 import { SkillsPanel } from './components/skills/SkillsPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
@@ -34,10 +35,15 @@ function App() {
     terminalEntries,
     sendTerminalInput,
     clearTerminal,
+    appliedDiffs,
+    scrollPosition,
+    isUserNearBottom,
+    setThreadScrollPosition,
   } = useChat(currentThreadId);
 
   const hasActiveTasks = Object.values(taskPlans).some((plan) => plan.length > 0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLElement>(null);
   
   // App views & parameters
   const [activeView, setActiveView] = useState<ViewType>('chat');
@@ -110,12 +116,29 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleChatScroll = () => {
+    if (!chatContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    setThreadScrollPosition(scrollTop, isNearBottom);
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Restore scroll position when thread or active view changes
   useEffect(() => {
-    scrollToBottom();
+    if (activeView === 'chat' && chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = scrollPosition;
+    }
+  }, [currentThreadId, activeView]);
+
+  // Auto scroll only when user is near bottom
+  useEffect(() => {
+    if (isUserNearBottom) {
+      scrollToBottom();
+    }
   }, [messages]);
 
   // Fetch threads & working dir on load
@@ -433,7 +456,11 @@ function App() {
           <div className="flex flex-1 overflow-hidden relative">
             <div className="flex-1 flex flex-col relative min-w-0">
               
-              <section className="flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth pb-32">
+              <section 
+                ref={chatContainerRef}
+                onScroll={handleChatScroll}
+                className="flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth pb-32"
+              >
                 <div className="max-w-3xl mx-auto py-8">
                   {messages.length === 0 ? (
                     <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
@@ -490,6 +517,9 @@ function App() {
                       {messages.map((msg) => (
                         <ChatMessage key={msg.id} message={msg} />
                       ))}
+                      {isGenerating && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.reasoning && (!messages[messages.length - 1]?.tool_calls || messages[messages.length - 1]?.tool_calls?.length === 0))) && (
+                        <ThinkingSpinner />
+                      )}
                     </div>
                   )}
 
@@ -520,7 +550,7 @@ function App() {
               )}
             </div>
 
-            {/* Right Sidebar: Tareas | Terminal | Aprobación */}
+            {/* Right Sidebar: Tareas | Terminal | Aprobación | Diffs */}
             {isRightSidebarOpen && (
                 <RightSidebar
                     taskPlans={taskPlans}
@@ -531,6 +561,7 @@ function App() {
                     terminalEntries={terminalEntries}
                     onTerminalInput={sendTerminalInput}
                     onClearTerminal={clearTerminal}
+                    appliedDiffs={appliedDiffs}
                     isOpen={isRightSidebarOpen}
                     onToggle={() => setIsRightSidebarOpen((prev) => !prev)}
                 />

@@ -219,6 +219,9 @@ class ServerUI(TerminalUI):
     def add_telegram_adapter(self, adapter):
         self.telegram_adapters.append(adapter)
 
+    def get_interrupt_queue(self):
+        return getattr(self, "interrupt_queue", None)
+
     # ── Internal helpers ───────────────────────────────────────────────────────
 
     def _push(self, event_type: str, data: Any, agent_id: str = None) -> None:
@@ -1024,9 +1027,8 @@ class AgentSession:
                                 file_path=file_path,
                             )
 
-                        # Limpiar estado de confirmación
-                        self.agent_state.reset_tool_confirmation()
-                        self.agent_state.tool_call_id_to_confirm = None
+                        # Desencolar/avanzar la confirmación actual
+                        self.agent_state.pop_pending_confirmation()
 
                         if not approved:
                             self.ui.print_warning_box("Acción cancelada por el usuario.")

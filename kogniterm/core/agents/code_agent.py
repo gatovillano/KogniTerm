@@ -212,8 +212,7 @@ def handle_tool_confirmation(state: AgentState, llm_service: LLMService):
             ToolMessage(content=tool_output_str, tool_call_id=tool_id)
         )
 
-    state.reset_tool_confirmation()
-    state.tool_call_id_to_confirm = None
+    state.pop_pending_confirmation()
     return state
 
 
@@ -674,7 +673,7 @@ def execute_tool_node(
             "multi_replace_file_content",
             "file_create_tool",
         }
-        if tool_name in editing_tools:
+        if tool_name in editing_tools and autonomous_mode:
             logger.info(
                 f"DEBUG: Ejecutando herramienta de edición {tool_name} con args: {tool_args}"
             )
@@ -771,10 +770,12 @@ def execute_tool_node(
                     continue
 
             # Manejo de confirmación para ediciones críticas
-            state.tool_pending_confirmation = exception.tool_name
-            state.tool_args_pending_confirmation = exception.tool_args
-            state.tool_call_id_to_confirm = tool_id
-            state.file_update_diff_pending_confirmation = exception.raw_tool_output
+            state.add_pending_confirmation(
+                tool_name=exception.tool_name,
+                tool_args=exception.tool_args,
+                tool_call_id=tool_id,
+                raw_tool_output=exception.raw_tool_output,
+            )
 
             tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
             state.messages.extend(tool_messages)

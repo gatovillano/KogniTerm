@@ -120,4 +120,26 @@ async def test_session_pool_auto_approval_bypasses_ui_ask():
     handler_mock.handle_command_approval.assert_called_once_with(command_to_execute="ls -la")
 
 
+@pytest.mark.anyio
+async def test_command_approval_handler_initializes_with_server_ui():
+    """Verifica que CommandApprovalHandler se inicialice sin errores utilizando ServerUI (sin get_interrupt_queue)."""
+    from kogniterm.server.session_pool import ServerUI
+    from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+
+    loop = asyncio.get_running_loop()
+    server_ui = ServerUI(loop=loop, session_id="test_init_session")
+
+    handler = CommandApprovalHandler(
+        llm_service=MagicMock(),
+        command_executor=MagicMock(),
+        prompt_session=None,
+        terminal_ui=server_ui,
+        agent_state=MagicMock(),
+    )
+    assert handler.terminal_ui == server_ui
+    import queue
+    assert isinstance(handler.interrupt_queue, queue.Queue)
+
+
+
 

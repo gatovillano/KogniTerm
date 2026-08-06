@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ListTodo, Terminal, ShieldCheck, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { ListTodo, Terminal, ShieldCheck, FileDiff, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { TaskTracker } from './TaskTracker';
 import { CommandApproval, ApprovalRequest } from './CommandApproval';
 import { TerminalSidebar } from './TerminalSidebar';
 import { TerminalEntry } from './TerminalPanel';
+import { DiffSidebar } from './DiffSidebar';
+import { AppliedDiff } from '../../types/chat';
 
-type TabId = 'tasks' | 'terminal' | 'approval';
+type TabId = 'tasks' | 'terminal' | 'approval' | 'diffs';
 
 export const RightSidebar: React.FC<{
     taskPlans: Record<string, any[]>;
@@ -16,6 +18,7 @@ export const RightSidebar: React.FC<{
     terminalEntries: TerminalEntry[];
     onTerminalInput: (text: string) => void;
     onClearTerminal: () => void;
+    appliedDiffs?: AppliedDiff[];
     isOpen: boolean;
     onToggle: () => void;
 }> = ({
@@ -27,6 +30,7 @@ export const RightSidebar: React.FC<{
     terminalEntries,
     onTerminalInput,
     onClearTerminal,
+    appliedDiffs = [],
     isOpen,
     onToggle,
 }) => {
@@ -112,6 +116,12 @@ export const RightSidebar: React.FC<{
             label: 'Aprobación',
             icon: ShieldCheck,
             badge: pendingApproval ? 1 : undefined,
+        },
+        {
+            id: 'diffs',
+            label: 'Diffs',
+            icon: FileDiff,
+            badge: appliedDiffs.length > 0 ? appliedDiffs.length : undefined,
         },
     ];
 
@@ -215,9 +225,16 @@ export const RightSidebar: React.FC<{
                                 <p className="text-[12px]">Sin aprobaciones pendientes</p>
                             </div>
                         )}
+
+                        {activeTab === 'diffs' && (
+                            <div className="flex h-full flex-col overflow-hidden">
+                                <DiffSidebar diffs={appliedDiffs} />
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
         </aside>
     );
 };
+

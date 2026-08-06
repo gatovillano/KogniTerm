@@ -292,10 +292,12 @@ class ToolExecutor:
                 tid, content, exc = future.result()
                 if isinstance(exc, UserConfirmationRequired):
                     if not is_autonomous:
-                        state.tool_pending_confirmation = exc.tool_name
-                        state.tool_args_pending_confirmation = exc.tool_args
-                        state.tool_call_id_to_confirm = tid
-                        state.file_update_diff_pending_confirmation = exc.raw_tool_output
+                        state.add_pending_confirmation(
+                            tool_name=exc.tool_name,
+                            tool_args=exc.tool_args,
+                            tool_call_id=tid,
+                            raw_tool_output=exc.raw_tool_output,
+                        )
                     else:
                         logger.info("Subagente autónomo: omitida la pausa de confirmación de usuario para '%s'.", exc.tool_name)
 
@@ -394,7 +396,7 @@ def should_continue(state: AgentState) -> str:
     if (
         state.critical_loop_detected
         or state.command_to_confirm is not None
-        or state.file_update_diff_pending_confirmation is not None
+        or state.has_pending_confirmations()
     ):
         return END
     last_message = state.messages[-1]

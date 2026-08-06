@@ -20,8 +20,19 @@ export interface Message {
     timestamp: number;
 }
 
+export interface AppliedDiff {
+    id: string;
+    filePath: string;
+    toolName?: string;
+    diffContent: string;
+    additions: number;
+    deletions: number;
+    timestamp: number;
+}
+
 export interface ChatState {
     messages: Message[];
     isGenerating: boolean;
     error: string | null;
 }
+
