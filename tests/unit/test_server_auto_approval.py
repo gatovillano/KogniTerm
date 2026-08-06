@@ -71,3 +71,53 @@ async def test_command_approval_handler_respects_config_manager_auto_approve():
         )
         assert handler.auto_approve is True
 
+
+@pytest.mark.anyio
+async def test_session_pool_auto_approval_bypasses_ui_ask():
+    """Verifica que handle_command_approval sea llamado directamente por AgentSession
+    sin solicitar confirmación a la UI cuando auto_approve está activado.
+    """
+    from kogniterm.server.session_pool import AgentSession, ServerUI
+
+    ui_mock = MagicMock(spec=ServerUI)
+    llm_service_mock = MagicMock()
+    loop_mock = MagicMock()
+
+    with patch("kogniterm.server.session_pool.ServerUI", return_value=ui_mock), \
+         patch("kogniterm.core.history_manager.HistoryManager"), \
+         patch("kogniterm.core.context.workspace_context.WorkspaceContext"), \
+         patch("kogniterm.core.command_executor.CommandExecutor"), \
+         patch("kogniterm.terminal.command_approval_handler.CommandApprovalHandler"), \
+         patch("kogniterm.core.agent_interaction.AgentInteractionRegistry.create"):
+        session = AgentSession("test_session_id", llm_service_mock, loop_mock)
+
+    # Configurar el handler mockeado
+    handler_mock = MagicMock()
+    handler_mock.handle_command_approval.return_value = {"approved": True, "tool_message_content": "ok"}
+    session.command_approval_handler = handler_mock
+
+    # Configurar comando a confirmar en agent_state
+    session.agent_state.command_to_confirm = "ls -la"
+
+    # Simular la rama del bucle de interrupción para comando bash
+    command = session.agent_state.command_to_confirm
+    if command and session.command_approval_handler:
+        approval_result = session.command_approval_handler.handle_command_approval(
+            command_to_execute=command
+        )
+        approved = approval_result.get("approved", False)
+    else:
+        approved = session.ui.ask_approval_sync(
+            message=f"¿Ejecutar comando: {command}?",
+            title="Confirmación de Comando",
+            diff_content=command,
+            file_path="bash",
+        )
+
+    assert approved is True
+    # ask_approval_sync NO debió ser llamado porque command_approval_handler lo procesó directamente
+    assert not ui_mock.ask_approval_sync.called
+    handler_mock.handle_command_approval.assert_called_once_with(command_to_execute="ls -la")
+
+
+

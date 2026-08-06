@@ -2699,20 +2699,18 @@ class KogniTermTUI(App):
                 if self.agent_state.command_to_confirm:
                     command = self.agent_state.command_to_confirm
 
-                    # Bloquear el hilo worker hasta que el usuario decida en la TUI
-                    approved = self.ask_for_approval_sync(
-                        message=f"¿Ejecutar comando: {command}?",
-                        title="Confirmación de Comando",
-                        diff_content=command,
-                        file_path="bash",
-                    )
-
-                    if command:
-                        # Llamada síncrona al handler (corre en el worker thread)
-                        self.command_approval_handler.handle_command_approval(
-                            command_to_execute=command, auto_approve=approved
+                    if command and self.command_approval_handler:
+                        approval_result = self.command_approval_handler.handle_command_approval(
+                            command_to_execute=command
                         )
-                    # El handler ya se encarga de actualizar el estado del agente
+                        approved = approval_result.get("approved", False)
+                    else:
+                        approved = self.ask_for_approval_sync(
+                            message=f"¿Ejecutar comando: {command}?",
+                            title="Confirmación de Comando",
+                            diff_content=command,
+                            file_path="bash",
+                        )
 
                     # Limpiar estado de confirmación tras procesar
                     self.agent_state.command_to_confirm = None
@@ -2753,29 +2751,28 @@ class KogniTermTUI(App):
                     elif isinstance(diff_info, str):
                         diff_content = diff_info
 
-                    # Bloquear el hilo worker hasta que el usuario decida en la TUI
-                    approved = self.ask_for_approval_sync(
-                        message=message,
-                        title=f"Confirmación: {tool_name}",
-                        diff_content=diff_content,
-                        file_path=file_path,
-                    )
-
-                    # Llamar al handler síncrono desde el hilo worker
-                    self.command_approval_handler.handle_command_approval(
-                        command_to_execute="",  # No es un comando bash
-                        raw_tool_output=diff_info
-                        if isinstance(diff_info, dict)
-                        else {
-                            "status": "requires_confirmation",
-                            "diff": diff_content,
-                            "path": file_path,
-                            "operation": tool_name,
-                        },
-                        auto_approve=approved,
-                        tool_name=tool_name,
-                        original_tool_args=self.agent_state.tool_args_pending_confirmation,
-                    )
+                    if self.command_approval_handler:
+                        approval_result = self.command_approval_handler.handle_command_approval(
+                            command_to_execute="",  # No es un comando bash
+                            raw_tool_output=diff_info
+                            if isinstance(diff_info, dict)
+                            else {
+                                "status": "requires_confirmation",
+                                "diff": diff_content,
+                                "path": file_path,
+                                "operation": tool_name,
+                            },
+                            tool_name=tool_name,
+                            original_tool_args=self.agent_state.tool_args_pending_confirmation,
+                        )
+                        approved = approval_result.get("approved", False)
+                    else:
+                        approved = self.ask_for_approval_sync(
+                            message=message,
+                            title=f"Confirmación: {tool_name}",
+                            diff_content=diff_content,
+                            file_path=file_path,
+                        )
 
                     # Limpiar estado de confirmación
                     self.agent_state.reset_tool_confirmation()
@@ -2830,6 +2827,13 @@ class KogniTermTUI(App):
     def set_auto_approve_all(self, active: bool = True) -> None:
         """Activa o desactiva la auto-aprobación global para todas las acciones y actualiza la UI."""
         self._auto_approve_all = active
+        try:
+            from kogniterm.terminal.config_manager import ConfigManager
+            ConfigManager().set_project_config("auto_approve", active)
+        except Exception:
+            pass
+        if hasattr(self, "command_approval_handler") and self.command_approval_handler:
+            self.command_approval_handler.auto_approve = active
         try:
             from kogniterm.terminal.tui.components.status_footer import StatusFooter
             footer = self.query_one(StatusFooter)
