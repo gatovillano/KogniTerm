@@ -61,9 +61,9 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
     const accentIcon = isBash ? 'text-amber-400' : 'text-indigo-400';
 
     return (
-        <aside className="flex h-full flex-col">
+        <aside className="flex h-full flex-col bg-white">
             {/* Header */}
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-800/60 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2.5">
                     <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${accentChip}`}>
                         {isBash
@@ -72,7 +72,7 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
                         }
                     </div>
                     <div className="min-w-0">
-                        <p className="truncate text-[13px] font-semibold leading-tight text-zinc-100">
+                        <p className="truncate text-[13px] font-semibold leading-tight text-zinc-800">
                             {request.title}
                         </p>
                         <p className="text-[11px] leading-tight text-zinc-500">
@@ -83,7 +83,7 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
                 <button
                     onClick={() => onReject(request.id)}
                     title="Rechazar (Esc)"
-                    className="shrink-0 rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                    className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
                 >
                     <X size={15} />
                 </button>
@@ -92,27 +92,27 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
             {/* Body */}
             <div className="goose-scrollbar flex-1 space-y-4 overflow-y-auto px-4 py-4">
                 {request.message && (
-                    <p className="text-[13px] leading-relaxed text-zinc-300">
+                    <p className="text-[13px] leading-relaxed text-zinc-700">
                         {request.message}
                     </p>
                 )}
 
                 {request.diff_content && (
-                    <div className="overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/40">
+                    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
                         {request.file_path && (
-                            <div className="flex items-center gap-1.5 border-b border-zinc-800/60 bg-zinc-900/60 px-3 py-2">
+                            <div className="flex items-center gap-1.5 border-b border-zinc-200 bg-zinc-100/70 px-3 py-2">
                                 <FileCode size={12} className="shrink-0 text-zinc-500" />
-                                <span className="truncate font-mono text-[11px] text-zinc-400">
+                                <span className="truncate font-mono text-[11px] text-zinc-700 font-medium">
                                     {request.file_path}
                                 </span>
                             </div>
                         )}
                         <pre className="goose-scrollbar max-h-64 overflow-y-auto whitespace-pre-wrap break-words p-3 font-mono text-[12px] leading-relaxed">
                             {request.diff_content.split('\n').map((line, i) => {
-                                let lineClass = 'text-zinc-400';
-                                if (line.startsWith('+')) lineClass = 'text-emerald-400';
-                                else if (line.startsWith('-')) lineClass = 'text-red-400';
-                                else if (line.startsWith('@')) lineClass = 'text-indigo-400';
+                                let lineClass = 'text-zinc-700';
+                                if (line.startsWith('+')) lineClass = 'text-emerald-600 font-medium';
+                                else if (line.startsWith('-')) lineClass = 'text-rose-600 font-medium';
+                                else if (line.startsWith('@')) lineClass = 'text-indigo-600 font-semibold';
                                 return (
                                     <span key={i} className={lineClass}>
                                         {line}{'\n'}
@@ -125,12 +125,12 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
             </div>
 
             {/* Actions */}
-            <div className="border-t border-zinc-800/60 px-4 py-3">
+            <div className="border-t border-zinc-200 px-4 py-3">
                 <div className="flex items-center justify-between gap-2">
                     <button
                         onClick={handleApproveAlways}
                         title="Aprobar este y todos los siguientes (A)"
-                        className="px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+                        className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                         <Zap size={13} />
                         <span>Aceptar siempre (A)</span>
@@ -140,7 +140,7 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
                         <button
                             onClick={() => onReject(request.id)}
                             title="Rechazar (Esc)"
-                            className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 cursor-pointer"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 cursor-pointer"
                         >
                             <X size={16} />
                         </button>

@@ -12,52 +12,99 @@ export function parseAppliedDiff(
 
     let diffText = rawContent;
     let filePath = fallbackFilePath || '';
+    let extractedTool = toolName || '';
 
+    // 1. JSON Payload format
     if (rawContent.trim().startsWith('{') && rawContent.trim().endsWith('}')) {
         try {
             const parsed = JSON.parse(rawContent);
             if (parsed.diff_content) diffText = parsed.diff_content;
             else if (parsed.diff) diffText = parsed.diff;
             if (parsed.file_path || parsed.filePath) filePath = parsed.file_path || parsed.filePath;
-            if (parsed.tool || parsed.tool_name) toolName = parsed.tool || parsed.tool_name;
+            if (parsed.tool || parsed.tool_name || parsed.operation) {
+                extractedTool = parsed.tool || parsed.tool_name || parsed.operation;
+            }
         } catch (e) {
             // Ignore parse errors
         }
     }
 
+    // 2. Markdown code block format ```diff ... ``` or ``` ... ```
+    const codeBlockMatch = diffText.match(/```(?:diff)?\n([\s\S]*?)\n```/);
+    if (codeBlockMatch) {
+        const headerText = diffText.substring(0, diffText.indexOf('```'));
+        const opMatch = headerText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?/i);
+        if (opMatch && !extractedTool) extractedTool = opMatch[1];
+        const pathMatch = headerText.match(/Cambios aplicados en\s*`?([^`\n]+)`?/i);
+        if (pathMatch && !filePath) filePath = pathMatch[1];
+
+        diffText = codeBlockMatch[1];
+    }
+
+    // 3. Header pattern like "Operación: tool_name --- a/path" or "✅ Diff aplicado: path"
+    const opLineMatch = diffText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?\s*/i);
+    if (opLineMatch) {
+        if (!extractedTool) extractedTool = opLineMatch[1];
+        diffText = diffText.replace(/Operación:\s*`?[a-zA-Z0-9_\-]+`?\s*/i, '');
+    }
+
+    const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n]+)/i) || diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n]+)`?/i);
+    if (titleMatch && !filePath) {
+        filePath = titleMatch[1].trim();
+    }
+
+    // 4. Parse diff lines & count additions/deletions
     const lines = diffText.split('\n');
     let additions = 0;
     let deletions = 0;
-    let hasDiffLines = false;
+    let hasDiffHeader = false;
 
     for (const line of lines) {
-        if (line.startsWith('+++ ') || line.startsWith('--- ')) {
-            if (!filePath && line.length > 4) {
-                filePath = line.substring(4).replace(/^a\//, '').replace(/^b\//, '');
+        const trimmed = line.trim();
+
+        if (line.includes('--- ') || line.includes('+++ ')) {
+            hasDiffHeader = true;
+            if (!filePath) {
+                const match = line.match(/(?:\+\+\+|---)\s+(?:[ab]\/)+([^\s\n]+)/) || line.match(/(?:\+\+\+|---)\s+([^\s\n]+)/);
+                if (match && match[1] !== '/dev/null' && match[1] !== 'a' && match[1] !== 'b') {
+                    filePath = match[1];
+                }
             }
-            hasDiffLines = true;
             continue;
         }
+
+        if (trimmed.startsWith('@@')) {
+            hasDiffHeader = true;
+            continue;
+        }
+
+        // Standard diff lines
         if (line.startsWith('+') && !line.startsWith('+++')) {
             additions++;
-            hasDiffLines = true;
+            hasDiffHeader = true;
         } else if (line.startsWith('-') && !line.startsWith('---')) {
             deletions++;
-            hasDiffLines = true;
-        } else if (line.startsWith('@@')) {
-            hasDiffLines = true;
+            hasDiffHeader = true;
+        }
+        // Rich Console line numbers format: e.g. "188+" or "185 185 - ..." or "195+ - ..."
+        else if (/^\d+(\s+\d+)?\s*\+/.test(trimmed)) {
+            additions++;
+            hasDiffHeader = true;
+        } else if (/^\d+(\s+\d+)?\s*-/.test(trimmed)) {
+            deletions++;
+            hasDiffHeader = true;
         }
     }
 
-    if (!hasDiffLines && additions === 0 && deletions === 0) {
+    if (!hasDiffHeader && additions === 0 && deletions === 0) {
         return null;
     }
 
     return {
         id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 7),
         filePath: filePath || 'archivo_modificado',
-        toolName: toolName || 'edición',
-        diffContent: diffText,
+        toolName: extractedTool || toolName || 'edición',
+        diffContent: diffText.trim(),
         additions,
         deletions,
         timestamp: Date.now(),
@@ -160,6 +207,19 @@ export function useChat(threadId: string | null) {
         }
     }, [threadId]);
 
+    const recordDiffIfAny = useCallback((content: string, filePath?: string, toolName?: string) => {
+        if (!content) return;
+        const parsed = parseAppliedDiff(content, filePath, toolName);
+        if (parsed) {
+            setAppliedDiffs((prev) => {
+                if (prev.some(d => d.filePath === parsed.filePath && d.diffContent === parsed.diffContent)) {
+                    return prev;
+                }
+                return [parsed, ...prev];
+            });
+        }
+    }, []);
+
     useEffect(() => {
         let active = true;
         
@@ -193,6 +253,28 @@ export function useChat(threadId: string | null) {
             .then(data => {
                 if (active && data.messages && data.messages.length > 0) {
                     setMessages(data.messages);
+                    // Extract applied diffs from initial thread messages
+                    const extracted: AppliedDiff[] = [];
+                    data.messages.forEach((m: Message) => {
+                        if (m.content) {
+                            const parsed = parseAppliedDiff(m.content);
+                            if (parsed && !extracted.some(d => d.filePath === parsed.filePath && d.diffContent === parsed.diffContent)) {
+                                extracted.push(parsed);
+                            }
+                        }
+                    });
+                    if (extracted.length > 0) {
+                        setAppliedDiffs((prev) => {
+                            const combined = [...extracted, ...prev];
+                            const seen = new Set();
+                            return combined.filter(d => {
+                                const key = `${d.filePath}_${d.diffContent}`;
+                                if (seen.has(key)) return false;
+                                seen.add(key);
+                                return true;
+                            });
+                        });
+                    }
                 }
             })
             .catch(err => console.error("Error loading messages:", err));
@@ -247,13 +329,16 @@ export function useChat(threadId: string | null) {
 
                 if (data.type === 'chunk') {
                     const payload = data.data || data;
+                    const chunkContent = payload.content || '';
+                    if (chunkContent) recordDiffIfAny(chunkContent);
+
                     setMessages((prev) => {
                         const lastMessage = prev[prev.length - 1];
                         if (lastMessage && lastMessage.role === 'assistant') {
                             const newMessages = [...prev];
                             newMessages[newMessages.length - 1] = {
                                 ...lastMessage,
-                                content: lastMessage.content + (payload.content || ''),
+                                content: lastMessage.content + chunkContent,
                             };
                             return newMessages;
                         } else {
@@ -262,7 +347,7 @@ export function useChat(threadId: string | null) {
                                 {
                                     id: Date.now().toString(),
                                     role: 'assistant',
-                                    content: payload.content || '',
+                                    content: chunkContent,
                                     timestamp: Date.now(),
                                 },
                             ];
@@ -312,13 +397,15 @@ export function useChat(threadId: string | null) {
                     }
                     
                     if (payload.special_type) return;
+
+                    const thinking = payload.thinking || '';
+                    const response = payload.response || '';
+                    if (response) recordDiffIfAny(response);
+
                     setMessages((prev) => {
-                        const lastMessage = prev[prev.length - 1];
-                        const thinking = payload.thinking || '';
-                        const response = payload.response || '';
-                        
                         if (!thinking && !response) return prev;
 
+                        const lastMessage = prev[prev.length - 1];
                         if (lastMessage && lastMessage.role === 'assistant') {
                             const newMessages = [...prev];
                             newMessages[newMessages.length - 1] = {
@@ -397,10 +484,7 @@ export function useChat(threadId: string | null) {
                     const payload = data.data || data;
                     const contentStr = typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.content || '');
                     
-                    const parsedDiff = parseAppliedDiff(contentStr, payload.file_path || payload.filePath, payload.tool || payload.tool_name);
-                    if (parsedDiff) {
-                        setAppliedDiffs((prev) => [parsedDiff, ...prev]);
-                    }
+                    recordDiffIfAny(contentStr, payload.file_path || payload.filePath, payload.tool || payload.tool_name);
 
                     setMessages((prev) => [
                         ...prev,
@@ -422,12 +506,15 @@ export function useChat(threadId: string | null) {
                     window.dispatchEvent(new CustomEvent('thread_update'));
                 } else if (data.type === 'info') {
                     const payload = data.data || data;
+                    const infoText = payload.content || payload.text || '';
+                    if (infoText) recordDiffIfAny(infoText);
+
                     setMessages((prev) => [
                         ...prev,
                         {
                             id: Date.now().toString(),
                             role: 'system',
-                            content: payload.content || payload.text || '',
+                            content: infoText,
                             timestamp: Date.now(),
                         },
                     ]);

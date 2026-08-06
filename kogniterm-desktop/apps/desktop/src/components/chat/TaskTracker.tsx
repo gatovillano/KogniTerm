@@ -30,10 +30,10 @@ export function TaskTracker({ taskPlans }: TaskTrackerProps) {
   };
 
   return (
-    <div className="flex flex-col w-full bg-zinc-950/50 overflow-y-auto">
-      <div className="p-4 border-b border-zinc-800/50 sticky top-0 bg-zinc-950/80 backdrop-blur-md z-10 flex items-center gap-2">
-        <ListTodo size={18} className="text-indigo-400" />
-        <h3 className="font-medium text-sm text-zinc-200">Plan de Tareas</h3>
+    <div className="flex flex-col w-full bg-white overflow-y-auto">
+      <div className="p-4 border-b border-zinc-200 sticky top-0 bg-white/90 backdrop-blur-md z-10 flex items-center gap-2">
+        <ListTodo size={18} className="text-indigo-600" />
+        <h3 className="font-medium text-sm text-zinc-800">Plan de Tareas</h3>
       </div>
       
       <div className="p-4 space-y-6">
@@ -47,15 +47,15 @@ export function TaskTracker({ taskPlans }: TaskTrackerProps) {
           return (
             <div key={agentName} className="space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                   {agentName.replace(/_/g, ' ')}
                 </h4>
-                <span className="text-[10px] text-zinc-500 font-medium">{progress}%</span>
+                <span className="text-[10px] text-zinc-400 font-medium">{progress}%</span>
               </div>
               
-              <div className="h-1 w-full bg-zinc-900 rounded-full overflow-hidden">
+              <div className="h-1 w-full bg-zinc-100 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-indigo-500 transition-all duration-500 ease-out"
+                  className="h-full bg-indigo-600 transition-all duration-500 ease-out"
                   style={{ width: `${progress}%` }}
                 />
               </div>
@@ -66,8 +66,8 @@ export function TaskTracker({ taskPlans }: TaskTrackerProps) {
                     key={idx} 
                     className={`flex items-start gap-3 p-2 rounded-lg text-sm transition-colors ${
                       task.status === 'in-progress' 
-                        ? 'bg-indigo-500/10 border border-indigo-500/20' 
-                        : 'hover:bg-zinc-800/50 border border-transparent'
+                        ? 'bg-indigo-50/80 border border-indigo-200' 
+                        : 'hover:bg-zinc-50 border border-transparent'
                     }`}
                   >
                     <div className="mt-0.5 shrink-0">
@@ -75,10 +75,10 @@ export function TaskTracker({ taskPlans }: TaskTrackerProps) {
                     </div>
                     <span className={`leading-snug ${
                       task.status === 'done' 
-                        ? 'text-zinc-500 line-through' 
+                        ? 'text-zinc-400 line-through' 
                         : task.status === 'in-progress'
-                          ? 'text-indigo-200'
-                          : 'text-zinc-300'
+                          ? 'text-indigo-950 font-medium'
+                          : 'text-zinc-700'
                     }`}>
                       {task.task}
                     </span>
