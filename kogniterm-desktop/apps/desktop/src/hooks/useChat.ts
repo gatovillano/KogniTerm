@@ -146,6 +146,7 @@ export function useChat(threadId: string | null) {
     const threadsCacheRef = useRef<Record<string, SingleThreadState>>({});
     const activeThreadIdRef = useRef<string | null>(threadId);
     activeThreadIdRef.current = threadId;
+    const prevThreadIdRef = useRef<string | null>(threadId);
 
     const [messages, setMessages] = useState<Message[]>(() => {
         if (threadId && threadsCacheRef.current[threadId]) {
@@ -201,9 +202,9 @@ export function useChat(threadId: string | null) {
 
     const socketRef = useRef<WebSocket | null>(null);
 
-    // Keep cache synchronized with active states
+    // Keep cache synchronized with active states for active thread
     useEffect(() => {
-        if (!threadId) return;
+        if (!threadId || prevThreadIdRef.current !== threadId) return;
         threadsCacheRef.current[threadId] = {
             messages,
             taskPlans,
@@ -243,6 +244,21 @@ export function useChat(threadId: string | null) {
     useEffect(() => {
         let active = true;
         
+        // Save previous thread state before switching to a new thread
+        if (prevThreadIdRef.current && prevThreadIdRef.current !== threadId) {
+            threadsCacheRef.current[prevThreadIdRef.current] = {
+                messages,
+                taskPlans,
+                terminalEntries,
+                pendingApproval,
+                appliedDiffs,
+                isGenerating,
+                scrollPosition,
+                isUserNearBottom,
+            };
+        }
+        prevThreadIdRef.current = threadId;
+
         if (threadId && threadsCacheRef.current[threadId]) {
             const cached = threadsCacheRef.current[threadId];
             setMessages(cached.messages);
@@ -271,29 +287,36 @@ export function useChat(threadId: string | null) {
                 return { messages: [] };
             })
             .then(data => {
-                if (active && data.messages && data.messages.length > 0) {
-                    setMessages(data.messages);
-                    // Extract applied diffs from initial thread messages
-                    const extracted: AppliedDiff[] = [];
-                    data.messages.forEach((m: Message) => {
-                        if (m.content) {
-                            const parsed = parseAppliedDiff(m.content);
-                            if (parsed && !extracted.some(d => d.filePath === parsed.filePath && d.diffContent === parsed.diffContent)) {
-                                extracted.push(parsed);
+                if (active && data.messages) {
+                    if (data.messages.length > 0) {
+                        setMessages(data.messages);
+                        // Extract applied diffs from initial thread messages
+                        const extracted: AppliedDiff[] = [];
+                        data.messages.forEach((m: Message) => {
+                            if (m.content) {
+                                const parsed = parseAppliedDiff(m.content);
+                                if (parsed && !extracted.some(d => d.filePath === parsed.filePath && d.diffContent === parsed.diffContent)) {
+                                    extracted.push(parsed);
+                                }
                             }
-                        }
-                    });
-                    if (extracted.length > 0) {
-                        setAppliedDiffs((prev) => {
-                            const combined = [...extracted, ...prev];
-                            const seen = new Set();
-                            return combined.filter(d => {
-                                const key = `${d.filePath}_${d.diffContent}`;
-                                if (seen.has(key)) return false;
-                                seen.add(key);
-                                return true;
-                            });
                         });
+                        if (extracted.length > 0) {
+                            setAppliedDiffs((prev) => {
+                                const combined = [...extracted, ...prev];
+                                const seen = new Set();
+                                return combined.filter(d => {
+                                    const key = `${d.filePath}_${d.diffContent}`;
+                                    if (seen.has(key)) return false;
+                                    seen.add(key);
+                                    return true;
+                                });
+                            });
+                        }
+                    } else {
+                        const cached = threadId ? threadsCacheRef.current[threadId] : null;
+                        if (!cached || cached.messages.length === 0) {
+                            setMessages([]);
+                        }
                     }
                 }
             })
