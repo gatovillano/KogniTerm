@@ -70,7 +70,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     useEffect(() => {
         const fetchSkills = async () => {
             try {
-                const res = await fetch('http://localhost:8765/api/skills');
+                const res = await fetch('http://127.0.0.1:8765/api/skills');
                 if (res.ok) {
                     const data = await res.json();
                     const items: SuggestionItem[] = (data.skills || []).map((s: any) => ({
@@ -202,7 +202,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             setSelectedIndex(0);
             requestAnimationFrame(updateCursorPosition);
 
-            fetch(`http://localhost:8765/api/workspace/files?query=${encodeURIComponent(query)}`)
+            fetch(`http://127.0.0.1:8765/api/workspace/files?query=${encodeURIComponent(query)}`)
                 .then(res => res.ok ? res.json() : { results: [] })
                 .then(data => {
                     const items: SuggestionItem[] = (data.results || []).map((f: any) => ({
@@ -214,8 +214,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         insertValue: `@${f.path} `
                     }));
                     setSuggestions(items);
+                    if (items.length === 0) {
+                        setShowSuggestions(false);
+                    }
                 })
-                .catch(err => console.error('Error buscando archivos:', err));
+                .catch(err => {
+                    console.error('Error buscando archivos:', err);
+                    setSuggestions([]);
+                });
             return;
         }
 
