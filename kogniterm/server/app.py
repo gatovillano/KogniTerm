@@ -1477,7 +1477,7 @@ def create_app() -> FastAPI:
 
         # Tarea B: enviar estado inicial y recibir mensajes del cliente
         try:
-            # Enviar estado inicial con configuración y metadatos de persistencia
+            # Enviar estado inicial con configuración, estado en vivo y metadatos de persistencia
             await websocket.send_json(
                 {
                     "type": "connected",
@@ -1486,6 +1486,12 @@ def create_app() -> FastAPI:
                         "config": current_config,
                         "is_new": is_new,
                         "persistent": True,
+                        "is_running": session.is_running,
+                        "live_state": {
+                            "thinking": getattr(session.ui, "current_thinking", ""),
+                            "response": getattr(session.ui, "current_response", ""),
+                            "terminal_entries": getattr(session.ui, "active_terminal_entries", []),
+                        },
                     },
                 }
             )
