@@ -62,6 +62,32 @@ function App() {
   // Live Clock & Greeting State (Goose UI)
   const [currentTime, setCurrentTime] = useState<string>('');
   const [greeting, setGreeting] = useState<string>('Buenas tardes');
+  const [autoApprove, setAutoApprove] = useState<boolean>(false);
+
+  useEffect(() => {
+    fetch('http://127.0.0.1:8765/api/config/all')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.merged?.auto_approve !== undefined) {
+          setAutoApprove(Boolean(data.merged.auto_approve));
+        }
+      })
+      .catch(err => console.error("Error fetching config auto_approve:", err));
+  }, [isSettingsOpen]);
+
+  const toggleAutoApprove = async () => {
+    const nextVal = !autoApprove;
+    setAutoApprove(nextVal);
+    try {
+      await fetch('http://127.0.0.1:8765/api/config/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'auto_approve', value: nextVal, scope: 'project' }),
+      });
+    } catch (err) {
+      console.error('Error toggling auto_approve:', err);
+    }
+  };
 
   useEffect(() => {
     const updateClock = () => {
@@ -381,7 +407,20 @@ function App() {
           </button>
 
           {/* Right Status Indicator */}
-          <div className="flex items-center gap-3 select-none">
+          <div className="flex items-center gap-2 select-none">
+            <button
+              type="button"
+              onClick={toggleAutoApprove}
+              title={autoApprove ? "Auto-aprobación activa (Clic para desactivar)" : "Auto-aprobación inactiva (Clic para activar)"}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
+                autoApprove 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' 
+                  : 'bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200 hover:text-slate-800'
+              }`}
+            >
+              {autoApprove ? <Zap size={13} className="text-emerald-600 fill-emerald-600/20" /> : <ShieldCheck size={13} />}
+              <span>{autoApprove ? "Auto-aprobación ON" : "Auto-aprobación OFF"}</span>
+            </button>
             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span>kogniterm</span>

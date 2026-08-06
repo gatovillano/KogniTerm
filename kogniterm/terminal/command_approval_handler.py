@@ -140,7 +140,8 @@ class CommandApprovalHandler:
             theme_colors = None
         
         self.diff_renderer = DiffRenderer(theme_colors=theme_colors)
-        self.auto_approve = False # Estado de auto-aprobación
+        from kogniterm.terminal.config_manager import ConfigManager
+        self.auto_approve = bool(ConfigManager().get_config("auto_approve"))
         self._command_rules = CommandRulesResolver()  # Resolver de permisos granulares
 
     def _ensure_unified_diff(self, file_path: str, diff_or_content: str) -> str:

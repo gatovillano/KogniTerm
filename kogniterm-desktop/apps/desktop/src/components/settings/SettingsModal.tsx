@@ -568,6 +568,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     placeholder="Ej: gemini/gemini-1.5-flash"
                   />
                 </div>
+
+                {/* Auto Approve setting */}
+                <div className="space-y-2 pt-4 border-t border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-800">Auto-aprobar Comandos y Ediciones</label>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Ejecuta automáticamente modificaciones de archivos y comandos bash sin solicitar confirmación manual.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={Boolean(getScopeValue('auto_approve', activeScope))} 
+                        onChange={(e) => setScopeValue('auto_approve', e.target.checked, activeScope)}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-10 h-5 bg-slate-200 rounded-full peer peer-checked:bg-indigo-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all shadow-xs"></div>
+                    </label>
+                  </div>
+                </div>
               </div>
             )}
 
