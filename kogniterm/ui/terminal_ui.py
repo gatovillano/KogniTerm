@@ -394,7 +394,8 @@ class TerminalUI:
                     group,
                     width=min(self.console.width - 4, 100),  # Ajustar dinámicamente al ancho menos padding
                     expand=False,
-                    box=None  # Sin bordes exteriores ni líneas divisorias
+                    box=box.ROUNDED,
+                    border_style=border_style
                 ),
                 (1, 2)
             )
