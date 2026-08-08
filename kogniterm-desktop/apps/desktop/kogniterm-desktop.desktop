@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=KogniTerm Desktop
+GenericName=AI-Powered Terminal
+Comment=Terminal asistida por Inteligencia Artificial para desarrolladores
+Exec=kogniterm-desktop
+Icon=kogniterm-desktop
+Terminal=false
+Categories=Development;Utility;TerminalEmulator;
+StartupWMClass=kogniterm-desktop
+Keywords=terminal;ai;kogniterm;shell;gemini;

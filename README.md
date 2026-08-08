@@ -64,7 +64,18 @@ pipx install kogniterm
 pip install kogniterm
 ```
 
-### Opción C — Desde el código fuente (desarrollo)
+### Opción C — KogniTerm Desktop (GUI Nativa + Lanzador del SO)
+
+Para instalar la interfaz gráfica nativa de **KogniTerm Desktop** con acceso directo automático en el menú de aplicaciones de tu sistema (Linux / macOS):
+
+```bash
+cd kogniterm-desktop
+bash install-desktop.sh
+```
+
+El script se encargará de instalar el icono oficial multi-resolución en tu sistema y registrar la entrada en el lanzador (`~/.local/share/applications/kogniterm-desktop.desktop` en Linux o `/Applications/KogniTerm Desktop.app` en macOS).
+
+### Opción D — Desde el código fuente (desarrollo)
 
 ```bash
 git clone https://github.com/gatovillano/KogniTerm.git

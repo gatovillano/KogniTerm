@@ -34,18 +34,22 @@ sudo apt install libwebkit2gtk-4.1-dev \
   librsvg2-dev
 ```
 
-## 🛠️ Instalación
+### 1. Instalación Rápida en el Lanzador del Sistema (Linux / macOS)
 
-### 1. Clonar el repositorio
+Ejecuta el script de instalación para registrar KogniTerm Desktop y su icono oficial en el menú de aplicaciones de tu SO:
 
 ```bash
-git clone https://github.com/gatovillano/KogniTerm.git
-cd KogniTerm/kogniterm-desktop
+bash install-desktop.sh
 ```
 
-### 2. Instalar dependencias del monorepo
+Esto instalará automáticamente:
+- **Linux**: El archivo `.desktop` en `~/.local/share/applications/kogniterm-desktop.desktop` y el icono de 512x512 en `~/.local/share/icons/hicolor/512x512/apps/kogniterm-desktop.png`.
+- **macOS**: La app compilada en `/Applications/KogniTerm Desktop.app`.
+
+### 2. Instalación Manual / Desarrollo Monorepo
 
 ```bash
+cd KogniTerm/kogniterm-desktop
 npm install
 ```
 
