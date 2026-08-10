@@ -1234,10 +1234,20 @@ def create_app() -> FastAPI:
         elif isinstance(msg, ToolMessage) or (hasattr(msg, "type") and msg.type == "tool"):
             role = "tool"
             
+        images = []
         content = msg.content if msg.content is not None else ""
         if isinstance(content, list):
             text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"]
             content = " ".join(text_parts)
+            for part in msg.content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    img_url = part.get("image_url")
+                    if isinstance(img_url, dict):
+                        url = img_url.get("url", "")
+                    else:
+                        url = str(img_url)
+                    if url:
+                        images.append(url)
             
         reasoning = ""
         tool_calls = []
@@ -1260,7 +1270,7 @@ def create_app() -> FastAPI:
         if hasattr(msg, "additional_kwargs") and msg.additional_kwargs:
             reasoning = msg.additional_kwargs.get("reasoning_content") or msg.additional_kwargs.get("thought") or ""
             
-        return {
+        res = {
             "id": f"loaded-{index}",
             "role": role,
             "content": content,
@@ -1269,6 +1279,9 @@ def create_app() -> FastAPI:
             "tool_call_id": tool_call_id,
             "timestamp": int(datetime.utcnow().timestamp() * 1000)
         }
+        if images:
+            res["images"] = images
+        return res
 
     @application.get("/api/threads/{thread_id}/messages", tags=["Threads"])
     async def get_thread_messages(thread_id: str):
@@ -1509,9 +1522,10 @@ def create_app() -> FastAPI:
 
                 if msg_type == "message":
                     text = data.get("text", "").strip()
-                    if not text:
+                    images = data.get("images", [])
+                    if not text and not images:
                         continue
-                    asyncio.create_task(session.send(text, pool._executor))
+                    asyncio.create_task(session.send(text, pool._executor, images=images))
 
                 elif msg_type == "interrupt":
                     session.interrupt()

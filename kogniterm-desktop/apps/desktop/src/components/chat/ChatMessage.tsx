@@ -164,6 +164,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                         </div>
                     )}
 
+                    {/* Attached Image Gallery */}
+                    {message.images && message.images.length > 0 && (
+                        <div className={`flex flex-wrap gap-2 my-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                            {message.images.map((imgUrl, index) => (
+                                <div key={index} className="relative group max-w-xs rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-900 shadow-md">
+                                    <img
+                                        src={imgUrl}
+                                        alt={`Imagen adjunta ${index + 1}`}
+                                        className="max-h-60 object-contain cursor-pointer hover:opacity-95 transition-opacity"
+                                        onClick={() => window.open(imgUrl, '_blank')}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     {/* Response body */}
                     {message.content && (
                         isUser ? (

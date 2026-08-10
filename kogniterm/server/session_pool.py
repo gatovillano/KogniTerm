@@ -777,7 +777,7 @@ class AgentSession:
         if hasattr(self, "command_executor") and self.command_executor:
             self.command_executor.write_input(text)
 
-    async def send(self, message: str, executor) -> None:
+    async def send(self, message: str, executor, images: Optional[List[str]] = None) -> None:
         """
         Envía un mensaje al agente y lo ejecuta en un hilo worker.
         Los eventos se emiten en tiempo real a `self.ui._async_queue`.
@@ -874,8 +874,21 @@ class AgentSession:
                 return
 
             # 2. Flujo normal de agente
-            self.ui._push("user_message", {"text": message})
-            self.agent_state.add_message(HumanMessage(content=message))
+            self.ui._push("user_message", {"text": message, "images": images})
+            if images:
+                content_blocks = []
+                if message:
+                    content_blocks.append({"type": "text", "text": message})
+                for img in images:
+                    content_blocks.append({
+                        "type": "image_url",
+                        "image_url": {"url": img}
+                    })
+                human_msg = HumanMessage(content=content_blocks)
+            else:
+                human_msg = HumanMessage(content=message)
+
+            self.agent_state.add_message(human_msg)
             if self.thread_manager:
                 self.thread_manager.save_thread_messages(
                     self.session_id, self.agent_state.messages

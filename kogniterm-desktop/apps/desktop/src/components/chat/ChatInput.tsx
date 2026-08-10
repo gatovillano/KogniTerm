@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Folder, Sparkles, Paperclip, Square, ChevronDown, ChevronUp, X, ArrowUp, Zap, Box, FileText, Terminal } from 'lucide-react';
 
 interface ChatInputProps {
-    onSendMessage: (message: string) => void;
+    onSendMessage: (message: string, images?: string[]) => void;
     isGenerating: boolean;
     onStopGeneration?: () => void;
     currentDir: string;
@@ -29,6 +29,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     isFloating = false
 }) => {
     const [input, setInput] = useState('');
+    const [attachedImages, setAttachedImages] = useState<string[]>([]);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [isFocused, setIsFocused] = useState(false);
     const [isQueueExpanded, setIsQueueExpanded] = useState(true);
@@ -139,11 +141,47 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         }
     }, [getCursorOffset]);
 
+    const handleFiles = useCallback((files: FileList | File[]) => {
+        Array.from(files).forEach((file) => {
+            if (!file.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const result = e.target?.result as string;
+                if (result) {
+                    setAttachedImages((prev) => [...prev, result]);
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+    }, []);
+
+    const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        const items = e.clipboardData.items;
+        const imageFiles: File[] = [];
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.startsWith('image/')) {
+                const file = items[i].getAsFile();
+                if (file) imageFiles.push(file);
+            }
+        }
+        if (imageFiles.length > 0) {
+            handleFiles(imageFiles);
+        }
+    }, [handleFiles]);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleFiles(e.dataTransfer.files);
+        }
+    }, [handleFiles]);
+
     const handleSubmit = (e?: React.FormEvent) => {
         e?.preventDefault();
-        if (input.trim()) {
-            onSendMessage(input.trim());
+        if (input.trim() || attachedImages.length > 0) {
+            onSendMessage(input.trim(), attachedImages);
             setInput('');
+            setAttachedImages([]);
             if (textareaRef.current) {
                 textareaRef.current.style.height = 'auto';
             }
@@ -440,17 +478,50 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             )}
 
             {/* Main Input Form - Goose Capsule Style */}
-            <div className={`relative transition-all duration-300 ${isFocused ? 'scale-[1.002]' : ''}`}>
+            <div 
+                onDrop={handleDrop}
+                onDragOver={(e) => e.preventDefault()}
+                className={`relative transition-all duration-300 ${isFocused ? 'scale-[1.002]' : ''}`}
+            >
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={(e) => e.target.files && handleFiles(e.target.files)}
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                />
+
                 <form
                     onSubmit={handleSubmit}
                     className={`relative flex flex-col bg-white dark:bg-[#18181b] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2.5 shadow-sm hover:border-zinc-300 dark:hover:border-zinc-700 transition-all ${isFocused ? 'border-zinc-400 dark:border-zinc-600 shadow-md' : ''}`}
                 >
+                    {/* Attached Image Thumbnails */}
+                    {attachedImages.length > 0 && (
+                        <div className="flex items-center gap-2 px-2 pt-1 pb-2 overflow-x-auto custom-scrollbar">
+                            {attachedImages.map((imgUrl, idx) => (
+                                <div key={idx} className="relative group shrink-0 rounded-lg overflow-hidden border border-zinc-700 bg-zinc-900 w-14 h-14">
+                                    <img src={imgUrl} alt={`Adjunto ${idx + 1}`} className="w-full h-full object-cover" />
+                                    <button
+                                        type="button"
+                                        onClick={() => setAttachedImages((prev) => prev.filter((_, i) => i !== idx))}
+                                        className="absolute top-1 right-1 bg-black/70 hover:bg-red-600 text-white rounded-full p-0.5 transition-colors"
+                                        title="Eliminar imagen"
+                                    >
+                                        <X size={10} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="flex items-start gap-1 px-1 pt-1 pb-2">
                         <textarea
                             ref={textareaRef}
                             value={input}
                             onChange={handleInputChange}
                             onKeyDown={handleKeyDown}
+                            onPaste={handlePaste}
                             onFocus={() => setIsFocused(true)}
                             onBlur={() => {
                                 setTimeout(() => setIsFocused(false), 200);
@@ -504,8 +575,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                             <div className="flex items-center gap-1.5 pl-1 border-l border-zinc-200 dark:border-zinc-800">
                                 <button
                                     type="button"
-                                    className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-all"
-                                    title="Adjuntar archivo"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-all cursor-pointer"
+                                    title="Adjuntar imagen"
                                 >
                                     <Paperclip size={13} />
                                 </button>
@@ -523,10 +595,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                                 ) : (
                                     <button
                                         type="submit"
-                                        disabled={!input.trim()}
+                                        disabled={!input.trim() && attachedImages.length === 0}
                                         className={`h-7 w-7 rounded-full flex items-center justify-center transition-all ${
-                                            input.trim()
-                                                ? 'bg-zinc-800 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90'
+                                            input.trim() || attachedImages.length > 0
+                                                ? 'bg-zinc-800 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 cursor-pointer'
                                                 : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed'
                                         }`}
                                     >

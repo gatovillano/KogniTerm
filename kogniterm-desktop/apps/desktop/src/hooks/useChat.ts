@@ -631,7 +631,7 @@ export function useChat(threadId: string | null) {
         };
     }, [threadId]);
 
-    const sendMessage = useCallback((content: string) => {
+    const sendMessage = useCallback((content: string, images: string[] = []) => {
         const trimmed = content.trim();
 
         // 1. Manejo de Meta-comandos locales
@@ -650,6 +650,7 @@ export function useChat(threadId: string | null) {
             id: Date.now().toString(),
             role: 'user',
             content,
+            images: images.length > 0 ? images : undefined,
             timestamp: Date.now(),
         };
 
@@ -658,7 +659,11 @@ export function useChat(threadId: string | null) {
         setError(null);
 
         // Enviar mensaje exclusivamente por WebSocket
-        socketRef.current.send(JSON.stringify({ type: 'message', text: content }));
+        socketRef.current.send(JSON.stringify({
+            type: 'message',
+            text: content,
+            images: images.length > 0 ? images : undefined,
+        }));
     }, []);
 
     const respondApproval = useCallback((requestId: string, approved: boolean) => {
