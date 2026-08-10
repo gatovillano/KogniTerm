@@ -128,7 +128,9 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
 
     if isinstance(message, HumanMessage):
         content = message.content
-        if not isinstance(content, str):
+        if isinstance(content, list):
+            return {"role": "user", "content": content}
+        elif not isinstance(content, str):
             content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
         return {"role": "user", "content": content}
     elif isinstance(message, AIMessage):

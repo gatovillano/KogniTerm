@@ -230,11 +230,11 @@ function App() {
   };
 
   // Queue logic: if generating, buffer the messages
-  const handleSendMessage = (text: string) => {
+  const handleSendMessage = (text: string, images?: string[]) => {
     if (isGenerating) {
       setMessageQueue(prev => [...prev, text]);
     } else {
-      sendMessage(text);
+      sendMessage(text, images);
     }
   };
 
