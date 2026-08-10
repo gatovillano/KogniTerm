@@ -6,10 +6,18 @@ Herramienta avanzada para interactuar con el PC: control total de GUI, ventanas 
 import os
 import time
 import logging
+import subprocess
 from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 
 # Intentar importar dependencias
+MSS_AVAILABLE = False
+try:
+    import mss
+    MSS_AVAILABLE = True
+except ImportError:
+    pass
+
 try:
     import pyautogui
     import pywinctl
@@ -30,24 +38,34 @@ if GUI_AVAILABLE:
     except (Exception, SystemExit):
         GUI_AVAILABLE = False
 
+
 class PCInteractionInput(BaseModel):
     """Schema de entrada para la herramienta pc_interaction"""
     action: str = Field(description="La acción a realizar: 'get_windows', 'activate_window', 'click', 'double_click', 'right_click', 'move_mouse', 'drag_mouse', 'type_text', 'press_key', 'key_combo', 'scroll', 'screenshot', 'get_mouse_pos', 'get_screen_size', 'find_image', 'click_image'.")
     params: Dict[str, Any] = Field(default_factory=dict, description="Parámetros para la acción.")
+
 
 def _check_gui() -> Tuple[bool, str]:
     """Verificar si hay un entorno gráfico disponible y dependencias"""
     if not GUI_AVAILABLE:
         return False, "Error: Faltan dependencias (pyautogui, pywinctl, opencv-python, pillow). Instálelas en su entorno."
     
-    if not os.environ.get("DISPLAY") and os.name != 'nt':
-        return False, "Error: No se detectó entorno gráfico (DISPLAY no definido). Esta herramienta requiere una sesión X11/GUI activa."
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY") and os.name != 'nt':
+        return False, "Error: No se detectó entorno gráfico (DISPLAY/WAYLAND_DISPLAY no definido). Esta herramienta requiere una sesión GUI activa."
         
     try:
         pyautogui.size()
         return True, ""
     except Exception as e:
-        return False, f"Error al acceder al servidor gráfico: {e}"
+        if MSS_AVAILABLE:
+            try:
+                with mss.mss() if hasattr(mss, 'mss') else mss.MSS() as sct:
+                    if sct.monitors:
+                        return True, ""
+            except Exception:
+                pass
+        return False, f"Error al acceder al servidor gráfico: {type(e).__name__}: {e or repr(e)}"
+
 
 def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
     """
@@ -62,30 +80,95 @@ def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
 
     try:
         if action == "get_windows":
-            windows = pywinctl.getAllWindows()
-            result = "Ventanas abiertas:\n"
-            for w in windows:
-                if w.title:
-                    result += f"- [{w.title}] (PID: {w.getAppName()})\n"
-            return result
+            windows_info = []
+            
+            # Intento 1: pywinctl.getAllWindows() con manejo seguro elemento a elemento
+            try:
+                all_wins = pywinctl.getAllWindows()
+                for w in all_wins:
+                    try:
+                        title = getattr(w, 'title', None)
+                        if title and str(title).strip():
+                            app_name = "Desconocido"
+                            try:
+                                app_name = w.getAppName() or "N/A"
+                            except Exception:
+                                pass
+                            windows_info.append(f"- [{title.strip()}] (App: {app_name})")
+                    except Exception:
+                        continue
+            except Exception as e:
+                logger.warning(f"pywinctl.getAllWindows falló: {e}")
+
+            # Intento 2: pywinctl.getAllTitles()
+            if not windows_info:
+                try:
+                    titles = pywinctl.getAllTitles()
+                    for t in titles:
+                        if t and str(t).strip():
+                            windows_info.append(f"- [{t.strip()}]")
+                except Exception as e:
+                    logger.warning(f"pywinctl.getAllTitles falló: {e}")
+
+            # Intento 3: fallback con ewmh en Linux X11
+            if not windows_info and os.name != 'nt':
+                try:
+                    from pywinctl._pywinctl_linux import defaultEwmhRoot
+                    ewmh_wins = defaultEwmhRoot.getClientListStacking()
+                    for w in ewmh_wins:
+                        try:
+                            t = getattr(w, 'title', '')
+                            if t and str(t).strip():
+                                windows_info.append(f"- [{t.strip()}]")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            if windows_info:
+                return "Ventanas abiertas:\n" + "\n".join(windows_info)
+            else:
+                return "No se pudieron enumerar las ventanas activas (posible entorno Wayland sin soporte de inspección X11 o sin ventanas visibles)."
 
         elif action == "activate_window":
             title = params.get("window_title")
             if not title: 
                 return "Error: Se requiere 'window_title'."
-            win = pywinctl.getWindowsWithTitle(title)
-            if win:
-                win[0].activate()
-                return f"Ventana '{title}' activada."
-            return f"No se encontró ninguna ventana con el título '{title}'."
+            try:
+                win = pywinctl.getWindowsWithTitle(title)
+                if win and len(win) > 0:
+                    win[0].activate()
+                    return f"Ventana '{title}' activada."
+                return f"No se encontró ninguna ventana con el título '{title}'."
+            except Exception as e:
+                return f"Error al activar ventana '{title}': {type(e).__name__}: {e or repr(e)}"
 
         elif action == "get_mouse_pos":
-            pos = pyautogui.position()
-            return f"Posición actual del ratón: x={pos.x}, y={pos.y}"
+            try:
+                pos = pyautogui.position()
+                return f"Posición actual del ratón: x={pos.x}, y={pos.y}"
+            except Exception as e:
+                return f"Error al obtener posición del ratón: {type(e).__name__}: {e or repr(e)}"
 
         elif action == "get_screen_size":
-            size = pyautogui.size()
-            return f"Resolución de pantalla: {size.width}x{size.height}"
+            errors = []
+            try:
+                size = pyautogui.size()
+                return f"Resolución de pantalla: {size.width}x{size.height}"
+            except Exception as e:
+                errors.append(f"PyAutoGUI error: {e}")
+
+            if MSS_AVAILABLE:
+                try:
+                    mss_factory = getattr(mss, 'MSS', None) or getattr(mss, 'mss', None)
+                    with mss_factory() as sct:
+                        if sct.monitors:
+                            mon = sct.monitors[0]
+                            return f"Resolución de pantalla: {mon['width']}x{mon['height']}"
+                except Exception as e:
+                    errors.append(f"MSS error: {e}")
+
+            return f"Error al obtener resolución de pantalla: {'; '.join(errors)}"
 
         elif action == "move_mouse":
             x, y = params.get("x"), params.get("y")
@@ -150,10 +233,56 @@ def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
             if not filename:
                 filename = f"screenshot_{int(time.time())}.png"
             
-            # Asegurar que esté en un lugar accesible, preferiblemente workspace
             path = os.path.abspath(filename)
-            pyautogui.screenshot(path)
-            return f"Captura de pantalla guardada en: {path}"
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            errors = []
+
+            # Intento 1: MSS (Robusto y libre de dependencias de subprocesos CLI)
+            if MSS_AVAILABLE:
+                try:
+                    mss_factory = getattr(mss, 'MSS', None) or getattr(mss, 'mss', None)
+                    with mss_factory() as sct:
+                        sct.shot(output=path)
+                    if os.path.exists(path) and os.path.getsize(path) > 0:
+                        return f"Captura de pantalla guardada en: {path}"
+                except Exception as e:
+                    errors.append(f"MSS error: {type(e).__name__}: {e or repr(e)}")
+
+            # Intento 2: PyAutoGUI
+            try:
+                pyautogui.screenshot(path)
+                if os.path.exists(path) and os.path.getsize(path) > 0:
+                    return f"Captura de pantalla guardada en: {path}"
+            except Exception as e:
+                errors.append(f"PyAutoGUI error: {type(e).__name__}: {e or repr(e)}")
+
+            # Intento 3: PIL ImageGrab
+            try:
+                from PIL import ImageGrab
+                img = ImageGrab.grab()
+                if img:
+                    img.save(path)
+                    if os.path.exists(path) and os.path.getsize(path) > 0:
+                        return f"Captura de pantalla guardada en: {path}"
+            except Exception as e:
+                errors.append(f"PIL ImageGrab error: {type(e).__name__}: {e or repr(e)}")
+
+            # Intento 4: Subprocesos CLI de fallback (grim, gnome-screenshot)
+            for cmd in [
+                ['grim', path],
+                ['gnome-screenshot', '-f', path]
+            ]:
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                    if res.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 0:
+                        return f"Captura de pantalla guardada en: {path}"
+                    else:
+                        err_msg = res.stderr.strip() or res.stdout.strip() or f"código de salida {res.returncode}"
+                        errors.append(f"{cmd[0]} error: {err_msg}")
+                except Exception as e:
+                    errors.append(f"{cmd[0]} exec error: {e}")
+
+            return f"Error al capturar pantalla. Fallaron todos los métodos:\n" + "\n".join(f"- {err}" for err in errors)
 
         elif action == "find_image":
             image_path = params.get("image_path")
@@ -168,7 +297,7 @@ def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
                     return f"Imagen encontrada en: {location} (Centro: {center.x}, {center.y})"
                 return "Imagen no encontrada en pantalla."
             except Exception as e:
-                return f"Error al buscar imagen: {e}"
+                return f"Error al buscar imagen: {type(e).__name__}: {e or repr(e)}"
 
         elif action == "click_image":
             image_path = params.get("image_path")
@@ -184,14 +313,15 @@ def pc_interaction_skill(action: str, params: Dict[str, Any] = None) -> str:
                     return f"Click realizado en el centro de la imagen ({center.x}, {center.y})."
                 return "Imagen no encontrada, no se pudo hacer click."
             except Exception as e:
-                return f"Error al procesar click en imagen: {e}"
+                return f"Error al procesar click en imagen: {type(e).__name__}: {e or repr(e)}"
 
         else:
             return f"Acción '{action}' no reconocida."
 
     except Exception as e:
-        logger.error(f"Error en pc_interaction: {e}", exc_info=True)
-        return f"Error al ejecutar la acción de PC: {str(e)}"
+        logger.error(f"Error en pc_interaction ({action}): {e}", exc_info=True)
+        return f"Error al ejecutar la acción de PC '{action}': {type(e).__name__}: {str(e) or repr(e)}"
+
 
 # Schema para el LLM
 tool_schema = {
