@@ -72,6 +72,19 @@ Funciones de lectura y metadatos.
 - `read_many_files_tool(paths, with_line_numbers=True)`
 - `get_file_info_tool(path)`
 
+> [!IMPORTANT]
+> **Truncado por defecto a 100 líneas.** Si no se especifican `start_line`/`end_line`, la herramienta devuelve **solo las primeras 100 líneas**. Si el archivo tiene más, la respuesta incluye:
+> - `truncated: true`
+> - `remaining_lines`: cuántas líneas quedan
+> - `hint`: mensaje con el `start_line` exacto para continuar la lectura
+>
+> Cuando se especifica `start_line` y/o `end_line`, se devuelve **exactamente ese rango sin ningún límite adicional**.
+
+**Flujo para leer archivos grandes:**
+1. `read_file_tool(path)` → lee líneas 1–100
+2. Si `truncated=true` → `read_file_tool(path, start_line=101, end_line=200)` → líneas 101–200
+3. Repetir hasta cubrir el rango necesario, o usar un rango amplio directamente si ya sabes dónde está el fragmento.
+
 ### file_write_tool
 
 Operaciones básicas de creación y adición.
