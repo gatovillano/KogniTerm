@@ -224,17 +224,17 @@ body {
 
 /* Bloques de Código */
 .markdown-content pre {
-  margin: 1.5em 0;
-  padding: 1rem;
+  margin: 1.25em 0;
+  padding: 0;
   border-radius: 0.75rem;
   background-color: #0f172a !important;
-  border: 1px solid #334155;
-  overflow-x: auto;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid #1e293b;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 .markdown-content pre code {
-  color: #f8fafc !important;
+  color: #d4d4d4;
   background-color: transparent !important;
   border: none !important;
   padding: 0 !important;

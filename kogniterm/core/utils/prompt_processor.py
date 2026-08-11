@@ -10,19 +10,30 @@ from typing import Optional, Any
 logger = logging.getLogger(__name__)
 
 
-def process_prompt_references(content: str, workspace_directory: Optional[str] = None, skill_manager: Optional[Any] = None) -> str:
+def process_prompt_references(content: Any, workspace_directory: Optional[str] = None, skill_manager: Optional[Any] = None) -> Any:
     """
     Procesa referencias a archivos (@ruta) y a skills procedimentales (#nombre_skill)
     en el contenido del prompt enviando las instrucciones o contenido al agente.
 
     Args:
-        content: Texto del mensaje del usuario.
+        content: Texto o lista multimodal de bloques del mensaje del usuario.
         workspace_directory: Directorio raíz del proyecto para resolver rutas relativas @.
         skill_manager: Instancia de SkillManager para obtener instrucciones de skills.
 
     Returns:
-        Texto procesado con el contenido de archivos e instrucciones de skills inyectadas.
+        Texto o lista procesada con el contenido de archivos e instrucciones de skills inyectadas.
     """
+    if isinstance(content, list):
+        new_content = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                item_copy = dict(item)
+                item_copy["text"] = process_prompt_references(item_copy.get("text", ""), workspace_directory, skill_manager)
+                new_content.append(item_copy)
+            else:
+                new_content.append(item)
+        return new_content
+
     if not isinstance(content, str) or not content:
         return content
 

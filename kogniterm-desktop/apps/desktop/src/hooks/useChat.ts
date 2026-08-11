@@ -414,7 +414,11 @@ export function useChat(threadId: string | null) {
 
                     setMessages((prev) => {
                         const lastMessage = prev[prev.length - 1];
-                        if (lastMessage && lastMessage.role === 'assistant') {
+                        // Si el último assistant ya completó un ciclo de herramientas,
+                        // este chunk pertenece a una nueva fase de respuesta.
+                        const isNewPhase = lastMessage?.role === 'assistant'
+                            && lastMessage.tool_calls && lastMessage.tool_calls.length > 0;
+                        if (lastMessage && lastMessage.role === 'assistant' && !isNewPhase) {
                             const newMessages = [...prev];
                             newMessages[newMessages.length - 1] = {
                                 ...lastMessage,
@@ -437,7 +441,11 @@ export function useChat(threadId: string | null) {
                     const payload = data.data || data;
                     setMessages((prev) => {
                         const lastMessage = prev[prev.length - 1];
-                        if (lastMessage && lastMessage.role === 'assistant') {
+                        // Si el último assistant ya ejecutó herramientas, este bloque de
+                        // reasoning pertenece a una nueva fase de pensamiento.
+                        const isNewPhase = lastMessage?.role === 'assistant'
+                            && lastMessage.tool_calls && lastMessage.tool_calls.length > 0;
+                        if (lastMessage && lastMessage.role === 'assistant' && !isNewPhase) {
                             const newMessages = [...prev];
                             newMessages[newMessages.length - 1] = {
                                 ...lastMessage,
@@ -486,10 +494,17 @@ export function useChat(threadId: string | null) {
                         if (!thinking && !response) return prev;
 
                         const lastMessage = prev[prev.length - 1];
-                        if (lastMessage && lastMessage.role === 'assistant') {
+                        // Si el último assistant ya completó un ciclo de herramientas,
+                        // este live_update pertenece a una nueva fase de pensamiento/respuesta.
+                        // No mutar ese mensaje: crear uno nuevo para mantener la secuencialidad.
+                        const isNewPhase = lastMessage?.role === 'assistant'
+                            && lastMessage.tool_calls && lastMessage.tool_calls.length > 0;
+                        if (lastMessage && lastMessage.role === 'assistant' && !isNewPhase) {
                             const newMessages = [...prev];
                             newMessages[newMessages.length - 1] = {
                                 ...lastMessage,
+                                // live_update envía el thinking acumulado completo (snapshot),
+                                // así que reemplazamos (no concatenamos) solo si viene uno nuevo.
                                 reasoning: thinking || lastMessage.reasoning,
                                 content: response || lastMessage.content,
                             };
