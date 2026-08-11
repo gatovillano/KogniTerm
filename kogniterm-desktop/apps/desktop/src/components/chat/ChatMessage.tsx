@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
 import { User, Bot, ChevronRight, Terminal } from 'lucide-react';
 import { Message } from '../../types/chat';
@@ -12,6 +12,44 @@ import { parseAppliedDiff } from '../../hooks/useChat';
 interface ChatMessageProps {
     message: Message;
 }
+
+const renderCodeBlock = (children: any, className?: string, props?: any) => {
+    const match = /language-(\w+)/.exec(className || '');
+    const codeString = String(children).replace(/\n$/, '');
+    const isMultiLine = codeString.includes('\n');
+
+    if (match || isMultiLine) {
+        return (
+            <div className="my-3 rounded-xl overflow-hidden border border-slate-700/80 bg-[#0f172a] shadow-md text-left">
+                <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language={match ? match[1] : 'text'}
+                    PreTag="div"
+                    customStyle={{
+                        margin: 0,
+                        padding: '1rem',
+                        background: '#0f172a',
+                        fontSize: '0.85rem',
+                        lineHeight: '1.6',
+                        fontFamily: 'var(--font-mono)',
+                    }}
+                    {...props}
+                >
+                    {codeString}
+                </SyntaxHighlighter>
+            </div>
+        );
+    }
+
+    return (
+        <code
+            className={`${className || ''} bg-indigo-50/80 border border-indigo-200/60 px-1.5 py-0.5 rounded text-indigo-700 font-mono text-[12.5px] font-medium`}
+            {...props}
+        >
+            {children}
+        </code>
+    );
+};
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     const isUser = message.role === 'user';
@@ -109,23 +147,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         components={{
+                                            pre: ({ children }) => <>{children}</>,
                                             code({ node, inline, className, children, ...props }: any) {
-                                                const match = /language-(\w+)/.exec(className || '');
-                                                return !inline && match ? (
-                                                    <SyntaxHighlighter
-                                                        style={vs}
-                                                        language={match[1]}
-                                                        PreTag="div"
-                                                        className="rounded-lg !mt-2 !mb-2 !bg-zinc-50 !border !border-zinc-200 p-3"
-                                                        {...props}
-                                                    >
-                                                        {String(children).replace(/\n$/, '')}
-                                                    </SyntaxHighlighter>
-                                                ) : (
-                                                    <code className={`${className} bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-indigo-700 font-mono text-[12px]`} {...props}>
-                                                        {children}
-                                                    </code>
-                                                );
+                                                return renderCodeBlock(children, className, props);
                                             },
                                             p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-zinc-500">{children}</p>,
                                             ul: ({ children }) => <ul className="list-disc ml-5 mb-2 marker:text-zinc-400">{children}</ul>,
@@ -187,23 +211,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{
+                                        pre: ({ children }) => <>{children}</>,
                                         code({ node, inline, className, children, ...props }: any) {
-                                            const match = /language-(\w+)/.exec(className || '');
-                                            return !inline && match ? (
-                                                <SyntaxHighlighter
-                                                    style={vs}
-                                                    language={match[1]}
-                                                    PreTag="div"
-                                                    className="rounded-lg !mt-2 !mb-2 !bg-white border border-zinc-200"
-                                                    {...props}
-                                                >
-                                                    {String(children).replace(/\n$/, '')}
-                                                </SyntaxHighlighter>
-                                            ) : (
-                                                <code className={`${className} bg-zinc-200 px-1.5 py-0.5 rounded text-zinc-900 font-mono text-[13px]`} {...props}>
-                                                    {children}
-                                                </code>
-                                            );
+                                            return renderCodeBlock(children, className, props);
                                         },
                                         p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-zinc-800">{children}</p>,
                                         ul: ({ children }) => <ul className="list-disc ml-5 mb-2">{children}</ul>,
@@ -228,23 +238,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm]}
                                         components={{
+                                            pre: ({ children }) => <>{children}</>,
                                             code({ node, inline, className, children, ...props }: any) {
-                                                const match = /language-(\w+)/.exec(className || '');
-                                                return !inline && match ? (
-                                                    <SyntaxHighlighter
-                                                        style={vs}
-                                                        language={match[1]}
-                                                        PreTag="div"
-                                                        className="rounded-xl !mt-3 !mb-3 !bg-zinc-50 !border !border-zinc-200 p-4 shadow-sm"
-                                                        {...props}
-                                                    >
-                                                        {String(children).replace(/\n$/, '')}
-                                                    </SyntaxHighlighter>
-                                                ) : (
-                                                    <code className={`${className} bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded text-indigo-600 font-mono text-[13px]`} {...props}>
-                                                        {children}
-                                                    </code>
-                                                );
+                                                return renderCodeBlock(children, className, props);
                                             },
                                             p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed text-zinc-800">{children}</p>,
                                             ul: ({ children }) => <ul className="list-disc ml-5 mb-3 marker:text-indigo-600">{children}</ul>,
@@ -271,3 +267,4 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
     );
 };
+

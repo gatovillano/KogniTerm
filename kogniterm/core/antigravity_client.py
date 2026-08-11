@@ -180,9 +180,46 @@ class AntigravityClient:
                     "parts": [{"text": content}]
                 }
             elif role == "user":
+                user_parts = []
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict):
+                            item_type = item.get("type")
+                            if item_type == "text":
+                                txt = item.get("text", "")
+                                if txt:
+                                    user_parts.append({"text": txt})
+                            elif item_type == "image_url":
+                                img_url_obj = item.get("image_url", {})
+                                url = img_url_obj.get("url", "") if isinstance(img_url_obj, dict) else str(img_url_obj)
+                                if url.startswith("data:"):
+                                    try:
+                                        header, base64_data = url.split(",", 1)
+                                        mime_type = header.split(";")[0].replace("data:", "")
+                                        user_parts.append({
+                                            "inlineData": {
+                                                "mimeType": mime_type,
+                                                "data": base64_data
+                                            }
+                                        })
+                                    except Exception as e:
+                                        logger.warning(f"Error parseando data URL de imagen en AntigravityClient: {e}")
+                                        user_parts.append({"text": f"[Imagen: {url[:30]}...]"})
+                                else:
+                                    user_parts.append({"text": f"[Imagen URL: {url}]"})
+                        elif isinstance(item, str):
+                            user_parts.append({"text": item})
+                elif isinstance(content, str):
+                    user_parts.append({"text": content})
+                else:
+                    user_parts.append({"text": str(content)})
+
+                if not user_parts:
+                    user_parts = [{"text": ""}]
+
                 contents.append({
                     "role": "user",
-                    "parts": [{"text": content}]
+                    "parts": user_parts
                 })
             elif role == "assistant":
                 tool_calls = msg.get("tool_calls")
