@@ -167,6 +167,17 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
 
+        # Shift+Tab: conmutar auto-aceptación (delegar al App antes de que
+        # tab_behavior="focus" consuma la tecla para rotar el foco).
+        if event.key == "shift+tab":
+            try:
+                self.app.action_toggle_auto_approve()
+            except Exception:
+                pass
+            event.prevent_default()
+            event.stop()
+            return
+
         # Atajos de scroll directo con Ctrl
         if event.key == "ctrl+up":
             if hasattr(self.app, "chat_log"):

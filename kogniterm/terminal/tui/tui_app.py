@@ -1251,6 +1251,17 @@ class KogniTermTUI(App):
         config_manager = ConfigManager()
         saved_theme = config_manager.get_config("theme") or "default"
         self.apply_theme(saved_theme, persist=False)
+
+        # Restaurar estado de auto-aprobación persistido
+        try:
+            saved_auto_approve = bool(config_manager.get_config("auto_approve"))
+            self._auto_approve_all = saved_auto_approve
+            if saved_auto_approve:
+                # Sincronizar approval_handler y footer tras el primer render
+                self.call_after_refresh(lambda: self.set_auto_approve_all(True))
+        except Exception:
+            self._auto_approve_all = False
+
         # Actualizar info del modelo en el splash y enfocar el input del splash
         self.call_after_refresh(self._setup_splash)
 
