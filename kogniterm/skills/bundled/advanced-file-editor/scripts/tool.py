@@ -18,6 +18,7 @@ Cambios (2026-07) - atomicidad real:
 
 import os
 import re
+import json
 import difflib
 import logging
 import hashlib
@@ -465,14 +466,40 @@ def _apply_advanced_update_with_validation(path: str, content: str) -> str:
 
 def advanced_file_editor_tool(**kwargs) -> Dict[str, Any]:
     """Punto de entrada principal. Despacha a batch o single segun kwargs."""
-    if "operations" in kwargs and isinstance(kwargs.get("operations"), list):
+    operations = kwargs.get("operations")
+    if isinstance(operations, str):
+        try:
+            parsed = json.loads(operations)
+            if isinstance(parsed, list):
+                operations = parsed
+        except Exception:
+            pass
+
+    if isinstance(operations, list):
         return batch_edit(
             path=kwargs.get("path", ""),
-            operations=kwargs["operations"],
+            operations=operations,
             confirm=kwargs.get("confirm", False),
             transaction_id=kwargs.get("transaction_id"),
         )
-    return advanced_file_editor(**kwargs)
+
+    # Modo single-operation: filtrar argumentos validos para advanced_file_editor
+    valid_keys = {
+        "path",
+        "action",
+        "content",
+        "line_number",
+        "regex_pattern",
+        "replacement_content",
+        "target_content",
+        "end_line",
+        "confirm",
+        "fuzzy",
+        "require_unique",
+        "context_hint",
+    }
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_keys}
+    return advanced_file_editor(**filtered_kwargs)
 
 
 # Schema con batch + rollback explicito.
@@ -538,3 +565,5 @@ description = (
 
 advanced_file_editor.parameters_schema = parameters_schema
 advanced_file_editor_tool.parameters_schema = parameters_schema
+advanced_file_editor_tool.name = name
+advanced_file_editor_tool.description = description

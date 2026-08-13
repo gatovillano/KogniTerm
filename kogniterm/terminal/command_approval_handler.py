@@ -638,8 +638,14 @@ class CommandApprovalHandler:
 
                     advanced_tool = self.advanced_file_editor_tool
                     if advanced_tool is None:
-                        _fe_mod = _load_file_ops_module("file_editor")
-                        advanced_tool = _fe_mod.advanced_file_editor
+                        try:
+                            from kogniterm.skills.bundled.advanced_file_editor.scripts.tool import (
+                                advanced_file_editor_tool,
+                            )
+                            advanced_tool = advanced_file_editor_tool
+                        except Exception:
+                            _fe_mod = _load_file_ops_module("file_editor")
+                            advanced_tool = _fe_mod.advanced_file_editor
 
                     advanced_result = self._invoke_tool_for_confirmation(advanced_tool, args_to_pass)
                     normalized_result = self._normalize_tool_result(advanced_result)

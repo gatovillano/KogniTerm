@@ -298,17 +298,16 @@ class LLMService:
         self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.skill_manager.get_tools()}
         # Tools will be converted at runtime based on the actual model being used
         self.litellm_tools = None
-        self.max_conversation_tokens = 128000 # Gemini 1.5 Flash context window
-        self.max_tool_output_tokens = 100000 # Max tokens for tool output
-        self.MAX_TOOL_MESSAGE_CONTENT_LENGTH = 100000 # Nuevo: Límite de caracteres para el contenido de ToolMessage
+        self.max_conversation_tokens = 250000 # Límite seguro por debajo de Gemini 2.5 Flash (262144)
+        self.max_tool_output_tokens = 60000 # Reserva para salida de herramientas
         self.max_history_tokens = self.max_conversation_tokens - self.max_tool_output_tokens # Remaining for history
         # print("DEBUG: Inicializando Tokenizer (esto puede tardar si descarga)...")
         self.tokenizer = tiktoken.encoding_for_model("gpt-4") # Usar un tokenizer compatible
         # print("DEBUG: Tokenizer listo.")
         self.history_file_path = os.path.join(os.getcwd(), ".kogniterm", "history.json") # Inicializar history_file_path
         self.console = None # Inicializar console
-        self.max_history_messages = 40 # Aumentado para mejor contexto y menor latencia por resumenes
-        self.max_history_chars = 40000 # Aumentado para mejor contexto
+        self.max_history_messages = 20 # Reducido para evitar envíos masivos
+        self.max_history_chars = 20000 # Reducido para evitar envíos masivos
         self.auto_save_interval = float(os.getenv("KOGNITERM_AUTO_SAVE_INTERVAL", "0")) or None  # Intervalo en segundos para autoguardado, 0 para desactivar
         # print("DEBUG: Inicializando WorkspaceContext...")
         self.workspace_context = WorkspaceContext(root_dir=os.getcwd())
@@ -346,7 +345,7 @@ class LLMService:
             max_history_chars=self.max_history_chars,
             auto_save_interval=self.auto_save_interval
         )
-        self.SUMMARY_MAX_TOKENS = 1500 # Tokens, longitud máxima del resumen de herramientas
+        self.SUMMARY_MAX_TOKENS = 800 # Tokens, longitud máxima del resumen de herramientas
         
         self.set_model(self.model_name)
         

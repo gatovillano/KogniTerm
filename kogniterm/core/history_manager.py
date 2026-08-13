@@ -259,18 +259,30 @@ class HistoryManager:
 
     def _get_message_length(self, message: BaseMessage) -> int:
         """
-        Calcula la longitud de un mensaje con caché para optimización.
+        Calcula la longitud de un mensaje en tokens usando el tokenizador del modelo.
         
         Args:
             message: Mensaje en formato LangChain
             
         Returns:
-            Longitud del mensaje en caracteres (formato JSON)
+            Longitud del mensaje en tokens
         """
         msg_hash = self._get_message_hash(message)
         if msg_hash not in self._message_length_cache:
-            msg_litellm = self._to_litellm_message_for_len_calc(message)
-            self._message_length_cache[msg_hash] = len(json.dumps(msg_litellm, ensure_ascii=False))
+            try:
+                msg_litellm = self._to_litellm_message_for_len_calc(message)
+                text = json.dumps(msg_litellm, ensure_ascii=False)
+                tokenizer = getattr(self, "_tokenizer", None)
+                if tokenizer is not None:
+                    tokens = tokenizer.encode(text)
+                    self._message_length_cache[msg_hash] = len(tokens)
+                else:
+                    # Fallback robusto: 1 token por cada ~3.5 caracteres
+                    self._message_length_cache[msg_hash] = max(1, int(len(text) / 3.5))
+            except Exception:
+                msg_litellm = self._to_litellm_message_for_len_calc(message)
+                text = json.dumps(msg_litellm, ensure_ascii=False)
+                self._message_length_cache[msg_hash] = max(1, int(len(text) / 3.5))
         return self._message_length_cache[msg_hash]
 
     def _load_history(self) -> List[BaseMessage]:
@@ -563,15 +575,15 @@ class HistoryManager:
         
         return history
 
-    def _truncate_history(self, history: List[BaseMessage], max_messages: int, max_chars: int) -> List[BaseMessage]:
+    def _truncate_history(self, history: List[BaseMessage], max_messages: int, max_tokens: int) -> List[BaseMessage]:
         """
-        Trunca el historial según límites de mensajes y caracteres.
+        Trunca el historial según límites de mensajes y tokens.
         Protege los pares AIMessage-ToolMessage y trunca el contenido de ToolMessages grandes.
         
         Args:
             history: Historial en formato LangChain
             max_messages: Número máximo de mensajes conversacionales
-            max_chars: Número máximo de caracteres totales
+            max_tokens: Número máximo de tokens totales
             
         Returns:
             Historial truncado
@@ -622,9 +634,9 @@ class HistoryManager:
             else:
                 break
                 
-        # Eliminar mensajes antiguos si exceden el límite de caracteres
-        if total_length > max_chars:
-            while total_length > max_chars:
+        # Eliminar mensajes antiguos si exceden el límite de tokens
+        if total_length > max_tokens:
+            while total_length > max_tokens:
                 if len(message_units) > self.MIN_MESSAGES_TO_KEEP:
                     removed_unit = message_units.pop(0)
                     total_length -= get_unit_length(removed_unit)
@@ -633,7 +645,16 @@ class HistoryManager:
             
         final_conversational_messages = []
         for unit in message_units:
-            final_conversational_messages.extend(unit)
+            for msg in unit:
+                if isinstance(msg, ToolMessage) and self._get_message_length(msg) > 4000:
+                    try:
+                        truncated = msg.content[:4000]
+                        if len(msg.content) > 4000:
+                            truncated += "\n\n[Contenido truncado por límite de contexto]"
+                        msg = ToolMessage(content=truncated, tool_call_id=msg.tool_call_id)
+                    except Exception:
+                        pass
+                final_conversational_messages.append(msg)
         
         return system_messages + final_conversational_messages
 
@@ -668,7 +689,6 @@ class HistoryManager:
             elif role == "system":
                 langchain_messages.append(SystemMessage(content=msg_litellm.get("content", "")))
         return langchain_messages
-
     def _ensure_ai_message_for_tool(self, 
                                    tool_msg: ToolMessage, 
                                    final_messages: List[BaseMessage],
@@ -749,21 +769,14 @@ class HistoryManager:
     def get_processed_history_for_llm(self, 
                                      llm_service_summarize_method: Callable[[List[BaseMessage]], str],
                                      max_history_messages: int,
-                                     max_history_chars: int,
+                                     max_history_tokens: int,
                                      console: Any,
                                      save_history: bool = True,
                                      history: Optional[List[BaseMessage]] = None) -> List[BaseMessage]:
         """Procesa el historial aplicando filtrado, resumen y truncamiento."""
-        if max_history_messages >= 10:
-            self.max_history_messages = max(max_history_messages, 30)
-        else:
-            self.max_history_messages = max_history_messages
+        self.max_history_messages = max_history_messages
+        self.max_history_tokens = max_history_tokens
 
-        if max_history_chars >= 1000:
-            self.max_history_chars = max(max_history_chars, 50000)
-        else:
-            self.max_history_chars = max_history_chars
-        
         target_history = history if history is not None else self.conversation_history
         if not target_history:
             return []
@@ -800,7 +813,7 @@ class HistoryManager:
             cleaned_history.append(msg)
 
         total_length = sum(self._get_message_length(msg) for msg in cleaned_history)
-        if (len(cleaned_history) > self.max_history_messages or total_length > self.max_history_chars) and \
+        if (len(cleaned_history) > self.max_history_messages or total_length > self.max_history_tokens) and \
            len(cleaned_history) > self.MIN_MESSAGES_TO_KEEP:
             
             cleaned_history = self._summarize_and_compress(
@@ -813,7 +826,7 @@ class HistoryManager:
             cleaned_history = self._truncate_history(
                 cleaned_history,
                 self.max_history_messages,
-                self.max_history_chars
+                self.max_history_tokens
             )
             cleaned_history = self._ensure_tool_message_pairs(cleaned_history)
 
@@ -823,7 +836,6 @@ class HistoryManager:
             self._save_history(self.conversation_history)
         
         return cleaned_history
-
     def _filter_empty_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Filtra mensajes de asistente vacíos sin tool_calls.

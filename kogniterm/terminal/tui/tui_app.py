@@ -1098,7 +1098,10 @@ class KogniTermTUI(App):
                     self.llm_service.get_tool("file_update")
                     if self.llm_service
                     else None,
-                    self.llm_service.get_tool("advanced_file_editor")
+                    (
+                        self.llm_service.get_tool("advanced_file_editor")
+                        or self.llm_service.get_tool("advanced_file_editor_tool")
+                    )
                     if self.llm_service
                     else None,
                     self.llm_service.get_tool("file_operations")
