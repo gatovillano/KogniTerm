@@ -792,16 +792,21 @@ class HistoryManager:
 
     def get_processed_history_for_llm(self, 
                                      llm_service_summarize_method: Callable[[List[BaseMessage]], str],
-                                     max_history_messages: int,
+                                     max_history_messages: int = 100,
                                      max_history_tokens: Optional[int] = None,
                                      console: Any = None,
                                      save_history: bool = True,
                                      history: Optional[List[BaseMessage]] = None,
-                                     max_history_chars: Optional[int] = None) -> List[BaseMessage]:
+                                     max_history_chars: Optional[int] = None,
+                                     **kwargs) -> List[BaseMessage]:
         """Procesa el historial aplicando filtrado, resumen y truncamiento."""
         self.max_history_messages = max_history_messages
-        tokens_bound = max_history_tokens if max_history_tokens is not None else (max_history_chars if max_history_chars is not None else 100000)
-        self.max_history_tokens = tokens_bound
+        resolved_tokens = max_history_tokens
+        if resolved_tokens is None:
+            resolved_tokens = max_history_chars
+        if resolved_tokens is None:
+            resolved_tokens = kwargs.get("max_history_tokens", kwargs.get("max_history_chars", 100000))
+        self.max_history_tokens = resolved_tokens
 
         target_history = history if history is not None else self.conversation_history
         if not target_history:
