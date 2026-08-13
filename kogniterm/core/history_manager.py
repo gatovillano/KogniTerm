@@ -169,6 +169,7 @@ class HistoryManager:
         self._conversation_history = AutoSavingMessageList()
         self.conversation_history = self._load_history() or []
         self.tokenizer = tiktoken.encoding_for_model("gpt-4")
+        self._tokenizer = self.tokenizer
         self._message_length_cache: Dict[int, int] = {}
         
         # El sistema de persistencia ahora es gestionado por ThreadManager.
@@ -621,12 +622,46 @@ class HistoryManager:
                 message_units.append([msg])
             i += 1
         
+        # PASO A: Truncamiento de contenido preventivo en mensajes individuales desproporcionados
+        processed_units = []
+        for unit in message_units:
+            new_unit = []
+            for msg in unit:
+                msg_len = self._get_message_length(msg)
+                if isinstance(msg, ToolMessage) and (msg_len > 2000 or len(str(msg.content)) > 4000):
+                    try:
+                        max_chars = 4000
+                        if isinstance(msg.content, str) and len(msg.content) > max_chars:
+                            truncated_content = msg.content[:max_chars] + "\n\n[Contenido truncado por límite de contexto]"
+                            msg = ToolMessage(content=truncated_content, tool_call_id=msg.tool_call_id)
+                            # Invalidar caché para este mensaje
+                            msg_hash = self._get_message_hash(msg)
+                            self._message_length_cache.pop(msg_hash, None)
+                    except Exception:
+                        pass
+                elif isinstance(msg, (HumanMessage, AIMessage)) and (msg_len > 8000 or len(str(msg.content)) > 16000):
+                    try:
+                        if isinstance(msg.content, str) and len(msg.content) > 16000:
+                            truncated_content = msg.content[:16000] + "\n\n[Mensaje truncado por límite de contexto]"
+                            if isinstance(msg, HumanMessage):
+                                msg = HumanMessage(content=truncated_content)
+                            else:
+                                msg = AIMessage(content=truncated_content, tool_calls=getattr(msg, 'tool_calls', []))
+                            msg_hash = self._get_message_hash(msg)
+                            self._message_length_cache.pop(msg_hash, None)
+                    except Exception:
+                        pass
+                new_unit.append(msg)
+            processed_units.append(new_unit)
+        
+        message_units = processed_units
+
         def get_unit_length(unit: List[BaseMessage]) -> int:
             return sum(self._get_message_length(m) for m in unit)
             
         total_length = sum(get_unit_length(u) for u in message_units)
         
-        # Eliminar mensajes antiguos si exceden la cantidad de mensajes
+        # PASO B: Eliminar mensajes antiguos si exceden la cantidad máxima de mensajes
         while len(message_units) > max_messages:
             if len(message_units) > self.MIN_MESSAGES_TO_KEEP:
                 removed_unit = message_units.pop(0)
@@ -634,26 +669,15 @@ class HistoryManager:
             else:
                 break
                 
-        # Eliminar mensajes antiguos si exceden el límite de tokens
+        # PASO C: Eliminar mensajes antiguos si el total de tokens aún excede el límite
         if total_length > max_tokens:
-            while total_length > max_tokens:
-                if len(message_units) > self.MIN_MESSAGES_TO_KEEP:
-                    removed_unit = message_units.pop(0)
-                    total_length -= get_unit_length(removed_unit)
-                else:
-                    break
+            while total_length > max_tokens and len(message_units) > 1:
+                removed_unit = message_units.pop(0)
+                total_length -= get_unit_length(removed_unit)
             
         final_conversational_messages = []
         for unit in message_units:
             for msg in unit:
-                if isinstance(msg, ToolMessage) and self._get_message_length(msg) > 4000:
-                    try:
-                        truncated = msg.content[:4000]
-                        if len(msg.content) > 4000:
-                            truncated += "\n\n[Contenido truncado por límite de contexto]"
-                        msg = ToolMessage(content=truncated, tool_call_id=msg.tool_call_id)
-                    except Exception:
-                        pass
                 final_conversational_messages.append(msg)
         
         return system_messages + final_conversational_messages
@@ -769,13 +793,15 @@ class HistoryManager:
     def get_processed_history_for_llm(self, 
                                      llm_service_summarize_method: Callable[[List[BaseMessage]], str],
                                      max_history_messages: int,
-                                     max_history_tokens: int,
-                                     console: Any,
+                                     max_history_tokens: Optional[int] = None,
+                                     console: Any = None,
                                      save_history: bool = True,
-                                     history: Optional[List[BaseMessage]] = None) -> List[BaseMessage]:
+                                     history: Optional[List[BaseMessage]] = None,
+                                     max_history_chars: Optional[int] = None) -> List[BaseMessage]:
         """Procesa el historial aplicando filtrado, resumen y truncamiento."""
         self.max_history_messages = max_history_messages
-        self.max_history_tokens = max_history_tokens
+        tokens_bound = max_history_tokens if max_history_tokens is not None else (max_history_chars if max_history_chars is not None else 100000)
+        self.max_history_tokens = tokens_bound
 
         target_history = history if history is not None else self.conversation_history
         if not target_history:

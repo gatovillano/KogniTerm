@@ -976,12 +976,58 @@ class LLMService:
             logger.info(f"📋 Total herramientas convertidas: {len(converted_tools)}")
         return self.litellm_tools
 
+    def get_model_context_window(self, model_name: Optional[str] = None) -> int:
+        """
+        Obtiene la ventana de contexto máxima del modelo en tokens.
+        Usa litellm.get_model_info con fallback adaptativo a modelos conocidos.
+        """
+        target_model = model_name or getattr(self, 'model_name', '')
+        if not target_model:
+            return 128000
+
+        model_lower = target_model.lower()
+        is_openrouter_or_openai = "openrouter" in model_lower or "openai" in model_lower
+
+        try:
+            info = litellm.get_model_info(target_model)
+            if isinstance(info, dict):
+                max_input = info.get("max_input_tokens") or info.get("max_tokens")
+                if max_input and isinstance(max_input, int) and max_input > 0:
+                    if is_openrouter_or_openai:
+                        return min(max_input, 262144)
+                    return max_input
+        except Exception:
+            pass
+
+        if "gemini-2" in model_lower or "gemini-1.5" in model_lower:
+            if is_openrouter_or_openai:
+                return 262144
+            return 1000000
+        elif "gpt-4o" in model_lower or "gpt-4-turbo" in model_lower:
+            return 128000
+        elif "gpt-4" in model_lower:
+            return 32768
+        elif "claude-3" in model_lower:
+            return 200000
+        elif "o1" in model_lower or "o3" in model_lower:
+            return 200000
+        elif "deepseek" in model_lower or "qwen" in model_lower:
+            return 128000
+
+        if is_openrouter_or_openai:
+            return 262144
+        return 128000
+
     def set_model(self, model_name: str):
         """Cambia el modelo actual en tiempo de ejecución de forma robusta."""
         self.model_name = model_name
         self.summary_model = model_name  # Sincronizar modelo de resumen
         os.environ["LITELLM_MODEL"] = model_name
         os.environ["SUMMARY_MODEL"] = model_name # Persistir también en env
+        
+        # Ajustar dinámicamente límites de tokens basados en el modelo activo
+        self.max_conversation_tokens = self.get_model_context_window(model_name)
+        self.max_history_tokens = max(4000, self.max_conversation_tokens - getattr(self, 'max_tool_output_tokens', 60000))
         
         # Invalidar caché de herramientas
         self.litellm_tools = None
@@ -1227,11 +1273,15 @@ class LLMService:
         if messages_to_process is None:
             messages_to_process = []
 
-        # 2. Procesar historial usando HistoryManager (truncamiento, resumen, limpieza de huérfanos)
+        # 2. Procesar historial usando HistoryManager (truncamiento adaptativo según modelo activo)
+        model_context_window = self.get_model_context_window(self.model_name)
+        reserved_tokens = 8192 + 40000  # 8192 para completion max_tokens + reserva para prompt/tools
+        effective_max_history_tokens = max(8000, model_context_window - reserved_tokens)
+
         processed_history = self.history_manager.get_processed_history_for_llm(
             llm_service_summarize_method=self.summarize_conversation_history,
             max_history_messages=self.max_history_messages,
-            max_history_chars=self.max_history_chars,
+            max_history_tokens=effective_max_history_tokens,
             console=self.console,
             save_history=save_history,
             history=messages_to_process
@@ -1380,7 +1430,7 @@ class LLMService:
                         litellm_messages.append(msg)
                     last_user_content = None
 
-        # 4. Manejo de Rate Limit
+        # 4. Manejo de Rate Limit y Validación de Tokens Pre-Llamada
         current_time = time.time()
         while self.call_timestamps and self.call_timestamps[0] <= current_time - self.rate_limit_period:
             self.call_timestamps.popleft()
@@ -1392,6 +1442,20 @@ class LLMService:
                 current_time = time.time()
 
         self.stop_generation_flag = False
+
+        # Validación de presupuesto de tokens pre-llamada
+        try:
+            total_prompt_tokens = self._get_messages_token_count(litellm_messages)
+            max_allowed_prompt = max(4000, model_context_window - 8192 - 2000)
+            if total_prompt_tokens > max_allowed_prompt:
+                logger.warning(f"⚠️ El prompt generado ({total_prompt_tokens} tokens) supera el máximo permitido ({max_allowed_prompt} tokens). Aplicando truncamiento preventivo...")
+                for msg in litellm_messages:
+                    if msg.get("role") == "tool" and isinstance(msg.get("content"), str) and len(msg["content"]) > 1000:
+                        msg["content"] = msg["content"][:1000] + "\n\n[Contenido truncado preventivamente por límite de contexto]"
+                    elif msg.get("role") == "user" and isinstance(msg.get("content"), str) and len(msg["content"]) > 10000:
+                        msg["content"] = msg["content"][:10000] + "\n\n[Mensaje truncado preventivamente por límite de contexto]"
+        except Exception as e:
+            logger.warning(f"Error al validar tokens pre-llamada: {e}")
 
         # 5. Configuración de la llamada
         completion_kwargs = {
@@ -2237,7 +2301,35 @@ class LLMService:
                     error_msg = str(fallback_error)
             
             # Identificar errores comunes de proveedores (OpenRouter, Google, etc.)
-            if "Missing corresponding tool call for tool response message" in error_msg:
+            if "contextwindowexceeded" in error_msg.lower() or "maximum context length" in error_msg.lower() or "context_length_exceeded" in error_msg.lower() or "too many tokens" in error_msg.lower():
+                logger.warning(f"⚠️ ContextWindowExceededError capturado: {error_msg}. Ejecutando purga y truncamiento de emergencia del historial...")
+                if self.conversation_history:
+                    truncated_history = []
+                    for msg in self.conversation_history:
+                        if isinstance(msg, SystemMessage):
+                            truncated_history.append(msg)
+                    
+                    conv_msgs = [m for m in self.conversation_history if not isinstance(m, SystemMessage)]
+                    recent_msgs = conv_msgs[-4:] if len(conv_msgs) > 4 else conv_msgs
+                    
+                    for msg in recent_msgs:
+                        if isinstance(msg, ToolMessage):
+                            content = str(msg.content)[:500] + "\n\n[Contenido purgado por emergencia de ventana de contexto]"
+                            truncated_history.append(ToolMessage(content=content, tool_call_id=msg.tool_call_id))
+                        elif isinstance(msg, HumanMessage):
+                            content = str(msg.content)[:3000] if len(str(msg.content)) > 3000 else str(msg.content)
+                            truncated_history.append(HumanMessage(content=content))
+                        elif isinstance(msg, AIMessage):
+                            content = str(msg.content)[:3000] if len(str(msg.content)) > 3000 else str(msg.content)
+                            truncated_history.append(AIMessage(content=content, tool_calls=getattr(msg, 'tool_calls', [])))
+                    
+                    self.conversation_history[:] = truncated_history
+                    self._save_history(self.conversation_history)
+                    
+                friendly_message = "⚠️ Se ha alcanzado el límite máximo de contexto del modelo. He purgado automáticamente el contenido antiguo y truncado las salidas extensas para liberar espacio. Por favor, reintenta tu solicitud."
+                yield AIMessage(content=friendly_message)
+                return
+            elif "Missing corresponding tool call for tool response message" in error_msg:
                 friendly_message = "¡Ups! 🔧 Se detectó un problema con la secuencia de herramientas en el historial. Estoy limpiando el historial para continuar. Por favor, repite tu última solicitud si es necesario."
                 # Limpiar el historial removiendo tool messages huérfanos
                 cleaned_history = []
