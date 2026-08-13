@@ -348,6 +348,7 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
 
             update_display(initial=True)
 
+            thinking_active = False
             for part in llm_service.invoke(history=messages, interrupt_queue=interrupt_queue):
                 if isinstance(part, AIMessage):
                     final_ai_message = part
@@ -355,10 +356,18 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
                     if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
                         prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
                         full_thinking_content += part[len(prefix):]
+                        thinking_active = True
                         update_display()
                     else:
+                        if thinking_active:
+                            thinking_active = False
+                            if is_tui and terminal_ui and hasattr(terminal_ui, "stop_live"):
+                                terminal_ui.stop_live()
                         full_response_content += part
-                        update_display()
+                        if is_tui and terminal_ui:
+                            terminal_ui.print_stream(part)
+                        else:
+                            update_display()
 
                 if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
                     break

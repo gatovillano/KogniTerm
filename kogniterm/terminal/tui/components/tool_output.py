@@ -180,8 +180,14 @@ class ToolOutputWidget(Static):
         self.tool_content = data
 
         # --- Smart Formatting ---
-        # Si el texto tiene secuencias ANSI, siempre usar emulador PTY
-        if self._has_ansi(data):
+        # Si es una salida de terminal o ejecución de comando, o si contiene secuencias ANSI/terminal,
+        # siempre usar el emulador PTY (_render_pyte) para preservar los saltos de línea (\r\n) y la disposición de columnas.
+        is_terminal_tool = (
+            self.tool_name in ("bash", "execute_command", "terminal", "python", "python_executor") or
+            bool(self.command)
+        )
+
+        if is_terminal_tool or self._has_ansi(data):
             renderable = self._render_pyte(data)
         elif self._is_markdown(data):
             renderable = Markdown(data)
@@ -214,7 +220,7 @@ class ToolOutputWidget(Static):
 
     def _render_pyte(self, data: str) -> Text:
         """Alimenta el buffer PTY con *data* y devuelve el renderizable Rich."""
-        # Normalizar saltos de línea para el emulador
+        # Normalizar saltos de línea para el emulador: asegurar que cada \n lleve \r
         data = data.replace('\r\n', '\n').replace('\n', '\r\n')
         try:
             self._screen.reset()
@@ -230,6 +236,8 @@ class ToolOutputWidget(Static):
         Optimización clave: en lugar de iterar las 1 000 líneas del buffer
         virtual, encontramos el índice de la última fila con contenido real
         (usando el cursor como cota inferior) y sólo procesamos hasta ahí.
+        Además, truncamos los espacios en blanco por defecto al final de cada
+        línea para evitar desbordamientos y el efecto escalera (staircase).
         """
         cursor_y = self._screen.cursor.y
         cursor_x = self._screen.cursor.x
@@ -251,10 +259,36 @@ class ToolOutputWidget(Static):
             line_text = Text()
             row = buffer[y]
             
+            # Encontrar el último carácter que NO sea un espacio por defecto
+            # (respetando la posición del cursor si está en esa fila)
+            last_non_space_x = -1
+            for x in range(columns - 1, -1, -1):
+                char = row[x]
+                is_cursor = (x == cursor_x and y == cursor_y and not cursor_hidden)
+                is_default_space = (
+                    char.data == ' ' and
+                    char.fg == 'default' and
+                    char.bg == 'default' and
+                    not char.bold and
+                    not char.italics and
+                    not char.underscore and
+                    not char.reverse and
+                    not char.blink and
+                    not is_cursor
+                )
+                if not is_default_space:
+                    last_non_space_x = x
+                    break
+            
+            # Si toda la línea son espacios por defecto (y no tiene el cursor), se agrega línea vacía
+            if last_non_space_x == -1:
+                lines.append(Text(""))
+                continue
+
             current_style: Optional[Style] = None
             current_run = ""
             
-            for x in range(columns):
+            for x in range(last_non_space_x + 1):
                 char = row[x]
                 
                 # Estilo rápido: celdas por defecto (la gran mayoría)

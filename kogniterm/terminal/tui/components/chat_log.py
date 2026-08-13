@@ -299,6 +299,9 @@ class ChatLogWidget(VerticalScroll):
                 was_at_bottom = self.scroll_y >= self.max_scroll_y - 1
                 is_thinking = _check_is_thinking(r)
 
+                if not is_thinking:
+                    self._active_thinking_widget = None
+
                 if is_thinking and self._active_thinking_widget and getattr(self._active_thinking_widget, "parent", None) is not None:
                     self._active_thinking_widget.update(r)
                 elif spinner_flag:
@@ -364,9 +367,12 @@ class ChatLogWidget(VerticalScroll):
                 except Exception:
                     pass
         self._active_message_widget = None
+        self._active_thinking_widget = None
 
     def write_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = ""):
         """Escribe notificación de herramienta."""
+        self._active_thinking_widget = None
+        self._active_message_widget = None
         from rich.text import Text
         from kogniterm.terminal.themes import ColorPalette, Icons
         
@@ -408,6 +414,8 @@ class ChatLogWidget(VerticalScroll):
 
     def write_tool_output(self, content: str, tool_name: str, language: str = None):
         """Escribe la salida de una herramienta usando el ToolOutputWidget."""
+        self._active_thinking_widget = None
+        self._active_message_widget = None
         def _mount_tool_output(c, tname, lang):
             try:
                 widget = ToolOutputWidget(c, tname, language=lang)

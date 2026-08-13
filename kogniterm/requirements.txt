@@ -10,6 +10,7 @@ PyGithub
 rich
 google-generativeai
 jupyter_client
+ipykernel
 loguru
 colorama
 gitignore-parser

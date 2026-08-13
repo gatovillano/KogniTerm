@@ -37,33 +37,64 @@ class KogniTermKernel:
         self.stop_event = threading.Event()
         self.execution_complete_event = threading.Event()
         self.current_execution_outputs = []
+        self.last_error = None
 
-    def start_kernel(self):
+    def is_alive(self) -> bool:
+        """Verifica si el kernel y sus canales están activos y respondiendo."""
+        if not self.kc or not self.km:
+            return False
+        if hasattr(self.km, 'is_alive') and not self.km.is_alive():
+            return False
+        if not self.listener_thread or not self.listener_thread.is_alive():
+            return False
+        return True
+
+    def start_kernel(self) -> bool:
         """Inicia el kernel de Jupyter."""
+        self.last_error = None
         if not _jupyter_client_available:
-            print("Error: No se puede iniciar el kernel. jupyter_client no está disponible.")
-            return
+            self.last_error = "jupyter_client no está disponible. Instálalo con 'pip install jupyter_client ipykernel'."
+            logger.error(self.last_error)
+            return False
+            
+        import sys
         try:
+            import ipykernel
+        except ImportError:
+            self.last_error = "El paquete 'ipykernel' no está instalado en el entorno Python actual. Por favor ejecuta 'pip install ipykernel'."
+            logger.error(self.last_error)
+            return False
+
+        try:
+            # 1. Intentar lanzar usando el ejecutable Python actual (sys.executable)
             try:
-                self.km = KernelManager(kernel_name='kogniterm_venv')
+                self.km = KernelManager(kernel_cmd=[sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"])
                 self.km.start_kernel()
             except Exception as e:
-                print(f"Kernel 'kogniterm_venv' no disponible ({e}), usando kernel por defecto...")
-                self.km = KernelManager()
-                self.km.start_kernel()
+                logger.info(f"Arranque directo con sys.executable falló ({e}), intentando con kernel spec 'kogniterm_venv'...")
+                try:
+                    self.km = KernelManager(kernel_name='kogniterm_venv')
+                    self.km.start_kernel()
+                except Exception as e2:
+                    logger.info(f"Kernel 'kogniterm_venv' no disponible ({e2}), usando kernel por defecto...")
+                    self.km = KernelManager()
+                    self.km.start_kernel()
                 
             self.kc = self.km.client()
             self.kc.start_channels()
 
-            # Añadir timeout para evitar bloqueo indefinido si el kernel muere al arrancar
-            self.kc.wait_for_ready(timeout=5.0)
+            # Timeout ampliado a 10.0s para arranques fríos o modo servidor
+            self.kc.wait_for_ready(timeout=10.0)
 
             self.listener_thread = threading.Thread(target=self._iopub_listener)
             self.listener_thread.daemon = True
             self.listener_thread.start()
+            return True
         except Exception as e:
-            print(f"Error al iniciar el kernel: {e}")
+            self.last_error = f"Error al iniciar el kernel de Jupyter: {e}"
+            logger.error(self.last_error)
             self.stop_kernel()
+            return False
 
     def _iopub_listener(self):
         """Listener para mensajes del kernel."""
@@ -77,7 +108,7 @@ class KogniTermKernel:
                 continue
             except Exception as e:
                 if not self.stop_event.is_set():
-                    print(f"Error en el listener iopub: {e}")
+                    logger.error(f"Error en el listener iopub: {e}")
                 break
 
     def execute_code(self, code, terminal_ui=None, command_title="python"):
@@ -89,12 +120,9 @@ class KogniTermKernel:
 
     def execute_code_stream(self, code: str, terminal_ui: Any = None, command_title: str = "python") -> Generator[str, None, None]:
         """Ejecuta código en el kernel y produce fragmentos formateados en tiempo real."""
-        if not self.kc:
-            yield "Error: El kernel no está iniciado o falló al arrancar.\n"
-            return
-
-        if not self.listener_thread or not self.listener_thread.is_alive():
-            yield "Error: El hilo de escucha del kernel no está activo. ¿Está instalado 'ipykernel'?\n"
+        if not self.is_alive():
+            err_msg = self.last_error or "El kernel no está iniciado o falló al arrancar."
+            yield f"Error: {err_msg}\n"
             return
 
         self.current_execution_outputs = []
@@ -208,15 +236,30 @@ _kernel_instance = None
 
 
 def _get_kernel_instance() -> Optional[KogniTermKernel]:
-    """Obtiene o crea la instancia del kernel."""
+    """Obtiene o crea la instancia del kernel, auto-recuperándose de fallos."""
     global _kernel_instance
-    if _kernel_instance is None:
-        if _jupyter_client_available:
-            _kernel_instance = KogniTermKernel()
-            _kernel_instance.start_kernel()
+    if _kernel_instance is not None:
+        if _kernel_instance.is_alive():
+            return _kernel_instance
         else:
+            logger.warning("Instancia de kernel inactiva o muerta. Limpiando recursos para reiniciar...")
+            try:
+                _kernel_instance.stop_kernel()
+            except Exception:
+                pass
             _kernel_instance = None
-    return _kernel_instance
+
+    if _jupyter_client_available:
+        kernel = KogniTermKernel()
+        if kernel.start_kernel():
+            _kernel_instance = kernel
+            return _kernel_instance
+        else:
+            # Retornar temporalmente para extraer last_error sin dejar singleton roto
+            temp_kernel = kernel
+            _kernel_instance = None
+            return temp_kernel
+    return None
 
 
 def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = False, confirm: bool = False) -> Generator[str, None, None]:
@@ -255,7 +298,7 @@ def python_executor(code: str, terminal_ui: Any = None, auto_confirm: bool = Fal
 
     kernel = _get_kernel_instance()
     if kernel is None:
-        yield "Error: No se pudo iniciar el kernel de Jupyter."
+        yield "Error: No se pudo iniciar el kernel de Jupyter. Verifica que 'jupyter_client' e 'ipykernel' estén instalados."
         return
 
     cmd_title = "python"
