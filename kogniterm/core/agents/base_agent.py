@@ -179,7 +179,15 @@ class BaseAgentNode:
             if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
                 prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
                 s_state["full_thinking"] += part[len(prefix):]
+                s_state["thinking_active"] = True
             else:
+                # Si el pensamiento estaba activo y ahora empieza la respuesta de texto,
+                # congelar el panel de pensamiento en TUI para que la respuesta fluya abajo.
+                if s_state.get("thinking_active", False):
+                    s_state["thinking_active"] = False
+                    if is_tui and terminal_ui and hasattr(terminal_ui, "stop_live"):
+                        terminal_ui.stop_live()
+
                 s_state["full_response"] += part
                 s_state["text_streamed"] = True
                 if is_tui and terminal_ui:
@@ -212,10 +220,19 @@ class BaseAgentNode:
         
         group = Group(*renderables)
         if is_tui and terminal_ui:
-            # En TUI el contenido principal ya se envía por print_stream por chunk.
-            # Solo actualizamos el panel live para razonamiento si existe.
-            if s_state["full_thinking"]:
-                terminal_ui.update_live(group)
+            # En TUI el contenido principal de texto ya se envía por print_stream por chunk.
+            # Solo actualizamos el panel live para razonamiento mientras la respuesta de texto no haya iniciado.
+            if s_state["full_thinking"] and not s_state["full_response"]:
+                from kogniterm.ui.themes import ColorPalette
+                thinking_panel = Panel(
+                    Markdown(s_state["full_thinking"]),
+                    title=f"[{ColorPalette.TEXT_DIM}]💭 Pensando...[/{ColorPalette.TEXT_DIM}]",
+                    border_style=ColorPalette.TEXT_DIM,
+                    style=ColorPalette.TEXT_DIM,
+                    padding=(0, 2),
+                    expand=True
+                )
+                terminal_ui.update_live(thinking_panel)
         elif live:
             live.update(Padding(group, (0, 0)) if renderables else Text("🤖 Procesando..."))
 

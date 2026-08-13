@@ -348,6 +348,7 @@ def call_model_node(
                     )
                     live.update(final_renderable)
 
+            thinking_active = False
             for part in llm_service.invoke(
                 history=messages, interrupt_queue=interrupt_queue
             ):
@@ -361,10 +362,18 @@ def call_model_node(
                             else "THINKING:"
                         )
                         full_thinking_content += part[len(prefix) :]
+                        thinking_active = True
                         update_display()
                     else:
+                        if thinking_active:
+                            thinking_active = False
+                            if is_tui and hasattr(terminal_ui, "stop_live"):
+                                terminal_ui.stop_live()
                         full_response_content += part
-                        update_display()
+                        if is_tui and terminal_ui:
+                            terminal_ui.print_stream(part)
+                        else:
+                            update_display()
 
                 if (
                     interrupt_queue and not interrupt_queue.empty()

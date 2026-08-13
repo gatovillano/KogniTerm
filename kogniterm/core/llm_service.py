@@ -2302,7 +2302,7 @@ class LLMService:
             
             # Identificar errores comunes de proveedores (OpenRouter, Google, etc.)
             if "contextwindowexceeded" in error_msg.lower() or "maximum context length" in error_msg.lower() or "context_length_exceeded" in error_msg.lower() or "too many tokens" in error_msg.lower():
-                logger.warning(f"⚠️ ContextWindowExceededError capturado: {error_msg}. Ejecutando purga y truncamiento de emergencia del historial...")
+                logger.warning(f"⚠️ ContextWindowExceededError capturado: {error_msg}. Purlando historial en caliente y reintentando automáticamente...")
                 if self.conversation_history:
                     truncated_history = []
                     for msg in self.conversation_history:
@@ -2310,11 +2310,12 @@ class LLMService:
                             truncated_history.append(msg)
                     
                     conv_msgs = [m for m in self.conversation_history if not isinstance(m, SystemMessage)]
+                    # Conservar solo los últimos 4 mensajes conversacionales para asegurar que quepa holgadamente
                     recent_msgs = conv_msgs[-4:] if len(conv_msgs) > 4 else conv_msgs
                     
                     for msg in recent_msgs:
                         if isinstance(msg, ToolMessage):
-                            content = str(msg.content)[:500] + "\n\n[Contenido purgado por emergencia de ventana de contexto]"
+                            content = str(msg.content)[:500] + "\n\n[Contenido purgado para liberar contexto]"
                             truncated_history.append(ToolMessage(content=content, tool_call_id=msg.tool_call_id))
                         elif isinstance(msg, HumanMessage):
                             content = str(msg.content)[:3000] if len(str(msg.content)) > 3000 else str(msg.content)
@@ -2326,8 +2327,14 @@ class LLMService:
                     self.conversation_history[:] = truncated_history
                     self._save_history(self.conversation_history)
                     
-                friendly_message = "⚠️ Se ha alcanzado el límite máximo de contexto del modelo. He purgado automáticamente el contenido antiguo y truncado las salidas extensas para liberar espacio. Por favor, reintenta tu solicitud."
-                yield AIMessage(content=friendly_message)
+                # Reintentar automáticamente la generación de forma transparente e ininterrumpida
+                yield from self._invoke_inner(
+                    history=self.conversation_history,
+                    system_message=system_message,
+                    interrupt_queue=interrupt_queue,
+                    save_history=save_history,
+                    include_tools=include_tools
+                )
                 return
             elif "Missing corresponding tool call for tool response message" in error_msg:
                 friendly_message = "¡Ups! 🔧 Se detectó un problema con la secuencia de herramientas en el historial. Estoy limpiando el historial para continuar. Por favor, repite tu última solicitud si es necesario."

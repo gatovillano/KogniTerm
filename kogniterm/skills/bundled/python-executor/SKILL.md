@@ -2,10 +2,10 @@
 name: python-executor
 version: 1.0.0
 author: "KogniTerm Core"
-description: "Ejecución interactiva de código Python con kernel de Jupyter y mantenimiento de estado"
+description: "Use when executing interactive Python code requiring Jupyter kernel state persistence"
 category: "code"
 tags: ["python", "execution", "jupyter", "interactive", "sandbox", "code-runner"]
-dependencies: ["jupyter_client"]
+dependencies: ["jupyter_client", "ipykernel"]
 required_permissions: ["execution"]
 security_level: "high"
 allowlist: false
@@ -45,7 +45,7 @@ Ejecuta código Python de forma interactiva en un kernel de Jupyter.
 
 ## Requisitos:
 
-- Se necesita la librería `jupyter_client` instalada: `pip install jupyter_client`
+- Se necesitan las librerías `jupyter_client` e `ipykernel` instaladas: `pip install jupyter_client ipykernel`
 - Se recomienda tener un entorno virtual configurado
 - El kernel se inicia automáticamente al primer uso
 - El estado se mantiene entre ejecuciones en la misma sesión

@@ -95,3 +95,23 @@ def test_tool_output_widget_get_rich_style_fallback():
     assert style.italic is True
     assert style.color is None
     assert style.bgcolor is None
+
+
+def test_tool_output_widget_staircase_prevention():
+    """Verifica que ToolOutputWidget descarte espacios al final de la línea para evitar el efecto escalera."""
+    multiline_text = "kogniterm/main.py\nLOC: 3\nLLOC: 0\nSLOC: 0\n- Comment Stats"
+    widget = ToolOutputWidget(multiline_text, "execute_command", command="python -m radon ...")
+
+    rendered = widget._render_pyte(multiline_text)
+    plain_text = str(rendered)
+    lines = [l.rstrip() for l in plain_text.split('\n')]
+
+    # Cada línea debe estar recortada sin el relleno de 80 espacios de pyte
+    assert lines[0] == "kogniterm/main.py"
+    assert lines[1] == "LOC: 3"
+    assert lines[2] == "LLOC: 0"
+    assert lines[3] == "SLOC: 0"
+    assert lines[4] == "- Comment Stats"
+
+
+
