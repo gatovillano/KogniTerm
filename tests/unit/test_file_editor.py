@@ -55,6 +55,7 @@ read_file_tool = _file_read.read_file_tool
 FlexibleMatcher = _file_editor.FlexibleMatcher
 MultipleMatchesError = _file_editor.MultipleMatchesError
 batch_edit = _adv_tool.batch_edit
+advanced_file_editor_tool = _adv_tool.advanced_file_editor_tool
 _transaction_manager = _adv_tool._transaction_manager
 
 
@@ -531,3 +532,55 @@ class TestInputNormalization:
         # El archivo debe seguir usando CRLF.
         assert b"\r\n" in raw
         assert b"999" in raw
+
+
+class TestAdvancedFileEditorTool:
+    def test_operations_list(self, tmp_file):
+        with open(tmp_file, "w") as f:
+            f.write("alpha\nbeta\ngamma\n")
+        result = advanced_file_editor_tool(
+            path=tmp_file,
+            operations=[
+                {"action": "replace_block", "target_content": "alpha", "replacement_content": "ALPHA"},
+                {"action": "replace_block", "target_content": "beta", "replacement_content": "BETA"},
+            ],
+            confirm=True,
+        )
+        assert result["status"] == "success"
+        with open(tmp_file) as f:
+            content = f.read()
+        assert "ALPHA" in content
+        assert "BETA" in content
+
+    def test_operations_json_string(self, tmp_file):
+        import json
+        with open(tmp_file, "w") as f:
+            f.write("alpha\nbeta\ngamma\n")
+        ops_str = json.dumps([
+            {"action": "replace_block", "target_content": "alpha", "replacement_content": "ALPHA_STR"},
+        ])
+        result = advanced_file_editor_tool(
+            path=tmp_file,
+            operations=ops_str,
+            confirm=True,
+        )
+        assert result["status"] == "success"
+        with open(tmp_file) as f:
+            assert "ALPHA_STR" in f.read()
+
+    def test_single_operation_filters_unexpected_kwargs(self, tmp_file):
+        with open(tmp_file, "w") as f:
+            f.write("foo\nbar\n")
+        result = advanced_file_editor_tool(
+            path=tmp_file,
+            action="replace_block",
+            target_content="foo",
+            replacement_content="FOO_FILTERED",
+            confirm=True,
+            operations=None,
+            unexpected_arg="should_be_ignored",
+        )
+        assert result["status"] == "success"
+        with open(tmp_file) as f:
+            assert "FOO_FILTERED" in f.read()
+
