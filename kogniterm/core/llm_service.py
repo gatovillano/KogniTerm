@@ -1271,7 +1271,7 @@ class LLMService:
                     cost=cost
                 )
 
-    def _invoke_inner(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True, include_tools: bool = True) -> Generator[Union[AIMessage, str], None, None]:
+    def _invoke_inner(self, history: Optional[List[BaseMessage]] = None, system_message: Optional[str] = None, interrupt_queue: Optional[queue.Queue] = None, save_history: bool = True, include_tools: bool = True, context_retry_count: int = 0) -> Generator[Union[AIMessage, str], None, None]:
         """
         Invoca al modelo LLM con el historial proporcionado (implementación interna).
         """
@@ -1457,20 +1457,27 @@ class LLMService:
 
         # Validación estricta y garantía de presupuesto de tokens pre-llamada
         try:
-            total_prompt_tokens = self._get_messages_token_count(litellm_messages)
-            max_allowed_prompt = max(4000, model_context_window - 8192 - 3000)
+            tools_token_overhead = 0
+            if include_tools:
+                tools_list = self._get_litellm_tools()
+                if tools_list:
+                    tools_token_overhead = self._get_token_count(json.dumps(tools_list)) + 500
+            
+            total_prompt_tokens = self._get_messages_token_count(litellm_messages) + tools_token_overhead
+            max_allowed_prompt = max(4000, model_context_window - 8192 - 3000 - tools_token_overhead)
+            
             if total_prompt_tokens > max_allowed_prompt:
-                logger.warning(f"⚠️ El prompt generado ({total_prompt_tokens} tokens) supera el máximo permitido ({max_allowed_prompt} tokens). Aplicando purga estricta...")
+                logger.warning(f"⚠️ El prompt generado ({total_prompt_tokens} tokens con herramientas) supera el máximo permitido ({max_allowed_prompt} tokens). Aplicando purga estricta...")
                 
                 # Paso 1: Truncar drásticamente mensajes de herramientas y textos extensos
                 for msg in litellm_messages:
-                    if msg.get("role") == "tool" and isinstance(msg.get("content"), str) and len(msg["content"]) > 600:
-                        msg["content"] = msg["content"][:600] + "\n\n[Contenido purgado por límite de contexto]"
-                    elif msg.get("role") in ["user", "assistant"] and isinstance(msg.get("content"), str) and len(msg["content"]) > 2500:
-                        msg["content"] = msg["content"][:2500] + "\n\n[Texto truncado por límite de contexto]"
+                    if msg.get("role") == "tool" and isinstance(msg.get("content"), str) and len(msg["content"]) > 500:
+                        msg["content"] = msg["content"][:500] + "\n\n[Contenido purgado por límite de contexto]"
+                    elif msg.get("role") in ["user", "assistant"] and isinstance(msg.get("content"), str) and len(msg["content"]) > 1500:
+                        msg["content"] = msg["content"][:1500] + "\n\n[Texto truncado por límite de contexto]"
                 
                 # Paso 2: Recalcular tokens tras el primer corte
-                total_prompt_tokens = self._get_messages_token_count(litellm_messages)
+                total_prompt_tokens = self._get_messages_token_count(litellm_messages) + tools_token_overhead
                 
                 # Paso 3: Si aún supera max_allowed_prompt, descartar turnos de conversación antiguos hasta caber
                 if total_prompt_tokens > max_allowed_prompt:
@@ -1478,18 +1485,26 @@ class LLMService:
                     conv_msgs = [m for m in litellm_messages if m.get("role") != "system"]
                     
                     while conv_msgs and total_prompt_tokens > max_allowed_prompt:
-                        if len(conv_msgs) > 2:
-                            conv_msgs.pop(0)
-                        else:
-                            # Si solo quedan 2 mensajes y aún no cabe, recortar la última petición del usuario
-                            if conv_msgs and isinstance(conv_msgs[0].get("content"), str) and len(conv_msgs[0]["content"]) > 1000:
-                                conv_msgs[0]["content"] = conv_msgs[0]["content"][:1000] + "\n\n[Consulta recortada por límite de contexto]"
-                            break
-                        total_prompt_tokens = self._get_messages_token_count(system_msgs + conv_msgs)
+                        conv_msgs.pop(0)
+                        total_prompt_tokens = self._get_messages_token_count(system_msgs + conv_msgs) + tools_token_overhead
                     
                     litellm_messages = system_msgs + conv_msgs
                 
-                logger.info(f"✅ Prompt purgado exitosamente a {self._get_messages_token_count(litellm_messages)} tokens.")
+                # Paso 4: Si aún después de vaciar la conversación el prompt supera el máximo permitido, truncar mensajes de sistema
+                if total_prompt_tokens > max_allowed_prompt:
+                    for msg in litellm_messages:
+                        if msg.get("role") == "system" and isinstance(msg.get("content"), str):
+                            content = msg["content"]
+                            allowed_chars = max(2000, int((max_allowed_prompt - tools_token_overhead - 500) * 3.2))
+                            if len(content) > allowed_chars:
+                                msg["content"] = content[:allowed_chars] + "\n\n[Mensaje de sistema truncado por límite estricto de contexto]"
+                    
+                    total_prompt_tokens = self._get_messages_token_count(litellm_messages) + tools_token_overhead
+                
+                if total_prompt_tokens <= max_allowed_prompt:
+                    logger.info(f"✅ Prompt purgado exitosamente a {total_prompt_tokens} tokens (máximo permitido: {max_allowed_prompt}).")
+                else:
+                    logger.warning(f"⚠️ El prompt purgado ({total_prompt_tokens} tokens) aún supera el máximo permitido ({max_allowed_prompt} tokens).")
         except Exception as e:
             logger.warning(f"Error al validar tokens pre-llamada: {e}")
 
@@ -2346,12 +2361,18 @@ class LLMService:
             
             # Identificar errores comunes de proveedores (OpenRouter, Google, etc.)
             if "contextwindowexceeded" in error_msg.lower() or "maximum context length" in error_msg.lower() or "context_length_exceeded" in error_msg.lower() or "too many tokens" in error_msg.lower():
-                logger.warning(f"⚠️ ContextWindowExceededError capturado: {error_msg}. Purlando historial en caliente y reintentando automáticamente...")
+                if context_retry_count >= 2:
+                    logger.error(f"❌ Se alcanzó el límite máximo de reintentos por ContextWindowExceededError ({context_retry_count}). Abortando recursión.")
+                    yield AIMessage(content="Error: El contexto de la conversación excede el límite máximo soportado por el modelo incluso tras aplicar la purga estricta. Por favor, reinicia la sesión o usa /reset.")
+                    return
+
+                logger.warning(f"⚠️ ContextWindowExceededError capturado (intento {context_retry_count + 1}): {error_msg}. Purgando historial en caliente y reintentando automáticamente...")
                 if self.conversation_history:
                     truncated_history = []
                     for msg in self.conversation_history:
                         if isinstance(msg, SystemMessage):
-                            truncated_history.append(msg)
+                            content = str(msg.content)[:3000] if len(str(msg.content)) > 3000 else str(msg.content)
+                            truncated_history.append(SystemMessage(content=content))
                     
                     conv_msgs = [m for m in self.conversation_history if not isinstance(m, SystemMessage)]
                     # Conservar solo los últimos 4 mensajes conversacionales para asegurar que quepa holgadamente
@@ -2362,10 +2383,10 @@ class LLMService:
                             content = str(msg.content)[:500] + "\n\n[Contenido purgado para liberar contexto]"
                             truncated_history.append(ToolMessage(content=content, tool_call_id=msg.tool_call_id))
                         elif isinstance(msg, HumanMessage):
-                            content = str(msg.content)[:3000] if len(str(msg.content)) > 3000 else str(msg.content)
+                            content = str(msg.content)[:1500] if len(str(msg.content)) > 1500 else str(msg.content)
                             truncated_history.append(HumanMessage(content=content))
                         elif isinstance(msg, AIMessage):
-                            content = str(msg.content)[:3000] if len(str(msg.content)) > 3000 else str(msg.content)
+                            content = str(msg.content)[:1500] if len(str(msg.content)) > 1500 else str(msg.content)
                             truncated_history.append(AIMessage(content=content, tool_calls=getattr(msg, 'tool_calls', [])))
                     
                     self.conversation_history[:] = truncated_history
@@ -2377,7 +2398,8 @@ class LLMService:
                     system_message=system_message,
                     interrupt_queue=interrupt_queue,
                     save_history=save_history,
-                    include_tools=include_tools
+                    include_tools=include_tools,
+                    context_retry_count=context_retry_count + 1
                 )
                 return
             elif "Missing corresponding tool call for tool response message" in error_msg:
