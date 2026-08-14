@@ -354,17 +354,13 @@ def create_terminal_output_panel(tool_name: str, output: str, max_lines: int = N
         if '\r' in raw_line:
             # Dividir por carriage return
             parts = raw_line.split('\r')
-            # En un terminal, cada parte sobrescribe la anterior.
             actual_line = ""
             for p in parts:
                 if p: 
-                    # Simulación simple de sobrescritura: si la nueva parte es más corta,
-                    # en un terminal real mantendría el final de la anterior si no hay espacios,
-                    # pero aquí simplemente tomamos la última que tenga contenido.
                     actual_line = p
-            clean_lines.append(actual_line)
+            clean_lines.append(actual_line.rstrip())
         else:
-            clean_lines.append(raw_line)
+            clean_lines.append(raw_line.rstrip())
             
     # Eliminar lineas vacías al final que puedan hacer parpadear la altura
     while clean_lines and not clean_lines[-1].strip() and len(clean_lines) > 2:

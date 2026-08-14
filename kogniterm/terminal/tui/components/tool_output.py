@@ -145,6 +145,16 @@ class ToolOutputWidget(Static):
             self.cursor_visible = not self.cursor_visible
             self.update(self._render_tool_output())
 
+    def _is_terminal_tool(self) -> bool:
+        """Devuelve True si la herramienta o comando corresponden a ejecución de terminal o consola."""
+        if bool(self.command):
+            return True
+        t_name = (self.tool_name or "").lower()
+        if not t_name:
+            return True
+        keywords = ("command", "bash", "terminal", "shell", "python", "exec", "cli", "pty", "run", "script")
+        return any(kw in t_name for kw in keywords)
+
     def on_resize(self, event) -> None:
         """Ajusta el ancho del emulador PTY al tamaño real del widget."""
         # Se descuenta solo el espacio del borde (2 columnas)
@@ -154,9 +164,7 @@ class ToolOutputWidget(Static):
             self._screen.resize(self.nrow, self.ncol)
             if self.tool_content and isinstance(self.tool_content, str):
                 try:
-                    self._screen.reset()
-                    self._stream.feed(self.tool_content)
-                    renderable = self._render_tool_output()
+                    renderable = self._render_pyte(self.tool_content)
                     self.update(renderable)
                 except Exception:
                     pass
@@ -182,18 +190,13 @@ class ToolOutputWidget(Static):
         # --- Smart Formatting ---
         # Si es una salida de terminal o ejecución de comando, o si contiene secuencias ANSI/terminal,
         # siempre usar el emulador PTY (_render_pyte) para preservar los saltos de línea (\r\n) y la disposición de columnas.
-        is_terminal_tool = (
-            self.tool_name in ("bash", "execute_command", "terminal", "python", "python_executor") or
-            bool(self.command)
-        )
-
-        if is_terminal_tool or self._has_ansi(data):
+        if self._is_terminal_tool() or self._has_ansi(data):
             renderable = self._render_pyte(data)
         elif self._is_markdown(data):
             renderable = Markdown(data)
         else:
             lang = self.language or self._detect_language(data)
-            if lang:
+            if lang and lang.lower() not in ("bash", "sh", "zsh", "terminal", "execute_command", "run_command"):
                 renderable = Syntax(
                     data, lang,
                     theme="monokai",

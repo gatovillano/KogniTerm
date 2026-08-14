@@ -41,8 +41,9 @@ def test_no_duplicate_thinking_box():
     panel = Panel(Markdown("Pensando algo..."), title="💭 Pensando...")
     chat.write_stream(panel)
     assert chat._active_thinking_widget is not None
+    thinking_widget = chat._active_thinking_widget
 
-    # 2. Stop stream when response starts
-    chat.stop_stream()
+    # 2. Transition directly to non-thinking content (text chunk)
+    chat.write_stream("Hola mundo respuesta final")
     assert chat._active_thinking_widget is None
-    assert chat._active_message_widget is None
+    assert chat._active_message_widget is not thinking_widget
