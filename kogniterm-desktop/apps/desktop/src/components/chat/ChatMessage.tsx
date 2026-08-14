@@ -97,6 +97,17 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     }
 
     if (isSystem) {
+        const contentStr = typeof message.content === 'string' ? message.content : '';
+        const isInternalPrompt =
+            contentStr.startsWith('INSTRUCCIÓN CRÍTICA') ||
+            contentStr.includes('📂 **Directorio de Trabajo Actual:**') ||
+            contentStr.includes('Eres el Agente') ||
+            contentStr.includes('Protocolo Obligatorio');
+
+        if (isInternalPrompt) {
+            return null;
+        }
+
         return (
             <div className="flex w-full mb-4 justify-center px-4 animate-fade-in">
                 <div className="text-xs text-zinc-600 bg-zinc-100 border border-zinc-200 rounded-full px-4 py-1.5 font-medium tracking-wide">
