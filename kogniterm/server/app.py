@@ -1293,12 +1293,15 @@ def create_app() -> FastAPI:
     @application.get("/api/threads/{thread_id}/messages", tags=["Threads"])
     async def get_thread_messages(thread_id: str):
         """Obtiene los mensajes de un hilo de chat en formato compatible con el frontend."""
+        from langchain_core.messages import SystemMessage
         await pool.wait_until_ready()
         if pool._thread_manager:
             messages = pool._thread_manager.load_thread_messages(thread_id)
             if messages is not None:
                 frontend_messages = []
                 for i, msg in enumerate(messages):
+                    if isinstance(msg, SystemMessage) or (hasattr(msg, "type") and msg.type == "system"):
+                        continue
                     frontend_messages.append(message_to_frontend_dict(msg, i))
                 return {"messages": frontend_messages}
         return {"messages": []}
