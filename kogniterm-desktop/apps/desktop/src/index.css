@@ -441,3 +441,139 @@ body {
     background: #cbd5e1;
   }
 }
+
+/* Dark Mode Overrides */
+.dark body {
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+/* Dark theme markdown */
+.dark .markdown-content {
+  color: #e4e4e7;
+}
+
+.dark .markdown-content h1 {
+  color: #f4f4f5;
+}
+
+.dark .markdown-content h2 {
+  color: #f4f4f5;
+  border-bottom-color: #27272a;
+}
+
+.dark .markdown-content h3 {
+  color: #e4e4e7;
+}
+
+.dark .markdown-content p,
+.dark .markdown-content ul,
+.dark .markdown-content ol {
+  color: #d4d4d8;
+}
+
+.dark .markdown-content strong {
+  color: #ffffff;
+}
+
+.dark .markdown-content em {
+  color: #a1a1aa;
+}
+
+.dark .markdown-content a {
+  color: #818cf8;
+  border-bottom-color: rgba(129, 140, 248, 0.4);
+}
+
+.dark .markdown-content a:hover {
+  color: #a5b4fc;
+  border-bottom-color: #a5b4fc;
+}
+
+.dark .markdown-content :not(pre) > code {
+  color: #818cf8;
+  background-color: #1e1e2e;
+  border-color: #313244;
+}
+
+.dark .markdown-content blockquote {
+  border-left-color: #6366f1;
+  color: #a1a1aa;
+  background: linear-gradient(to right, rgba(99, 102, 241, 0.15), transparent);
+}
+
+.dark .markdown-content hr {
+  border-top-color: #27272a;
+}
+
+.dark .markdown-content table {
+  border-color: #27272a;
+}
+
+.dark .markdown-content th {
+  background-color: #18181b;
+  color: #f4f4f5;
+  border-bottom-color: #27272a;
+}
+
+.dark .markdown-content td {
+  border-bottom-color: #27272a;
+  color: #d4d4d8;
+  background-color: #09090b;
+}
+
+.dark .markdown-content tr:nth-child(even) td {
+  background-color: #121215;
+}
+
+/* User & Assistant Bubble Dark Overrides */
+.dark .user-msg-bubble {
+  background-color: #27272a;
+  color: #f4f4f5;
+  border-color: #3f3f46;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.dark .assistant-msg-text {
+  color: #f4f4f5;
+}
+
+.dark .tool-status-badge {
+  background-color: rgba(6, 78, 59, 0.4);
+  border-color: #047857;
+  color: #6ee7b7;
+}
+
+.dark .output-code-card {
+  background-color: #111115;
+  border-color: #27272a;
+  color: #e4e4e7;
+}
+
+.dark .thinking-collapsible {
+  border-left-color: #3f3f46;
+}
+
+.dark .bg-goose-app {
+  background-color: #09090b;
+}
+
+.dark .bg-goose-sidebar {
+  background-color: #0f0f12;
+}
+
+.dark .border-goose {
+  border-color: #27272a;
+}
+
+.dark .glass-light {
+  background: rgba(24, 24, 27, 0.85);
+}
+
+.dark .goose-scrollbar::-webkit-scrollbar-thumb {
+  background: #27272a;
+}
+
+.dark .goose-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
