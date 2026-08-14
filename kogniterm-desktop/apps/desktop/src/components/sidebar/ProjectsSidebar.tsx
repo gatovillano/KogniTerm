@@ -47,7 +47,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
   // Helper to normalize path comparison
   const normalizePath = (p?: string) => p ? p.replace(/\\/g, '/').replace(/\/$/, '') : '';
 
-  // Group threads by project path with flexible path/folder matching
+  // Group threads by project path with accurate path matching
   const threadsByProject = React.useMemo(() => {
     const map: Record<string, any[]> = {};
     projects.forEach(p => { 
@@ -61,26 +61,24 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
       let matchedKey: string | undefined = undefined;
       
       if (threadWorkspace) {
+        const normTW = threadWorkspace.toLowerCase();
         matchedKey = Object.keys(map).find(pPath => {
           if (!pPath) return false;
-          if (pPath === threadWorkspace) return true;
-          if (threadWorkspace.startsWith(pPath) || pPath.startsWith(threadWorkspace)) return true;
+          const normPP = pPath.toLowerCase();
+          // 1. Coincidencia exacta de ruta
+          if (normPP === normTW) return true;
+          // 2. Coincidencia de subdirectorio (el hilo está dentro del proyecto)
+          if (normTW.startsWith(normPP + '/')) return true;
+          // 3. Coincidencia de nombre de carpeta de último nivel
           const pName = pPath.split('/').filter(Boolean).pop();
           const tName = threadWorkspace.split('/').filter(Boolean).pop();
-          return pName && tName && pName.toLowerCase() === tName.toLowerCase();
+          return Boolean(pName && tName && pName.toLowerCase() === tName.toLowerCase());
         });
       }
 
-      // If matched, push to project. If no workspace_dir set on thread, default to first project
+      // Si coincide, añadir a la carpeta del proyecto. Si no, añadir a unmapped
       if (matchedKey && map[matchedKey]) {
         map[matchedKey].push(t);
-      } else if (!threadWorkspace && projects.length > 0) {
-        const firstKey = normalizePath(projects[0].path);
-        if (map[firstKey]) {
-          map[firstKey].push(t);
-        } else {
-          unmapped.push(t);
-        }
       } else {
         unmapped.push(t);
       }
