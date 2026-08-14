@@ -142,7 +142,7 @@ export interface SingleThreadState {
     isUserNearBottom: boolean;
 }
 
-export function useChat(threadId: string | null) {
+export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
     const threadsCacheRef = useRef<Record<string, SingleThreadState>>({});
     const activeThreadIdRef = useRef<string | null>(threadId);
     activeThreadIdRef.current = threadId;
@@ -325,13 +325,15 @@ export function useChat(threadId: string | null) {
         let ws: WebSocket | null = null;
 
         const initWs = async () => {
-            let workspaceDir: string | undefined = undefined;
+            let workspaceDir: string | undefined = targetWorkspaceDir;
             let token: string | undefined = undefined;
             try {
                 const { invoke } = await import('@tauri-apps/api/core');
-                workspaceDir = await invoke<string>('get_cwd');
                 token = await invoke<string>('get_api_token');
-                console.log("CWD de Tauri para WebSocket:", workspaceDir);
+                if (!workspaceDir) {
+                    workspaceDir = await invoke<string>('get_cwd');
+                }
+                console.log("WorkspaceDir para WebSocket:", workspaceDir);
             } catch (err) {
                 console.warn("No se pudo obtener CWD/token de Tauri para WebSocket:", err);
             }
@@ -644,7 +646,7 @@ export function useChat(threadId: string | null) {
                 socketRef.current.close();
             }
         };
-    }, [threadId]);
+    }, [threadId, targetWorkspaceDir]);
 
     const sendMessage = useCallback((content: string, images: string[] = []) => {
         const trimmed = content.trim();

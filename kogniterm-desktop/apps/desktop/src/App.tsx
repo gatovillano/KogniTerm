@@ -23,29 +23,7 @@ function App() {
   const [currentThreadId, setCurrentThreadId] = useState<string>(() => {
     return `desktop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   });
-  
-  const {
-    messages,
-    isGenerating,
-    error,
-    sendMessage,
-    stopGeneration,
-    taskPlans,
-    pendingApproval,
-    respondApproval,
-    terminalEntries,
-    sendTerminalInput,
-    clearTerminal,
-    appliedDiffs,
-    scrollPosition,
-    isUserNearBottom,
-    setThreadScrollPosition,
-  } = useChat(currentThreadId);
 
-  const hasActiveTasks = Object.values(taskPlans).some((plan) => plan.length > 0);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLElement>(null);
-  
   // App views & parameters
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [currentDir, setCurrentDir] = useState<string>('~/Gemini-Interpreter'); 
@@ -62,12 +40,35 @@ function App() {
   // Message queue state
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
   
-  // Threads list state (lifted from ThreadList.tsx)
+  // Threads list state
   const [threads, setThreads] = useState<any[]>([]);
 
-  // Derived: título del hilo activo para mostrar en el encabezado
+  // Derived: título e workspace del hilo activo
   const activeThread = threads.find(t => t.id === currentThreadId);
   const activeTitle = activeThread?.title || 'Nueva conversación';
+  const activeWorkspace = activeThread?.workspaceDir || activeThread?.workspace_dir || currentDir;
+
+  const {
+    messages,
+    isGenerating,
+    error,
+    sendMessage,
+    stopGeneration,
+    taskPlans,
+    pendingApproval,
+    respondApproval,
+    terminalEntries,
+    sendTerminalInput,
+    clearTerminal,
+    appliedDiffs,
+    scrollPosition,
+    isUserNearBottom,
+    setThreadScrollPosition,
+  } = useChat(currentThreadId, activeWorkspace);
+
+  const hasActiveTasks = Object.values(taskPlans).some((plan) => plan.length > 0);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLElement>(null);
 
   // Live Clock & Greeting State (Goose UI)
   const [currentTime, setCurrentTime] = useState<string>('');
