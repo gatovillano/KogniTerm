@@ -1565,6 +1565,22 @@ def create_app() -> FastAPI:
                             {"type": "error", "data": "Falta ID de aprobación."}
                         )
 
+                elif msg_type == "question_response":
+                    request_id = data.get("id")
+                    selected = data.get("selected") or data.get("response") or ""
+                    if request_id:
+                        session.ui.handle_question_response(request_id, selected)
+                        await websocket.send_json(
+                            {
+                                "type": "info",
+                                "data": f"Respuesta a consulta procesada para {request_id}.",
+                            }
+                        )
+                    else:
+                        await websocket.send_json(
+                            {"type": "error", "data": "Falta ID de pregunta."}
+                        )
+
                 elif msg_type == "terminal_input":
                     text = data.get("text", "")
                     if text:

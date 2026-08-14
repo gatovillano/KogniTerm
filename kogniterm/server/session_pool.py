@@ -211,9 +211,10 @@ class ServerUI(TerminalUI):
         self._async_queue: asyncio.Queue = asyncio.Queue()
         self.is_tui = True  # El agente usa rutas de "rich output"
         self.telegram_adapters = []
-        # Sistemas de aprobación de herramientas (thread-safe)
+        # Sistemas de aprobación y consulta de herramientas (thread-safe)
         self._pending_approvals = {}  # {request_id: (threading.Event, bool)}
         self._pending_approvals_async = {}  # {request_id: (asyncio.Event, bool)}
+        self._pending_questions = {}  # {request_id: (threading.Event, dict)}
         self._pending_lock = threading.Lock()
         # Búfer de estado en vivo para re-acoplamiento WebSocket
         self.current_thinking: str = ""
@@ -533,6 +534,59 @@ class ServerUI(TerminalUI):
                 return
                 
         logger.warning(f"[{self.session_id}] Advertencia: request_id={request_id} no se encontró en las aprobaciones pendientes de esta sesión.")
+
+    def ask_question_sync(
+        self,
+        question: str,
+        options: list,
+        title: str = "Consulta del Agente",
+        allow_freeform: bool = True,
+    ) -> str:
+        """Emite un evento question_required y bloquea el hilo del worker esperando la opción elegida."""
+        request_id = str(uuid.uuid4())
+        event = threading.Event()
+        result_container = {"selected": "Cancelado por el usuario."}
+
+        with self._pending_lock:
+            self._pending_questions[request_id] = (event, result_container)
+
+        self._push(
+            "question_required",
+            {
+                "id": request_id,
+                "question": question,
+                "options": options,
+                "title": title,
+                "allow_freeform": allow_freeform,
+            },
+        )
+
+        logger.info(
+            f"[{self.session_id}] Esperando respuesta de pregunta síncrona para {request_id}..."
+        )
+        event.wait()
+
+        with self._pending_lock:
+            self._pending_questions.pop(request_id, None)
+
+        selected = result_container.get("selected", "")
+        logger.info(
+            f"[{self.session_id}] Pregunta {request_id} respondida: {selected}"
+        )
+        return selected
+
+    def handle_question_response(self, request_id: str, selected: str) -> None:
+        """Recibe la opción seleccionada o respuesta libre del cliente y despierta al thread del worker."""
+        logger.info(f"[{self.session_id}] handle_question_response llamado para request_id={request_id}, selected={selected}")
+        with self._pending_lock:
+            if request_id in self._pending_questions:
+                logger.info(f"[{self.session_id}] Encontrado request_id={request_id} en _pending_questions. Despertando thread.")
+                event, result_container = self._pending_questions[request_id]
+                result_container["selected"] = selected
+                event.set()
+                return
+
+        logger.warning(f"[{self.session_id}] Advertencia: request_id={request_id} no se encontró en las preguntas pendientes de esta sesión.")
 
     # ── Consumer API ───────────────────────────────────────────────────────────
 
