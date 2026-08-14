@@ -102,7 +102,17 @@ class StreamingExecutor:
                                     tool_calls[idx]["function"]["arguments"] += str(tc.function.arguments)
 
             if self.stop_generation_flag:
-                yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
+                final_tool_calls = self._consolidate_tool_calls(
+                    tool_calls, 
+                    full_response_content, 
+                    full_reasoning_content, 
+                    parse_fn
+                )
+                yield AIMessage(
+                    content=full_response_content,
+                    tool_calls=final_tool_calls if final_tool_calls else [],
+                    additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                )
             else:
                 # Consolidar tool_calls (nativos + parsed)
                 final_tool_calls = self._consolidate_tool_calls(

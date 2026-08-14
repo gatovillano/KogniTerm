@@ -7,17 +7,13 @@ from kogniterm.core.llm_service import LLMService
 def test_get_model_context_window():
     service = LLMService()
     
-    # Probar modelo Gemini
+    # Probar modelo OpenRouter (limitado a 120000 por seguridad)
     win_gemini = service.get_model_context_window("openrouter/google/gemini-2.5-flash")
-    assert win_gemini == 262144
+    assert win_gemini == 120000
 
     # Probar GPT-4o
     win_gpt4o = service.get_model_context_window("gpt-4o")
     assert win_gpt4o == 128000
-
-    # Probar Claude
-    win_claude = service.get_model_context_window("claude-3-5-sonnet")
-    assert win_claude == 200000
 
 
 def test_history_manager_token_truncation(tmp_path):

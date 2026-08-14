@@ -979,14 +979,19 @@ class LLMService:
     def get_model_context_window(self, model_name: Optional[str] = None) -> int:
         """
         Obtiene la ventana de contexto máxima del modelo en tokens.
-        Usa litellm.get_model_info con fallback adaptativo a modelos conocidos.
+        Usa litellm.get_model_info con fallback adaptativo a modelos conocidos y límites seguros de prudencia.
         """
         target_model = model_name or getattr(self, 'model_name', '')
         if not target_model:
-            return 128000
+            return 120000
+
+        # Permite anular o definir un límite máximo seguro mediante variable de entorno KOGNITERM_MAX_CONTEXT_TOKENS
+        env_limit = os.getenv("KOGNITERM_MAX_CONTEXT_TOKENS")
+        if env_limit and env_limit.isdigit():
+            return int(env_limit)
 
         model_lower = target_model.lower()
-        is_openrouter_or_openai = "openrouter" in model_lower or "openai" in model_lower
+        is_openrouter_or_openai = "openrouter" in model_lower or "openai" in model_lower or "kilocode" in model_lower or "stepfun" in model_lower or ":free" in model_lower
 
         try:
             info = litellm.get_model_info(target_model)
@@ -994,29 +999,29 @@ class LLMService:
                 max_input = info.get("max_input_tokens") or info.get("max_tokens")
                 if max_input and isinstance(max_input, int) and max_input > 0:
                     if is_openrouter_or_openai:
-                        return min(max_input, 262144)
+                        return min(max_input, 120000)
                     return max_input
         except Exception:
             pass
 
         if "gemini-2" in model_lower or "gemini-1.5" in model_lower:
             if is_openrouter_or_openai:
-                return 262144
+                return 120000
             return 1000000
         elif "gpt-4o" in model_lower or "gpt-4-turbo" in model_lower:
-            return 128000
+            return 120000
         elif "gpt-4" in model_lower:
             return 32768
         elif "claude-3" in model_lower:
-            return 200000
+            return 160000
         elif "o1" in model_lower or "o3" in model_lower:
-            return 200000
+            return 160000
         elif "deepseek" in model_lower or "qwen" in model_lower:
-            return 128000
+            return 120000
 
         if is_openrouter_or_openai:
-            return 262144
-        return 128000
+            return 120000
+        return 120000
 
     def set_model(self, model_name: str):
         """Cambia el modelo actual en tiempo de ejecución de forma robusta."""
@@ -1443,17 +1448,41 @@ class LLMService:
 
         self.stop_generation_flag = False
 
-        # Validación de presupuesto de tokens pre-llamada
+        # Validación estricta y garantía de presupuesto de tokens pre-llamada
         try:
             total_prompt_tokens = self._get_messages_token_count(litellm_messages)
-            max_allowed_prompt = max(4000, model_context_window - 8192 - 2000)
+            max_allowed_prompt = max(4000, model_context_window - 8192 - 3000)
             if total_prompt_tokens > max_allowed_prompt:
-                logger.warning(f"⚠️ El prompt generado ({total_prompt_tokens} tokens) supera el máximo permitido ({max_allowed_prompt} tokens). Aplicando truncamiento preventivo...")
+                logger.warning(f"⚠️ El prompt generado ({total_prompt_tokens} tokens) supera el máximo permitido ({max_allowed_prompt} tokens). Aplicando purga estricta...")
+                
+                # Paso 1: Truncar drásticamente mensajes de herramientas y textos extensos
                 for msg in litellm_messages:
-                    if msg.get("role") == "tool" and isinstance(msg.get("content"), str) and len(msg["content"]) > 1000:
-                        msg["content"] = msg["content"][:1000] + "\n\n[Contenido truncado preventivamente por límite de contexto]"
-                    elif msg.get("role") == "user" and isinstance(msg.get("content"), str) and len(msg["content"]) > 10000:
-                        msg["content"] = msg["content"][:10000] + "\n\n[Mensaje truncado preventivamente por límite de contexto]"
+                    if msg.get("role") == "tool" and isinstance(msg.get("content"), str) and len(msg["content"]) > 600:
+                        msg["content"] = msg["content"][:600] + "\n\n[Contenido purgado por límite de contexto]"
+                    elif msg.get("role") in ["user", "assistant"] and isinstance(msg.get("content"), str) and len(msg["content"]) > 2500:
+                        msg["content"] = msg["content"][:2500] + "\n\n[Texto truncado por límite de contexto]"
+                
+                # Paso 2: Recalcular tokens tras el primer corte
+                total_prompt_tokens = self._get_messages_token_count(litellm_messages)
+                
+                # Paso 3: Si aún supera max_allowed_prompt, descartar turnos de conversación antiguos hasta caber
+                if total_prompt_tokens > max_allowed_prompt:
+                    system_msgs = [m for m in litellm_messages if m.get("role") == "system"]
+                    conv_msgs = [m for m in litellm_messages if m.get("role") != "system"]
+                    
+                    while conv_msgs and total_prompt_tokens > max_allowed_prompt:
+                        if len(conv_msgs) > 2:
+                            conv_msgs.pop(0)
+                        else:
+                            # Si solo quedan 2 mensajes y aún no cabe, recortar la última petición del usuario
+                            if conv_msgs and isinstance(conv_msgs[0].get("content"), str) and len(conv_msgs[0]["content"]) > 1000:
+                                conv_msgs[0]["content"] = conv_msgs[0]["content"][:1000] + "\n\n[Consulta recortada por límite de contexto]"
+                            break
+                        total_prompt_tokens = self._get_messages_token_count(system_msgs + conv_msgs)
+                    
+                    litellm_messages = system_msgs + conv_msgs
+                
+                logger.info(f"✅ Prompt purgado exitosamente a {self._get_messages_token_count(litellm_messages)} tokens.")
         except Exception as e:
             logger.warning(f"Error al validar tokens pre-llamada: {e}")
 
@@ -1831,8 +1860,10 @@ class LLMService:
 
 
             if self.stop_generation_flag:
-                # Si se interrumpe, el AIMessage final se construye con el mensaje de interrupción
-                yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
+                yield AIMessage(
+                    content=full_response_content,
+                    additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                )
             else:
                 # LÓGICA UNIFICADA: Combinar tool_calls nativos y manuales detectados en el texto
                 final_tool_calls = []
@@ -2140,7 +2171,10 @@ class LLMService:
                     
                     # Procesar respuesta final del fallback
                     if self.stop_generation_flag:
-                        yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
+                        yield AIMessage(
+                            content=full_response_content,
+                            additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                        )
                     elif tool_calls:
                         formatted_tool_calls = []
                         for tc in tool_calls:
@@ -2258,7 +2292,10 @@ class LLMService:
                             
                             # Procesar respuesta final del fallback ultra-minimalista
                             if self.stop_generation_flag:
-                                yield AIMessage(content="Generación de respuesta interrumpida por el usuario. 🛑")
+                                yield AIMessage(
+                                    content=full_response_content,
+                                    additional_kwargs={"reasoning_content": full_reasoning_content} if full_reasoning_content else {}
+                                )
                             elif tool_calls:
                                 formatted_tool_calls = []
                                 for tc in tool_calls:
