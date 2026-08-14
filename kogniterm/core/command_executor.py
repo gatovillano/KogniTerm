@@ -133,6 +133,7 @@ class CommandExecutor:
         self.process: Optional[subprocess.Popen] = None
         self.terminal_ui: Any = None # To be linked later
         self.workspace_directory: Optional[str] = None
+        self._current_shell_cwd: Optional[str] = None
         # Pipe para inyectar entrada al PTY desde la TUI
         self._input_pipe_read, self._input_pipe_write = os.pipe()
         
@@ -143,6 +144,20 @@ class CommandExecutor:
         self._last_command_done_marker = "##KOGNITERM_DONE_MARKER##"
         self.background_task_manager = BackgroundTaskManager()
         self._exec_lock = threading.Lock()
+
+    def set_workspace_directory(self, workspace_dir: str) -> None:
+        """Actualiza el directorio de trabajo y sincroniza la sesión PTY activa."""
+        if not workspace_dir:
+            return
+        abs_dir = os.path.abspath(workspace_dir)
+        self.workspace_directory = abs_dir
+        if self._persistent_master_fd and self._persistent_shell_process and self._persistent_shell_process.poll() is None:
+            try:
+                cd_cmd = f"cd {shlex.quote(abs_dir)}\n"
+                os.write(self._persistent_master_fd, cd_cmd.encode())
+                self._current_shell_cwd = abs_dir
+            except Exception as e:
+                logger.warning(f"Error cambiando directorio en PTY: {e}")
 
     def execute_background(self, command: str, cwd: Optional[str] = None) -> dict:
         """Ejecuta un comando en segundo plano sin bloquear el flujo principal."""
@@ -168,10 +183,20 @@ class CommandExecutor:
             Cada fragmento de texto de la salida estándar/error del comando.
         """
         is_tui = getattr(getattr(self, 'terminal_ui', None), 'is_tui', False)
+        target_cwd = cwd or self.workspace_directory or os.getcwd()
+        target_cwd = os.path.abspath(target_cwd)
         
         # Inicializar sesión persistente si no existe
         if self._persistent_shell_process is None or self._persistent_shell_process.poll() is not None:
-            self._start_persistent_session(cwd)
+            self._start_persistent_session(target_cwd)
+        else:
+            if getattr(self, "_current_shell_cwd", None) != target_cwd:
+                try:
+                    cd_cmd = f"cd {shlex.quote(target_cwd)}\n"
+                    os.write(self._persistent_master_fd, cd_cmd.encode())
+                    self._current_shell_cwd = target_cwd
+                except Exception as e:
+                    logger.warning(f"Error sincronizando directorio en PTY: {e}")
             
         master_fd = self._persistent_master_fd
         self.process = self._persistent_shell_process
@@ -379,6 +404,10 @@ class CommandExecutor:
         except Exception:
             pass
 
+        target_cwd = cwd or getattr(self, "workspace_directory", None) or os.getcwd()
+        target_cwd = os.path.abspath(target_cwd)
+        self._current_shell_cwd = target_cwd
+
         # Usar 'bash' como shell persistente
         self._persistent_shell_process = subprocess.Popen(
             ["bash", "--login"],
@@ -387,7 +416,7 @@ class CommandExecutor:
             stderr=self._persistent_slave_fd,
             close_fds=True,
             preexec_fn=os.setsid,
-            cwd=cwd or getattr(self, "workspace_directory", None) or os.getcwd(),
+            cwd=target_cwd,
             env=os.environ.copy()
         )
         # Consumir el banner inicial del shell y configurar variables sin demoras estáticas

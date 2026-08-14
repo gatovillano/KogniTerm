@@ -575,6 +575,11 @@ class AgentSession:
         self.llm_service = llm_service
 
         # Determinar el workspace_dir correcto
+        if not workspace_dir and thread_manager:
+            thread_info = thread_manager.get_thread(session_id)
+            if thread_info and thread_info.workspace_dir:
+                workspace_dir = thread_info.workspace_dir
+
         self.workspace_dir = workspace_dir or (thread_manager.workspace_dir if thread_manager else os.getcwd())
         self.workspace_dir = os.path.abspath(self.workspace_dir)
 
@@ -757,7 +762,7 @@ class AgentSession:
 
         # Actualizar command_executor
         if hasattr(self, "command_executor") and self.command_executor:
-            self.command_executor.workspace_directory = workspace_dir
+            self.command_executor.set_workspace_directory(workspace_dir)
 
     def interrupt(self) -> None:
         """Interrumpe la ejecución actual del agente en esta sesión."""
