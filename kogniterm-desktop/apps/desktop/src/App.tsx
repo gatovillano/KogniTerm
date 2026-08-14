@@ -10,6 +10,7 @@ import { RightSidebar } from './components/chat/RightSidebar';
 import { SessionHistoryPanel } from './components/session/SessionHistoryPanel';
 import { ProjectsSidebar } from './components/sidebar/ProjectsSidebar';
 import { AddProjectModal } from './components/modals/AddProjectModal';
+import { QuestionModal } from './components/modals/QuestionModal';
 import { useProjects } from './hooks/useProjects';
 import { useChat } from './hooks/useChat';
 import { useTheme } from './hooks/useTheme';
@@ -58,6 +59,8 @@ function App() {
     taskPlans,
     pendingApproval,
     respondApproval,
+    pendingQuestion,
+    respondQuestion,
     terminalEntries,
     sendTerminalInput,
     clearTerminal,
@@ -529,6 +532,9 @@ function App() {
             </div>
           )}
         </main>
+
+        {/* Question Modal */}
+        <QuestionModal request={pendingQuestion} onRespond={respondQuestion} />
 
         {/* Settings Modal */}
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />

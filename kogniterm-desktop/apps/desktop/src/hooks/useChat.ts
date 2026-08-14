@@ -131,11 +131,21 @@ export function parseAppliedDiff(
     };
 }
 
+export interface QuestionRequest {
+    id: string;
+    question: string;
+    options: string[];
+    title?: string;
+    allow_freeform?: boolean;
+    timestamp: number;
+}
+
 export interface SingleThreadState {
     messages: Message[];
     taskPlans: Record<string, { task: string; status: string }[]>;
     terminalEntries: TerminalEntry[];
     pendingApproval: ApprovalRequest | null;
+    pendingQuestion: QuestionRequest | null;
     appliedDiffs: AppliedDiff[];
     isGenerating: boolean;
     scrollPosition: number;
@@ -171,6 +181,12 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
     const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(() => {
         if (threadId && threadsCacheRef.current[threadId]) {
             return threadsCacheRef.current[threadId].pendingApproval;
+        }
+        return null;
+    });
+    const [pendingQuestion, setPendingQuestion] = useState<QuestionRequest | null>(() => {
+        if (threadId && threadsCacheRef.current[threadId]) {
+            return threadsCacheRef.current[threadId].pendingQuestion;
         }
         return null;
     });
@@ -210,12 +226,13 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             taskPlans,
             terminalEntries,
             pendingApproval,
+            pendingQuestion,
             appliedDiffs,
             isGenerating,
             scrollPosition,
             isUserNearBottom,
         };
-    }, [threadId, messages, taskPlans, terminalEntries, pendingApproval, appliedDiffs, isGenerating, scrollPosition, isUserNearBottom]);
+    }, [threadId, messages, taskPlans, terminalEntries, pendingApproval, pendingQuestion, appliedDiffs, isGenerating, scrollPosition, isUserNearBottom]);
 
     const setThreadScrollPosition = useCallback((scrollTop: number, isNearBottom: boolean) => {
         setScrollPosition(scrollTop);
@@ -251,6 +268,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                 taskPlans,
                 terminalEntries,
                 pendingApproval,
+                pendingQuestion,
                 appliedDiffs,
                 isGenerating,
                 scrollPosition,
@@ -265,6 +283,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             setTaskPlans(cached.taskPlans);
             setTerminalEntries(cached.terminalEntries);
             setPendingApproval(cached.pendingApproval);
+            setPendingQuestion(cached.pendingQuestion);
             setAppliedDiffs(cached.appliedDiffs);
             setIsGenerating(cached.isGenerating);
             setScrollPosition(cached.scrollPosition);
@@ -274,6 +293,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             setTaskPlans({});
             setTerminalEntries([]);
             setPendingApproval(null);
+            setPendingQuestion(null);
             setAppliedDiffs([]);
             setIsGenerating(false);
             setScrollPosition(0);
@@ -626,6 +646,17 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                         file_path: payload.file_path || '',
                         timestamp: Date.now(),
                     });
+                } else if (data.type === 'question_required') {
+                    // Show interactive question selector modal to the user
+                    const payload = data.data || data;
+                    setPendingQuestion({
+                        id: payload.id,
+                        question: payload.question || '',
+                        options: payload.options || [],
+                        title: payload.title || 'Consulta del Agente',
+                        allow_freeform: payload.allow_freeform ?? true,
+                        timestamp: Date.now(),
+                    });
                 } else if (data.type === 'task_tracker') {
                     const payload = data.data || data;
                     setTaskPlans(payload);
@@ -704,6 +735,17 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
         setPendingApproval(null);
     }, [pendingApproval]);
 
+    const respondQuestion = useCallback((requestId: string, selected: string) => {
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+                type: 'question_response',
+                id: requestId,
+                selected,
+            }));
+        }
+        setPendingQuestion(null);
+    }, []);
+
     const sendTerminalInput = useCallback((text: string) => {
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({
@@ -738,6 +780,8 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
         taskPlans,
         pendingApproval,
         respondApproval,
+        pendingQuestion,
+        respondQuestion,
         terminalEntries,
         isTerminalVisible,
         sendTerminalInput,
