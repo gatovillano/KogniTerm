@@ -34,14 +34,15 @@ def test_default_rules_deny():
     resolver = CommandRulesResolver()
     resolver.load_rules()
     assert resolver.resolve("rm -rf /") == "deny"
-    assert resolver.resolve("sudo apt install vim") == "deny"
+    assert resolver.resolve("sudo rm -rf /") == "deny"
     assert resolver.resolve("dd if=/dev/zero of=/dev/sda") == "deny"
 
 
 def test_default_fallback_is_ask():
     resolver = CommandRulesResolver()
     resolver.load_rules()
-    # Unknown command should default to 'ask'
+    # Unknown command & benign sudo should default to 'ask'
+    assert resolver.resolve("sudo apt install vim") == "ask"
     assert resolver.resolve("pip install flask") == "ask"
     assert resolver.resolve("python script.py") == "ask"
 

@@ -26,10 +26,6 @@ rules:
   # === COMANDOS PELIGROSOS (bloquear sin preguntar) ===
   - pattern: "^rm\\s+(-rf?|--recursive).*$"
     action: "deny"
-  - pattern: "^sudo\\s+.*$"
-    action: "deny"
-  - pattern: "^su\\s+.*$"
-    action: "deny"
   - pattern: "^(mkfs|fdisk|parted).*$"
     action: "deny"
   - pattern: "^dd\\s+.*$"
