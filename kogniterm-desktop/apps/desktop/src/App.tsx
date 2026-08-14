@@ -8,11 +8,12 @@ import { SettingsModal } from './components/settings/SettingsModal';
 import { HeartbeatsPanel } from './components/heartbeats/HeartbeatsPanel';
 import { RightSidebar } from './components/chat/RightSidebar';
 import { SessionHistoryPanel } from './components/session/SessionHistoryPanel';
+import { ProjectsSidebar } from './components/sidebar/ProjectsSidebar';
+import { AddProjectModal } from './components/modals/AddProjectModal';
+import { useProjects } from './hooks/useProjects';
 import { useChat } from './hooks/useChat';
 import { 
-  Settings, Files, ShieldCheck, 
-  Zap, History, PanelLeft, 
-  Trash2, Plus, HeartPulse, Sparkles, PanelRightOpen
+  ShieldCheck, Zap, PanelRightOpen
 } from 'lucide-react';
 import './App.css';
 
@@ -49,10 +50,13 @@ function App() {
   const [activeView, setActiveView] = useState<ViewType>('chat');
   const [currentDir, setCurrentDir] = useState<string>('~/Gemini-Interpreter'); 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAddProjectModalOpen, setIsAddProjectModalOpen] = useState(false);
+
+  // Projects hook for sidebar folder management
+  const { projects, addProject, removeProject, toggleProjectExpand } = useProjects(currentDir);
   
   // Sidebar state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isChatsExpanded, setIsChatsExpanded] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   
   // Message queue state
@@ -193,18 +197,34 @@ function App() {
   }, []);
 
   // Handlers for Thread management
-  const createThread = async () => {
+  const createThread = async (workspaceDir?: string) => {
     try {
-      const res = await fetch('http://127.0.0.1:8765/api/threads', { method: 'POST' });
+      const targetDir = workspaceDir || currentDir;
+      const res = await fetch('http://127.0.0.1:8765/api/threads', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_dir: targetDir })
+      });
       const data = await res.json();
       if (data.thread_id) {
         await fetchThreads();
         setCurrentThreadId(data.thread_id);
+        if (targetDir && targetDir !== currentDir) {
+          setCurrentDir(targetDir);
+        }
         setActiveView('chat');
       }
     } catch (error) {
       console.error("Error creating thread:", error);
     }
+  };
+
+  const handleSelectThread = (threadId: string, workspaceDir?: string) => {
+    setCurrentThreadId(threadId);
+    if (workspaceDir && workspaceDir !== currentDir) {
+      setCurrentDir(workspaceDir);
+    }
+    setActiveView('chat');
   };
 
   const deleteThread = async (e: React.MouseEvent, id: string) => {
@@ -254,152 +274,31 @@ function App() {
   return (
     <div className="flex h-screen bg-[#fafafa] text-slate-800 font-sans overflow-hidden selection:bg-indigo-100">
       
-      {/* Redesigned Minimalist Sidebar */}
-      {/* Redesigned Minimalist Sidebar */}
-      <aside 
-        className={`${
-          isSidebarCollapsed ? 'w-[56px]' : 'w-[230px]'
-        } bg-[#f7f8fa] border-r border-slate-200/60 flex flex-col transition-all duration-200 z-30 select-none`}
-      >
-        {/* Sidebar Header with Brand */}
-        <div className="h-12 flex items-center justify-between px-3.5 border-b border-slate-200/50">
-          {!isSidebarCollapsed && (
-            <div className="flex items-center gap-2">
-              <div className="h-5 w-5 rounded-md bg-slate-900 flex items-center justify-center">
-                <Sparkles size={11} className="text-white" />
-              </div>
-              <span className="font-semibold text-[13px] text-slate-800 tracking-tight">KogniTerm</span>
-              <span className="px-1.5 py-0.2 rounded bg-slate-200/50 text-[9px] text-slate-500 font-medium">Desktop</span>
-            </div>
-          )}
-          <button 
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="p-1 hover:bg-slate-200/50 rounded-md text-slate-400 hover:text-slate-700 transition-colors ml-auto"
-            title={isSidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-          >
-            <PanelLeft size={15} />
-          </button>
-        </div>
+      {/* Redesigned Projects Sidebar */}
+      <ProjectsSidebar
+        isSidebarCollapsed={isSidebarCollapsed}
+        setIsSidebarCollapsed={setIsSidebarCollapsed}
+        projects={projects}
+        onOpenAddProjectModal={() => setIsAddProjectModalOpen(true)}
+        onToggleProjectExpand={toggleProjectExpand}
+        onDeleteProject={removeProject}
+        threads={threads}
+        currentThreadId={currentThreadId}
+        onSelectThread={handleSelectThread}
+        onCreateThread={createThread}
+        onDeleteThread={deleteThread}
+        activeView={activeView}
+        setActiveView={setActiveView}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        executingThreadIds={{ [currentThreadId]: isGenerating }}
+      />
 
-        {/* Navigation / Actions */}
-        <div className="px-2.5 py-2 flex flex-col gap-1">
-          {/* New Chat Item */}
-          <div 
-            onClick={createThread}
-            className={`flex items-center gap-2.5 px-2 py-1.5 text-[13px] font-medium text-slate-700 hover:text-slate-900 cursor-pointer rounded-md hover:bg-slate-200/40 transition-colors ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
-            title="Nuevo chat"
-          >
-            <Plus size={15} className="text-slate-500 shrink-0" />
-            {!isSidebarCollapsed && <span>Nuevo chat</span>}
-          </div>
-
-          {/* Nav Items List */}
-          <nav className="flex flex-col gap-0.5 mt-1">
-            {[
-              { id: 'skills', icon: Zap, label: 'Skills' },
-              { id: 'heartbeat', icon: HeartPulse, label: 'Heartbeat' },
-              { id: 'session', icon: History, label: 'Historial de sesiones' },
-              { id: 'files', icon: Files, label: 'Archivos' }
-            ].map((item) => {
-              const isActive = activeView === item.id;
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => {
-                    if (item.id === 'files') {
-                      setActiveView('files');
-                    } else if (item.id === 'skills') {
-                      setActiveView('skills');
-                    } else if (item.id === 'heartbeat') {
-                      setActiveView('heartbeat');
-                    } else if (item.id === 'session') {
-                      setActiveView('session');
-                    } else {
-                      setActiveView('chat');
-                    }
-                  }}
-                  className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] cursor-pointer transition-colors ${
-                    isActive
-                      ? 'text-slate-900 font-semibold bg-slate-200/60'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/40'
-                  } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
-                >
-                  <item.icon size={15} className={`shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
-                  {!isSidebarCollapsed && <span>{item.label}</span>}
-                </div>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Collapsible CHATS Section */}
-        {!isSidebarCollapsed && (
-          <div className="flex-1 flex flex-col min-h-0 border-t border-slate-200/40 mt-1 pt-2">
-            <div 
-              onClick={() => setIsChatsExpanded(!isChatsExpanded)}
-              className="flex items-center justify-between px-4 py-1 text-[10px] font-semibold text-slate-400 hover:text-slate-600 uppercase tracking-wider transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-1">
-                <span className="text-[8px] text-slate-400">▾</span>
-                <span>CHATS</span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-mono">
-                {threads.length}
-              </span>
-            </div>
-
-            {isChatsExpanded && (
-              <div className="flex-1 overflow-y-auto goose-scrollbar px-2 py-1 space-y-0.5">
-                {threads.map(thread => {
-                  const isCurrent = currentThreadId === thread.id;
-                  return (
-                    <div 
-                      key={thread.id}
-                      onClick={() => {
-                        setCurrentThreadId(thread.id);
-                        setActiveView('chat');
-                      }}
-                      className={`group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer text-xs transition-colors ${
-                        isCurrent 
-                          ? 'text-slate-900 font-semibold bg-slate-200/60' 
-                          : 'text-slate-600 hover:bg-slate-200/40 hover:text-slate-900'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2 truncate flex-1 min-w-0 pr-1">
-                        <span className="text-[12px] truncate" title={thread.title}>
-                          {thread.title || 'Conversación'}
-                        </span>
-                      </div>
-                      <button 
-                        onClick={(e) => deleteThread(e, thread.id)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 transition-all rounded hover:bg-slate-200/60"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
-                {threads.length === 0 && (
-                  <div className="px-2 py-1.5 text-[11px] text-slate-400 italic">
-                    Sin hilos guardados.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Sidebar Footer with Settings */}
-        <div className="px-2.5 py-2 border-t border-slate-200/40 mt-auto">
-          <div
-            onClick={() => setIsSettingsOpen(true)}
-            className={`flex items-center gap-2.5 px-2 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/40 rounded-md text-[13px] cursor-pointer transition-colors ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
-          >
-            <Settings size={15} className="text-slate-400 shrink-0" />
-            {!isSidebarCollapsed && <span>Ajustes</span>}
-          </div>
-        </div>
-      </aside>
+      {/* Modal para añadir nueva carpeta/proyecto */}
+      <AddProjectModal
+        isOpen={isAddProjectModalOpen}
+        onClose={() => setIsAddProjectModalOpen(false)}
+        onAddProject={(path) => addProject(path)}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 relative bg-[#fafafa]">
