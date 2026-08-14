@@ -241,9 +241,13 @@ class ChatLogWidget(VerticalScroll):
                 from rich.padding import Padding
                 from rich.console import Group
                 
+                def _title_matches(t_str):
+                    t = str(t_str or "").lower()
+                    return any(kw in t for kw in ["terminal", "command", "bash", "shell", "python", "exec", "cli", "pty", "run", "script"])
+
                 if isinstance(r, Panel):
-                    title = str(r.title) if r.title else ""
-                    if "TERMINAL" in title or "execute_command" in title:
+                    title = str(r.title or "")
+                    if _title_matches(title):
                         return True, title.replace("TERMINAL | ", "")
                 
                 if isinstance(r, Padding):
@@ -251,10 +255,8 @@ class ChatLogWidget(VerticalScroll):
                     
                 if isinstance(r, Group):
                     for sub_r in r.renderables:
-                        # En visual_components, el primer elemento suele ser el título (Text)
-                        if "TERMINAL" in str(sub_r):
+                        if _title_matches(sub_r):
                             return True, "bash"
-                        # O puede ser un Panel anidado
                         found, name = _check_is_terminal(sub_r)
                         if found: return True, name
                 
@@ -300,7 +302,9 @@ class ChatLogWidget(VerticalScroll):
                 is_thinking = _check_is_thinking(r)
 
                 if not is_thinking:
-                    self._active_thinking_widget = None
+                    if self._active_thinking_widget is not None:
+                        self._active_thinking_widget = None
+                        self._active_message_widget = None
 
                 if is_thinking and self._active_thinking_widget and getattr(self._active_thinking_widget, "parent", None) is not None:
                     self._active_thinking_widget.update(r)

@@ -240,7 +240,8 @@ class Terminal(Widget, can_focus=True):
                                 self.mouse_tracking = False
 
                     try:
-                        self.stream.feed(chars)
+                        chars_normalized = chars.replace('\r\n', '\n').replace('\n', '\r\n')
+                        self.stream.feed(chars_normalized)
                     except TypeError as error:
                         # pyte could get into errors here: Screen.cursor_position()
                         # is getting 4 args. Happens when TERM=linux and using

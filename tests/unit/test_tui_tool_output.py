@@ -114,4 +114,20 @@ def test_tool_output_widget_staircase_prevention():
     assert lines[4] == "- Comment Stats"
 
 
+def test_is_terminal_tool_expanded():
+    """Verifica que _is_terminal_tool reconozca correctamente nombres de herramientas de consola/terminal."""
+    w1 = ToolOutputWidget("content", "run_command")
+    assert w1._is_terminal_tool() is True
+
+    w2 = ToolOutputWidget("content", "cmd_execution")
+    assert w2._is_terminal_tool() is True
+
+    w3 = ToolOutputWidget("content", "python_executor_tool")
+    assert w3._is_terminal_tool() is True
+
+    w4 = ToolOutputWidget("content", "custom_tool", command="python script.py")
+    assert w4._is_terminal_tool() is True
+
+
+
 
