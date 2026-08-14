@@ -77,15 +77,11 @@ async def probe_server(server_url: str) -> bool:
 
 def build_native_renderable(thinking: str, response: str) -> Any:
     from rich.padding import Padding
-    from rich.console import Group
     from rich.panel import Panel
     from rich.markdown import Markdown
-    from rich.text import Text
     from kogniterm.terminal.themes import ColorPalette, Icons
 
-    renderables = []
-    if thinking:
-        # En TUI: construir Panel con fondo explícito y letra opaca (gris/dim)
+    if thinking and not response:
         thinking_content = Markdown(thinking)
         thought_panel = Panel(
             thinking_content,
@@ -95,18 +91,12 @@ def build_native_renderable(thinking: str, response: str) -> Any:
             padding=(0, 4),
             expand=True
         )
-        renderables.append(thought_panel)
+        return Padding(thought_panel, (2, 0, 1, 0))
 
-    if response:
-        if thinking:
-            renderables.append(Text("\n"))  # Separación entre pensamiento y respuesta
-        renderables.append(Markdown(response))
+    if response and not thinking:
+        return Padding(Markdown(response), (2, 0, 1, 0))
 
-    if not renderables:
-        return None
-
-    # Mismo padding (2, 0, 1, 0) que usa la visualización local en bash_agent
-    return Padding(Group(*renderables), (2, 0, 1, 0))
+    return None
 
 
 class TUIWebSocketClient:

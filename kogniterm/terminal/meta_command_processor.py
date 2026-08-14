@@ -1511,7 +1511,7 @@ Example: /autosave restore autosave_20250515_141530
                     if is_server_mode:
                         try:
                             from kogniterm.terminal.api_client_tui import set_llm_config
-                            await set_llm_config(provider=selected_provider)
+                            await set_llm_config(model_name=new_model, provider=selected_provider)
                         except Exception as ex:
                             self.terminal_ui.print_message(f"⚠️ Error actualizando proveedor en el servidor: {ex}", style="yellow")
 

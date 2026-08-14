@@ -86,8 +86,10 @@ class TUICommandProcessor:
             ("openai", "OpenAI (GPT)"),
             ("anthropic", "Anthropic (Claude)"),
             ("openrouter", "OpenRouter"),
+            ("ollama", "Ollama Local"),
+            ("ollama_cloud", "Ollama Cloud"),
             ("kilocode", "KiloCode Gateway"),
-            ("ollama", "Ollama Local")
+            ("antigravity", "Google Antigravity (Session OAuth2)"),
         ]
         
         selected = await self.terminal_ui.ask_radiolist_async(

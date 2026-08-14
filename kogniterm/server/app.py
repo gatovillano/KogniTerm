@@ -699,6 +699,8 @@ def create_app() -> FastAPI:
             provider = "ollama"
         elif "kilocode" in model_lower:
             provider = "kilocode"
+        elif "antigravity" in model_lower:
+            provider = "antigravity"
 
         raw_key = cm.get_api_key(provider) or ""
         masked_key = (
@@ -734,7 +736,9 @@ def create_app() -> FastAPI:
                 "anthropic": "anthropic/claude-3-5-sonnet-20240620",
                 "openrouter": "openrouter/google/gemini-2.5-flash",
                 "ollama": "ollama/llama3",
+                "ollama_cloud": "ollama_cloud/llama3:70b",
                 "kilocode": "kilocode/kilo/auto",
+                "antigravity": "antigravity/gemini-3-flash",
                 "litellm": "google/gemini-1.5-flash",
             }
             new_model = default_models.get(req.provider.lower())
@@ -764,6 +768,8 @@ def create_app() -> FastAPI:
                     provider = "ollama_cloud"
                 elif "kilocode" in model_lower:
                     provider = "kilocode"
+                elif "antigravity" in model_lower:
+                    provider = "antigravity"
                 else:
                     provider = "litellm"  # Fallback genérico
 
