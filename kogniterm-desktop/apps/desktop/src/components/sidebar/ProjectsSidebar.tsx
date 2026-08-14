@@ -87,8 +87,8 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
       // Si coincide, añadir a la carpeta del proyecto.
       if (matchedKey && map[matchedKey]) {
         map[matchedKey].push(t);
-      } else if (!threadWorkspace && projects.length > 0) {
-        // Fallback para hilos sin workspace_dir explícito: asociar al primer proyecto
+      } else if (projects.length > 0) {
+        // Fallback para hilos sin coincidencia estricta: asociar al primer proyecto abierto
         const firstKey = normalizePath(projects[0].path);
         if (map[firstKey]) {
           map[firstKey].push(t);
@@ -107,22 +107,22 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
     <aside
       className={`${
         isSidebarCollapsed ? 'w-[56px]' : 'w-[250px]'
-      } bg-[#f8f9fa] border-r border-slate-200/60 flex flex-col transition-all duration-200 z-30 select-none h-screen`}
+      } bg-[#f8f9fa] dark:bg-[#0f0f12] border-r border-slate-200/60 dark:border-zinc-800 flex flex-col transition-all duration-200 z-30 select-none h-screen`}
     >
       {/* Sidebar Header with Brand */}
-      <div className="h-12 flex items-center justify-between px-3 border-b border-slate-200/50">
+      <div className="h-12 flex items-center justify-between px-3 border-b border-slate-200/50 dark:border-zinc-800/50">
         {!isSidebarCollapsed && (
           <div className="flex items-center gap-2">
-            <div className="h-5 w-5 rounded-md bg-slate-900 flex items-center justify-center">
+            <div className="h-5 w-5 rounded-md bg-slate-900 dark:bg-indigo-600 flex items-center justify-center">
               <Sparkles size={11} className="text-white" />
             </div>
-            <span className="font-semibold text-[13px] text-slate-800 tracking-tight">KogniTerm</span>
-            <span className="px-1.5 py-0.2 rounded bg-slate-200/50 text-[9px] text-slate-500 font-medium">Desktop</span>
+            <span className="font-semibold text-[13px] text-slate-800 dark:text-zinc-100 tracking-tight">KogniTerm</span>
+            <span className="px-1.5 py-0.2 rounded bg-slate-200/50 dark:bg-zinc-800 text-[9px] text-slate-500 dark:text-zinc-400 font-medium">Desktop</span>
           </div>
         )}
         <button
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          className="p-1 hover:bg-slate-200/50 rounded-md text-slate-400 hover:text-slate-700 transition-colors ml-auto cursor-pointer"
+          className="p-1 hover:bg-slate-200/50 dark:hover:bg-zinc-800 rounded-md text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 transition-colors ml-auto cursor-pointer"
           title={isSidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
         >
           <PanelLeft size={15} />
@@ -130,15 +130,15 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
       </div>
 
       {/* Primary Actions & Navigation */}
-      <div className="px-2.5 py-2 flex flex-col gap-1 border-b border-slate-200/40">
+      <div className="px-2.5 py-2 flex flex-col gap-1 border-b border-slate-200/40 dark:border-zinc-800/40">
         <div
           onClick={() => onCreateThread()}
-          className={`flex items-center gap-2.5 px-2 py-1.5 text-[13px] font-medium text-slate-700 hover:text-slate-900 cursor-pointer rounded-md hover:bg-slate-200/40 transition-colors ${
+          className={`flex items-center gap-2.5 px-2 py-1.5 text-[13px] font-medium text-slate-700 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-zinc-100 cursor-pointer rounded-md hover:bg-slate-200/40 dark:hover:bg-zinc-800/40 transition-colors ${
             isSidebarCollapsed ? 'justify-center px-0' : ''
           }`}
           title="Nuevo chat"
         >
-          <Plus size={15} className="text-slate-500 shrink-0" />
+          <Plus size={15} className="text-slate-500 dark:text-zinc-400 shrink-0" />
           {!isSidebarCollapsed && <span>Nuevo chat</span>}
         </div>
 
@@ -156,11 +156,11 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                 onClick={() => setActiveView(item.id)}
                 className={`flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13px] cursor-pointer transition-colors ${
                   isActive
-                    ? 'text-slate-900 font-semibold bg-slate-200/60'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/40'
+                    ? 'text-slate-900 dark:text-zinc-100 font-semibold bg-slate-200/60 dark:bg-zinc-800'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/40 dark:hover:bg-zinc-800/40'
                 } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
               >
-                <item.icon size={15} className={`shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
+                <item.icon size={15} className={`shrink-0 ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-zinc-400'}`} />
                 {!isSidebarCollapsed && <span>{item.label}</span>}
               </div>
             );
