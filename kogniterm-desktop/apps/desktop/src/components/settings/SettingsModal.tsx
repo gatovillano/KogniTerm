@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Save, Cpu, CheckCircle, AlertCircle, 
   Trash2, Plus, Globe, Folder, Settings, MessageSquare, 
-  Send, Eye, EyeOff, Loader2, Sparkles 
+  Send, Eye, EyeOff, Loader2, Sparkles, Palette, Sun, Moon, Monitor 
 } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -24,7 +25,8 @@ interface ProviderModel {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'llm' | 'advanced' | 'instructions' | 'telegram'>('llm');
+  const { theme, setTheme } = useTheme();
+  const [activeTab, setActiveTab] = useState<'llm' | 'advanced' | 'instructions' | 'telegram' | 'appearance'>('llm');
   const [activeScope, setActiveScope] = useState<'global' | 'project'>('project');
   
   // Config loaded from backend
@@ -318,52 +320,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const activeInstructions = getScopeValue('agent_instructions', activeScope) || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-md animate-fade-in">
-      <div className="w-full max-w-3xl h-[620px] bg-white border border-slate-200/90 rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.12)] flex flex-col overflow-hidden select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 dark:bg-black/60 backdrop-blur-md animate-fade-in">
+      <div className="w-full max-w-3xl h-[620px] bg-white dark:bg-[#18181b] border border-slate-200/90 dark:border-zinc-800 rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.2)] flex flex-col overflow-hidden select-none">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
+            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400">
               <Settings size={18} />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 leading-none">Ajustes del Sistema</h2>
-              <p className="text-xs text-slate-500 mt-1">Personaliza modelos, preferencias globales y canales de KogniTerm</p>
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 leading-none">Ajustes del Sistema</h2>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Personaliza modelos, preferencias globales y canales de KogniTerm</p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-slate-200/60 text-slate-400 hover:text-slate-700 transition-colors"
+            className="p-1.5 rounded-full hover:bg-slate-200/60 dark:hover:bg-zinc-800 text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 transition-colors"
           >
             <X size={16} />
           </button>
         </div>
 
         {/* Scope Selector Bar */}
-        <div className="px-6 py-3 bg-slate-50/30 border-b border-slate-100 flex items-center justify-between shrink-0 text-xs">
-          <span className="font-semibold text-slate-400 tracking-wide text-[11px]">ÁMBITO DE APLICACIÓN:</span>
-          <div className="flex bg-slate-200/60 p-1 rounded-xl gap-1">
+        <div className="px-6 py-3 bg-slate-50/30 dark:bg-zinc-900/30 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between shrink-0 text-xs">
+          <span className="font-semibold text-slate-400 dark:text-zinc-500 tracking-wide text-[11px]">ÁMBITO DE APLICACIÓN:</span>
+          <div className="flex bg-slate-200/60 dark:bg-zinc-800/60 p-1 rounded-xl gap-1">
             <button
               onClick={() => setActiveScope('global')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs transition-all ${
                 activeScope === 'global'
-                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-zinc-700 text-slate-900 dark:text-zinc-100 font-semibold shadow-xs'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
               }`}
             >
-              <Globe size={13} className="text-slate-400" />
+              <Globe size={13} className="text-slate-400 dark:text-zinc-400" />
               Global (Usuario)
             </button>
             <button
               onClick={() => setActiveScope('project')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs transition-all ${
                 activeScope === 'project'
-                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-zinc-700 text-slate-900 dark:text-zinc-100 font-semibold shadow-xs'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
               }`}
             >
-              <Folder size={13} className="text-slate-400" />
+              <Folder size={13} className="text-slate-400 dark:text-zinc-400" />
               Proyecto (Local)
             </button>
           </div>
@@ -373,12 +375,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         <div className="flex flex-1 min-h-0">
           
           {/* Sidebar Tabs */}
-          <aside className="w-[210px] border-r border-slate-100 bg-slate-50/60 flex flex-col p-3 gap-1.5 shrink-0">
+          <aside className="w-[210px] border-r border-slate-100 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-900/60 flex flex-col p-3 gap-1.5 shrink-0">
             {[
               { id: 'llm', name: 'Modelos y Llaves', icon: Cpu },
               { id: 'advanced', name: 'Ajustes Avanzados', icon: Settings },
               { id: 'instructions', name: 'Instrucciones', icon: MessageSquare },
               { id: 'telegram', name: 'Bot de Telegram', icon: Send },
+              { id: 'appearance', name: 'Apariencia', icon: Palette },
             ].map(tab => {
               const Icon = tab.icon;
               return (
@@ -387,8 +390,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   onClick={() => setActiveTab(tab.id as any)}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs transition-all text-left ${
                     activeTab === tab.id
-                      ? 'bg-white text-indigo-600 font-semibold border border-slate-200/80 shadow-card-light'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                      ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 font-semibold border border-slate-200/80 dark:border-zinc-700 shadow-card-light'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:bg-slate-200/50 dark:hover:bg-zinc-800/50'
                   }`}
                 >
                   <Icon size={15} />
@@ -731,6 +734,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Appearance Tab */}
+            {activeTab === 'appearance' && (
+              <div className="space-y-6 animate-fade-in">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mb-3">
+                    Tema de la Aplicación
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 mb-4">
+                    Selecciona tu preferencia de tema para KogniTerm Desktop.
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Light Option */}
+                    <button
+                      type="button"
+                      onClick={() => setTheme('light')}
+                      className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all cursor-pointer ${
+                        theme === 'light'
+                          ? 'border-indigo-600 dark:border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold shadow-xs'
+                          : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:border-slate-300 dark:hover:border-zinc-700'
+                      }`}
+                    >
+                      <Sun className="w-6 h-6 mb-2 text-amber-500" />
+                      <span className="text-xs">Claro</span>
+                    </button>
+
+                    {/* Dark Option */}
+                    <button
+                      type="button"
+                      onClick={() => setTheme('dark')}
+                      className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all cursor-pointer ${
+                        theme === 'dark'
+                          ? 'border-indigo-600 dark:border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold shadow-xs'
+                          : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:border-slate-300 dark:hover:border-zinc-700'
+                      }`}
+                    >
+                      <Moon className="w-6 h-6 mb-2 text-indigo-400" />
+                      <span className="text-xs">Oscuro</span>
+                    </button>
+
+                    {/* System Option */}
+                    <button
+                      type="button"
+                      onClick={() => setTheme('system')}
+                      className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all cursor-pointer ${
+                        theme === 'system'
+                          ? 'border-indigo-600 dark:border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold shadow-xs'
+                          : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:border-slate-300 dark:hover:border-zinc-700'
+                      }`}
+                    >
+                      <Monitor className="w-6 h-6 mb-2 text-slate-500 dark:text-zinc-400" />
+                      <span className="text-xs">Sistema</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

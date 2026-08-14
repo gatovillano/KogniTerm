@@ -12,8 +12,9 @@ import { ProjectsSidebar } from './components/sidebar/ProjectsSidebar';
 import { AddProjectModal } from './components/modals/AddProjectModal';
 import { useProjects } from './hooks/useProjects';
 import { useChat } from './hooks/useChat';
+import { useTheme } from './hooks/useTheme';
 import { 
-  ShieldCheck, Zap, PanelRightOpen
+  ShieldCheck, Zap, PanelRightOpen, Sun, Moon, Monitor
 } from 'lucide-react';
 import './App.css';
 
@@ -71,9 +72,16 @@ function App() {
   const chatContainerRef = useRef<HTMLElement>(null);
 
   // Live Clock & Greeting State (Goose UI)
+  const { theme, setTheme } = useTheme();
   const [currentTime, setCurrentTime] = useState<string>('');
   const [greeting, setGreeting] = useState<string>('Buenas tardes');
   const [autoApprove, setAutoApprove] = useState<boolean>(false);
+
+  const toggleThemeQuick = () => {
+    if (theme === 'light') setTheme('dark');
+    else if (theme === 'dark') setTheme('system');
+    else setTheme('light');
+  };
 
   useEffect(() => {
     fetch('http://127.0.0.1:8765/api/config/all')
@@ -273,7 +281,7 @@ function App() {
 
 
   return (
-    <div className="flex h-screen bg-[#fafafa] text-slate-800 font-sans overflow-hidden selection:bg-indigo-100">
+    <div className="flex h-screen bg-[#fafafa] dark:bg-[#09090b] text-slate-800 dark:text-zinc-100 font-sans overflow-hidden selection:bg-indigo-100 dark:selection:bg-indigo-900">
       
       {/* Redesigned Projects Sidebar */}
       <ProjectsSidebar
@@ -302,18 +310,18 @@ function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 relative bg-[#fafafa]">
+      <main className="flex-1 flex flex-col min-w-0 relative bg-[#fafafa] dark:bg-[#09090b]">
         
         {/* Minimal Header */}
-        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200/60 bg-white/70 backdrop-blur-md z-20">
+        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200/60 dark:border-zinc-800 bg-white/70 dark:bg-[#0f0f12]/80 backdrop-blur-md z-20">
           <div className="flex items-center gap-3 select-none">
             {isSidebarCollapsed && (
               <div className="flex items-center gap-2">
-                <span className="font-bold text-xs text-slate-800 tracking-tight">KogniTerm</span>
+                <span className="font-bold text-xs text-slate-800 dark:text-zinc-100 tracking-tight">KogniTerm</span>
               </div>
             )}
             {!isSidebarCollapsed && (
-              <span className="text-xs font-medium text-slate-500 truncate max-w-[180px]" title={activeTitle}>
+              <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 truncate max-w-[180px]" title={activeTitle}>
                 {activeTitle}
               </span>
             )}
@@ -322,29 +330,39 @@ function App() {
           {/* Central Directory Pill */}
           <button
             onClick={handleChangeDir}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/80 hover:bg-slate-200/80 border border-slate-200/60 transition-all text-xs font-medium text-slate-600 hover:text-slate-900 select-none"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/80 dark:bg-zinc-800/80 hover:bg-slate-200/80 dark:hover:bg-zinc-700/80 border border-slate-200/60 dark:border-zinc-700/60 transition-all text-xs font-medium text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white select-none"
             title="Cambiar directorio de trabajo"
           >
             <span>Ubicación actual</span>
-            <span className="text-slate-400 font-mono text-[11px]">({currentDir})</span>
+            <span className="text-slate-400 dark:text-zinc-500 font-mono text-[11px]">({currentDir})</span>
           </button>
 
-          {/* Right Status Indicator */}
+          {/* Right Status Indicator & Theme Toggle */}
           <div className="flex items-center gap-2 select-none">
+            <button
+              onClick={toggleThemeQuick}
+              title={`Tema actual: ${theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Sistema'} (Clic para cambiar)`}
+              className="p-1.5 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 transition-all cursor-pointer flex items-center justify-center"
+            >
+              {theme === 'light' && <Sun className="w-3.5 h-3.5 text-amber-500" />}
+              {theme === 'dark' && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
+              {theme === 'system' && <Monitor className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />}
+            </button>
+
             <button
               type="button"
               onClick={toggleAutoApprove}
               title={autoApprove ? "Auto-aprobación activa (Clic para desactivar)" : "Auto-aprobación inactiva (Clic para activar)"}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
                 autoApprove 
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' 
-                  : 'bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200 hover:text-slate-800'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100' 
+                  : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700 hover:bg-slate-200 hover:text-slate-800'
               }`}
             >
-              {autoApprove ? <Zap size={13} className="text-emerald-600 fill-emerald-600/20" /> : <ShieldCheck size={13} />}
+              {autoApprove ? <Zap size={13} className="text-emerald-600 dark:text-emerald-400 fill-emerald-600/20" /> : <ShieldCheck size={13} />}
               <span>{autoApprove ? "Auto-aprobación ON" : "Auto-aprobación OFF"}</span>
             </button>
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/60 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span>kogniterm</span>
             </div>
