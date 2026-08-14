@@ -325,10 +325,20 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
             if full_response_content:
                 renderables.append(Markdown(full_response_content))
 
-        if renderables:
-            if is_tui and terminal_ui and hasattr(terminal_ui, "update_live"):
-                terminal_ui.update_live(Padding(Group(*renderables), (0, 0)))
-            elif not is_tui and _live_ref[0] is not None:
+        if is_tui and terminal_ui and hasattr(terminal_ui, "update_live"):
+            if full_thinking_content and not full_response_content:
+                thinking_content = Markdown(full_thinking_content)
+                thought_panel = Panel(
+                    thinking_content,
+                    title=f"{Icons.THINKING} CodeAgent Pensando...",
+                    border_style=ColorPalette.GRAY_700,
+                    style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                    padding=(0, 4),
+                    expand=True
+                )
+                terminal_ui.update_live(thought_panel)
+        elif not is_tui and _live_ref[0] is not None:
+            if renderables:
                 _live_ref[0].update(Padding(Group(*renderables), (0, 0)))
 
     # Usamos una lista mutable para acceder al live desde el closure

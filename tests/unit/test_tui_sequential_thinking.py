@@ -34,3 +34,15 @@ def test_chat_log_sequential_thinking_reset():
     thinking_widget_2 = chat._active_thinking_widget
     assert thinking_widget_2 is not None
     assert thinking_widget_2 is not thinking_widget_1
+
+def test_no_duplicate_thinking_box():
+    chat = ChatLogWidget()
+    # 1. Thinking phase
+    panel = Panel(Markdown("Pensando algo..."), title="💭 Pensando...")
+    chat.write_stream(panel)
+    assert chat._active_thinking_widget is not None
+
+    # 2. Stop stream when response starts
+    chat.stop_stream()
+    assert chat._active_thinking_widget is None
+    assert chat._active_message_widget is None

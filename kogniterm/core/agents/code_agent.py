@@ -340,8 +340,17 @@ def call_model_node(
                     renderables.append(Markdown(full_response_content))
 
                 if is_tui:
-                    group = Group(*renderables)
-                    terminal_ui.update_live(Padding(group, (0, 0)))
+                    if full_thinking_content and not full_response_content:
+                        thinking_content = Markdown(full_thinking_content)
+                        thought_panel = Panel(
+                            thinking_content,
+                            title=f"{Icons.THINKING} CodeAgent Pensando...",
+                            border_style=ColorPalette.PRIMARY,
+                            style=f"on {TUI_BG}",
+                            padding=(0, 4),
+                            expand=True,
+                        )
+                        terminal_ui.update_live(thought_panel)
                 else:
                     final_renderable = (
                         Padding(Group(*renderables), (0, 0)) if renderables else spinner
