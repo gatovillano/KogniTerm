@@ -47,7 +47,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
   // Helper to normalize path comparison
   const normalizePath = (p?: string) => p ? p.replace(/\\/g, '/').replace(/\/$/, '') : '';
 
-  // Group threads by project path
+  // Group threads by project path with flexible path/folder matching
   const threadsByProject = React.useMemo(() => {
     const map: Record<string, any[]> = {};
     projects.forEach(p => { 
@@ -57,10 +57,30 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
 
     threads.forEach(t => {
       const threadWorkspace = normalizePath(t.workspaceDir || t.workspace_dir);
-      let matchedKey = Object.keys(map).find(pPath => pPath && threadWorkspace && (pPath === threadWorkspace || threadWorkspace.startsWith(pPath)));
       
-      if (matchedKey) {
+      let matchedKey: string | undefined = undefined;
+      
+      if (threadWorkspace) {
+        matchedKey = Object.keys(map).find(pPath => {
+          if (!pPath) return false;
+          if (pPath === threadWorkspace) return true;
+          if (threadWorkspace.startsWith(pPath) || pPath.startsWith(threadWorkspace)) return true;
+          const pName = pPath.split('/').filter(Boolean).pop();
+          const tName = threadWorkspace.split('/').filter(Boolean).pop();
+          return pName && tName && pName.toLowerCase() === tName.toLowerCase();
+        });
+      }
+
+      // If matched, push to project. If no workspace_dir set on thread, default to first project
+      if (matchedKey && map[matchedKey]) {
         map[matchedKey].push(t);
+      } else if (!threadWorkspace && projects.length > 0) {
+        const firstKey = normalizePath(projects[0].path);
+        if (map[firstKey]) {
+          map[firstKey].push(t);
+        } else {
+          unmapped.push(t);
+        }
       } else {
         unmapped.push(t);
       }
