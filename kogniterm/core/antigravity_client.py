@@ -471,20 +471,21 @@ class AntigravityClient:
     @staticmethod
     def _sanitize_tool_name(name: Optional[str]) -> str:
         """
-        Sanea el nombre de una herramienta para cumplir con el formato estricto de la API de Gemini:
+        Sanea el nombre de una herramienta para cumplir con el formato estricto de la API de Gemini / Vertex AI:
         - Debe comenzar con una letra [a-zA-Z] o un guion bajo [_].
-        - Solo puede contener caracteres alfanuméricos [a-zA-Z0-9], guiones bajos [_], puntos [.], dos puntos [:] o guiones [-].
-        - Longitud máxima de 128 caracteres.
+        - Solo puede contener caracteres alfanuméricos [a-zA-Z0-9] y guiones bajos [_].
+        - Longitud máxima de 64 caracteres.
         """
         if not name or not isinstance(name, str):
             return "_unnamed_function"
         
-        sanitized = re.sub(r'[^a-zA-Z0-9_.:-]', '_', name)
+        sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+        sanitized = re.sub(r'_+', '_', sanitized)
         if not sanitized or not re.match(r'^[a-zA-Z_]', sanitized):
             sanitized = f"_{sanitized}"
             
-        if len(sanitized) > 128:
-            sanitized = sanitized[:128]
+        if len(sanitized) > 64:
+            sanitized = sanitized[:64]
             
         return sanitized
 
