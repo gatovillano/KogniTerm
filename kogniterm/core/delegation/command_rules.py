@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Set
 
 _SPLIT_RE = re.compile(r'(?:\|\||&&|\||;|\n)')
 _WRAPPERS = {
-    "sudo", "bash", "sh", "zsh", "env", "nohup", "xargs",
+    "sudo", "su", "bash", "sh", "zsh", "env", "nohup", "xargs",
     "watch", "timeout", "nice", "eval", "doas", "ssh"
 }
 
@@ -26,6 +26,10 @@ def _segments(command: str) -> List[str]:
     return [s for s in out if s]
 
 
+_FLAGS_WITH_ARGS = {"-u", "-g", "-h", "-p", "-U", "-C", "-r", "-t", "-D", "-o", "-n"}
+_CMD_STRING_FLAGS = {"-c", "--command"}
+
+
 def _normalize(seg: str) -> str:
     try:
         tokens = shlex.split(seg)
@@ -35,13 +39,29 @@ def _normalize(seg: str) -> str:
         return ""
     tokens[0] = tokens[0].rsplit("/", 1)[-1]
     while tokens and tokens[0] in _WRAPPERS and len(tokens) > 1:
-        rest = [t for t in tokens[1:] if not t.startswith("-")]
-        if not rest:
+        i = 1
+        n = len(tokens)
+        sub_tokens = None
+        while i < n:
+            token = tokens[i]
+            if token in _CMD_STRING_FLAGS and i + 1 < n:
+                cmd_str = tokens[i + 1]
+                try:
+                    sub_tokens = shlex.split(cmd_str) if " " in cmd_str else [cmd_str]
+                except ValueError:
+                    sub_tokens = [cmd_str]
+                break
+            elif token.startswith("-"):
+                if token in _FLAGS_WITH_ARGS and i + 1 < n:
+                    i += 2
+                else:
+                    i += 1
+            else:
+                sub_tokens = tokens[i:]
+                break
+        if not sub_tokens:
             break
-        try:
-            tokens = shlex.split(rest[0]) if " " in rest[0] else rest
-        except ValueError:
-            tokens = rest
+        tokens = sub_tokens
         if tokens:
             tokens[0] = tokens[0].rsplit("/", 1)[-1]
     return " ".join(tokens)
@@ -66,7 +86,6 @@ class CommandRulesResolver:
         # DENY primero
         {"pattern": r"^rm\s+.*-[a-zA-Z]*[rR][a-zA-Z]*f|^rm\s+.*-[a-zA-Z]*f[a-zA-Z]*[rR]", "action": "deny"},
         {"pattern": r"^rm\s+--recursive", "action": "deny"},
-        {"pattern": r"^(sudo|su|doas)\b", "action": "deny"},
         {"pattern": r"^(mkfs|fdisk|dd|shred)\b", "action": "deny"},
         {"pattern": r"^chmod\s+(777|-R\s+777)", "action": "deny"},
         {"pattern": r"^(nc|ncat|netcat)\b.*-e", "action": "deny"},
