@@ -23,6 +23,7 @@ class ChatThread:
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     parent_thread_id: Optional[str] = None
+    workspace_dir: Optional[str] = None
     messages: List[BaseMessage] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -52,6 +53,7 @@ class ChatThread:
             created_at=self.created_at,
             updated_at=datetime.utcnow().isoformat(),
             parent_thread_id=self.parent_thread_id,
+            workspace_dir=self.workspace_dir,
             messages=list(self.messages),
             metadata=dict(self.metadata),
         )
@@ -66,6 +68,7 @@ class ChatThread:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "parent_thread_id": self.parent_thread_id,
+            "workspace_dir": self.workspace_dir,
             "message_count": len(self.messages),
             "metadata": self.metadata,
         }

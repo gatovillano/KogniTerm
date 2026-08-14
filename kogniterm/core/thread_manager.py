@@ -78,6 +78,7 @@ class ThreadManager:
         thread_id: Optional[str] = None,
         title: str = "Nueva conversación",
         messages: Optional[List[BaseMessage]] = None,
+        workspace_dir: Optional[str] = None,
     ) -> ChatThread:
         """Crea un nuevo hilo vacío."""
         if not thread_id:
@@ -93,6 +94,7 @@ class ThreadManager:
                 title=title,
                 created_at=now,
                 updated_at=now,
+                workspace_dir=workspace_dir or self.workspace_dir,
                 messages=list(messages or []),
             )
             self._save(thread)
@@ -113,6 +115,7 @@ class ThreadManager:
             created_at=metadata["created_at"],
             updated_at=metadata["updated_at"],
             parent_thread_id=metadata.get("parent_thread_id"),
+            workspace_dir=metadata.get("workspace_dir") or self.workspace_dir,
             messages=list(messages or []),
             metadata=metadata.get("metadata", {}),
         )
@@ -131,6 +134,8 @@ class ThreadManager:
 
                 metadata = self._load_metadata(entry)
                 if metadata:
+                    if not metadata.get("workspace_dir"):
+                        metadata["workspace_dir"] = self.workspace_dir
                     threads.append(metadata)
 
         threads.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
@@ -246,6 +251,7 @@ class ThreadManager:
             "created_at": thread.created_at,
             "updated_at": thread.updated_at,
             "parent_thread_id": thread.parent_thread_id,
+            "workspace_dir": thread.workspace_dir or self.workspace_dir,
             "message_count": len(thread.messages),
             "metadata": thread.metadata,
         }

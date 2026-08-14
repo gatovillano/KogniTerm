@@ -1198,7 +1198,8 @@ def create_app() -> FastAPI:
         await pool.wait_until_ready()
         sid = req.session_id or pool.new_session_id()
         if pool._thread_manager:
-            metadata = pool._thread_manager.create_thread(thread_id=sid)
+            ws_dir = req.workspace_dir or os.getcwd()
+            metadata = pool._thread_manager.create_thread(thread_id=sid, workspace_dir=ws_dir)
             return {"thread_id": sid, "metadata": metadata}
         return {"error": "ThreadManager no disponible"}
 
