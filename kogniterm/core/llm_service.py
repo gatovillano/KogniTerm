@@ -26,7 +26,7 @@ _ANTIGRAVITY_SESSION_TOKEN = "antigravity-session-token"
 from kogniterm.terminal.config_manager import ConfigManager
 
 from .multi_provider_manager import get_provider_manager, MultiProviderManager
-from .utils.tool_utils import normalize_tool_parameters_schema
+from .utils.tool_utils import normalize_tool_parameters_schema, sanitize_tool_name
 
 def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
@@ -99,18 +99,19 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> 
         }
 
     # Usar el formato estándar de OpenAI "tools" (type: function) por defecto
-    # Esto es compatible con la mayoría de proveedores modernos y requerido por SiliconFlow
-    tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    # Esto es compatible con la mayoría de proveedores modernos y requerido por SiliconFlow/Gemini
+    raw_tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    clean_tool_name = sanitize_tool_name(raw_tool_name)
     tool_desc = getattr(tool, 'description', None) or getattr(tool, '__doc__', '') or ''
     if not isinstance(tool_desc, str):
         tool_desc = str(tool_desc)
 
-    logger.info(f"🔧 Generando definición de herramienta para: {tool_name}")
+    logger.info(f"🔧 Generando definición de herramienta para: {clean_tool_name}")
     tool_definition = {
         "type": "function",
         "function": {
-            "name": tool_name,
-            "description": tool_desc[:1024] if tool_desc else f"Herramienta {tool_name}",
+            "name": clean_tool_name,
+            "description": tool_desc[:1024] if tool_desc else f"Herramienta {clean_tool_name}",
             "parameters": cleaned_schema,
         }
     }
@@ -967,9 +968,15 @@ class LLMService:
                     converted_tools.append(converted)
                 except Exception as e:
                     logger.error(f"Error al convertir herramienta {tool_name}: {e}", exc_info=True)
-            # Reconstruir el mapa de herramientas para incluir las recién cargadas
+            # Reconstruir el mapa de herramientas para incluir las recién cargadas con mapeo dual
             try:
-                self.tool_map = {getattr(tool, 'name', getattr(tool, '__name__', tool.__class__.__name__)): tool for tool in self.skill_manager.get_tools()}
+                new_map = {}
+                for tool in self.skill_manager.get_tools():
+                    raw_n = getattr(tool, 'name', getattr(tool, '__name__', tool.__class__.__name__))
+                    clean_n = sanitize_tool_name(raw_n)
+                    new_map[raw_n] = tool
+                    new_map[clean_n] = tool
+                self.tool_map = new_map
             except Exception:
                 pass
             self.litellm_tools = converted_tools

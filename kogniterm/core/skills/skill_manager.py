@@ -23,6 +23,7 @@ from types import ModuleType
 from dataclasses import dataclass, field
 from datetime import datetime
 from langchain_core.messages import SystemMessage
+from ..utils.tool_utils import sanitize_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -834,7 +835,8 @@ class SkillManager:
             return False
 
     def _get_unique_tool_name(self, base_name: str, skill_name: Optional[str] = None) -> str:
-        """Genera un nombre único para evitar colisiones."""
+        """Genera un nombre único y saneado para evitar colisiones e ineficiencias de API."""
+        base_name = sanitize_tool_name(base_name)
         unique_name = base_name
         if unique_name in self.tool_registry:
             # Si la herramienta ya existe y pertenece a la misma skill, permitimos el override
@@ -969,22 +971,15 @@ class SkillManager:
         logger.info(f"Herramienta dinámica registrada en SkillManager: {unique_name}")
 
     def get_tool(self, tool_name: str) -> Optional[Any]:
-        """Obtiene la instancia de una herramienta por nombre.
-
-        No hay sandbox de procesos: las herramientas se ejecutan en el mismo
-        intérprete. El aislamiento de recursos (memoria, fds) y la protección
-        de credenciales se aplican caso por caso aguas arriba cuando la
-        herramienta lo requiere (ver ``CommandApprovalHandler`` y
-        ``command_executor``).
-        """
-        tool_info = self.tool_registry.get(tool_name)
+        """Obtiene la instancia de una herramienta por nombre."""
+        tool_info = self.tool_registry.get(tool_name) or self.tool_registry.get(sanitize_tool_name(tool_name))
         if tool_info:
             return tool_info.get('tool')
         return None
 
     def get_skill_for_tool(self, tool_name: str) -> Optional[Skill]:
         """Obtiene la skill que provee una herramienta."""
-        tool_info = self.tool_registry.get(tool_name)
+        tool_info = self.tool_registry.get(tool_name) or self.tool_registry.get(sanitize_tool_name(tool_name))
         if tool_info:
             skill_name = tool_info['skill']
             return self.skills.get(skill_name)

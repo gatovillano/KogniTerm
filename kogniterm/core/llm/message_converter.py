@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from .tool_parser import generate_short_id
-from ..utils.tool_utils import normalize_tool_parameters_schema
+from ..utils.tool_utils import normalize_tool_parameters_schema, sanitize_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,8 @@ def convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> d
     if not cleaned_schema.get("properties"):
         cleaned_schema = {"type": "object", "properties": {}, "required": []}
 
-    tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    raw_tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    clean_tool_name = sanitize_tool_name(raw_tool_name)
     tool_desc = getattr(tool, 'description', None) or getattr(tool, '__doc__', '') or ''
     if not isinstance(tool_desc, str):
         tool_desc = str(tool_desc)
@@ -66,8 +67,8 @@ def convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> d
     return {
         "type": "function",
         "function": {
-            "name": tool_name,
-            "description": tool_desc[:1024] if tool_desc else f"Herramienta {tool_name}",
+            "name": clean_tool_name,
+            "description": tool_desc[:1024] if tool_desc else f"Herramienta {clean_tool_name}",
             "parameters": cleaned_schema,
         }
     }

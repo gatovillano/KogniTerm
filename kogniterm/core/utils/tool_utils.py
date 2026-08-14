@@ -1,6 +1,7 @@
 import sys
+import re
 from copy import deepcopy
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from langchain_core.tools import BaseTool
 
 
@@ -12,6 +13,30 @@ CONTENT_REQUIRED_EDITOR_ACTIONS = {
     'append_content',
     'full_replacement',
 }
+
+
+def sanitize_tool_name(name: Optional[str]) -> str:
+    """
+    Sanea el nombre de una herramienta o parámetro para cumplir estrictamente con los requisitos
+    de las APIs de LLM (Google AI Studio, Vertex AI, Gemini, OpenAI, Anthropic, etc.):
+    - Debe comenzar con una letra [a-zA-Z] o un guion bajo [_].
+    - Solo puede contener caracteres alfanuméricos [a-zA-Z0-9] y guiones bajos [_].
+    - Convierte guiones (-), puntos (.), espacios ( ), dos puntos (:), barras (/), etc. en guiones bajos [_].
+    - Longitud máxima de 64 caracteres.
+    """
+    if not name or not isinstance(name, str):
+        return "_unnamed_function"
+
+    sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    sanitized = re.sub(r'_+', '_', sanitized)
+
+    if not sanitized or not re.match(r'^[a-zA-Z_]', sanitized):
+        sanitized = f"_{sanitized}"
+
+    if len(sanitized) > 64:
+        sanitized = sanitized[:64]
+
+    return sanitized
 
 
 def tool_requires_content_for_confirmation(tool_name: str, tool_args: Dict[str, Any]) -> bool:
@@ -48,10 +73,14 @@ def normalize_tool_parameters_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
         properties = node.get("properties")
         if isinstance(properties, dict):
-            node["properties"] = {
-                prop_name: _normalize(prop_schema) if isinstance(prop_schema, dict) else {"type": "string"}
-                for prop_name, prop_schema in properties.items()
-            }
+            clean_props = {}
+            for prop_name, prop_schema in properties.items():
+                clean_name = sanitize_tool_name(prop_name)
+                clean_props[clean_name] = _normalize(prop_schema) if isinstance(prop_schema, dict) else {"type": "string"}
+            node["properties"] = clean_props
+
+        if "required" in node and isinstance(node["required"], list):
+            node["required"] = [sanitize_tool_name(r) for r in node["required"] if isinstance(r, str)]
 
         for keyword in ("anyOf", "oneOf", "allOf"):
             variants = node.get(keyword)
@@ -189,7 +218,8 @@ def convert_langchain_tool_to_litellm(tool: BaseTool) -> Dict[str, Any]:
 
     args_schema = normalize_tool_parameters_schema(args_schema)
 
-    tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    raw_tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+    clean_tool_name = sanitize_tool_name(raw_tool_name)
     tool_desc = getattr(tool, 'description', None) or getattr(tool, '__doc__', '') or ''
     if not isinstance(tool_desc, str):
         tool_desc = str(tool_desc)
@@ -197,8 +227,8 @@ def convert_langchain_tool_to_litellm(tool: BaseTool) -> Dict[str, Any]:
     return {
         "type": "function",
         "function": {
-            "name": tool_name,
-            "description": tool_desc[:1024] if tool_desc else f"Herramienta {tool_name}",
+            "name": clean_tool_name,
+            "description": tool_desc[:1024] if tool_desc else f"Herramienta {clean_tool_name}",
             "parameters": args_schema
         }
     }
