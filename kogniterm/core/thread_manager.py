@@ -108,6 +108,7 @@ class ThreadManager:
             return None
 
         messages = self._load_messages(thread_id)
+        ws_dir = metadata.get("workspace_dir") or self.workspace_dir
         return ChatThread(
             id=metadata["id"],
             title=metadata["title"],
@@ -115,7 +116,7 @@ class ThreadManager:
             created_at=metadata["created_at"],
             updated_at=metadata["updated_at"],
             parent_thread_id=metadata.get("parent_thread_id"),
-            workspace_dir=metadata.get("workspace_dir"),
+            workspace_dir=ws_dir,
             messages=list(messages or []),
             metadata=metadata.get("metadata", {}),
         )
@@ -134,6 +135,8 @@ class ThreadManager:
 
                 metadata = self._load_metadata(entry)
                 if metadata:
+                    if not metadata.get("workspace_dir") and self.workspace_dir:
+                        metadata["workspace_dir"] = self.workspace_dir
                     threads.append(metadata)
 
         threads.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
@@ -197,10 +200,13 @@ class ThreadManager:
                 thread = ChatThread(
                     id=thread_id,
                     title="Nueva conversación",
-                    messages=list(messages or [])
+                    messages=list(messages or []),
+                    workspace_dir=self.workspace_dir
                 )
             else:
                 thread.messages = list(messages or [])
+                if not thread.workspace_dir and self.workspace_dir:
+                    thread.workspace_dir = self.workspace_dir
             
             return self.save_thread(thread, llm_service=llm_service)
 
@@ -249,7 +255,7 @@ class ThreadManager:
             "created_at": thread.created_at,
             "updated_at": thread.updated_at,
             "parent_thread_id": thread.parent_thread_id,
-            "workspace_dir": thread.workspace_dir,
+            "workspace_dir": thread.workspace_dir or self.workspace_dir,
             "message_count": len(thread.messages),
             "metadata": thread.metadata,
         }

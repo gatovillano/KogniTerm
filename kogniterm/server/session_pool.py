@@ -653,7 +653,7 @@ class AgentSession:
                 )
                 initial_messages = loaded_history
             else:
-                self.thread_manager.create_thread(thread_id=session_id)
+                self.thread_manager.create_thread(thread_id=session_id, workspace_dir=self.workspace_dir)
 
         # Estado del agente
         self.agent_state = AgentState(messages=initial_messages)

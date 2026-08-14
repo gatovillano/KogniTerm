@@ -76,9 +76,17 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
         });
       }
 
-      // Si coincide, añadir a la carpeta del proyecto. Si no, añadir a unmapped
+      // Si coincide, añadir a la carpeta del proyecto.
       if (matchedKey && map[matchedKey]) {
         map[matchedKey].push(t);
+      } else if (!threadWorkspace && projects.length > 0) {
+        // Fallback para hilos sin workspace_dir explícito: asociar al primer proyecto
+        const firstKey = normalizePath(projects[0].path);
+        if (map[firstKey]) {
+          map[firstKey].push(t);
+        } else {
+          unmapped.push(t);
+        }
       } else {
         unmapped.push(t);
       }
