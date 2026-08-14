@@ -186,5 +186,9 @@ class WorkspaceContext:
 
     def build_context_message(self) -> Optional[SystemMessage]:
         if self.context_data:
-            return SystemMessage(content=self.context_data)
+            content = self.context_data
+            MAX_CONTEXT_CHARS = 40000
+            if len(content) > MAX_CONTEXT_CHARS:
+                content = content[:MAX_CONTEXT_CHARS] + "\n\n... [Contexto del proyecto truncado por seguridad de ventana de contexto]"
+            return SystemMessage(content=content)
         return None

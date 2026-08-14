@@ -1249,6 +1249,8 @@ class SkillManager:
                 key=lambda item: (-item[0], item[1].name)
             )
             loaded_skills = [skill for score, skill in ranked if score > 0][:limit]
+        else:
+            loaded_skills = loaded_skills[:limit]
 
         blocks: List[str] = []
         for skill in loaded_skills:
