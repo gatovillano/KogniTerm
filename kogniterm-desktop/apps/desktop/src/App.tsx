@@ -345,11 +345,12 @@ function App() {
             <button
               onClick={toggleThemeQuick}
               title={`Tema actual: ${theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Sistema'} (Clic para cambiar)`}
-              className="p-1.5 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 transition-all cursor-pointer flex items-center justify-center"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 transition-all cursor-pointer text-[11px] font-medium"
             >
               {theme === 'light' && <Sun className="w-3.5 h-3.5 text-amber-500" />}
               {theme === 'dark' && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
               {theme === 'system' && <Monitor className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />}
+              <span>{theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Sistema'}</span>
             </button>
 
             <button

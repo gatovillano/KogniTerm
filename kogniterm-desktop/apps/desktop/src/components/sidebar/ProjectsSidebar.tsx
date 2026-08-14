@@ -3,8 +3,9 @@ import { Project } from '../../types/project';
 import { 
   Sparkles, PanelLeft, Plus, Folder, ChevronDown, ChevronRight, 
   Trash2, Zap, HeartPulse, History, Files, Settings, FolderPlus,
-  Filter
+  Filter, Sun, Moon, Monitor
 } from 'lucide-react';
+import { useTheme } from '../../hooks/useTheme';
 
 interface ProjectsSidebarProps {
   isSidebarCollapsed: boolean;
@@ -41,8 +42,15 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
   onOpenSettings,
   executingThreadIds = {},
 }) => {
+  const { theme, setTheme } = useTheme();
   const [filterText, setFilterText] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+
+  const toggleThemeQuick = () => {
+    if (theme === 'light') setTheme('dark');
+    else if (theme === 'dark') setTheme('system');
+    else setTheme('light');
+  };
 
   // Helper to normalize path comparison
   const normalizePath = (p?: string) => p ? p.replace(/\\/g, '/').replace(/\/$/, '') : '';
@@ -339,15 +347,35 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
         </div>
       )}
 
-      {/* Footer Settings */}
-      <div className="px-2.5 py-2 border-t border-slate-200/40 mt-auto">
+      {/* Footer Settings & Theme */}
+      <div className="px-2.5 py-2 border-t border-slate-200/40 dark:border-zinc-800 mt-auto flex flex-col gap-1">
         <div
-          onClick={onOpenSettings}
-          className={`flex items-center gap-2.5 px-2 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200/40 rounded-md text-[13px] cursor-pointer transition-colors ${
+          onClick={toggleThemeQuick}
+          title={`Cambiar tema. Actual: ${theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Sistema'}`}
+          className={`flex items-center gap-2.5 px-2 py-1.5 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/40 dark:hover:bg-zinc-800/40 rounded-md text-[13px] cursor-pointer transition-colors ${
             isSidebarCollapsed ? 'justify-center px-0' : ''
           }`}
         >
-          <Settings size={15} className="text-slate-400 shrink-0" />
+          {theme === 'light' && <Sun size={15} className="text-amber-500 shrink-0" />}
+          {theme === 'dark' && <Moon size={15} className="text-indigo-400 shrink-0" />}
+          {theme === 'system' && <Monitor size={15} className="text-slate-400 dark:text-zinc-400 shrink-0" />}
+          {!isSidebarCollapsed && (
+            <span className="flex-1 flex items-center justify-between">
+              <span>Tema</span>
+              <span className="text-[11px] font-mono capitalize text-slate-400 dark:text-zinc-500">
+                {theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Sistema'}
+              </span>
+            </span>
+          )}
+        </div>
+
+        <div
+          onClick={onOpenSettings}
+          className={`flex items-center gap-2.5 px-2 py-1.5 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/40 dark:hover:bg-zinc-800/40 rounded-md text-[13px] cursor-pointer transition-colors ${
+            isSidebarCollapsed ? 'justify-center px-0' : ''
+          }`}
+        >
+          <Settings size={15} className="text-slate-400 dark:text-zinc-400 shrink-0" />
           {!isSidebarCollapsed && <span>Ajustes</span>}
         </div>
       </div>
