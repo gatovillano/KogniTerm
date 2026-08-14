@@ -128,7 +128,7 @@ export const RightSidebar: React.FC<{
     return (
         <aside
             style={{ width: `${width}px` }}
-            className={`relative flex h-full shrink-0 flex-col border-l border-zinc-200 bg-white animate-slide-in-right ${
+            className={`relative flex h-full shrink-0 flex-col border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#0f0f12] text-zinc-900 dark:text-zinc-100 animate-slide-in-right ${
                 isResizing ? 'select-none transition-none' : ''
             }`}
         >
@@ -142,7 +142,7 @@ export const RightSidebar: React.FC<{
                 <div className={`h-full w-0.5 transition-colors ${isResizing ? 'bg-indigo-500' : 'bg-transparent group-hover:bg-indigo-500/60'}`} />
             </div>
 
-            <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50/80 px-2 pt-2 backdrop-blur-sm">
+            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 px-2 pt-2 backdrop-blur-sm">
                 <div className="flex items-center justify-center gap-1">
                     {tabs.map((tab) => {
                         const isActive = activeTab === tab.id;
@@ -153,8 +153,8 @@ export const RightSidebar: React.FC<{
                                 onClick={() => setActiveTab(tab.id)}
                                 className={`relative flex h-9 w-9 shrink-0 appearance-none items-center justify-center rounded-lg border-0 bg-transparent transition-colors ${
                                     isActive
-                                        ? 'text-indigo-600 bg-indigo-50/80 font-semibold'
-                                        : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100/70'
+                                        ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/80 dark:bg-indigo-950/50 font-semibold'
+                                        : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100/70 dark:hover:bg-zinc-800/70'
                                 }`}
                                 title={tab.label}
                             >
@@ -165,7 +165,7 @@ export const RightSidebar: React.FC<{
                                     </span>
                                 )}
                                 {isActive && (
-                                    <div className="absolute bottom-0 left-1/2 h-[2px] w-4 -translate-x-1/2 rounded-full bg-indigo-600" />
+                                    <div className="absolute bottom-0 left-1/2 h-[2px] w-4 -translate-x-1/2 rounded-full bg-indigo-600 dark:bg-indigo-400" />
                                 )}
                             </button>
                         );
@@ -174,7 +174,7 @@ export const RightSidebar: React.FC<{
                 <button
                     onClick={onToggle}
                     title={isOpen ? 'Ocultar panel' : 'Mostrar panel'}
-                    className="flex h-8 w-8 appearance-none items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
+                    className="flex h-8 w-8 appearance-none items-center justify-center rounded-lg border-0 bg-transparent text-zinc-400 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-200"
                 >
                     {isOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
                 </button>
