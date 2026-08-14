@@ -20,16 +20,32 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
 
   const handleBrowseNative = async () => {
     try {
-      // Try using Tauri dialog plugin if available
-      const dialog = await import('@tauri-apps/plugin-dialog');
-      const selected = await dialog.open({
-        directory: true,
-        multiple: false,
-        title: 'Seleccionar Carpeta de Proyecto',
-      });
-      if (selected && typeof selected === 'string') {
-        setFolderPath(selected);
-        setError('');
+      const windowTauri = (window as any).__TAURI__;
+      if (windowTauri?.dialog?.open) {
+        const selected = await windowTauri.dialog.open({
+          directory: true,
+          multiple: false,
+          title: 'Seleccionar Carpeta de Proyecto',
+        });
+        if (selected && typeof selected === 'string') {
+          setFolderPath(selected);
+          setError('');
+        }
+      } else {
+        const moduleName = '@tauri-apps/plugin-dialog';
+        // @ts-ignore
+        const dialog = await import(/* @vite-ignore */ moduleName);
+        if (dialog?.open) {
+          const selected = await dialog.open({
+            directory: true,
+            multiple: false,
+            title: 'Seleccionar Carpeta de Proyecto',
+          });
+          if (selected && typeof selected === 'string') {
+            setFolderPath(selected);
+            setError('');
+          }
+        }
       }
     } catch (err) {
       console.warn('Native dialog not available or cancelled:', err);
