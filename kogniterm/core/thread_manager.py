@@ -26,14 +26,32 @@ class ThreadManager:
     """Gestor unificado de hilos de chat persistentes."""
 
     def __init__(self, workspace_dir: str):
-        self.workspace_dir = workspace_dir
-        self.threads_dir = os.path.join(workspace_dir, ".kogniterm", "threads")
+        self.workspace_dir = os.path.abspath(workspace_dir)
+        self.threads_dir = os.path.join(self.workspace_dir, ".kogniterm", "threads")
         self._lock = threading.RLock()
         self._current_thread_id: Optional[str] = None
+        self._known_workspaces = set([self.workspace_dir, os.path.expanduser("~")])
 
         os.makedirs(self.threads_dir, exist_ok=True)
         self._migrate_legacy_data()
         logger.info("ThreadManager inicializado en %s", self.threads_dir)
+
+    def register_workspace(self, workspace_dir: str) -> None:
+        """Registra un nuevo directorio de trabajo para escaneo de hilos."""
+        if workspace_dir:
+            self._known_workspaces.add(os.path.abspath(workspace_dir))
+
+    def _find_thread_dir(self, thread_id: str) -> str:
+        """Busca el directorio físico del hilo en todos los workspaces conocidos."""
+        direct = os.path.join(self.threads_dir, thread_id)
+        if os.path.exists(direct):
+            return direct
+        with self._lock:
+            for ws in self._known_workspaces:
+                candidate = os.path.join(ws, ".kogniterm", "threads", thread_id)
+                if os.path.exists(candidate):
+                    return candidate
+        return direct
 
     # ------------------------------------------------------------------
     # Migración legacy
@@ -84,8 +102,12 @@ class ThreadManager:
         if not thread_id:
             thread_id = str(uuid.uuid4())
 
+        target_ws = workspace_dir or self.workspace_dir
+        self.register_workspace(target_ws)
+
         with self._lock:
-            thread_path = os.path.join(self.threads_dir, thread_id)
+            target_threads_dir = os.path.join(target_ws, ".kogniterm", "threads")
+            thread_path = os.path.join(target_threads_dir, thread_id)
             os.makedirs(thread_path, exist_ok=True)
 
             now = datetime.utcnow().isoformat()
@@ -94,7 +116,7 @@ class ThreadManager:
                 title=title,
                 created_at=now,
                 updated_at=now,
-                workspace_dir=workspace_dir or self.workspace_dir,
+                workspace_dir=target_ws,
                 messages=list(messages or []),
             )
             self._save(thread)
@@ -121,30 +143,50 @@ class ThreadManager:
             metadata=metadata.get("metadata", {}),
         )
 
-    def list_threads(self) -> List[Dict[str, Any]]:
+    def list_threads(self, additional_dirs: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Lista todos los hilos, ordenados por fecha de actualización (más reciente primero)."""
-        threads: List[Dict[str, Any]] = []
-        with self._lock:
-            if not os.path.exists(self.threads_dir):
-                return []
+        search_dirs = set(self._known_workspaces)
+        if additional_dirs:
+            for d in additional_dirs:
+                if d:
+                    search_dirs.add(os.path.abspath(d))
 
-            for entry in os.listdir(self.threads_dir):
-                thread_path = os.path.join(self.threads_dir, entry)
-                if not os.path.isdir(thread_path):
+        threads_map: Dict[str, Dict[str, Any]] = {}
+
+        with self._lock:
+            for ws in search_dirs:
+                t_dir = os.path.join(ws, ".kogniterm", "threads")
+                if not os.path.exists(t_dir):
                     continue
 
-                metadata = self._load_metadata(entry)
-                if metadata:
-                    if not metadata.get("workspace_dir"):
-                        metadata["workspace_dir"] = self.workspace_dir or os.getcwd()
-                    threads.append(metadata)
+                for entry in os.listdir(t_dir):
+                    thread_path = os.path.join(t_dir, entry)
+                    if not os.path.isdir(thread_path):
+                        continue
 
+                    metadata_file = os.path.join(thread_path, "metadata.json")
+                    if not os.path.exists(metadata_file):
+                        continue
+
+                    try:
+                        with open(metadata_file, "r", encoding="utf-8") as f:
+                            metadata = json.load(f)
+                            if metadata:
+                                if not metadata.get("workspace_dir"):
+                                    metadata["workspace_dir"] = ws if ws != os.path.expanduser("~") else self.workspace_dir
+                                tid = metadata.get("id", entry)
+                                if tid not in threads_map or metadata.get("updated_at", "") > threads_map[tid].get("updated_at", ""):
+                                    threads_map[tid] = metadata
+                    except Exception as exc:
+                        logger.error("Error leyendo metadata en %s: %s", thread_path, exc)
+
+        threads = list(threads_map.values())
         threads.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return threads
 
     def delete_thread(self, thread_id: str) -> bool:
         """Elimina un hilo y todo su contenido."""
-        thread_path = os.path.join(self.threads_dir, thread_id)
+        thread_path = self._find_thread_dir(thread_id)
         if not os.path.exists(thread_path):
             return False
 
@@ -242,7 +284,8 @@ class ThreadManager:
 
     def _save(self, thread: ChatThread) -> bool:
         """Guarda metadatos y mensajes de un hilo."""
-        thread_path = os.path.join(self.threads_dir, thread.id)
+        target_ws = thread.workspace_dir or self.workspace_dir or os.getcwd()
+        thread_path = os.path.join(target_ws, ".kogniterm", "threads", thread.id)
         os.makedirs(thread_path, exist_ok=True)
 
         metadata_file = os.path.join(thread_path, "metadata.json")
@@ -255,7 +298,7 @@ class ThreadManager:
             "created_at": thread.created_at,
             "updated_at": thread.updated_at,
             "parent_thread_id": thread.parent_thread_id,
-            "workspace_dir": thread.workspace_dir or self.workspace_dir or os.getcwd(),
+            "workspace_dir": target_ws,
             "message_count": len(thread.messages),
             "metadata": thread.metadata,
         }
@@ -275,18 +318,24 @@ class ThreadManager:
         return True
 
     def _load_metadata(self, thread_id: str) -> Optional[Dict[str, Any]]:
-        metadata_file = os.path.join(self.threads_dir, thread_id, "metadata.json")
+        thread_dir = self._find_thread_dir(thread_id)
+        metadata_file = os.path.join(thread_dir, "metadata.json")
         if not os.path.exists(metadata_file):
             return None
         try:
             with open(metadata_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if not data.get("workspace_dir"):
+                    parent_ws = os.path.dirname(os.path.dirname(thread_dir))
+                    data["workspace_dir"] = parent_ws if parent_ws != os.path.expanduser("~") else self.workspace_dir
+                return data
         except Exception as exc:
             logger.error("Error leyendo metadata de %s: %s", thread_id, exc)
             return None
 
     def _load_messages(self, thread_id: str) -> List[BaseMessage]:
-        messages_file = os.path.join(self.threads_dir, thread_id, "messages.json")
+        thread_dir = self._find_thread_dir(thread_id)
+        messages_file = os.path.join(thread_dir, "messages.json")
         if not os.path.exists(messages_file):
             return []
         try:

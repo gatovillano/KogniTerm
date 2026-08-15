@@ -1185,11 +1185,16 @@ def create_app() -> FastAPI:
     # ── Gestión de Hilos de Chat (Threads) ─────────────────────────────────────
 
     @application.get("/api/threads", tags=["Threads"])
-    async def list_threads():
-        """Lista todos los hilos guardados."""
+    async def list_threads(workspace_dirs: Optional[str] = None):
+        """Lista todos los hilos guardados escaneando los workspaces especificados o conocidos."""
         await pool.wait_until_ready()
         if pool._thread_manager:
-            return {"threads": pool._thread_manager.list_threads()}
+            dirs = [d.strip() for d in workspace_dirs.split(",") if d.strip()] if workspace_dirs else []
+            with pool._lock:
+                for sess in pool._sessions.values():
+                    if sess.workspace_dir:
+                        dirs.append(sess.workspace_dir)
+            return {"threads": pool._thread_manager.list_threads(additional_dirs=dirs)}
         return {"threads": []}
 
     @application.post("/api/threads", tags=["Threads"], status_code=201)
