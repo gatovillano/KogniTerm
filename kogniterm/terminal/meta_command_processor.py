@@ -445,6 +445,14 @@ class MetaCommandProcessor:
                 
                 # Intentar autonombrado asíncrono si el título no es definitivo
                 thread_manager.schedule_title_generation(thread_id, history, self.llm_service)
+
+                # Si la TUI está en modo servidor, notificar al servidor para sincronizar su estado
+                if (
+                    getattr(self.kogniterm_app, "_server_mode", False)
+                    and getattr(self.kogniterm_app, "_ws_client", None)
+                    and getattr(self.kogniterm_app._ws_client, "is_connected", False)
+                ):
+                    await self.kogniterm_app._send_to_server(f"/resume {thread_id}")
             else:
                 self.terminal_ui.print_message(f"Could not load thread '{thread_id}'.", style="red")
             return True

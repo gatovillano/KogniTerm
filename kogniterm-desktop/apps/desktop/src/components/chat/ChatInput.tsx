@@ -198,20 +198,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         }
     };
 
-    const COMMANDS = [
-        { command: '%reset', desc: 'Reiniciar conversación (Borrar memoria)' },
-        { command: '%undo', desc: 'Deshacer última interacción' },
-        { command: '%models', desc: 'Cambiar modelo de IA' },
-        { command: '%provider', desc: 'Cambiar proveedor de LLM' },
-        { command: '%theme', desc: 'Cambiar tema de la terminal' },
-        { command: '%help', desc: 'Mostrar menú de ayuda' },
-        { command: '%keys', desc: 'Gestionar API Keys' },
-        { command: '%session', desc: 'Gestión de sesiones (save/load/list)' },
-        { command: '%param', desc: 'Ver/Editar parámetros de configuración (Global)' },
-        { command: '%init', desc: 'Inicializar contexto del espacio de trabajo' },
-        { command: '%compress', desc: 'Comprimir historial de conversación' },
-        { command: '%embeddings', desc: 'Configurar motor de embeddings' },
-        { command: '%salir', desc: 'Salir de la aplicación' },
+    const COMMAND_DEFS = [
+        { name: 'clear', desc: 'Limpiar conversación actual en pantalla' },
+        { name: 'reset', desc: 'Reiniciar conversación (borrar memoria)' },
+        { name: 'compact', desc: 'Comprimir historial de conversación' },
+        { name: 'undo', desc: 'Deshacer última interacción' },
+        { name: 'skills', desc: 'Ver habilidades (skills) disponibles' },
+        { name: 'plan', desc: 'Ver o activar modo planificación' },
+        { name: 'models', desc: 'Cambiar modelo de IA' },
+        { name: 'provider', desc: 'Cambiar proveedor de LLM' },
+        { name: 'help', desc: 'Mostrar menú de ayuda' },
+        { name: 'session', desc: 'Gestión de hilos y sesiones (save/load/list)' },
+        { name: 'resume', desc: 'Reanudar un hilo/sesión específico' },
+        { name: 'init', desc: 'Inicializar contexto e indexar espacio de trabajo' },
+        { name: 'theme', desc: 'Cambiar tema de la interfaz' },
+        { name: 'keys', desc: 'Gestionar API Keys' },
+        { name: 'param', desc: 'Ver/Editar parámetros de configuración' },
+        { name: 'embeddings', desc: 'Configurar motor de embeddings' },
+        { name: 'salir', desc: 'Salir de la aplicación' },
     ];
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -276,13 +280,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         if (cmdMatch) {
             const triggerChar = cmdMatch[1];
             const query = cmdMatch[2].toLowerCase();
-            const items: SuggestionItem[] = COMMANDS.map(c => ({
-                id: `cmd-${c.command}`,
-                label: c.command,
-                desc: c.desc,
-                type: 'command' as const,
-                insertValue: `${c.command} `
-            })).filter(c =>
+            const items: SuggestionItem[] = COMMAND_DEFS.map(c => {
+                const fullCmd = `${triggerChar}${c.name}`;
+                return {
+                    id: `cmd-${fullCmd}`,
+                    label: fullCmd,
+                    desc: c.desc,
+                    type: 'command' as const,
+                    insertValue: `${fullCmd} `
+                };
+            }).filter(c =>
                 c.label.toLowerCase().includes(query) || 
                 c.desc.toLowerCase().includes(query)
             );

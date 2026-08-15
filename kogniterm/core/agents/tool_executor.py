@@ -109,6 +109,7 @@ class ToolExecutor:
         try:
             full_tool_output = ""
             last_ui_update = 0
+            ui_update_interval = 0.1
             is_terminal_tool = (
                 tool_name in {"execute_command", "execute_command_tool", "run_command", "run_command_tool", "bash", "cmd_execution", "python_executor", "python_executor_tool", "shell", "terminal"}
                 or any(kw in tool_name.lower() for kw in ["command", "bash", "terminal", "shell", "python_exec"])
@@ -148,6 +149,10 @@ class ToolExecutor:
 
             # Post-procesamiento (Skills refresh, etc.)
             full_tool_output = ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)
+
+            # Aplicar truncado inteligente para salidas extensas (preservando errores y guardando log completo)
+            from ..utils.output_pruner import smart_prune_tool_output
+            full_tool_output = smart_prune_tool_output(full_tool_output, tool_name=tool_name)
 
             # Renderizado de resultado (CLI)
             if not is_tui:
@@ -288,7 +293,7 @@ class ToolExecutor:
                     )
                 )
 
-            for future in as_completed(futures):
+            for future in futures:
                 tid, content, exc = future.result()
                 if isinstance(exc, UserConfirmationRequired):
                     if not is_autonomous:
