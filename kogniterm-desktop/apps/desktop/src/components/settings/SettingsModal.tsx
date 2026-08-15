@@ -289,10 +289,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         const allOk = results.every(res => res.ok);
         if (allOk) {
           setStatus({ type: 'success', message: 'Configuraciones guardadas con éxito.' });
+          window.dispatchEvent(new Event('kogniterm-config-updated'));
           setTimeout(() => {
             onClose();
-            window.location.reload();
-          }, 1500);
+          }, 1000);
         } else {
           setStatus({ type: 'error', message: 'Algunos cambios no pudieron guardarse.' });
         }
