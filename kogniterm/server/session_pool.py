@@ -33,10 +33,13 @@ def custom_getcwd():
     return _original_getcwd()
 
 def custom_chdir(path):
+    abs_path = os.path.abspath(path)
     if session_cwd_var.get() is not None:
-        session_cwd_var.set(os.path.abspath(path))
-    else:
-        _original_chdir(path)
+        session_cwd_var.set(abs_path)
+    try:
+        _original_chdir(abs_path)
+    except Exception:
+        pass
 
 os.getcwd = custom_getcwd
 os.chdir = custom_chdir
@@ -46,6 +49,10 @@ def session_context(cwd, llm_service=None, history_manager=None, workspace_conte
     """Context manager for isolating session workspace and context."""
     cwd = os.path.abspath(cwd)
     cwd_token = session_cwd_var.set(cwd)
+    try:
+        _original_chdir(cwd)
+    except Exception:
+        pass
     tokens = []
     if llm_service:
         llm_service._use_context_vars = True
