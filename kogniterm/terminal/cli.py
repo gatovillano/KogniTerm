@@ -919,9 +919,11 @@ class CLIHandler:
             interrupt_queue=interrupt_queue,
         )
 
+        from langchain_core.messages import HumanMessage
+
         if prompt_text:
             console.print(f"[bold cyan]⚡ KogniTerm CLI:[/bold cyan] {prompt_text}")
-            agent_state.add_user_message(prompt_text)
+            agent_state.add_message(HumanMessage(content=prompt_text))
             try:
                 manager.invoke_agent(prompt_text)
             except Exception as e:
@@ -961,7 +963,7 @@ class CLIHandler:
                     except Exception as meta_err:
                         logger.warning(f"Error procesando meta-comando {user_input}: {meta_err}")
 
-                agent_state.add_user_message(user_input)
+                agent_state.add_message(HumanMessage(content=user_input))
                 manager.invoke_agent(user_input)
 
             except (KeyboardInterrupt, EOFError):
