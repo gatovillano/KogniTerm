@@ -444,7 +444,9 @@ class MultiProviderManager:
         
         # 4. Inferencia por nombre del modelo
         lower_model = model_name.lower()
-        if lower_model.startswith("gemini"):
+        if lower_model.startswith("gemini") or "antigravity" in lower_model:
+            provider = next((p for p in available if p.name == "antigravity"), None)
+            if provider: return provider
             provider = next((p for p in available if p.name == "google"), None)
             if provider: return provider
         elif "gpt" in lower_model:
@@ -487,8 +489,10 @@ class MultiProviderManager:
             else:
                 actual_model = model_name
 
-            # ESTRATEGIA: Si el proveedor es ollama, el modelo debe ser solo el nombre del modelo
-            # LiteLLM se encarga de prefijarlo correctamente si custom_llm_provider está puesto
+            # ESTRATEGIA: Si el proveedor es google pero el modelo es un alias exclusivo de Antigravity (ej. gemini-3.6-flash-medium)
+            if provider.name == "google" and ("3.6" in actual_model or "agent" in actual_model):
+                actual_model = "gemini-2.5-flash"
+
             if provider.name.startswith("ollama"):
                 full_model_name = actual_model
             else:
@@ -647,8 +651,8 @@ class MultiProviderManager:
                         should_fallback = True
                         break
                 
-                # Also fallback on timeouts, connection errors or rate limits implicitly
-                if "timeout" in error_msg or "connection" in error_msg or "429" in error_msg or "rate limit" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg or "resource has been exhausted" in error_msg or "502" in error_msg or "503" in error_msg or "504" in error_msg:
+                # Also fallback on timeouts, connection errors, rate limits or not-found model errors implicitly
+                if "timeout" in error_msg or "connection" in error_msg or "429" in error_msg or "rate limit" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg or "resource has been exhausted" in error_msg or "502" in error_msg or "503" in error_msg or "504" in error_msg or "404" in error_msg or "not found" in error_msg or "not_found" in error_msg:
                     should_fallback = True
                     
                 if yielded_any:
