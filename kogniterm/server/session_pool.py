@@ -243,6 +243,11 @@ class ServerUI(TerminalUI):
         self.current_response = ""
         self.active_terminal_entries.clear()
 
+    def clear_chat(self) -> None:
+        """Notifica al cliente para que limpie los mensajes en pantalla."""
+        self.reset_live_buffer()
+        self._push("clear_chat", {})
+
     def add_telegram_adapter(self, adapter):
         self.telegram_adapters.append(adapter)
 
@@ -869,21 +874,17 @@ class AgentSession:
             processed = False
             msg_lower = message.lower().strip()
 
-            if msg_lower in ("%reset", "/reset", "reset"):
+            if msg_lower in ("%reset", "/reset", "reset", "%clear", "/clear"):
                 self.agent_state.reset()
                 if self.thread_manager:
                     self.thread_manager.save_thread_messages(self.session_id, [])
                 if hasattr(self.ui, "clear_chat"):
                     self.ui.clear_chat()
-                else:
-                    self.ui.print_message("Sesión reiniciada correctamente.", style="green")
+                self.ui.print_message("Conversación reiniciada/limpiada correctamente.", style="green")
                 processed = True
-            elif msg_lower in ("%index", "/index"):
-                self.ui.print_message(
-                    "Iniciando re-indexación del workspace...", style="cyan"
-                )
+            elif msg_lower in ("%index", "/index", "%init", "/init"):
+                self.ui.print_message("Iniciando re-indexación del espacio de trabajo...", style="cyan")
                 from kogniterm.server.app import run_indexing_task
-
                 asyncio.create_task(run_indexing_task(self.session_id))
                 processed = True
             elif msg_lower in ("%undo", "/undo"):
@@ -894,11 +895,91 @@ class AgentSession:
                         self.thread_manager.save_thread_messages(
                             self.session_id, self.agent_state.messages
                         )
-                    self.ui.print_message(
-                        "Última interacción eliminada.", style="yellow"
-                    )
+                    self.ui.print_message("Última interacción eliminada.", style="yellow")
                 else:
                     self.ui.print_message("No hay nada que deshacer.", style="red")
+                processed = True
+            elif msg_lower in ("%compact", "/compact", "%compress", "/compress"):
+                if len(self.agent_state.messages) > 2:
+                    self.ui.print_message("Comprimiendo historial de conversación...", style="cyan")
+                    try:
+                        loop = asyncio.get_event_loop()
+                        summary = await loop.run_in_executor(
+                            executor,
+                            self.llm_service.compress_history,
+                            self.agent_state.messages
+                        )
+                        if summary:
+                            from langchain_core.messages import SystemMessage
+                            self.agent_state.messages = [SystemMessage(content=f"Resumen de conversación previa: {summary}")]
+                            if self.thread_manager:
+                                self.thread_manager.save_thread_messages(self.session_id, self.agent_state.messages)
+                            self.ui.print_message("Historial comprimido exitosamente.", style="green")
+                        else:
+                            self.ui.print_message("No se pudo comprimir el historial.", style="yellow")
+                    except Exception as e:
+                        self.ui.print_message(f"Error comprimiendo historial: {e}", style="red")
+                else:
+                    self.ui.print_message("El historial es demasiado corto para comprimir.", style="yellow")
+                processed = True
+            elif msg_lower in ("%help", "/help"):
+                help_text = (
+                    "**Comandos Mágicos de KogniTerm:**\n\n"
+                    "• `/clear` o `/reset` : Limpiar/Reiniciar conversación y memoria.\n"
+                    "• `/compact` o `/compress` : Comprimir historial de conversación.\n"
+                    "• `/undo` : Deshacer la última pregunta y respuesta.\n"
+                    "• `/skills` : Listar habilidades (skills) instaladas.\n"
+                    "• `/models` : Ver el modelo LLM actual o configurado.\n"
+                    "• `/provider` : Información del proveedor LLM activo.\n"
+                    "• `/plan` : Estado del modo planificación.\n"
+                    "• `/init` o `/index` : Re-indexar archivos del workspace.\n"
+                    "• `/session` o `/resume` : Gestionar hilos y sesiones guardadas.\n"
+                    "• `/theme` : Tema visual.\n"
+                    "• `/help` : Mostrar este menú de ayuda."
+                )
+                self.ui.print_message(help_text, style="cyan")
+                processed = True
+            elif msg_lower in ("%skills", "/skills", "%skill", "/skill"):
+                if hasattr(self.llm_service, "skill_manager") and self.llm_service.skill_manager:
+                    skills = self.llm_service.skill_manager.get_available_skills()
+                    if skills:
+                        skill_lines = [f"• **{s.get('name', '')}**: {s.get('description', '')}" for s in skills]
+                        self.ui.print_message("🛠️ **Habilidades Disponibles:**\n" + "\n".join(skill_lines), style="cyan")
+                    else:
+                        self.ui.print_message("No se encontraron skills cargadas.", style="yellow")
+                else:
+                    self.ui.print_message("Gestor de skills no disponible.", style="yellow")
+                processed = True
+            elif msg_lower.startswith(("%models", "/models", "%model", "/model")):
+                parts = message.split(maxsplit=1)
+                if len(parts) > 1:
+                    new_model = parts[1].strip()
+                    if hasattr(self.llm_service, "model_name"):
+                        self.llm_service.model_name = new_model
+                    os.environ["LITELLM_MODEL"] = new_model
+                    self.ui.print_message(f"Modelo actualizado a: `{new_model}`", style="green")
+                else:
+                    current_model = getattr(self.llm_service, "model_name", os.getenv("LITELLM_MODEL", "No especificado"))
+                    self.ui.print_message(f"🤖 **Modelo Actual:** `{current_model}`\n\nUsa `/model <nombre>` para cambiar de modelo.", style="cyan")
+                processed = True
+            elif msg_lower in ("%provider", "/provider"):
+                provider = getattr(self.llm_service, "provider", "Auto/Litellm")
+                model = getattr(self.llm_service, "model_name", "Default")
+                self.ui.print_message(f"🌐 **Proveedor:** {provider}\n🤖 **Modelo:** {model}", style="cyan")
+                processed = True
+            elif msg_lower in ("%plan", "/plan"):
+                self.ui.print_message("📋 **Modo Planificación:** Activo por defecto en KogniTerm Agent. Los cambios complejos generarán un `implementation_plan.md` antes de ejecutarse.", style="cyan")
+                processed = True
+            elif msg_lower.startswith(("/session", "%session")):
+                if self.thread_manager:
+                    threads = self.thread_manager.list_threads()
+                    if threads:
+                        list_str = "\n".join([f"• `{t['id']}` : {t.get('title', 'Sin título')}" for t in threads[:10]])
+                        self.ui.print_message(f"🧵 **Hilos Guardados:**\n{list_str}\n\nUsa `/resume <id>` para cargar un hilo.", style="cyan")
+                    else:
+                        self.ui.print_message("No hay hilos guardados.", style="yellow")
+                else:
+                    self.ui.print_message("Gestor de hilos no disponible.", style="yellow")
                 processed = True
             elif msg_lower.startswith(("/resume", "%resume")):
                 parts = message.split()
@@ -914,6 +995,12 @@ class AgentSession:
                     )
                     if loaded:
                         self.agent_state.messages[:] = loaded
+                        if hasattr(self, "llm_service") and self.llm_service:
+                            self.llm_service.conversation_history = loaded
+                        if hasattr(self, "history_manager") and self.history_manager:
+                            self.history_manager.conversation_history = loaded
+                        if self.thread_manager:
+                            self.thread_manager.set_current_thread_id(target_session)
                         self.ui.print_message(
                             f"Hilo '{target_session}' cargado correctamente.",
                             style="green",
@@ -941,6 +1028,12 @@ class AgentSession:
                     else:
                         self.ui.print_message("No hay hilos guardados.", style="yellow")
                     processed = True
+            elif msg_lower.startswith(("/", "%")):
+                self.ui.print_message(
+                    f"⚠️ Comando mágico no reconocido: `{message}`.\nUsa `/help` para ver la lista de comandos disponibles.",
+                    style="yellow"
+                )
+                processed = True
 
             if processed:
                 self.ui._push("done", {"session_id": self.session_id})

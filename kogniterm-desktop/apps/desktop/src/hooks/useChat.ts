@@ -613,6 +613,12 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                             timestamp: Date.now(),
                         },
                     ]);
+                } else if (data.type === 'clear_chat') {
+                    setMessages([]);
+                    setTerminalEntries([]);
+                    setAppliedDiffs([]);
+                    setTaskPlans({});
+                    setIsGenerating(false);
                 } else if (data.type === 'done') {
                     setIsGenerating(false);
                 } else if (data.type === 'error') {
