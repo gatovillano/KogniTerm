@@ -726,10 +726,21 @@ class AntigravityClient:
         }
 
         endpoint = "https://cloudcode-pa.googleapis.com"
+        max_retries = int(os.getenv("KOGNITERM_ANTIGRAVITY_MAX_RETRIES", "3"))
+        retry_delay = float(os.getenv("KOGNITERM_ANTIGRAVITY_RETRY_DELAY", "1.0"))
         
         if stream:
             url = f"{endpoint}/v1internal:streamGenerateContent?alt=sse"
-            resp = requests.post(url, headers=headers, json=body, stream=True, timeout=120)
+            resp = None
+            for attempt in range(max_retries + 1):
+                resp = requests.post(url, headers=headers, json=body, stream=True, timeout=120)
+                if resp.status_code in (429, 503, 529) and attempt < max_retries:
+                    logger.warning(f"⚠️ Antigravity API Rate Limit ({resp.status_code}), reintentando (intento {attempt+1}/{max_retries+1}) en {retry_delay:.1f}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                break
+
             if resp.status_code >= 400:
                 error_detail = resp.text
                 try:
@@ -813,7 +824,16 @@ class AntigravityClient:
             return generator()
         else:
             url = f"{endpoint}/v1internal:generateContent"
-            resp = requests.post(url, headers=headers, json=body, timeout=120)
+            resp = None
+            for attempt in range(max_retries + 1):
+                resp = requests.post(url, headers=headers, json=body, timeout=120)
+                if resp.status_code in (429, 503, 529) and attempt < max_retries:
+                    logger.warning(f"⚠️ Antigravity API Rate Limit ({resp.status_code}), reintentando (intento {attempt+1}/{max_retries+1}) en {retry_delay:.1f}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                break
+
             if resp.status_code >= 400:
                 error_detail = resp.text
                 try:

@@ -1149,7 +1149,7 @@ APRENDIZAJE:"""
 
     try:
         if hasattr(llm_service, "use_multi_provider") and llm_service.use_multi_provider and getattr(llm_service, "provider_manager", None):
-            response_gen = llm_service.provider_manager.execute(
+            response_gen = llm_service.provider_manager.execute_with_fallback(
                 model_name=llm_service.model_name,
                 messages=[{"role": "user", "content": learning_prompt}],
                 stream=False,

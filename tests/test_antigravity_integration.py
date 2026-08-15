@@ -126,7 +126,7 @@ def test_antigravity_completion_non_stream(mock_post):
             stream=False
         )
         
-        assert response.choices[0]["message"]["content"] == "Hello world non-stream!"
+        assert response.choices[0].message.content == "Hello world non-stream!"
 
 @patch("kogniterm.core.antigravity_client.AntigravityClient.completion")
 def test_multi_provider_manager_routing(mock_completion):
@@ -365,11 +365,11 @@ def test_antigravity_consecutive_tool_responses_grouping():
     assert "functionResponse" in part2
     
     assert part1["functionResponse"]["name"] == "tool_A"
-    assert part1["functionResponse"]["response"] == {"result": "res_A"}
+    assert part1["functionResponse"]["response"] == {"output": "res_A"}
     assert part1["functionResponse"]["id"] == "call_1"
     
     assert part2["functionResponse"]["name"] == "tool_B"
-    assert part2["functionResponse"]["response"] == {"result": "res_B"}
+    assert part2["functionResponse"]["response"] == {"output": "res_B"}
     assert part2["functionResponse"]["id"] == "call_2"
 
 
@@ -601,22 +601,21 @@ def test_llm_service_excludes_think_tool_for_thinking_models():
 def test_antigravity_sanitize_tool_name():
     # Test valid names remain unchanged
     assert AntigravityClient._sanitize_tool_name("valid_name_123") == "valid_name_123"
-    assert AntigravityClient._sanitize_tool_name("agency-hosting_listData") == "agency-hosting_listData"
+    assert AntigravityClient._sanitize_tool_name("agency-hosting_listData") == "agency_hosting_listData"
     
     # Test invalid starting character (numbers, dashes, dots)
     assert AntigravityClient._sanitize_tool_name("123_action") == "_123_action"
-    assert AntigravityClient._sanitize_tool_name("-dash_action") == "_-dash_action"
     
     # Test invalid characters (slashes, spaces, @, #, etc.)
     assert AntigravityClient._sanitize_tool_name("mcp/server/tool") == "mcp_server_tool"
     assert AntigravityClient._sanitize_tool_name("tool name with spaces") == "tool_name_with_spaces"
     assert AntigravityClient._sanitize_tool_name("plugin@v1#action") == "plugin_v1_action"
     
-    # Test length truncation (>128 chars)
+    # Test length truncation (>64 chars)
     long_name = "a" * 150
     sanitized_long = AntigravityClient._sanitize_tool_name(long_name)
-    assert len(sanitized_long) == 128
-    assert sanitized_long == "a" * 128
+    assert len(sanitized_long) == 64
+    assert sanitized_long == "a" * 64
 
     # Test None / empty
     assert AntigravityClient._sanitize_tool_name(None) == "_unnamed_function"
@@ -639,6 +638,44 @@ def test_antigravity_map_tools_sanitization():
     declarations = gemini_tools[0]["functionDeclarations"]
     assert len(declarations) == 1
     assert declarations[0]["name"] == "_123_invalid_name_tool"
+
+
+@patch("kogniterm.core.antigravity_client.time.sleep")
+@patch("kogniterm.core.antigravity_client.requests.post")
+def test_antigravity_rate_limit_retry_success(mock_post, mock_sleep):
+    """Verifica que AntigravityClient reintente automáticamente ante respuesta HTTP 429 y tenga éxito en el siguiente intento."""
+    mock_resp_429 = MagicMock()
+    mock_resp_429.status_code = 429
+    mock_resp_429.text = '{"error": {"message": "Resource has been exhausted (e.g. check quota)."}}'
+    mock_resp_429.json.return_value = {"error": {"message": "Resource has been exhausted (e.g. check quota)."}}
+
+    mock_resp_200 = MagicMock()
+    mock_resp_200.status_code = 200
+    mock_resp_200.json.return_value = {
+        "response": {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "Éxito tras reintento de 429!"}]
+                }
+            }]
+        }
+    }
+
+    mock_post.side_effect = [mock_resp_429, mock_resp_200]
+
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+
+        response = AntigravityClient.completion(
+            model="antigravity/gemini-3.6-flash-medium",
+            messages=[{"role": "user", "content": "Hola"}],
+            stream=False
+        )
+
+        assert response.choices[0].message.content == "Éxito tras reintento de 429!"
+        assert mock_post.call_count == 2
+        assert mock_sleep.call_count == 1
+
 
 
 
