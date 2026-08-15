@@ -215,6 +215,7 @@ def execute_command(
         except Exception:
             pass
         
+        target_cwd = os.getcwd()
         # Iniciar proceso con el slave_fd como stdout/stderr/stdin
         process = subprocess.Popen(
             command if shell else shlex.split(command),
@@ -225,7 +226,8 @@ def execute_command(
             text=True,
             bufsize=1,
             universal_newlines=True,
-            preexec_fn=os.setsid  # Crear un nuevo grupo de procesos
+            preexec_fn=os.setsid,  # Crear un nuevo grupo de procesos
+            cwd=target_cwd
         )
         
         # Cerrar el slave_fd en el proceso padre ya que lo usará el hijo
