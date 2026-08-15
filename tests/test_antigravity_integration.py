@@ -611,11 +611,11 @@ def test_antigravity_sanitize_tool_name():
     assert AntigravityClient._sanitize_tool_name("tool name with spaces") == "tool_name_with_spaces"
     assert AntigravityClient._sanitize_tool_name("plugin@v1#action") == "plugin_v1_action"
     
-    # Test length truncation (>64 chars)
+    # Test length truncation (>64 chars) with unique hash suffix
     long_name = "a" * 150
     sanitized_long = AntigravityClient._sanitize_tool_name(long_name)
     assert len(sanitized_long) == 64
-    assert sanitized_long == "a" * 64
+    assert sanitized_long.startswith("a" * 57)
 
     # Test None / empty
     assert AntigravityClient._sanitize_tool_name(None) == "_unnamed_function"

@@ -1,5 +1,6 @@
 import sys
 import re
+import hashlib
 from copy import deepcopy
 from typing import Dict, Any, Optional
 from langchain_core.tools import BaseTool
@@ -34,7 +35,8 @@ def sanitize_tool_name(name: Optional[str]) -> str:
         sanitized = f"_{sanitized}"
 
     if len(sanitized) > 64:
-        sanitized = sanitized[:64]
+        name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:6]
+        sanitized = f"{sanitized[:57]}_{name_hash}"
 
     return sanitized
 
