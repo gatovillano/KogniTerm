@@ -50,6 +50,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             }
         };
         fetchConfiguredModel();
+
+        const handleConfigUpdated = () => {
+            fetchConfiguredModel();
+        };
+        window.addEventListener('kogniterm-config-updated', handleConfigUpdated);
+        return () => {
+            window.removeEventListener('kogniterm-config-updated', handleConfigUpdated);
+        };
     }, []);
 
     interface SuggestionItem {
