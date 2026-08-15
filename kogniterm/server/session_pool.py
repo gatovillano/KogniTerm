@@ -26,6 +26,15 @@ session_cwd_var = contextvars.ContextVar("session_cwd", default=None)
 _original_getcwd = os.getcwd
 _original_chdir = os.chdir
 
+def safe_abs_path(path: Optional[str]) -> str:
+    if not path:
+        return ""
+    clean = str(path).strip()
+    if '/~/' in clean:
+        parts = clean.split('/~/')
+        clean = os.path.expanduser('~/' + parts[1])
+    return os.path.abspath(os.path.expanduser(clean))
+
 def custom_getcwd():
     cwd = session_cwd_var.get()
     if cwd is not None:
@@ -33,7 +42,7 @@ def custom_getcwd():
     return _original_getcwd()
 
 def custom_chdir(path):
-    abs_path = os.path.abspath(path)
+    abs_path = safe_abs_path(path)
     if session_cwd_var.get() is not None:
         session_cwd_var.set(abs_path)
     try:
@@ -47,7 +56,7 @@ os.chdir = custom_chdir
 @contextlib.contextmanager
 def session_context(cwd, llm_service=None, history_manager=None, workspace_context=None, vector_db_manager=None):
     """Context manager for isolating session workspace and context."""
-    cwd = os.path.abspath(cwd)
+    cwd = safe_abs_path(cwd)
     cwd_token = session_cwd_var.set(cwd)
     try:
         _original_chdir(cwd)
@@ -641,8 +650,7 @@ class AgentSession:
             if thread_info and thread_info.workspace_dir:
                 workspace_dir = thread_info.workspace_dir
 
-        self.workspace_dir = workspace_dir or (thread_manager.workspace_dir if thread_manager else os.getcwd())
-        self.workspace_dir = os.path.abspath(self.workspace_dir)
+        self.workspace_dir = safe_abs_path(workspace_dir or (thread_manager.workspace_dir if thread_manager else os.getcwd()))
 
         # Configurar thread_manager específico de este workspace
         # IMPORTANTE: Usar el thread_manager del pool si se proporciona,
@@ -786,7 +794,7 @@ class AgentSession:
         """Actualiza dinámicamente el workspace_dir para esta sesión."""
         if not workspace_dir:
             return
-        workspace_dir = os.path.abspath(workspace_dir)
+        workspace_dir = safe_abs_path(workspace_dir)
         if self.workspace_dir == workspace_dir:
             return
 

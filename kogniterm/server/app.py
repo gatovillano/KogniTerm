@@ -49,7 +49,7 @@ from starlette.requests import HTTPConnection
 from pydantic import BaseModel, Field
 
 from kogniterm.core.llm_service import LLMService
-from kogniterm.server.session_pool import pool
+from kogniterm.server.session_pool import pool, safe_abs_path
 from kogniterm.server.config import server_config, ChannelConfig, HeartbeatConfig
 from kogniterm.server.heartbeat_manager import heartbeat_scheduler
 from kogniterm.server.channel_adapters import (
@@ -1189,7 +1189,7 @@ def create_app() -> FastAPI:
         """Lista todos los hilos guardados escaneando los workspaces especificados o conocidos."""
         await pool.wait_until_ready()
         if pool._thread_manager:
-            dirs = [d.strip() for d in workspace_dirs.split(",") if d.strip()] if workspace_dirs else []
+            dirs = [safe_abs_path(d) for d in workspace_dirs.split(",") if d.strip()] if workspace_dirs else []
             with pool._lock:
                 for sess in pool._sessions.values():
                     if sess.workspace_dir:
@@ -1203,7 +1203,7 @@ def create_app() -> FastAPI:
         await pool.wait_until_ready()
         sid = req.session_id or pool.new_session_id()
         if pool._thread_manager:
-            ws_dir = req.workspace_dir or os.getcwd()
+            ws_dir = safe_abs_path(req.workspace_dir or os.getcwd())
             metadata = pool._thread_manager.create_thread(thread_id=sid, workspace_dir=ws_dir)
             return {"thread_id": sid, "metadata": metadata}
         return {"error": "ThreadManager no disponible"}

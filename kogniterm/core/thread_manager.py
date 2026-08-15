@@ -22,15 +22,25 @@ from .chat_thread import ChatThread
 logger = logging.getLogger(__name__)
 
 
+def safe_abs_path(path: Optional[str]) -> str:
+    if not path:
+        return ""
+    clean = str(path).strip()
+    if '/~/' in clean:
+        parts = clean.split('/~/')
+        clean = os.path.expanduser('~/' + parts[1])
+    return os.path.abspath(os.path.expanduser(clean))
+
+
 class ThreadManager:
     """Gestor unificado de hilos de chat persistentes."""
 
     def __init__(self, workspace_dir: str):
-        self.workspace_dir = os.path.abspath(workspace_dir)
+        self.workspace_dir = safe_abs_path(workspace_dir)
         self.threads_dir = os.path.join(self.workspace_dir, ".kogniterm", "threads")
         self._lock = threading.RLock()
         self._current_thread_id: Optional[str] = None
-        self._known_workspaces = set([self.workspace_dir, os.path.expanduser("~")])
+        self._known_workspaces = set([self.workspace_dir, safe_abs_path("~")])
 
         os.makedirs(self.threads_dir, exist_ok=True)
         self._migrate_legacy_data()
@@ -39,7 +49,7 @@ class ThreadManager:
     def register_workspace(self, workspace_dir: str) -> None:
         """Registra un nuevo directorio de trabajo para escaneo de hilos."""
         if workspace_dir:
-            self._known_workspaces.add(os.path.abspath(workspace_dir))
+            self._known_workspaces.add(safe_abs_path(workspace_dir))
 
     def _find_thread_dir(self, thread_id: str) -> str:
         """Busca el directorio físico del hilo en todos los workspaces conocidos."""
@@ -149,7 +159,7 @@ class ThreadManager:
         if additional_dirs:
             for d in additional_dirs:
                 if d:
-                    search_dirs.add(os.path.abspath(d))
+                    search_dirs.add(safe_abs_path(d))
 
         threads_map: Dict[str, Dict[str, Any]] = {}
 
@@ -172,8 +182,8 @@ class ThreadManager:
                         with open(metadata_file, "r", encoding="utf-8") as f:
                             metadata = json.load(f)
                             if metadata:
-                                if not metadata.get("workspace_dir"):
-                                    metadata["workspace_dir"] = ws if ws != os.path.expanduser("~") else self.workspace_dir
+                                ws_clean = safe_abs_path(metadata.get("workspace_dir") or ws)
+                                metadata["workspace_dir"] = ws_clean if ws_clean != safe_abs_path("~") else self.workspace_dir
                                 tid = metadata.get("id", entry)
                                 if tid not in threads_map or metadata.get("updated_at", "") > threads_map[tid].get("updated_at", ""):
                                     threads_map[tid] = metadata
