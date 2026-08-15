@@ -160,7 +160,11 @@ function App() {
   // Fetch threads & working dir on load
   const fetchThreads = async (selectFirst = false) => {
     try {
-      const res = await fetch('http://127.0.0.1:8765/api/threads');
+      const projectPaths = projects.map(p => p.path).filter(Boolean).join(',');
+      const url = projectPaths 
+        ? `http://127.0.0.1:8765/api/threads?workspace_dirs=${encodeURIComponent(projectPaths)}`
+        : 'http://127.0.0.1:8765/api/threads';
+      const res = await fetch(url);
       const data = await res.json();
       const list = data.threads || [];
       setThreads(list);
@@ -178,6 +182,12 @@ function App() {
     window.addEventListener('thread_update', handleThreadUpdate);
     return () => window.removeEventListener('thread_update', handleThreadUpdate);
   }, []);
+
+  useEffect(() => {
+    if (projects.length > 0) {
+      fetchThreads(false);
+    }
+  }, [projects]);
 
   useEffect(() => {
     const initWorkspace = async () => {
