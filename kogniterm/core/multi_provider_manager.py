@@ -372,7 +372,8 @@ class MultiProviderManager:
                 return (0, 1)  # Ollama tiene prioridad especial si no hay preferido
             return (1, p.priority)  # Resto por prioridad
         
-        sorted_providers = sorted(self.providers, key=provider_key)
+        providers_list = self.providers.values() if isinstance(self.providers, dict) else self.providers
+        sorted_providers = sorted(providers_list, key=provider_key)
         
         for provider in sorted_providers:
             is_conf = provider.is_configured()
@@ -631,7 +632,11 @@ class MultiProviderManager:
                     current_kwargs.pop("api_key", None)
                     current_kwargs.pop("api_base", None)
                     current_kwargs.pop("headers", None)
-                return self.execute(*args, force_provider=provider, **current_kwargs)
+                yielded_any = False
+                for item in self.execute(*args, force_provider=provider, **current_kwargs):
+                    yield item
+                    yielded_any = True
+                return
             except Exception as e:
                 error_msg = str(e).lower()
                 should_fallback = False
@@ -646,6 +651,10 @@ class MultiProviderManager:
                 if "timeout" in error_msg or "connection" in error_msg or "429" in error_msg or "rate limit" in error_msg or "quota" in error_msg or "resource_exhausted" in error_msg or "resource has been exhausted" in error_msg or "502" in error_msg or "503" in error_msg or "504" in error_msg:
                     should_fallback = True
                     
+                if yielded_any:
+                    logger.error(f"❌ Error durante streaming con {provider.name}: {e}. No se puede hacer fallback a mitad de streaming.")
+                    raise e
+
                 # Do NOT fallback for Auth (401), Payment Required (402), or Not Found (404/model not found)
                 if not should_fallback:
                     logger.error(f"❌ Error irrecuperable con {provider.name}: {e}. Abortando fallback.")
