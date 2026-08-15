@@ -956,9 +956,15 @@ class LLMService:
                 pass
 
             converted_tools = []
+            seen_names = set()
             is_thinking = self.is_thinking_model()
             for tool in self.skill_manager.get_tools():
                 tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
+                clean_name = sanitize_tool_name(tool_name)
+                if clean_name in seen_names:
+                    logger.warning(f"⚠️ Omitiendo herramienta duplicada: {clean_name}")
+                    continue
+                seen_names.add(clean_name)
                 if is_thinking and tool_name == 'think':
                     logger.info("🧠 Excluyendo la herramienta 'think' porque el modelo soporta razonamiento nativo.")
                     continue

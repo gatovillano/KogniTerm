@@ -3,6 +3,7 @@ import re
 import json
 import uuid
 import time
+import hashlib
 import requests
 import logging
 from types import SimpleNamespace
@@ -485,7 +486,8 @@ class AntigravityClient:
             sanitized = f"_{sanitized}"
             
         if len(sanitized) > 64:
-            sanitized = sanitized[:64]
+            name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:6]
+            sanitized = f"{sanitized[:57]}_{name_hash}"
             
         return sanitized
 
@@ -498,9 +500,16 @@ class AntigravityClient:
             return None
         gemini_tools = []
         function_declarations = []
+        seen_names = set()
+
         for tool in openai_tools:
             if tool.get("type") == "function":
                 fn = tool.get("function", {})
+                sanitized_name = AntigravityClient._sanitize_tool_name(fn.get("name"))
+                if sanitized_name in seen_names:
+                    logger.warning(f"⚠️ Omitiendo declaración de función duplicada en AntigravityClient: {sanitized_name}")
+                    continue
+                seen_names.add(sanitized_name)
                 
                 def convert_schema(schema):
                     if not isinstance(schema, dict):
@@ -547,7 +556,7 @@ class AntigravityClient:
                     return new_schema
                 
                 decl = {
-                    "name": AntigravityClient._sanitize_tool_name(fn.get("name")),
+                    "name": sanitized_name,
                     "description": fn.get("description") or "",
                     "parameters": convert_schema(fn.get("parameters", {}))
                 }

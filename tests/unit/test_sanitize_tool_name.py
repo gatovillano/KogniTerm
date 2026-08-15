@@ -58,3 +58,27 @@ def test_convert_langchain_tool_to_litellm_sanitizes_name():
 
 def test_antigravity_client_sanitize_tool_name():
     assert AntigravityClient._sanitize_tool_name("docker-auditor") == "docker_auditor"
+
+
+def test_sanitize_tool_name_long_prefix_uniqueness():
+    name1 = "_kogniterm_dynamic_skills_Cloud_Security_Container_Hardening_script1"
+    name2 = "_kogniterm_dynamic_skills_Cloud_Security_Container_Hardening_script2"
+
+    s1 = sanitize_tool_name(name1)
+    s2 = sanitize_tool_name(name2)
+
+    assert len(s1) == 64
+    assert len(s2) == 64
+    assert s1 != s2
+
+
+def test_map_tools_deduplicates_duplicate_function_names():
+    tools = [
+        {"type": "function", "function": {"name": "same_tool_name", "description": "desc 1"}},
+        {"type": "function", "function": {"name": "same_tool_name", "description": "desc 2"}},
+    ]
+    gemini_tools = AntigravityClient.map_tools(tools)
+    decls = gemini_tools[0]["functionDeclarations"]
+    assert len(decls) == 1
+    assert decls[0]["name"] == "same_tool_name"
+
