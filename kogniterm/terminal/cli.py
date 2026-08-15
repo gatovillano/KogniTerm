@@ -891,6 +891,85 @@ class CLIHandler:
         except Exception as e:
             print(f"❌ Error leyendo skill: {e}")
 
+    def handle_cli(self, args: List[str]):
+        """Inicia el modo interactivo CLI o ejecuta una consulta directamente sin abrir la TUI de Textual."""
+        import queue
+        import asyncio
+        from rich.console import Console
+        from rich.panel import Panel
+        from prompt_toolkit import PromptSession
+        from kogniterm.core.llm_service import LLMService
+        from kogniterm.core.agent_state import AgentState
+        from kogniterm.ui.terminal_ui import TerminalUI
+        from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
+        from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
+
+        console = Console()
+        prompt_text = " ".join(args).strip() if args else None
+
+        terminal_ui = TerminalUI(console=console)
+        llm_service = LLMService()
+        agent_state = AgentState()
+        interrupt_queue = queue.Queue()
+
+        manager = AgentInteractionManager(
+            llm_service=llm_service,
+            agent_state=agent_state,
+            terminal_ui=terminal_ui,
+            interrupt_queue=interrupt_queue,
+        )
+
+        if prompt_text:
+            console.print(f"[bold cyan]⚡ KogniTerm CLI:[/bold cyan] {prompt_text}")
+            agent_state.add_user_message(prompt_text)
+            try:
+                manager.invoke_agent(prompt_text)
+            except Exception as e:
+                console.print(f"[bold red]❌ Error:[/bold red] {e}")
+            return
+
+        console.print(Panel(
+            "[bold cyan]⚡ KogniTerm CLI (Modo Línea de Comandos)[/bold cyan]\n"
+            "Escribe tu consulta o comando bash. Escribe [bold yellow]/help[/bold yellow] para comandos o [bold yellow]exit[/bold yellow] para salir.",
+            title="[bold green]KogniTerm[/bold green]",
+            border_style="cyan"
+        ))
+
+        session = PromptSession()
+        meta_processor = MetaCommandProcessor(
+            llm_service=llm_service,
+            agent_state=agent_state,
+            terminal_ui=terminal_ui,
+            kogniterm_app=None
+        )
+
+        while True:
+            try:
+                user_input = session.prompt("kogniterm> ").strip()
+                if not user_input:
+                    continue
+
+                if user_input.lower() in ("exit", "quit", "q"):
+                    console.print("[yellow]Saliendo de KogniTerm CLI.[/yellow]")
+                    break
+
+                if user_input.startswith("/"):
+                    try:
+                        processed = asyncio.run(meta_processor.process_meta_command(user_input))
+                        if processed:
+                            continue
+                    except Exception as meta_err:
+                        logger.warning(f"Error procesando meta-comando {user_input}: {meta_err}")
+
+                agent_state.add_user_message(user_input)
+                manager.invoke_agent(user_input)
+
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[yellow]Sesión CLI finalizada.[/yellow]")
+                break
+            except Exception as e:
+                console.print(f"[bold red]❌ Error:[/bold red] {e}")
+
 
 def run_cli() -> bool:
     """Parses command line arguments and executes the corresponding CLI command.
@@ -926,6 +1005,9 @@ def run_cli() -> bool:
         return True
     elif command == 'desktop':
         handler.handle_desktop(args)
+        return True
+    elif command == 'cli':
+        handler.handle_cli(args)
         return True
 
 
