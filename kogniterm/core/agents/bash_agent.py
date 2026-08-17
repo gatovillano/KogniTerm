@@ -835,22 +835,19 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
     try:
         llm_service._current_agent_state = state
 
-        # --- PASO 7: Submit batch al executor principal ---
-        executor = ThreadPoolExecutor(max_workers=min(len(parallel_calls), 10) if parallel_calls else 1)
-        futures_map: Dict = {}  # future -> tool_id
+        # --- PASO 7: Ejecución secuencial de herramientas ---
+        logger.info(f"Agente: Ejecutando {len(parallel_calls)} herramientas de forma secuencial.")
         for tc in parallel_calls:
-            logger.info(f"Agente: Enviando herramienta '{tc['name']}' al executor.")
-            future = executor.submit(ToolExecutor.execute_single_tool, tc, llm_service, terminal_ui, getattr(state, 'delegation_context', None))
-            futures_map[future] = tc['id']
-
-        logger.info(f"Agente: Esperando resultados de {len(futures_map)} herramientas en paralelo.")
-        for future in as_completed(futures_map):
+            logger.info(f"Agente: Ejecutando herramienta '{tc['name']}' (ID: {tc['id']}) secuencialmente.")
             try:
-                tool_id, content, exception = future.result()
+                tool_id, content, exception = ToolExecutor.execute_single_tool(
+                    tc, llm_service, terminal_ui, getattr(state, 'delegation_context', None)
+                )
                 logger.info(f"Agente: Herramienta con ID {tool_id} completada.")
             except Exception as e:
-                logger.error(f"Error al obtener resultado del future: {e}")
+                logger.error(f"Error al ejecutar herramienta secuencial: {e}")
                 continue
+
             if exception:
                 if isinstance(exception, UserConfirmationRequired):
                     # SI ESTAMOS EN TUI: Burbujear la petición al hilo principal
@@ -870,7 +867,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             exception.tool_name,
                             tool_id,
                         )
-                        executor.shutdown(wait=False)
                         return {
                             "messages": state.messages,
                             "tool_pending_confirmation": state.tool_pending_confirmation,
@@ -928,7 +924,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                                 original_tool_args=exception.tool_args
                             )
                             # El handler ya ejecutó la herramienta y actualizó el historial
-                            executor.shutdown(wait=False)
                             llm_service._save_history(state.messages)
                             return {
                                 "messages": state.messages
@@ -1003,7 +998,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             state.add_message(tool_message)
                             terminal_ui.print_message("❌ Acción cancelada por el usuario.", style="yellow")
                         
-                        executor.shutdown(wait=False)
                         llm_service._save_history(state.messages)
                         return {
                             "messages": state.messages
@@ -1013,7 +1007,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     terminal_ui.console.print("[bold yellow]⚠️ Ejecución de herramienta interrumpida por el usuario. Volviendo al input.[/bold yellow]")
                     state.stop_requested = True
                     state.reset_temporary_state()
-                    executor.shutdown(wait=False)
                     llm_service._save_history(state.messages)
                     return {
                         "messages": state.messages,
@@ -1058,7 +1051,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                             state.tool_pending_confirmation = tool_name
                             state.tool_args_pending_confirmation = tool_args
                             state.tool_call_id_to_confirm = tool_id
-                            executor.shutdown(wait=False)
                             state.add_messages(tool_messages)
                             llm_service._save_history(state.messages)
                             return {
@@ -1071,7 +1063,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
                     except json.JSONDecodeError:
                         pass
 
-        executor.shutdown(wait=True)
         state.add_messages(tool_messages)
 
         # --- PASO 8: Procesar execute_command DESPUÉS de las herramientas paralelas ---

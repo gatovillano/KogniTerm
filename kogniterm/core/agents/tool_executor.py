@@ -231,101 +231,85 @@ class ToolExecutor:
 
         tool_messages = []
         is_tui = getattr(terminal_ui, "is_tui", False)
-        shared_executor = getattr(llm_service, "tool_executor", None)
-        if shared_executor is not None and type(shared_executor).__name__ == "MagicMock":
-            shared_executor = None
-        executor = shared_executor or ThreadPoolExecutor(max_workers=10)
-        managed_executor = executor if shared_executor is None else None
 
         # 1. Registrar y Verificar Interrupciones
-        futures = []
         del_ctx = delegation_context or getattr(state, "delegation_context", None)
+        is_autonomous = getattr(state, "autonomous_approvals", False) or del_ctx is not None
 
-        try:
-            for tc in last_message.tool_calls:
-                # Detección de bucles (hash de args)
-                state.tool_call_history.append(
-                    {"name": tc["name"], "args_hash": hash(str(tc["args"]))}
+        for tc in last_message.tool_calls:
+            # Detección de bucles (hash de args)
+            state.tool_call_history.append(
+                {"name": tc["name"], "args_hash": hash(str(tc["args"]))}
+            )
+            # Validar permisos RBAC antes de proceder
+            if (
+                del_ctx
+                and hasattr(del_ctx, "blocked_tools")
+                and tc["name"] in del_ctx.blocked_tools
+            ):
+                role_name = getattr(del_ctx.role, "value", str(del_ctx.role))
+                logger.warning(
+                    f"La herramienta '{tc['name']}' fue bloqueada para el subagente (rol: {role_name})"
                 )
-                # Validar permisos RBAC antes de proceder
-                if (
-                    del_ctx
-                    and hasattr(del_ctx, "blocked_tools")
-                    and tc["name"] in del_ctx.blocked_tools
-                ):
-                    role_name = getattr(del_ctx.role, "value", str(del_ctx.role))
-                    logger.warning(
-                        f"La herramienta '{tc['name']}' fue bloqueada para el subagente (rol: {role_name})"
-                    )
-                    tool_messages.append(
-                        ToolMessage(
-                            content=f"Error: La herramienta '{tc['name']}' está deshabilitada debido a restricciones del rol ({role_name}).",
-                            tool_call_id=tc["id"],
-                        )
-                    )
-                    continue
-
-                # Caso especial: execute_command (esperar confirmación solo si es el orquestador principal e interactivo)
-                is_autonomous = getattr(state, "autonomous_approvals", False) or del_ctx is not None
-                if tc["name"] == "execute_command" and not is_autonomous:
-                    state.command_to_confirm = tc["args"].get("command")
-                    state.tool_call_id_to_confirm = tc["id"]
-                    if terminal_ui:
-                        skill_name = ""
-                        if hasattr(llm_service, "skill_manager"):
-                            skill = llm_service.skill_manager.get_skill_for_tool(
-                                tc["name"]
-                            )
-                            if skill:
-                                skill_name = skill.name
-                        terminal_ui.print_tool_notification(
-                            "execute_command",
-                            f"Preparando: {state.command_to_confirm}",
-                            skill_name=skill_name,
-                        )
-
-                    if tool_messages:
-                        state.messages.extend(tool_messages)
-                    return {
-                        "messages": state.messages,
-                        "command_to_confirm": state.command_to_confirm,
-                    }
-
-                futures.append(
-                    executor.submit(
-                        ToolExecutor.execute_single_tool,
-                        tc,
-                        llm_service,
-                        terminal_ui,
-                        del_ctx,
+                tool_messages.append(
+                    ToolMessage(
+                        content=f"Error: La herramienta '{tc['name']}' está deshabilitada debido a restricciones del rol ({role_name}).",
+                        tool_call_id=tc["id"],
                     )
                 )
+                continue
 
-            is_autonomous = getattr(state, "autonomous_approvals", False) or del_ctx is not None
-            for future in futures:
-                tid, content, exc = future.result()
-                if isinstance(exc, UserConfirmationRequired):
-                    if not is_autonomous:
-                        state.add_pending_confirmation(
-                            tool_name=exc.tool_name,
-                            tool_args=exc.tool_args,
-                            tool_call_id=tid,
-                            raw_tool_output=exc.raw_tool_output,
+            # Caso especial: execute_command (esperar confirmación solo si es el orquestador principal e interactivo)
+            if tc["name"] == "execute_command" and not is_autonomous:
+                state.command_to_confirm = tc["args"].get("command")
+                state.tool_call_id_to_confirm = tc["id"]
+                if terminal_ui:
+                    skill_name = ""
+                    if hasattr(llm_service, "skill_manager"):
+                        skill = llm_service.skill_manager.get_skill_for_tool(
+                            tc["name"]
                         )
-                    else:
-                        logger.info("Subagente autónomo: omitida la pausa de confirmación de usuario para '%s'.", exc.tool_name)
+                        if skill:
+                            skill_name = skill.name
+                    terminal_ui.print_tool_notification(
+                        "execute_command",
+                        f"Preparando: {state.command_to_confirm}",
+                        skill_name=skill_name,
+                    )
 
-                if tid and any(
-                    tc["id"] == tid and tc["name"] == "complete_task"
-                    for tc in last_message.tool_calls
-                ):
-                    state.completed = True
-                    state.result = content
+                if tool_messages:
+                    state.messages.extend(tool_messages)
+                return {
+                    "messages": state.messages,
+                    "command_to_confirm": state.command_to_confirm,
+                }
 
-                tool_messages.append(ToolMessage(content=content, tool_call_id=tid))
-        finally:
-            if managed_executor is not None:
-                managed_executor.shutdown(wait=False)
+            tid, content, exc = ToolExecutor.execute_single_tool(
+                tc,
+                llm_service,
+                terminal_ui,
+                del_ctx,
+            )
+
+            if isinstance(exc, UserConfirmationRequired):
+                if not is_autonomous:
+                    state.add_pending_confirmation(
+                        tool_name=exc.tool_name,
+                        tool_args=exc.tool_args,
+                        tool_call_id=tid,
+                        raw_tool_output=exc.raw_tool_output,
+                    )
+                else:
+                    logger.info("Subagente autónomo: omitida la pausa de confirmación de usuario para '%s'.", exc.tool_name)
+
+            if tid and any(
+                tc["id"] == tid and tc["name"] == "complete_task"
+                for tc in last_message.tool_calls
+            ):
+                state.completed = True
+                state.result = content
+
+            tool_messages.append(ToolMessage(content=content, tool_call_id=tid))
 
         state.messages.extend(tool_messages)
         if terminal_ui:
