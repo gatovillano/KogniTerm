@@ -235,8 +235,6 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         return state
 
     tool_messages = []
-    executor = ThreadPoolExecutor(max_workers=5)
-    futures = []
     
     # Mostrar encabezado de fase de análisis
     console.print(Padding(Text("🕵️‍♂️ Fase de Investigación: Ejecutando herramientas...", style="bold magenta underline"), (1, 0)))
@@ -256,35 +254,22 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
         return state
 
     for tool_call in last_message.tool_calls:
-        # Verificar interrupción durante el encolado
+        # Verificar interrupción durante la ejecución
         if interrupt_queue and not interrupt_queue.empty():
             while not interrupt_queue.empty():
                 interrupt_queue.get()
             
             console.print("[bold yellow]⚠️ Interrupción detectada. Cancelando herramientas restantes...[/bold yellow]")
-            # Cancelar futuros pendientes
-            for f in futures:
-                f.cancel()
-            
-            # Completar esta herramienta y las restantes como canceladas
             tool_messages.append(ToolMessage(content="Ejecución cancelada por el usuario.", tool_call_id=tool_call['id']))
-            # Nota: Las herramientas que ya se enviaron (futures) se manejarán en el bucle de as_completed o se cancelarán
             state.reset_temporary_state()
             break
             
-        futures.append(executor.submit(execute_single_tool, tool_call, llm_service, interrupt_queue))
-
-    # Si salimos del bucle por interrupción, necesitamos llenar los mensajes para las herramientas que faltaron
-    # (La lógica de arriba ya maneja la herramienta actual, pero si había más en la lista last_message.tool_calls...)
-    # Simplificación: Dejamos que el agente maneje lo que se haya procesado.
-
-    for future in as_completed(futures):
         try:
-            tool_id, content, exception = future.result()
+            tool_id, content, exception = execute_single_tool(tool_call, llm_service, interrupt_queue)
             tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
         except Exception as e:
-            # Esto captura errores graves del executor
-            console.print(f"[bold red]❌ Error crítico en executor: {e}[/bold red]")
+            console.print(f"[bold red]❌ Error en ejecución de herramienta: {e}[/bold red]")
+            tool_messages.append(ToolMessage(content=f"Error: {e}", tool_call_id=tool_call['id']))
 
     state.messages.extend(tool_messages)
     llm_service._save_history(state.messages)

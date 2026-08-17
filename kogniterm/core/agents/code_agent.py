@@ -660,8 +660,6 @@ def execute_tool_node(
         return state
 
     tool_messages = []
-    executor = ThreadPoolExecutor(max_workers=15)
-    futures = []
     autonomous_mode = bool(getattr(state, "autonomous_approvals", False))
 
     # Mostrar encabezado solo en CLI
@@ -740,25 +738,18 @@ def execute_tool_node(
                 state.tool_call_id_to_confirm = tool_call["id"]
 
                 # IMPORTANTE: Si hay un comando destructivo, salir y esperar confirmación
-                executor.shutdown(wait=False)
                 return {
                     "messages": state.messages,
                     "command_to_confirm": state.command_to_confirm,
                     "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
                 }
 
-        futures.append(
-            executor.submit(
-                execute_single_tool,
-                tool_call,
-                llm_service,
-                terminal_ui,
-                interrupt_queue,
-            )
+        tool_id, content, exception = execute_single_tool(
+            tool_call,
+            llm_service,
+            terminal_ui,
+            interrupt_queue,
         )
-
-    for future in as_completed(futures):
-        tool_id, content, exception = future.result()
 
         if isinstance(exception, UserConfirmationRequired):
             if autonomous_mode:
