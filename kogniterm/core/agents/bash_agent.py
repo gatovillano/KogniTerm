@@ -820,12 +820,7 @@ def execute_tool_node(state: AgentState, llm_service: LLMService, terminal_ui: T
             bajada = get_tool_action_description(tool, tc['args'])
         metadata_map[tc['id']] = (skill_name, bajada)
 
-    # --- PASO 5: Emitir notificaciones visuales batch para herramientas paralelas ---
-    for tc in parallel_calls:
-        skill_name, bajada = metadata_map.get(tc['id'], ("", ""))
-        _print_tool_notification(tc['name'], bajada, skill_name, is_tui, terminal_ui, is_interactive=False)
-
-    # --- PASO 6: Iniciar KeyboardHandler (solo cuando no hay interactivas y no es TUI) ---
+    # --- PASO 5: Iniciar KeyboardHandler (solo cuando no hay interactivas y no es TUI) ---
     kh = None
     if not interactive_calls and not is_tui:
         kh = KeyboardHandler(interrupt_queue)
