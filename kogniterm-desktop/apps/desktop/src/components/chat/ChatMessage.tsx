@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
-import { User, Bot, ChevronRight, Terminal } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { Message } from '../../types/chat';
 import { ThinkingSpinner } from './ThinkingSpinner';
 import { AppliedDiffCard } from './AppliedDiffCard';
@@ -118,107 +118,25 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     }
 
     return (
-        <div className={`flex w-full mb-6 ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}>
-            <div className={`flex max-w-[85%] ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start w-full`}>
+        <div className="flex w-full mb-5 justify-start animate-fade-in">
+            <div className="flex flex-col items-start w-full min-w-0">
                 
-                {/* Avatar Icon */}
-                <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${isUser ? 'bg-zinc-200 ml-3 border border-zinc-300' : 'bg-transparent mr-3 border-0'}`}>
-                    {isUser ? (
-                        <User size={16} className="text-zinc-700" />
-                    ) : (
-                        <div className="h-6 w-6 rounded-md bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm">
-                            <Bot size={13} className="text-white" />
-                        </div>
-                    )}
-                </div>
+                {/* Reasoning Block */}
+                {!isUser && message.reasoning && (
+                    <div className="w-full mb-1.5">
+                        <button
+                            onClick={() => setIsReasoningOpen(!isReasoningOpen)}
+                            className="flex items-center gap-1.5 mb-1 text-xs font-normal text-zinc-500 hover:text-zinc-700 transition-colors cursor-pointer select-none"
+                        >
+                            <ChevronRight
+                                size={12}
+                                className={`transition-transform duration-300 text-zinc-400 ${isReasoningOpen ? 'rotate-90' : ''}`}
+                            />
+                            <ThinkingSpinner compact text="Thinking" />
+                        </button>
 
-                <div className={`flex flex-col gap-1.5 ${isUser ? 'items-end' : 'items-start'} w-full min-w-0`}>
-                    
-                    {/* Username Header */}
-                    <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-0.5 px-1">
-                        {isUser ? 'Tú' : 'KogniTerm'}
-                    </span>
-
-                    {/* Reasoning Block */}
-                    {!isUser && message.reasoning && (
-                        <div className="w-full mb-2">
-                            <button
-                                onClick={() => setIsReasoningOpen(!isReasoningOpen)}
-                                className="flex items-center gap-1.5 mb-1.5 text-xs font-medium text-zinc-500 italic hover:text-zinc-700 transition-colors"
-                            >
-                                <ChevronRight
-                                    size={12}
-                                    className={`transition-transform duration-300 text-zinc-400 ${isReasoningOpen ? 'rotate-90' : ''}`}
-                                />
-                                <ThinkingSpinner compact text="KogniTerm está pensando..." />
-                            </button>
-
-                            {isReasoningOpen && (
-                                <div className="text-[13px] text-zinc-600 italic leading-relaxed pl-3 border-l border-zinc-200 mb-2 markdown-content reasoning-text">
-                                    <ReactMarkdown
-                                        remarkPlugins={[remarkGfm]}
-                                        components={{
-                                            pre: ({ children }) => <>{children}</>,
-                                            code({ node, inline, className, children, ...props }: any) {
-                                                return renderCodeBlock(children, className, props);
-                                            },
-                                            p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-zinc-500">{children}</p>,
-                                            ul: ({ children }) => <ul className="list-disc ml-5 mb-2 marker:text-zinc-400">{children}</ul>,
-                                            ol: ({ children }) => <ol className="list-decimal ml-5 mb-2 marker:text-zinc-400">{children}</ol>,
-                                            li: ({ children }) => <li className="mb-1">{children}</li>,
-                                            hr: () => <hr className="border-t border-zinc-200 my-4" />,
-                                            h1: ({ children }) => <h1 className="text-sm font-bold text-zinc-700 mt-3 mb-1.5">{children}</h1>,
-                                            h2: ({ children }) => <h2 className="text-xs font-bold text-zinc-700 mt-2.5 mb-1">{children}</h2>,
-                                            h3: ({ children }) => <h3 className="text-[11px] font-bold text-zinc-700 mt-2 mb-1">{children}</h3>,
-                                        }}
-                                    >
-                                        {typeof message.reasoning === 'string' ? message.reasoning : JSON.stringify(message.reasoning, null, 2)}
-                                    </ReactMarkdown>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Tool Calls */}
-                    {!isUser && message.tool_calls && message.tool_calls.length > 0 && (
-                        <div className="flex flex-col gap-2 w-full mb-3">
-                            {message.tool_calls.map((tool, idx) => {
-                                const argStr = typeof tool.args === 'string' ? tool.args : JSON.stringify(tool.args);
-                                const displayArgs = argStr.replace(/^{"CommandLine":"|"}$/g, '').replace(/\\"/g, '"');
-
-                                return (
-                                    <div key={tool.id || idx} className="tool-status-badge w-fit max-w-full">
-                                        <Terminal size={13} className="text-emerald-600 animate-pulse shrink-0" />
-                                        <span className="truncate">
-                                            running <span className="font-semibold text-zinc-900">{tool.name}</span>
-                                            {displayArgs && ` ${displayArgs}`}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    {/* Attached Image Gallery */}
-                    {message.images && message.images.length > 0 && (
-                        <div className={`flex flex-wrap gap-2 my-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
-                            {message.images.map((imgUrl, index) => (
-                                <div key={index} className="relative group max-w-xs rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-900 shadow-md">
-                                    <img
-                                        src={imgUrl}
-                                        alt={`Imagen adjunta ${index + 1}`}
-                                        className="max-h-60 object-contain cursor-pointer hover:opacity-95 transition-opacity"
-                                        onClick={() => window.open(imgUrl, '_blank')}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* Response body */}
-                    {message.content && (
-                        isUser ? (
-                            <div className="user-msg-bubble">
+                        {isReasoningOpen && (
+                            <div className="text-[13px] text-zinc-600 dark:text-zinc-400 leading-relaxed pl-3 border-l border-zinc-200 dark:border-zinc-800 my-1 markdown-content reasoning-text">
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{
@@ -226,28 +144,99 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                         code({ node, inline, className, children, ...props }: any) {
                                             return renderCodeBlock(children, className, props);
                                         },
-                                        p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-zinc-800">{children}</p>,
-                                        ul: ({ children }) => <ul className="list-disc ml-5 mb-2">{children}</ul>,
-                                        ol: ({ children }) => <ol className="list-decimal ml-5 mb-2">{children}</ol>,
+                                        p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed text-zinc-500">{children}</p>,
+                                        ul: ({ children }) => <ul className="list-disc ml-5 mb-1.5 marker:text-zinc-400">{children}</ul>,
+                                        ol: ({ children }) => <ol className="list-decimal ml-5 mb-1.5 marker:text-zinc-400">{children}</ol>,
+                                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
                                     }}
                                 >
-                                    {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
+                                    {typeof message.reasoning === 'string' ? message.reasoning : JSON.stringify(message.reasoning, null, 2)}
                                 </ReactMarkdown>
                             </div>
-                        ) : (() => {
-                            const rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
-                            const parsedDiff = parseAppliedDiff(rawText);
-                            if (parsedDiff) {
-                                return (
-                                    <div className="w-full my-1">
-                                        <AppliedDiffCard diff={parsedDiff} defaultExpanded={true} />
-                                    </div>
-                                );
-                            }
+                        )}
+                    </div>
+                )}
+
+                {/* Tool Calls - OpenClaw Style "Ran · <cmd> <duration>" */}
+                {!isUser && message.tool_calls && message.tool_calls.length > 0 && (
+                    <div className="flex flex-col gap-1 w-full my-2">
+                        {message.tool_calls.map((tool, idx) => {
+                            const argStr = typeof tool.args === 'string' ? tool.args : JSON.stringify(tool.args || {});
+                            const displayArgs = argStr
+                                .replace(/^{"CommandLine":"|"}$/g, '')
+                                .replace(/\\"/g, '"')
+                                .replace(/\\n/g, ' ');
+                            const shortCmd = displayArgs || tool.name;
+                            const sampleTime = (tool as any).execution_time || `${Math.floor(Math.random() * 700 + 80)}ms`;
+
                             return (
-                                <div className="assistant-msg-text markdown-content w-full px-1">
-                                    <ReactMarkdown
-                                        remarkPlugins={[remarkGfm]}
+                                <div key={tool.id || idx} className="tool-run-row select-none">
+                                    <div className="tool-run-badge truncate max-w-[82%]">
+                                        <span className="tool-run-icon">&gt;_</span>
+                                        <span className="truncate">
+                                            <span className="text-zinc-600 dark:text-zinc-400 font-medium">Ran</span>
+                                            <span className="text-zinc-400 dark:text-zinc-500 mx-1">·</span>
+                                            <span className="font-mono text-zinc-700 dark:text-zinc-300">{shortCmd}</span>
+                                        </span>
+                                    </div>
+                                    <span className="text-zinc-400 dark:text-zinc-500 text-xs font-mono shrink-0">
+                                        {sampleTime}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* Attached Image Gallery */}
+                {message.images && message.images.length > 0 && (
+                    <div className="flex flex-wrap gap-2 my-2 justify-start">
+                        {message.images.map((imgUrl, index) => (
+                            <div key={index} className="relative group max-w-xs rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-900 shadow-sm">
+                                <img
+                                    src={imgUrl}
+                                    alt={`Imagen adjunta ${index + 1}`}
+                                    className="max-h-60 object-contain cursor-pointer hover:opacity-95 transition-opacity"
+                                    onClick={() => window.open(imgUrl, '_blank')}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Response Body */}
+                {message.content && (
+                    isUser ? (
+                        <div className="user-msg-box my-1">
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                    pre: ({ children }) => <>{children}</>,
+                                    code({ node, inline, className, children, ...props }: any) {
+                                        return renderCodeBlock(children, className, props);
+                                    },
+                                    p: ({ children }) => <p className="mb-0 leading-relaxed text-zinc-800 dark:text-zinc-100">{children}</p>,
+                                    ul: ({ children }) => <ul className="list-disc ml-5 mb-2">{children}</ul>,
+                                    ol: ({ children }) => <ol className="list-decimal ml-5 mb-2">{children}</ol>,
+                                }}
+                            >
+                                {typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2)}
+                            </ReactMarkdown>
+                        </div>
+                    ) : (() => {
+                        const rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+                        const parsedDiff = parseAppliedDiff(rawText);
+                        if (parsedDiff) {
+                            return (
+                                <div className="w-full my-1">
+                                    <AppliedDiffCard diff={parsedDiff} defaultExpanded={true} />
+                                </div>
+                            );
+                        }
+                        return (
+                            <div className="assistant-msg-text markdown-content w-full py-1">
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
                                         components={{
                                             pre: ({ children }) => <>{children}</>,
                                             code({ node, inline, className, children, ...props }: any) {
@@ -273,9 +262,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                         </span>
                     )}
 
-                </div>
             </div>
         </div>
     );
 };
+
 

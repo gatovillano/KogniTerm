@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { ChatMessage } from './components/chat/ChatMessage';
 import { ChatInput } from './components/chat/ChatInput';
 import { ThinkingSpinner } from './components/chat/ThinkingSpinner';
+import { CommandApproval } from './components/chat/CommandApproval';
 import { FileExplorer } from './components/files/FileExplorer';
 import { SkillsPanel } from './components/skills/SkillsPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
@@ -323,7 +324,7 @@ function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 relative bg-[#fafafa] dark:bg-[#09090b]">
+      <main className="flex-1 flex flex-col min-w-0 relative bg-topo-pattern">
         
         {/* Minimal Header */}
         <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200/60 dark:border-zinc-800 bg-white/70 dark:bg-[#0f0f12]/80 backdrop-blur-md z-20">
@@ -398,7 +399,7 @@ function App() {
                     <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
                       {/* Ultra-Light Large Digital Clock */}
                       <div className="flex items-baseline mb-2">
-                        <span className="text-7xl font-extralight tracking-tight text-slate-800 font-sans">
+                        <span className="text-7xl font-extralight tracking-tight text-slate-800 dark:text-zinc-100 font-sans">
                           {currentTime.replace(/ AM| PM/i, '') || '4:51'}
                         </span>
                         <span className="text-xl font-normal text-slate-400 ml-2.5 uppercase tracking-wide">
@@ -407,7 +408,7 @@ function App() {
                       </div>
                       
                       {/* Dynamic Greeting */}
-                      <p className="text-lg font-normal text-slate-500 mb-8 tracking-normal">
+                      <p className="text-lg font-normal text-slate-500 dark:text-zinc-400 mb-8 tracking-normal">
                         {greeting}, ¿en qué te puedo ayudar hoy?
                       </p>
 
@@ -433,24 +434,35 @@ function App() {
                           <button
                             key={i}
                             onClick={() => handleSendMessage(card.prompt)}
-                            className="group p-3.5 rounded-2xl bg-white border border-slate-200/80 hover:border-slate-300 hover:shadow-card-light text-left transition-all hover:-translate-y-0.5"
+                            className="group p-3.5 rounded-2xl bg-white/80 dark:bg-zinc-900/80 border border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 hover:shadow-card-light text-left transition-all hover:-translate-y-0.5"
                           >
                             <div className="flex justify-between items-start mb-1">
-                              <p className="text-xs font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors">{card.title}</p>
-                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600 text-xs">→</span>
+                              <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{card.title}</p>
+                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600 dark:text-indigo-400 text-xs">→</span>
                             </div>
-                            <p className="text-[11px] text-slate-400 leading-normal">{card.desc}</p>
+                            <p className="text-[11px] text-slate-400 dark:text-zinc-500 leading-normal">{card.desc}</p>
                           </button>
                         ))}
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-6">
+                    <div className="space-y-4">
                       {messages.map((msg) => (
                         <ChatMessage key={msg.id} message={msg} />
                       ))}
+
+                      {/* Inline Pending Command Approval matching OpenClaw screenshot */}
+                      {pendingApproval && (
+                        <CommandApproval
+                          request={pendingApproval}
+                          onApprove={(id) => respondApproval(id, true)}
+                          onReject={(id) => respondApproval(id, false)}
+                          isInline={true}
+                        />
+                      )}
+
                       {isGenerating && (messages.length === 0 || messages[messages.length - 1]?.role === 'user' || (messages[messages.length - 1]?.role === 'assistant' && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.reasoning && (!messages[messages.length - 1]?.tool_calls || messages[messages.length - 1]?.tool_calls?.length === 0))) && (
-                        <ThinkingSpinner />
+                        <ThinkingSpinner text="Thinking" />
                       )}
                     </div>
                   )}
@@ -468,17 +480,33 @@ function App() {
 
               {/* Bottom Fixed ChatInput when messages exist */}
               {messages.length > 0 && (
-                <ChatInput 
-                  onSendMessage={handleSendMessage} 
-                  isGenerating={isGenerating} 
-                  onStopGeneration={stopGeneration}
-                  currentDir={currentDir}
-                  onChangeDir={handleChangeDir}
-                  messageQueue={messageQueue}
-                  onRemoveFromQueue={handleRemoveFromQueue}
-                  onProcessNext={handleProcessNextQueueItem}
-                  isFloating={false}
-                />
+                <div className="relative">
+                  <ChatInput 
+                    onSendMessage={handleSendMessage} 
+                    isGenerating={isGenerating} 
+                    onStopGeneration={stopGeneration}
+                    currentDir={currentDir}
+                    onChangeDir={handleChangeDir}
+                    messageQueue={messageQueue}
+                    onRemoveFromQueue={handleRemoveFromQueue}
+                    onProcessNext={handleProcessNextQueueItem}
+                    isFloating={false}
+                  />
+
+                  {/* Bottom Footer Status Bar matching OpenClaw design */}
+                  <div className="flex items-center justify-between px-6 py-1.5 text-[11px] text-zinc-400 dark:text-zinc-500 font-mono border-t border-zinc-200/50 dark:border-zinc-800/50 bg-white/40 dark:bg-zinc-950/40 backdrop-blur-xs select-none">
+                    <div className="flex items-center gap-3">
+                      <span>27s</span>
+                      <span>·</span>
+                      <span>0.43% · 0 / 524.3k</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-sans font-medium text-zinc-500 dark:text-zinc-400">M2 Claude Medium</span>
+                      <span>·</span>
+                      <span>Gemini 3.6 Flash (11653)</span>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
