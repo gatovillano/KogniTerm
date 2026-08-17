@@ -109,8 +109,8 @@ body {
 
 /* Markdown Styles - Light Theme Optimized */
 .markdown-content {
-  font-size: 0.95rem;
-  line-height: 1.75;
+  font-size: 0.84rem;
+  line-height: 1.55;
   color: #18181b;
 }
 
@@ -341,8 +341,8 @@ body {
 /* Assistant text - no bubble border */
 .assistant-msg-text {
   color: #18181b;
-  font-size: 0.95rem;
-  line-height: 1.625;
+  font-size: 0.84rem;
+  line-height: 1.55;
 }
 
 /* Tool execution status block */
@@ -365,20 +365,6 @@ body {
   border-left: 1px solid #e5e7eb;
   padding-left: 0.85rem;
   margin-top: 0.35rem;
-  margin-bottom: 0.75rem;
-}
-
-/* Light code card / generic light outputs */
-.output-code-card {
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #1e293b;
-  border-radius: 0.75rem;
-  padding: 1rem;
-  font-family: var(--font-mono);
-  font-size: 0.825rem;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.03);
-  margin-top: 0.5rem;
   margin-bottom: 0.75rem;
 }
 
@@ -464,10 +450,10 @@ body {
   backdrop-filter: blur(8px);
   border: 1px solid #e4e4e7;
   border-radius: 0.75rem;
-  padding: 0.85rem 1.15rem;
+  padding: 0.75rem 1rem;
   color: #18181b;
-  font-size: 0.935rem;
-  line-height: 1.55;
+  font-size: 0.84rem;
+  line-height: 1.5;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
