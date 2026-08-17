@@ -1190,10 +1190,13 @@ def create_app() -> FastAPI:
         await pool.wait_until_ready()
         if pool._thread_manager:
             dirs = [safe_abs_path(d) for d in workspace_dirs.split(",") if d.strip()] if workspace_dirs else []
+            for d in dirs:
+                pool._thread_manager.register_workspace(d)
             with pool._lock:
                 for sess in pool._sessions.values():
                     if sess.workspace_dir:
                         dirs.append(sess.workspace_dir)
+                        pool._thread_manager.register_workspace(sess.workspace_dir)
             return {"threads": pool._thread_manager.list_threads(additional_dirs=dirs)}
         return {"threads": []}
 

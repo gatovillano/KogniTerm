@@ -286,13 +286,17 @@ class MetaCommandProcessor:
                     table = Table(title="Saved Threads")
                     table.add_column("ID", style="cyan", no_wrap=True)
                     table.add_column("Title", style="cyan")
+                    table.add_column("Workspace", style="magenta")
                     table.add_column("Modified", style="dim")
                     table.add_column("Messages", justify="right")
 
                     for t in threads:
+                        ws_path = t.get("workspace_dir") or t.get("workspaceDir", "")
+                        ws_name = os.path.basename(ws_path) if ws_path else ""
                         table.add_row(
                             t.get("id", ""),
                             t.get("title", ""),
+                            ws_name,
                             t.get("updated_at", "")[:19],
                             str(t.get("message_count", 0)),
                         )
@@ -408,7 +412,10 @@ class MetaCommandProcessor:
             if not thread_id:
                 options = []
                 for t in threads:
-                    label = f"{t.get('title', t.get('id', ''))} — {t.get('updated_at', '')[:19]} ({t.get('message_count', 0)} msgs)"
+                    ws_path = t.get("workspace_dir") or t.get("workspaceDir", "")
+                    ws_name = os.path.basename(ws_path) if ws_path else ""
+                    ws_tag = f" [{ws_name}]" if ws_name else ""
+                    label = f"{t.get('title', t.get('id', ''))}{ws_tag} — {t.get('updated_at', '')[:19]} ({t.get('message_count', 0)} msgs)"
                     options.append((t.get("id", ""), label))
 
                 selected = await self._show_radiolist(
@@ -448,11 +455,13 @@ class MetaCommandProcessor:
 
                 # Si la TUI está en modo servidor, notificar al servidor para sincronizar su estado
                 if (
-                    getattr(self.kogniterm_app, "_server_mode", False)
+                    getattr(self.kogniterm_app, "_server_mode", False) is True
                     and getattr(self.kogniterm_app, "_ws_client", None)
-                    and getattr(self.kogniterm_app._ws_client, "is_connected", False)
+                    and getattr(self.kogniterm_app._ws_client, "is_connected", False) is True
                 ):
-                    await self.kogniterm_app._send_to_server(f"/resume {thread_id}")
+                    res = self.kogniterm_app._send_to_server(f"/resume {thread_id}")
+                    if asyncio.iscoroutine(res) or hasattr(res, "__await__"):
+                        await res
             else:
                 self.terminal_ui.print_message(f"Could not load thread '{thread_id}'.", style="red")
             return True

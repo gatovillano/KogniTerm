@@ -398,6 +398,126 @@ class MultiProviderManager:
         """Retorna la cadena de fallback ordenada por prioridad."""
         return self.get_available_providers()
     
+    @staticmethod
+    def _parse_model_name(model_name: str) -> tuple[Optional[str], str]:
+        """
+        Analiza un nombre de modelo y extrae (owner_provider, pure_model_name).
+        Ejemplos:
+        - "openrouter/anthropic/claude-3.5-sonnet" -> ("anthropic", "claude-3.5-sonnet")
+        - "anthropic/claude-3-5-sonnet-20241022" -> ("anthropic", "claude-3-5-sonnet-20241022")
+        - "gpt-4o" -> ("openai", "gpt-4o")
+        - "gemini-2.5-flash" -> ("google", "gemini-2.5-flash")
+        - "ollama/qwen2.5-coder" -> ("ollama", "qwen2.5-coder")
+        """
+        if not model_name:
+            return None, ""
+
+        s = model_name.strip()
+        parts = s.split("/")
+
+        if parts[0] == "openrouter":
+            parts = parts[1:]
+
+        if len(parts) > 1:
+            owner = parts[0].lower().replace("-", "_")
+            pure = "/".join(parts[1:])
+            prefix_map = {
+                "gemini": "google",
+                "google": "google",
+                "openai": "openai",
+                "anthropic": "anthropic",
+                "cohere": "cohere",
+                "zhipuai": "zhipuai",
+                "ollama": "ollama",
+                "antigravity": "antigravity",
+                "kilocode": "kilocode"
+            }
+            mapped_owner = prefix_map.get(owner, owner)
+            return mapped_owner, pure
+
+        lower_pure = s.lower()
+        if lower_pure.startswith("gemini") or "antigravity" in lower_pure:
+            return "google", s
+        elif lower_pure.startswith("gpt") or lower_pure.startswith("o1") or lower_pure.startswith("o3"):
+            return "openai", s
+        elif lower_pure.startswith("claude"):
+            return "anthropic", s
+        elif lower_pure.startswith("command"):
+            return "cohere", s
+        elif lower_pure.startswith("glm"):
+            return "zhipuai", s
+        elif lower_pure.startswith("qwen") or lower_pure.startswith("llama") or lower_pure.startswith("deepseek"):
+            return "ollama", s
+
+        return None, s
+
+    def _resolve_model_for_provider(self, provider: ProviderConfig, original_model: str) -> str:
+        """
+        Resuelve y traduce el nombre del modelo para que sea válido y nativo para el proveedor destino.
+        Evita enviar modelos ajenos (ej. enviar gpt-4o a Google o claude a OpenAI) durante fallbacks.
+        """
+        owner_provider, pure_model = self._parse_model_name(original_model)
+
+        # 1. Si el proveedor destino es OpenRouter:
+        if provider.name == "openrouter":
+            if original_model.startswith("openrouter/"):
+                return original_model
+            if owner_provider and owner_provider not in ["openrouter", "antigravity"]:
+                owner_prefix = "google" if owner_provider == "google" else owner_provider
+                return f"openrouter/{owner_prefix}/{pure_model}"
+            return f"openrouter/{pure_model}"
+
+        # 2. Si el proveedor destino es Antigravity:
+        if provider.name == "antigravity":
+            if "3.6" in pure_model or "agent" in pure_model or "antigravity" in pure_model:
+                return "gemini-3.6-flash-medium"
+            if "flash" in pure_model.lower():
+                return "gemini-2.5-flash"
+            if "pro" in pure_model.lower():
+                return "gemini-2.5-pro"
+            return "gemini-3.6-flash-medium"
+
+        # 3. Si el proveedor destino es el propietario del modelo (o compatible nativo):
+        is_native = False
+        if owner_provider:
+            if owner_provider == provider.name or owner_provider == provider.model_prefix:
+                is_native = True
+            elif provider.name in ["google", "antigravity"] and owner_provider in ["google", "gemini"]:
+                is_native = True
+            elif provider.name.startswith("ollama") and owner_provider == "ollama":
+                is_native = True
+
+        if is_native:
+            if provider.name == "google" and ("3.6" in pure_model or "agent" in pure_model):
+                pure_model = "gemini-2.5-flash"
+
+            if provider.name.startswith("ollama"):
+                return pure_model
+            return f"{provider.model_prefix}/{pure_model}"
+
+        # 4. Si el proveedor destino es un PROVEEDOR AJENO (Cross-provider fallback):
+        lower_pure = pure_model.lower()
+        is_fast = any(k in lower_pure for k in ["mini", "haiku", "flash", "light", "small", "nano", "lite"])
+        is_flagship = not is_fast and any(k in lower_pure for k in ["pro", "sonnet", "opus", "4o", "r-plus", "plus", "o3", "o1"])
+        
+        provider_defaults = {
+            "google": "gemini-2.5-pro" if is_flagship else "gemini-2.5-flash",
+            "openai": "gpt-4o" if is_flagship else "gpt-4o-mini",
+            "anthropic": "claude-3-5-sonnet-20241022" if is_flagship else "claude-3-5-haiku-20241022",
+            "cohere": "command-r-plus" if is_flagship else "command-r",
+            "zhipuai": "glm-4-plus" if is_flagship else "glm-4-flash",
+            "ollama": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
+            "ollama_cloud": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
+            "kilocode": "kilo/auto"
+        }
+
+        default_model = provider_defaults.get(provider.name, "gpt-4o-mini")
+
+        if provider.name.startswith("ollama") or provider.name == "kilocode":
+            return default_model
+
+        return f"{provider.model_prefix}/{default_model}"
+
     def _determine_ideal_provider(self, model_name: str, force_provider: Optional[ProviderConfig] = None) -> Optional[ProviderConfig]:
         if force_provider:
             return force_provider
@@ -407,21 +527,13 @@ class MultiProviderManager:
             
         available = self.get_available_providers()
         explicit_target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
+        owner_provider, _ = self._parse_model_name(model_name)
         
-        # 1. Priorizar el proveedor preferido si está disponible
+        # 1. Priorizar el proveedor preferido si está disponible Y es compatible
         if self.preferred_provider:
             pref_p = next((p for p in available if p.name == self.preferred_provider), None)
             if pref_p:
-                model_prefix = model_name.split("/")[0] if "/" in model_name else None
-                if model_prefix:
-                    # Si el prefijo coincide con el preferido, o ambos son ollama
-                    if model_prefix == pref_p.name or model_prefix == pref_p.model_prefix or model_prefix.replace("-", "_") == pref_p.name:
-                        return pref_p
-                    elif pref_p.name.startswith("ollama") and model_prefix == "ollama":
-                        return pref_p
-                    # Si el prefijo NO coincide, permitimos que siga la lógica normal
-                else:
-                    # Modelo sin prefijo (ej. gpt-4o), forzamos al proveedor preferido
+                if not owner_provider or owner_provider == pref_p.name or owner_provider == pref_p.model_prefix:
                     return pref_p
 
         # 2. Si no se resolvió por preferido, intentar por prefijo de Ollama
@@ -435,11 +547,9 @@ class MultiProviderManager:
             provider = next((p for p in available if p.name == "ollama_cloud"), None)
             if provider: return provider
         
-        # 3. Lógica basada en prefijo genérico
-        if "/" in model_name:
-            parts = model_name.split("/", 1)
-            prefix = parts[0]
-            provider = next((p for p in available if p.name == prefix or p.name == prefix.replace("-", "_") or p.model_prefix == prefix), None)
+        # 3. Lógica basada en owner_provider extraído
+        if owner_provider:
+            provider = next((p for p in available if p.name == owner_provider or p.model_prefix == owner_provider), None)
             if provider: return provider
         
         # 4. Inferencia por nombre del modelo
@@ -482,21 +592,8 @@ class MultiProviderManager:
         try:
             logger.info(f"Usando proveedor: {provider.name}")
             
-            # Construir nombre completo del modelo
-            if "/" in model_name:
-                # Si el modelo ya tiene prefijo, asegurarse de usarlo
-                actual_model = model_name.split("/", 1)[1]
-            else:
-                actual_model = model_name
-
-            # ESTRATEGIA: Si el proveedor es google pero el modelo es un alias exclusivo de Antigravity (ej. gemini-3.6-flash-medium)
-            if provider.name == "google" and ("3.6" in actual_model or "agent" in actual_model):
-                actual_model = "gemini-2.5-flash"
-
-            if provider.name.startswith("ollama"):
-                full_model_name = actual_model
-            else:
-                full_model_name = f"{provider.model_prefix}/{actual_model}"
+            # Resolver el nombre de modelo adecuado y nativo para este proveedor
+            full_model_name = self._resolve_model_for_provider(provider, model_name)
             
             logger.debug(f"Llamando a completion con modelo: {full_model_name}, proveedor: {provider.name}")
 

@@ -40,16 +40,49 @@ class ThreadManager:
         self.threads_dir = os.path.join(self.workspace_dir, ".kogniterm", "threads")
         self._lock = threading.RLock()
         self._current_thread_id: Optional[str] = None
+        self._global_kogniterm_dir = safe_abs_path("~/.kogniterm")
+        os.makedirs(self._global_kogniterm_dir, exist_ok=True)
+        self._workspaces_file = os.path.join(self._global_kogniterm_dir, "known_workspaces.json")
         self._known_workspaces = set([self.workspace_dir, safe_abs_path("~")])
 
         os.makedirs(self.threads_dir, exist_ok=True)
+        self._load_known_workspaces()
         self._migrate_legacy_data()
         logger.info("ThreadManager inicializado en %s", self.threads_dir)
 
+    def _load_known_workspaces(self) -> None:
+        """Carga los workspaces conocidos desde la configuración global si existe."""
+        if os.path.exists(self._workspaces_file):
+            try:
+                with open(self._workspaces_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        for ws in data:
+                            if ws and isinstance(ws, str):
+                                clean = safe_abs_path(ws)
+                                if os.path.isdir(clean):
+                                    self._known_workspaces.add(clean)
+            except Exception as exc:
+                logger.error("Error al cargar workspaces conocidos desde %s: %s", self._workspaces_file, exc)
+        self._save_known_workspaces()
+
+    def _save_known_workspaces(self) -> None:
+        """Guarda los workspaces conocidos actuales en la configuración global."""
+        try:
+            os.makedirs(self._global_kogniterm_dir, exist_ok=True)
+            valid_dirs = sorted([ws for ws in self._known_workspaces if ws and os.path.isdir(ws)])
+            with open(self._workspaces_file, "w", encoding="utf-8") as f:
+                json.dump(valid_dirs, f, indent=2, ensure_ascii=False)
+        except Exception as exc:
+            logger.error("Error al guardar workspaces conocidos en %s: %s", self._workspaces_file, exc)
+
     def register_workspace(self, workspace_dir: str) -> None:
-        """Registra un nuevo directorio de trabajo para escaneo de hilos."""
+        """Registra un nuevo directorio de trabajo para escaneo de hilos y persiste la lista."""
         if workspace_dir:
-            self._known_workspaces.add(safe_abs_path(workspace_dir))
+            clean = safe_abs_path(workspace_dir)
+            if clean not in self._known_workspaces:
+                self._known_workspaces.add(clean)
+                self._save_known_workspaces()
 
     def _find_thread_dir(self, thread_id: str) -> str:
         """Busca el directorio físico del hilo en todos los workspaces conocidos."""

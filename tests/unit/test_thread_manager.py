@@ -5,7 +5,10 @@ from langchain_core.messages import HumanMessage, AIMessage
 from kogniterm.core.thread_manager import ThreadManager
 
 @pytest.fixture
-def temp_workspace(tmp_path):
+def temp_workspace(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     yield str(workspace)
@@ -82,3 +85,31 @@ def test_thread_manager_current_thread_tracking(temp_workspace):
     
     tm.set_current_thread_id("another_id")
     assert tm.get_current_thread_id() == "another_id"
+
+def test_thread_manager_known_workspaces_persistence(tmp_path, monkeypatch):
+    global_kogni = tmp_path / "global_kogniterm"
+    global_kogni.mkdir()
+    
+    # Monkeypatch home directory for safe_abs_path("~")
+    monkeypatch.setenv("HOME", str(global_kogni))
+
+    ws1 = tmp_path / "ws1"
+    ws1.mkdir()
+    ws2 = tmp_path / "ws2"
+    ws2.mkdir()
+
+    tm1 = ThreadManager(workspace_dir=str(ws1))
+    t1 = tm1.create_thread(title="Hilo en WS1", workspace_dir=str(ws1))
+
+    tm1.register_workspace(str(ws2))
+    tm2_instance = ThreadManager(workspace_dir=str(ws2))
+    t2 = tm2_instance.create_thread(title="Hilo en WS2", workspace_dir=str(ws2))
+
+    # Re-instanciar ThreadManager desde un directorio diferente (simulando TUI en ws1 o ws2)
+    tm3 = ThreadManager(workspace_dir=str(ws1))
+    all_threads = tm3.list_threads()
+    
+    thread_ids = [t["id"] for t in all_threads]
+    assert t1.id in thread_ids
+    assert t2.id in thread_ids
+

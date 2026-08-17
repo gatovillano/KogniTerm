@@ -82,3 +82,15 @@ def test_map_tools_deduplicates_duplicate_function_names():
     assert len(decls) == 1
     assert decls[0]["name"] == "same_tool_name"
 
+
+def test_skill_manager_unique_tool_name_length():
+    from kogniterm.core.skills.skill_manager import SkillManager
+    sm = SkillManager()
+    long_name = "_kogniterm_dynamic_skills_Cloud_Security_Container_Hardening_script"
+    sm.tool_registry["_kogniterm_dynamic_skills_Cloud_Security_Container_Hardening_scr"] = {"skill": "s1"}
+    
+    unique_1 = sm._get_unique_tool_name(long_name, skill_name="s2")
+    assert len(unique_1) <= 64
+    assert sanitize_tool_name(unique_1) == unique_1
+
+
