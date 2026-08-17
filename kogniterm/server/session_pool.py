@@ -123,10 +123,12 @@ def clean_thinking_text(text: str) -> str:
 
 def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
     from rich.padding import Padding
-    from rich.console import Group
+    from rich.console import Group, Console
     from rich.panel import Panel
+    from rich.table import Table
     from rich.markdown import Markdown
     from rich.text import Text
+    from io import StringIO
 
     thinking = ""
     response = ""
@@ -142,6 +144,15 @@ def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
             title = str(r.title or "").lower()
             is_thinking_panel = "pensando" in title or "thinking" in title
 
+            if not is_thinking_panel:
+                buf = StringIO()
+                c = Console(file=buf, force_terminal=True, color_system="truecolor", width=120)
+                c.print(r)
+                ansi_str = buf.getvalue().strip()
+                if ansi_str:
+                    response += "\n" + ansi_str
+                return
+
             p_content = r.renderable
             content_str = ""
             if isinstance(p_content, Markdown):
@@ -155,12 +166,9 @@ def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
                     if isinstance(p_content, (Group, Padding)):
                         recurse(p_content)
                         return
-                    from rich.console import Console
-                    from io import StringIO
-
                     buf = StringIO()
                     c = Console(
-                        file=buf, force_terminal=False, no_color=True, width=120
+                        file=buf, force_terminal=True, color_system="truecolor", width=120
                     )
                     c.print(p_content)
                     content_str = buf.getvalue().strip()
@@ -172,6 +180,13 @@ def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
             else:
                 display_title = f"### {r.title}\n" if r.title else ""
                 response += "\n" + display_title + content_str
+        elif isinstance(r, Table):
+            buf = StringIO()
+            c = Console(file=buf, force_terminal=True, color_system="truecolor", width=120)
+            c.print(r)
+            ansi_str = buf.getvalue().strip()
+            if ansi_str:
+                response += "\n" + ansi_str
         elif isinstance(r, Markdown):
             response += "\n" + r.markup
         elif isinstance(r, Text):
@@ -183,11 +198,8 @@ def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
                 response += "\n" + r
         else:
             try:
-                from rich.console import Console
-                from io import StringIO
-
                 buf = StringIO()
-                c = Console(file=buf, force_terminal=False, no_color=True, width=120)
+                c = Console(file=buf, force_terminal=True, color_system="truecolor", width=120)
                 c.print(r)
                 val = buf.getvalue().strip()
                 if val:
