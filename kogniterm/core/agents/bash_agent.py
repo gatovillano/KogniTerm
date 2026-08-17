@@ -451,7 +451,8 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
             if path:
                 modified_files.add(path)
 
-    if not modified_files:
+    py_files = [f for f in modified_files if f.endswith(".py")]
+    if not py_files:
         return {"messages": state.messages}
 
     if terminal_ui and hasattr(terminal_ui, "update_live"):
@@ -463,16 +464,15 @@ def verification_node(state: AgentState, llm_service: LLMService, terminal_ui: O
 
     verification_results = []
 
-    for file_path in modified_files:
-        if file_path.endswith(".py"):
-            try:
-                import py_compile
-                py_compile.compile(file_path, doraise=True)
-                verification_results.append(f"✅ `{file_path}` — sintaxis OK")
-            except py_compile.PyCompileError as e:
-                verification_results.append(f"❌ Error de sintaxis en `{file_path}`:\n{str(e).strip()}")
-            except Exception as e:
-                verification_results.append(f"⚠️ No se pudo verificar `{file_path}`: {e}")
+    for file_path in py_files:
+        try:
+            import py_compile
+            py_compile.compile(file_path, doraise=True)
+            verification_results.append(f"✅ `{file_path}` — sintaxis OK")
+        except py_compile.PyCompileError as e:
+            verification_results.append(f"❌ Error de sintaxis en `{file_path}`:\n{str(e).strip()}")
+        except Exception as e:
+            verification_results.append(f"⚠️ No se pudo verificar `{file_path}`: {e}")
 
     if verification_results:
         summary = "\n".join(verification_results)

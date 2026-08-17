@@ -94,12 +94,12 @@ def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=No
     # ESTRATEGIA B: Lenguaje natural con JSON inline - patrones amplios
     # Captura: "usa search con {...}", "usa 'search' con {...}", "usa \"search\" con {...}"
     nl_patterns = [
-        r'(?:usa|usar|utiliza|usamos|usando|use)\s+(?:la\s+)?["\']?(\w+)["\']?\s*(?:,?\s*(?:luego\s+)?(?:con\s+(?:los\s+)?argumentos?|con\s+args?)\s*)?\s*(\{[^}]+\})',
-        r'(?:llama?r?|llamamos)\s+(?:a\s+)?["\']?(\w+)["\']?\s*(?:con\s+(?:argumentos?|args?)\s*)?\s*(\{[^}]+\})',
-        r'(?:vamos\s+a\s+)?(?:usar|llamar)\s+["\']?(\w+)["\']?\s*(?:con\s+(?:argumentos?|args?)\s*)?\s*(\{[^}]+\})',
-        r'(?:usa|usar|utiliza)\s+(\w+)\s*(?:con\s+(?:argumentos?|args?)\s*)?\s*(\{[^}]+\})',
-        r'(\w+)\s*con\s+(?:argumentos?|args?)\s*(\{[^}]+\})',
-        r'(?:usa|usamos)\s+(\w+)\s*\(\s*(\{[^}]+\})\s*\)',
+        r'(?:usa|usar|utiliza|usamos|usando|use|luego)\s+(?:la\s+herramienta\s+|la\s+)?["\']?(\w+)["\']?\s*(?:,?\s*(?:luego\s+)?(?:con\s+(?:los\s+)?(?:argumentos?|args?)?)?\s*)?\s*(\{[^}]+\})',
+        r'(?:llama?r?|llamamos)\s+(?:a\s+)?(?:la\s+herramienta\s+)?["\']?(\w+)["\']?\s*(?:con\s+(?:argumentos?|args?)?\s*)?\s*(\{[^}]+\})',
+        r'(?:vamos\s+a\s+)?(?:usar|llamar)\s+(?:la\s+herramienta\s+|la\s+)?["\']?(\w+)["\']?\s*(?:con\s+(?:argumentos?|args?)?\s*)?\s*(\{[^}]+\})',
+        r'(?:usa|usar|utiliza)\s+(?:la\s+herramienta\s+)?(\w+)\s*(?:con\s+(?:argumentos?|args?)?\s*)?\s*(\{[^}]+\})',
+        r'(\w+)\s*con\s+(?:argumentos?|args?)?\s*(\{[^}]+\})',
+        r'(?:usa|usamos)\s+(?:la\s+herramienta\s+)?(\w+)\s*\(\s*(\{[^}]+\})\s*\)',
     ]
     for pat in nl_patterns:
         for match in re.finditer(pat, clean_text, re.IGNORECASE):
@@ -113,6 +113,15 @@ def parse_tool_calls_from_text(text: str, tool_names: List[str], id_generator=No
                 else:
                     args = extract_args(args_str)
                 tool_calls.append({"id": id_generator(), "name": real_name, "args": args})
+
+    # Patrón sin argumentos JSON explicitos: ej. "usa read_file"
+    no_arg_pattern = r'(?:usa|usar|utiliza|usamos|usando|use)\s+(?:la\s+herramienta\s+|la\s+)?["\']?(\w+)["\']?(?!\s*con|\s*\{)'
+    for match in re.finditer(no_arg_pattern, clean_text, re.IGNORECASE):
+        tool_name = match.group(1).strip()
+        real_name = next((k for k in tool_names if k.lower() == tool_name.lower()), None)
+        if real_name:
+            if not any(tc['name'] == real_name for tc in tool_calls):
+                tool_calls.append({"id": id_generator(), "name": real_name, "args": {}})
 
     # ESTRATEGIA C: Bloques JSON estructurados
     for i in range(len(clean_text)):

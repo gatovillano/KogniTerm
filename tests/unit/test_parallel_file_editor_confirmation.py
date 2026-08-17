@@ -73,7 +73,7 @@ def test_parallel_file_editor_confirmations_queue(tmp_path):
     # 2. Verificar que se encolaron AMBAS confirmaciones
     assert len(new_state.pending_confirmations) == 2
     assert new_state.has_pending_confirmations() is True
-    assert should_continue(new_state) == "END"  # Debe pausar para confirmación
+    assert should_continue(new_state) == "__end__"  # Debe pausar para confirmación
 
     # 3. Primera confirmación activa
     active_1 = new_state.tool_args_pending_confirmation

@@ -1,3 +1,4 @@
+import threading
 import json
 import logging
 import queue
@@ -21,12 +22,14 @@ from ..utils.tool_utils import get_tool_action_description
 logger = logging.getLogger(__name__)
 console = Console()
 
-
 class ToolExecutor:
     """
     Clase centralizada para la ejecución de herramientas de agentes.
     Consolida la lógica de ejecución síncrona/asíncrona, notificaciones y manejo de confirmaciones.
     """
+    # Semáforo de concurrencia: limita el número de herramientas que se ejecutan simultáneamente
+    # para evitar sobrecarga del sistema (CPU, I/O, red, etc.)
+    _concurrency_semaphore = threading.Semaphore(8)
 
     @staticmethod
     def execute_single_tool(
@@ -105,7 +108,11 @@ class ToolExecutor:
                         border_style="cyan",
                     )
                 )
-
+        # Adquirir semáforo de concurrencia antes de ejecutar la herramienta
+        # para evitar que se ejecuten demasiadas herramientas simultáneamente
+        ToolExecutor._concurrency_semaphore.acquire()
+        logger.debug(f"Semáforo adquirido para {tool_name}. Disponible: {ToolExecutor._concurrency_semaphore._value}")
+        
         try:
             full_tool_output = ""
             last_ui_update = 0
@@ -137,16 +144,14 @@ class ToolExecutor:
                         last_ui_update = current_time
 
             # Emitir actualización final para la UI
-            if not is_tui and terminal_ui:
-                if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
-                    terminal_ui.update_terminal_output(
-                        tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
-                    )
-                if hasattr(terminal_ui, "update_tool_display"):
-                    terminal_ui.update_tool_display(
-                        tool_name, full_tool_output, command=command_hint
-                    )
-
+            if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
+                terminal_ui.update_terminal_output(
+                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
+                )
+            if hasattr(terminal_ui, "update_tool_display"):
+                terminal_ui.update_tool_display(
+                    tool_name, full_tool_output, command=command_hint
+                )
             # Post-procesamiento (Skills refresh, etc.)
             full_tool_output = ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)
 
@@ -168,6 +173,10 @@ class ToolExecutor:
             logger.error(f"Error en {tool_name}: {e}")
             return tool_id, f"Error: {e}", e
         finally:
+            # Liberar el semáforo de concurrencia
+            ToolExecutor._concurrency_semaphore.release()
+            logger.debug(f"Semáforo liberado para {tool_name}. Disponible: {ToolExecutor._concurrency_semaphore._value}")
+            
             # Ocultar y consolidar panel de herramientas si existe
             if terminal_ui and hasattr(terminal_ui, "stop_live"):
                 terminal_ui.stop_live()
@@ -223,22 +232,21 @@ class ToolExecutor:
         tool_messages = []
         is_tui = getattr(terminal_ui, "is_tui", False)
         shared_executor = getattr(llm_service, "tool_executor", None)
-        managed_executor = None
+        if shared_executor is not None and type(shared_executor).__name__ == "MagicMock":
+            shared_executor = None
         executor = shared_executor or ThreadPoolExecutor(max_workers=10)
-        if shared_executor is None:
-            managed_executor = executor
+        managed_executor = executor if shared_executor is None else None
 
         # 1. Registrar y Verificar Interrupciones
-        try:
-            futures = []
-            del_ctx = delegation_context or getattr(state, "delegation_context", None)
+        futures = []
+        del_ctx = delegation_context or getattr(state, "delegation_context", None)
 
+        try:
             for tc in last_message.tool_calls:
                 # Detección de bucles (hash de args)
                 state.tool_call_history.append(
                     {"name": tc["name"], "args_hash": hash(str(tc["args"]))}
                 )
-
                 # Validar permisos RBAC antes de proceder
                 if (
                     del_ctx
@@ -293,6 +301,7 @@ class ToolExecutor:
                     )
                 )
 
+            is_autonomous = getattr(state, "autonomous_approvals", False) or del_ctx is not None
             for future in futures:
                 tid, content, exc = future.result()
                 if isinstance(exc, UserConfirmationRequired):

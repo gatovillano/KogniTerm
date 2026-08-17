@@ -79,7 +79,15 @@ def build_native_renderable(thinking: str, response: str) -> Any:
     from rich.padding import Padding
     from rich.panel import Panel
     from rich.markdown import Markdown
+    from rich.text import Text
     from kogniterm.terminal.themes import ColorPalette, Icons
+
+    def _render_resp(resp_str: str) -> Any:
+        if isinstance(resp_str, str) and (
+            "\x1b" in resp_str or "┃" in resp_str or "╭" in resp_str or "┬" in resp_str or "─" in resp_str or "┼" in resp_str
+        ):
+            return Padding(Text.from_ansi(resp_str), (1, 0, 1, 0))
+        return Padding(Markdown(resp_str), (2, 0, 1, 0))
 
     if thinking and not response:
         thinking_content = Markdown(thinking)
@@ -94,7 +102,10 @@ def build_native_renderable(thinking: str, response: str) -> Any:
         return Padding(thought_panel, (2, 0, 1, 0))
 
     if response and not thinking:
-        return Padding(Markdown(response), (2, 0, 1, 0))
+        return _render_resp(response)
+
+    if thinking and response:
+        return _render_resp(response)
 
     return None
 

@@ -243,20 +243,30 @@ class ChatLogWidget(VerticalScroll):
                 
                 def _title_matches(t_str):
                     t = str(t_str or "").lower()
-                    return any(kw in t for kw in ["terminal", "command", "bash", "shell", "python", "exec", "cli", "pty", "run", "script"])
+                    # Paneles de diff/edición de archivo NUNCA son salidas de terminal
+                    if any(kw in t for kw in ["diff", "cambios aplicados", "diff aplicado"]):
+                        return False
+                    # Coincidencia explícita con títulos de terminales
+                    if t.startswith("terminal") or "terminal |" in t or "terminal —" in t:
+                        return True
+                    return False
 
                 if isinstance(r, Panel):
                     title = str(r.title or "")
                     if _title_matches(title):
                         return True, title.replace("TERMINAL | ", "")
+                    # Si es un Panel estilizado de Rich (incluyendo diffs), NO es terminal
+                    return False, "Terminal"
                 
                 if isinstance(r, Padding):
                     return _check_is_terminal(r.renderable)
                     
                 if isinstance(r, Group):
                     for sub_r in r.renderables:
-                        if _title_matches(sub_r):
-                            return True, "bash"
+                        if isinstance(sub_r, Panel):
+                            title = str(sub_r.title or "")
+                            if _title_matches(title):
+                                return True, "bash"
                         found, name = _check_is_terminal(sub_r)
                         if found: return True, name
                 

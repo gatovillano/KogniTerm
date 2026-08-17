@@ -106,7 +106,7 @@ def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> 
     if not isinstance(tool_desc, str):
         tool_desc = str(tool_desc)
 
-    logger.info(f"🔧 Generando definición de herramienta para: {clean_tool_name}")
+    logger.debug(f"🔧 Generando definición de herramienta para: {clean_tool_name}")
     tool_definition = {
         "type": "function",
         "function": {
@@ -943,7 +943,7 @@ class LLMService:
     def _get_litellm_tools(self) -> List[dict]:
         """Convierte las herramientas al formato LiteLLM apropiado para el modelo actual."""
         if self.litellm_tools is None:
-            logger.info(f"🔧 Convirtiendo herramientas para modelo: {self.model_name}")
+            logger.debug(f"🔧 Convirtiendo herramientas para modelo: {self.model_name}")
             # Asegurar que la skill task_tracker esté cargada si está disponible
             try:
                 if hasattr(self, 'skill_manager') and 'task_tracker' in getattr(self.skill_manager, 'skills', {}):
@@ -970,7 +970,7 @@ class LLMService:
                     continue
                 try:
                     converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
-                    logger.info(f"✅ Herramienta convertida: {tool_name} -> {converted.get('type', 'standard')}")
+                    logger.debug(f"✅ Herramienta convertida: {tool_name} -> {converted.get('type', 'standard')}")
                     converted_tools.append(converted)
                 except Exception as e:
                     logger.error(f"Error al convertir herramienta {tool_name}: {e}", exc_info=True)
@@ -986,7 +986,7 @@ class LLMService:
             except Exception:
                 pass
             self.litellm_tools = converted_tools
-            logger.info(f"📋 Total herramientas convertidas: {len(converted_tools)}")
+            logger.debug(f"📋 Total herramientas convertidas: {len(converted_tools)}")
         return self.litellm_tools
 
     def get_model_context_window(self, model_name: Optional[str] = None) -> int:
