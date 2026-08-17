@@ -137,18 +137,18 @@ class ToolExecutor:
                             terminal_ui.update_terminal_output(
                                 tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
                             )
-                        if hasattr(terminal_ui, "update_tool_display"):
+                        elif is_terminal_tool and hasattr(terminal_ui, "update_tool_display"):
                             terminal_ui.update_tool_display(
                                 tool_name, full_tool_output, command=command_hint
                             )
                         last_ui_update = current_time
 
-            # Emitir actualización final para la UI
+            # Emitir actualización final para la UI (solo para herramientas de terminal/comando)
             if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
                 terminal_ui.update_terminal_output(
                     tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
                 )
-            if hasattr(terminal_ui, "update_tool_display"):
+            elif is_terminal_tool and hasattr(terminal_ui, "update_tool_display"):
                 terminal_ui.update_tool_display(
                     tool_name, full_tool_output, command=command_hint
                 )
@@ -159,8 +159,8 @@ class ToolExecutor:
             from ..utils.output_pruner import smart_prune_tool_output
             full_tool_output = smart_prune_tool_output(full_tool_output, tool_name=tool_name)
 
-            # Renderizado de resultado (CLI)
-            if not is_tui:
+            # Renderizado de resultado (CLI, solo para comandos)
+            if not is_tui and is_terminal_tool:
                 ToolExecutor._render_cli_result(tool_name, full_tool_output)
 
             return tool_id, full_tool_output, None
