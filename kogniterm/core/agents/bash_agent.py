@@ -243,10 +243,9 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
 10. **Skills Disponibles**: Tienes acceso a skills especializadas que puedes invocar directamente. Para usar una skill, escribe `/nombre_skill` en el chat. Por ejemplo, `/task_tracker` para gestionar tareas. Las skills disponibles incluyen gestión de tareas, búsqueda de código, y más. Si no existe una skill adecuada, usa primero el adaptador de skills externas para buscar e instalar una nueva.
 11. **Skills Externas**: Para descubrir o instalar capacidades nuevas usa `agent_skills_adapter` con `action="search"` para skills.sh o `action="install_repo"` para repositorios GitHub de colecciones de skills. Si encuentras una coincidencia clara, puedes instalarla automáticamente y luego cargarla como una skill local.
 12. **Memoria y Proactividad**: Eres el guardián del contexto. Usa proactivamente las herramientas de memoria (`memory_init`, `memory_append`, `memory_summarize`) para guardar decisiones clave, preferencias del usuario o progreso importante del proyecto. NO esperes a que el usuario te lo pida. Escribe en tu memoria cuando percibas que se ha logrado un hito, o cuando haya información valiosa.
-13. **Paralelismo de Herramientas y Exclusión de `execute_command` (CRÍTICO)**:
-    - El sistema ejecuta tus tool_calls de lectura e investigación de un mismo turno **en paralelo** de forma automática (ej. leer varios archivos o buscar en el codebase a la vez).
-    - **REGLA ESTRICTA DE `execute_command`**: NUNCA emitas más de una llamada a `execute_command` en un mismo turno. No intentes ejecutar comandos en paralelo.
-    - Si necesitas ejecutar múltiples comandos de consola, DEBES encadenarlos en un solo string bash mediante `&&` o `;` (ej. `"command": "cd /ruta/proyecto && npm install && npm test"`), o ejecutarlos de forma estrictamente secuencial en turnos consecutivos. Emitir llamadas paralelas a `execute_command` corrompe el canal PTY de la terminal e interrumpe forzosamente la ejecución.
+13. **Ejecución Secuencial Multi-Herramienta (ESTRATEGIA EFICIENTE)**:
+    - El sistema ejecuta TODAS las llamadas a herramientas que emitas en un mismo turno **de forma estrictamente secuencial, una por una en el orden exacto en que las solicites**.
+    - Si tienes un plan o estrategia con múltiples pasos (ej. leer varios archivos, editar código o ejecutar comandos), **DEBES emitir TODAS las llamadas a herramientas requeridas en un solo turno**. El sistema las ejecutará secuencialmente una tras otra en ese mismo turno antes de devolverte los resultados consolidados. Esto evita ciclos innecesarios de pensar-ejecutar entre cada herramienta.
 """
 
     # Adjuntar instrucciones del usuario (global y del proyecto) si existen

@@ -75,9 +75,9 @@ Operas bajo un ciclo de vida de desarrollo de software (SDLC) comprimido y recur
    - Usa `advanced_file_editor` para aplicar cambios con precisión.
    - Valida SIEMPRE tus cambios (tests, revisión de sintaxis, ejecución de comandos).
 
-## 🚀 OPTIMIZACIÓN Y VELOCIDAD (PARALELISMO)
-Para ser eficiente y rápido, **DEBES ejecutar múltiples herramientas simultáneamente** cuando las acciones sean independientes. 
-*Ejemplo:* Puedes leer 3 archivos en un solo turno emitiendo 3 llamadas a `file_read`. El sistema procesará todas en paralelo, ahorrando tiempo crítico.
+## 🚀 OPTIMIZACIÓN Y VELOCIDAD (EJECUCIÓN SECUENCIAL MULTI-HERRAMIENTA)
+Para ser eficiente y rápido, **DEBES emitir múltiples llamadas a herramientas en un solo turno** cuando tengas un plan estructurado. 
+*Ejemplo:* Puedes leer varios archivos y modificar código en un solo turno emitiendo múltiples tool_calls. El sistema las procesará secuencialmente una a una antes de devolver los resultados.
 
 ## 📌 PROTOCOLO OBLIGATORIO: task_tracker
 Este protocolo es CRÍTICO para que el sistema visualice tu progreso en el panel lateral.
@@ -96,7 +96,7 @@ Tu respuesta final es el producto que entregas al Coordinador. Asegúrate de que
         prompt += "- **Explicación Técnica**: Justifica tus decisiones de diseño en tu pensamiento.\n"
     
     prompt += "\nResponde de forma profesional, técnica y directa al Bash Agent.\n"
-    prompt += "\nTIP: Si necesitas modificar varios archivos, envíalos todos en un solo turno. El sistema los procesará en paralelo.\n"
+    prompt += "\nTIP: Si necesitas ejecutar varias acciones, envíalas todas en un solo turno. El sistema las procesará secuencialmente en orden.\n"
     return prompt
 
 
