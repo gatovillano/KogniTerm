@@ -845,7 +845,9 @@ class SkillManager:
 
             suffix = 1
             while unique_name in self.tool_registry:
-                unique_name = f"{base_name}_{suffix}"
+                suffix_str = f"_{suffix}"
+                max_base_len = 64 - len(suffix_str)
+                unique_name = f"{base_name[:max_base_len]}{suffix_str}"
                 suffix += 1
         return unique_name
 

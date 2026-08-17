@@ -80,3 +80,65 @@ def test_execute_with_fallback_handles_429_generator_error(monkeypatch):
     assert res == ["success_from_secondary"]
     assert call_history == ["primary", "secondary"]
 
+
+def test_parse_model_name():
+    from kogniterm.core.multi_provider_manager import MultiProviderManager
+
+    owner, pure = MultiProviderManager._parse_model_name("openrouter/anthropic/claude-3.5-sonnet")
+    assert owner == "anthropic"
+    assert pure == "claude-3.5-sonnet"
+
+    owner, pure = MultiProviderManager._parse_model_name("anthropic/claude-3-5-sonnet-20241022")
+    assert owner == "anthropic"
+    assert pure == "claude-3-5-sonnet-20241022"
+
+    owner, pure = MultiProviderManager._parse_model_name("gpt-4o")
+    assert owner == "openai"
+    assert pure == "gpt-4o"
+
+    owner, pure = MultiProviderManager._parse_model_name("gemini-2.5-flash")
+    assert owner == "google"
+    assert pure == "gemini-2.5-flash"
+
+
+def test_resolve_model_for_provider_native_and_openrouter():
+    from kogniterm.core.multi_provider_manager import MultiProviderManager, ProviderConfig
+
+    manager = MultiProviderManager()
+    p_google = ProviderConfig(name="google", model_prefix="gemini", api_key_env="GOOGLE_API_KEY")
+    p_openrouter = ProviderConfig(name="openrouter", model_prefix="openrouter", api_key_env="OPENROUTER_API_KEY")
+    p_anthropic = ProviderConfig(name="anthropic", model_prefix="anthropic", api_key_env="ANTHROPIC_API_KEY")
+
+    # Native Google
+    assert manager._resolve_model_for_provider(p_google, "gemini-2.5-flash") == "gemini/gemini-2.5-flash"
+    assert manager._resolve_model_for_provider(p_google, "google/gemini-2.5-pro") == "gemini/gemini-2.5-pro"
+
+    # OpenRouter
+    assert manager._resolve_model_for_provider(p_openrouter, "anthropic/claude-3.5-sonnet") == "openrouter/anthropic/claude-3.5-sonnet"
+    assert manager._resolve_model_for_provider(p_openrouter, "gpt-4o") == "openrouter/openai/gpt-4o"
+
+    # Native Anthropic when given OpenRouter formatted model
+    assert manager._resolve_model_for_provider(p_anthropic, "openrouter/anthropic/claude-3.5-sonnet") == "anthropic/claude-3.5-sonnet"
+
+
+def test_resolve_model_for_provider_cross_fallback():
+    from kogniterm.core.multi_provider_manager import MultiProviderManager, ProviderConfig
+
+    manager = MultiProviderManager()
+    p_google = ProviderConfig(name="google", model_prefix="gemini", api_key_env="GOOGLE_API_KEY")
+    p_openai = ProviderConfig(name="openai", model_prefix="openai", api_key_env="OPENAI_API_KEY")
+    p_anthropic = ProviderConfig(name="anthropic", model_prefix="anthropic", api_key_env="ANTHROPIC_API_KEY")
+
+    # Cross-provider fallback: Anthropic Flagship -> Google (Must resolve to gemini/gemini-2.5-pro instead of gemini/claude...)
+    resolved_google = manager._resolve_model_for_provider(p_google, "anthropic/claude-3-5-sonnet")
+    assert resolved_google == "gemini/gemini-2.5-pro"
+
+    # Cross-provider fallback: OpenAI Flagship -> Anthropic
+    resolved_anthropic = manager._resolve_model_for_provider(p_anthropic, "gpt-4o")
+    assert resolved_anthropic == "anthropic/claude-3-5-sonnet-20241022"
+
+    # Cross-provider fallback: Fast Model -> Google
+    resolved_fast_google = manager._resolve_model_for_provider(p_google, "gpt-4o-mini")
+    assert resolved_fast_google == "gemini/gemini-2.5-flash"
+
+
