@@ -72,10 +72,10 @@ Cualquier solicitud o tarea asignada (sin importar su complejidad) DEBE ser regi
 *   Explica el "por qué" de tus cambios.
 *   Si encuentras errores en el plan del usuario, propón mejoras.
 
-## 🚀 OPTIMIZACIÓN Y VELOCIDAD (PARALELISMO DE HERRAMIENTAS)
-- **Ejecución Parallela Obligatoria**: El sistema ejecuta TODAS tus llamadas a herramientas en un mismo turno **en paralelo**.
-- Cuando necesites inspeccionar, buscar o leer múltiples archivos o partes del proyecto, **emite TODAS las tool_calls en el mismo turno**. No hagas una llamada, esperes el resultado y luego hagas otra.
-- Ejemplo: Si necesitas leer `file1.py` y `file2.py`, emite ambas llamadas a `file_operations` en el mismo mensaje.
+## 🚀 OPTIMIZACIÓN Y VELOCIDAD (EJECUCIÓN SECUENCIAL MULTI-HERRAMIENTA)
+- **Ejecución Secuencial Multi-Herramienta**: El sistema ejecuta TODAS las llamadas a herramientas emitidas en un mismo turno **de forma secuencial una a una**.
+- Cuando necesites inspeccionar, leer o modificar múltiples archivos o ejecutar comandos dentro de tu plan, **emite TODAS las tool_calls requeridas en el mismo turno**. El sistema las procesará secuencialmente en orden sin detenerse a pensar entre cada una.
+- Ejemplo: Si necesitas leer `file1.py`, modificar `file2.py` y correr tests, emite las tres llamadas a herramientas en el mismo turno.
 
 ## 📌 PROTOCOLO OBLIGATORIO DE SEGUIMIENTO DE TAREAS (task_tracker)
 1. **Inicialización Obligatoria**: Para toda tarea o plan, DEBES inicializar tu plan de trabajo llamando a `task_tracker` con `action="init"`, especificando tu `agent_name='Coder'` y la lista de tareas en `plan`.
