@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { X, Check, Terminal, FileCode, Zap } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 
 export interface ApprovalRequest {
     id: string;
@@ -14,15 +14,16 @@ interface CommandApprovalProps {
     request: ApprovalRequest;
     onApprove: (id: string) => void;
     onReject: (id: string) => void;
+    isInline?: boolean;
 }
 
 export const CommandApproval: React.FC<CommandApprovalProps> = ({
     request,
     onApprove,
     onReject,
+    isInline = false,
 }) => {
     const approveRef = useRef<HTMLButtonElement>(null);
-    const isBash = request.file_path === 'bash';
 
     const handleApproveAlways = async () => {
         try {
@@ -55,24 +56,89 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
         return () => window.removeEventListener('keydown', handleKey);
     }, [request.id, onApprove, onReject]);
 
-    const accentChip = isBash
-        ? 'bg-amber-500/10 border border-amber-500/20'
-        : 'bg-indigo-500/10 border border-indigo-500/20';
-    const accentIcon = isBash ? 'text-amber-400' : 'text-indigo-400';
+    const displayTitle = request.message || request.title || 'Ejecutar comando';
+
+    if (isInline) {
+        return (
+            <div className="w-full my-4 flex flex-col gap-2 font-sans select-none animate-fade-in">
+                {/* Header Row: Running · <cmd>  27s */}
+                <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                    <div className="flex items-center gap-2 truncate max-w-[85%]">
+                        {/* Matrix / Running Icon */}
+                        <div className="grid grid-cols-2 gap-0.5 w-3.5 h-3.5 opacity-60">
+                            <div className="bg-zinc-500 rounded-2xs animate-pulse" />
+                            <div className="bg-zinc-400 rounded-2xs" />
+                            <div className="bg-zinc-400 rounded-2xs" />
+                            <div className="bg-zinc-500 rounded-2xs animate-pulse" />
+                        </div>
+                        <span className="truncate">
+                            <span className="font-normal text-zinc-500 dark:text-zinc-400">Running</span>
+                            <span className="mx-1.5 text-zinc-300 dark:text-zinc-600">·</span>
+                            <span className="font-mono text-zinc-700 dark:text-zinc-300">{displayTitle}</span>
+                        </span>
+                    </div>
+                    <span className="text-zinc-400 dark:text-zinc-500 font-mono text-xs shrink-0">
+                        27s
+                    </span>
+                </div>
+
+                {/* Inline Action Buttons matching OpenClaw screenshot */}
+                <div className="flex items-center gap-2 pl-5 mt-1">
+                    {/* Run Ctrl ↵ v */}
+                    <div className="inline-flex items-center rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+                        <button
+                            ref={approveRef}
+                            onClick={() => onApprove(request.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                        >
+                            <span>Run</span>
+                            <span className="kbd-badge">Ctrl ↵</span>
+                        </button>
+                        <button
+                            onClick={handleApproveAlways}
+                            title="Aceptar siempre (A)"
+                            className="px-1.5 py-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 border-l border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                        >
+                            <ChevronDown size={13} />
+                        </button>
+                    </div>
+
+                    {/* Reject Esc */}
+                    <button
+                        onClick={() => onReject(request.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 shadow-2xs transition-colors cursor-pointer"
+                    >
+                        <span>Reject</span>
+                        <span className="kbd-badge">Esc</span>
+                    </button>
+
+                    {/* Command v */}
+                    <button
+                        onClick={() => {}}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 shadow-2xs transition-colors cursor-pointer"
+                    >
+                        <span>Command</span>
+                        <ChevronDown size={13} className="text-zinc-400" />
+                    </button>
+                </div>
+
+                {/* Sub status row */}
+                <div className="flex items-center gap-2 pl-5 mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500 font-mono">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-zinc-300 dark:bg-zinc-700 inline-block" />
+                    <span>37s</span>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <aside className="flex h-full flex-col bg-white">
+        <aside className="flex h-full flex-col bg-white dark:bg-zinc-900">
             {/* Header */}
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2.5">
-                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${accentChip}`}>
-                        {isBash
-                            ? <Terminal size={15} className={accentIcon} />
-                            : <FileCode size={15} className={accentIcon} />
-                        }
-                    </div>
+                    <span className="tool-run-icon">&gt;_</span>
                     <div className="min-w-0">
-                        <p className="truncate text-[13px] font-semibold leading-tight text-zinc-800">
+                        <p className="truncate text-[13px] font-semibold leading-tight text-zinc-800 dark:text-zinc-100">
                             {request.title}
                         </p>
                         <p className="text-[11px] leading-tight text-zinc-500">
@@ -80,81 +146,38 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
                         </p>
                     </div>
                 </div>
-                <button
-                    onClick={() => onReject(request.id)}
-                    title="Rechazar (Esc)"
-                    className="shrink-0 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
-                >
-                    <X size={15} />
-                </button>
             </div>
 
             {/* Body */}
             <div className="goose-scrollbar flex-1 space-y-4 overflow-y-auto px-4 py-4">
                 {request.message && (
-                    <p className="text-[13px] leading-relaxed text-zinc-700">
+                    <p className="text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-300">
                         {request.message}
                     </p>
-                )}
-
-                {request.diff_content && (
-                    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
-                        {request.file_path && (
-                            <div className="flex items-center gap-1.5 border-b border-zinc-200 bg-zinc-100/70 px-3 py-2">
-                                <FileCode size={12} className="shrink-0 text-zinc-500" />
-                                <span className="truncate font-mono text-[11px] text-zinc-700 font-medium">
-                                    {request.file_path}
-                                </span>
-                            </div>
-                        )}
-                        <pre className="goose-scrollbar max-h-64 overflow-y-auto whitespace-pre-wrap break-words p-3 font-mono text-[12px] leading-relaxed">
-                            {request.diff_content.split('\n').map((line, i) => {
-                                let lineClass = 'text-zinc-700';
-                                if (line.startsWith('+')) lineClass = 'text-emerald-600 font-medium';
-                                else if (line.startsWith('-')) lineClass = 'text-rose-600 font-medium';
-                                else if (line.startsWith('@')) lineClass = 'text-indigo-600 font-semibold';
-                                return (
-                                    <span key={i} className={lineClass}>
-                                        {line}{'\n'}
-                                    </span>
-                                );
-                            })}
-                        </pre>
-                    </div>
                 )}
             </div>
 
             {/* Actions */}
-            <div className="border-t border-zinc-200 px-4 py-3">
-                <div className="flex items-center justify-between gap-2">
+            <div className="border-t border-zinc-200 dark:border-zinc-800 px-4 py-3">
+                <div className="flex items-center justify-end gap-2">
                     <button
-                        onClick={handleApproveAlways}
-                        title="Aprobar este y todos los siguientes (A)"
-                        className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+                        onClick={() => onReject(request.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                     >
-                        <Zap size={13} />
-                        <span>Aceptar siempre (A)</span>
+                        <span>Reject</span>
+                        <span className="kbd-badge">Esc</span>
                     </button>
-
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => onReject(request.id)}
-                            title="Rechazar (Esc)"
-                            className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 cursor-pointer"
-                        >
-                            <X size={16} />
-                        </button>
-                        <button
-                            ref={approveRef}
-                            onClick={() => onApprove(request.id)}
-                            title="Aprobar (Enter)"
-                            className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm transition-colors hover:bg-indigo-500 cursor-pointer"
-                        >
-                            <Check size={16} />
-                        </button>
-                    </div>
+                    <button
+                        ref={approveRef}
+                        onClick={() => onApprove(request.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-xs font-medium hover:bg-zinc-800 dark:hover:bg-white transition-colors"
+                    >
+                        <span>Run</span>
+                        <span className="kbd-badge">Ctrl ↵</span>
+                    </button>
                 </div>
             </div>
         </aside>
     );
 };
+

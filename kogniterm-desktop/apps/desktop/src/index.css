@@ -444,6 +444,98 @@ body {
   }
 }
 
+/* OpenClaw / Claude Inspired Minimalist Theme Styles */
+.bg-topo-pattern {
+  background-color: #fbfbfb;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'%3E%3Cg fill='none' stroke='%23e4e4e7' stroke-width='1.1' opacity='0.65'%3E%3Cpath d='M-100,180 C150,80 300,280 500,160 C700,40 850,220 950,140'/%3E%3Cpath d='M-50,320 C200,200 350,380 550,260 C750,140 900,320 1000,220'/%3E%3Cpath d='M-120,460 C120,340 320,500 520,380 C720,260 880,440 980,340'/%3E%3Cpath d='M-80,600 C180,480 380,620 580,500 C780,380 920,560 1020,480'/%3E%3Cpath d='M-40,80 C220,10 400,120 600,40 C800,-40 940,100 1040,20'/%3E%3C/g%3E%3C/svg%3E");
+  background-attachment: fixed;
+  background-size: cover;
+}
+
+.dark .bg-topo-pattern {
+  background-color: #09090b;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'%3E%3Cg fill='none' stroke='%2327272a' stroke-width='1.1' opacity='0.4'%3E%3Cpath d='M-100,180 C150,80 300,280 500,160 C700,40 850,220 950,140'/%3E%3Cpath d='M-50,320 C200,200 350,380 550,260 C750,140 900,320 1000,220'/%3E%3Cpath d='M-120,460 C120,340 320,500 520,380 C720,260 880,440 980,340'/%3E%3Cpath d='M-80,600 C180,480 380,620 580,500 C780,380 920,560 1020,480'/%3E%3Cpath d='M-40,80 C220,10 400,120 600,40 C800,-40 940,100 1040,20'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* User Message Top Box */
+.user-msg-box {
+  width: 100%;
+  background-color: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(8px);
+  border: 1px solid #e4e4e7;
+  border-radius: 0.75rem;
+  padding: 0.85rem 1.15rem;
+  color: #18181b;
+  font-size: 0.935rem;
+  line-height: 1.55;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.dark .user-msg-box {
+  background-color: rgba(24, 24, 27, 0.75);
+  border-color: #27272a;
+  color: #f4f4f5;
+}
+
+/* Tool execution compact row matching OpenClaw design */
+.tool-run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: #52525b;
+  padding: 0.3rem 0;
+  width: 100%;
+}
+
+.dark .tool-run-row {
+  color: #a1a1aa;
+}
+
+.tool-run-badge {
+  display: inline-flex;
+  align-items: justify;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-sans);
+}
+
+.tool-run-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.25rem;
+  background-color: #52525b;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+/* Keyboard badge button styling */
+.kbd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background-color: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: inherit;
+  font-family: var(--font-mono);
+}
+
+.dark .kbd-badge {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
 /* Dark Mode Overrides */
 .dark body {
   background-color: #09090b;
