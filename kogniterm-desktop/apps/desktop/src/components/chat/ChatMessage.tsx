@@ -55,7 +55,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     const isUser = message.role === 'user';
     const isTool = message.role === 'tool';
     const isSystem = message.role === 'system';
-    const [isReasoningOpen, setIsReasoningOpen] = useState(true);
+    const [isReasoningOpen, setIsReasoningOpen] = useState(false);
     const [isToolOpen, setIsToolOpen] = useState(false);
 
     // Format timestamp
@@ -117,26 +117,34 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         );
     }
 
+    const reasoningRaw = typeof message.reasoning === 'string' ? message.reasoning : JSON.stringify(message.reasoning || '');
+    const reasoningSingleLine = reasoningRaw.replace(/[*#`_\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
+
     return (
-        <div className="flex w-full mb-5 justify-start animate-fade-in">
+        <div className="flex w-full mb-4 justify-start animate-fade-in">
             <div className="flex flex-col items-start w-full min-w-0">
                 
                 {/* Reasoning Block */}
                 {!isUser && message.reasoning && (
-                    <div className="w-full mb-1.5">
+                    <div className="w-full mb-1 max-w-full">
                         <button
                             onClick={() => setIsReasoningOpen(!isReasoningOpen)}
-                            className="flex items-center gap-1.5 mb-1 text-xs font-normal text-zinc-500 hover:text-zinc-700 transition-colors cursor-pointer select-none"
+                            className="flex items-center gap-2 mb-1 text-xs font-normal text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors cursor-pointer select-none max-w-full truncate"
                         >
                             <ChevronRight
                                 size={12}
-                                className={`transition-transform duration-300 text-zinc-400 ${isReasoningOpen ? 'rotate-90' : ''}`}
+                                className={`transition-transform duration-300 text-zinc-400 shrink-0 ${isReasoningOpen ? 'rotate-90' : ''}`}
                             />
                             <ThinkingSpinner compact text="Thinking" />
+                            {!isReasoningOpen && reasoningSingleLine && (
+                                <span className="truncate text-zinc-400 dark:text-zinc-500 italic text-[12px] font-normal min-w-0">
+                                    {reasoningSingleLine}
+                                </span>
+                            )}
                         </button>
 
                         {isReasoningOpen && (
-                            <div className="text-[13px] text-zinc-600 dark:text-zinc-400 leading-relaxed pl-3 border-l border-zinc-200 dark:border-zinc-800 my-1 markdown-content reasoning-text">
+                            <div className="text-[12.5px] text-zinc-600 dark:text-zinc-400 leading-relaxed pl-3 border-l border-zinc-200 dark:border-zinc-800 my-1 markdown-content reasoning-text">
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{
@@ -144,9 +152,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                         code({ node, inline, className, children, ...props }: any) {
                                             return renderCodeBlock(children, className, props);
                                         },
-                                        p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed text-zinc-500">{children}</p>,
-                                        ul: ({ children }) => <ul className="list-disc ml-5 mb-1.5 marker:text-zinc-400">{children}</ul>,
-                                        ol: ({ children }) => <ol className="list-decimal ml-5 mb-1.5 marker:text-zinc-400">{children}</ol>,
+                                        p: ({ children }) => <p className="mb-1 last:mb-0 leading-relaxed text-zinc-500">{children}</p>,
+                                        ul: ({ children }) => <ul className="list-disc ml-5 mb-1 marker:text-zinc-400">{children}</ul>,
+                                        ol: ({ children }) => <ol className="list-decimal ml-5 mb-1 marker:text-zinc-400">{children}</ol>,
                                         li: ({ children }) => <li className="mb-0.5">{children}</li>,
                                     }}
                                 >
