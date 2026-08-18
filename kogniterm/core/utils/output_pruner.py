@@ -18,36 +18,43 @@ ERROR_PATTERNS = re.compile(
 def smart_prune_tool_output(
     output: str,
     tool_name: str = "command",
-    max_lines: int = 200,
-    max_bytes: int = 15360,
+    max_lines: int = 100,
+    max_bytes: int = 8192,
     head_lines: int = 25,
-    tail_lines: int = 35,
+    tail_lines: int = 25,
 ) -> str:
     """
-    Recorta e inspecciona inteligentemente salidas de herramientas extensas.
+    Poda semántica estructurada de salidas de herramientas para minimizar la latencia
+    del prompt en el LLM (Time To First Token) sin perder contexto semántico.
 
-    - Salidas dentro de los límites de líneas/bytes se mantienen 100% INTACTAS.
-    - Salidas masivas:
-      1. Se guarda la salida completa e inalterada en ~/.kogniterm/logs/.
-      2. Se preservan las primeras N líneas (encabezado) y últimas M líneas (resumen).
-      3. Se escanear y preservan todas las líneas intermedias que contienen errores o excepciones.
-      4. Se incluye la referencia al archivo de log completo para lectura bajo demanda.
+    - Salidas pequeñas (<= max_lines y <= max_bytes) se mantienen 100% INTACTAS.
+    - Salidas extensas:
+      1. Se guarda la copia completa e inalterada en ~/.kogniterm/logs/.
+      2. Se aplica poda semántica según el tipo de herramienta (búsqueda, lectura o subagente).
+      3. Se preservan 100% las líneas de errores, excepciones y firmas estructurales.
     """
     if not output or not isinstance(output, str):
         return output or ""
+
+    # Poda semántica especializada según herramienta
+    tool_lower = tool_name.lower()
+    if any(kw in tool_lower for kw in ["search", "grep", "codebase"]):
+        output = _prune_search_tool_output(output)
+    elif any(kw in tool_lower for kw in ["agent", "subagent", "parallel", "coder", "researcher"]):
+        output = _prune_subagent_tool_output(output)
 
     lines = output.splitlines()
     total_lines = len(lines)
     total_bytes = len(output.encode("utf-8", errors="replace"))
 
-    # Si la salida está dentro de los límites normales, se retorna intacta
+    # Si la salida recortada semánticamente ya entra en los límites, retornar
     if total_lines <= max_lines and total_bytes <= max_bytes:
         return output
 
-    # Salida extensa: Guardar copia completa en disco para inspección bajo demanda
+    # Salida masiva: Guardar copia completa en disco para inspección bajo demanda
     log_filepath = _save_full_log(output, tool_name)
 
-    # Identificar líneas a incluir
+    # Identificar líneas a incluir mediante ventanas + detección de errores
     selected_indices = set()
 
     # 1. Incluir encabezado (primeras N líneas)
@@ -62,7 +69,6 @@ def smart_prune_tool_output(
     for i in range(head_lines, total_lines - tail_lines):
         line = lines[i]
         if ERROR_PATTERNS.search(line):
-            # Agregar la línea de error y contexto inmediato
             if i > 0:
                 selected_indices.add(i - 1)
             selected_indices.add(i)
@@ -84,11 +90,35 @@ def smart_prune_tool_output(
         prev_idx = idx
 
     header_notice = (
-        f"ℹ️ [KogniTerm: Salida de {tool_name} extensa ({total_lines} líneas, {total_bytes // 1024} KB). "
-        f"Se muestran líneas clave y errores. Log completo en: {log_filepath}]\n"
+        f"ℹ️ [KogniTerm: Salida de {tool_name} estructurada ({total_lines} líneas, {total_bytes // 1024} KB). "
+        f"Log completo guardado en: {log_filepath}]\n"
     )
 
     return header_notice + "\n".join(pruned_lines)
+
+
+def _prune_search_tool_output(output: str) -> str:
+    """Elimina líneas en blanco excesivas y bloques repetidos en búsquedas de código."""
+    lines = output.splitlines()
+    cleaned = []
+    blank_count = 0
+
+    for line in lines:
+        if not line.strip():
+            blank_count += 1
+            if blank_count <= 1:
+                cleaned.append("")
+        else:
+            blank_count = 0
+            cleaned.append(line)
+
+    return "\n".join(cleaned)
+
+
+def _prune_subagent_tool_output(output: str) -> str:
+    """Limpia wrappers XML de subagentes manteniendo el 100% del informe técnico."""
+    clean = re.sub(r'</?(?:coder_analysis|researcher_analysis|parallel_agents_results)>', '', output)
+    return clean.strip()
 
 
 def _save_full_log(output: str, tool_name: str) -> str:

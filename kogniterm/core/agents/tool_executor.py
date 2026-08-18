@@ -122,26 +122,34 @@ class ToolExecutor:
                 or any(kw in tool_name.lower() for kw in ["command", "bash", "terminal", "shell", "python_exec"])
             )
 
-            for part in llm_service._invoke_tool_with_interrupt(
+            res = llm_service._invoke_tool_with_interrupt(
                 tool, tool_args, delegation_context
-            ):
-                if part:
-                    full_tool_output += str(part)
-                    current_time = time.time()
-                    if (
-                        not is_tui
-                        and terminal_ui
-                        and (current_time - last_ui_update > ui_update_interval)
-                    ):
-                        if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
-                            terminal_ui.update_terminal_output(
-                                tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
-                            )
-                        elif is_terminal_tool and hasattr(terminal_ui, "update_tool_display"):
-                            terminal_ui.update_tool_display(
-                                tool_name, full_tool_output, command=command_hint
-                            )
-                        last_ui_update = current_time
+            )
+            if isinstance(res, str):
+                full_tool_output = res
+            elif isinstance(res, (dict, list)):
+                full_tool_output = json.dumps(res, ensure_ascii=False)
+            elif hasattr(res, "__iter__") and not isinstance(res, (bytes, bytearray)):
+                for part in res:
+                    if part:
+                        full_tool_output += str(part)
+                        current_time = time.time()
+                        if (
+                            not is_tui
+                            and terminal_ui
+                            and (current_time - last_ui_update > ui_update_interval)
+                        ):
+                            if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
+                                terminal_ui.update_terminal_output(
+                                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
+                                )
+                            elif is_terminal_tool and hasattr(terminal_ui, "update_tool_display"):
+                                terminal_ui.update_tool_display(
+                                    tool_name, full_tool_output, command=command_hint
+                                )
+                            last_ui_update = current_time
+            else:
+                full_tool_output = str(res) if res is not None else ""
 
             # Emitir actualización final para la UI (solo para herramientas de terminal/comando)
             if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):

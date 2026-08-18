@@ -28,6 +28,8 @@ from kogniterm.terminal.config_manager import ConfigManager
 from .multi_provider_manager import get_provider_manager, MultiProviderManager
 from .utils.tool_utils import normalize_tool_parameters_schema, sanitize_tool_name
 
+_TOOL_SIG_CACHE = {}
+
 def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
     args_schema = {"type": "object", "properties": {}}
@@ -764,6 +766,8 @@ class LLMService:
     def _to_litellm_message(self, message: BaseMessage, id_map: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Convierte un mensaje de LangChain a un formato compatible con LiteLLM, con soporte para mapeo de IDs."""
         is_mistral = "mistral" in self.model_name.lower()
+        if not is_mistral and hasattr(message, "_cached_litellm_msg") and message._cached_litellm_msg:
+            return message._cached_litellm_msg.copy()
         
         def get_compliant_id(original_id):
             if not is_mistral:
@@ -785,18 +789,20 @@ class LLMService:
             # Fallback: generar uno nuevo si no hay mapa
             return self._generate_short_id()
 
+        result_msg = None
         if isinstance(message, HumanMessage):
             content = message.content
             if isinstance(content, list):
-                return {"role": "user", "content": content}
+                result_msg = {"role": "user", "content": content}
             elif not isinstance(content, str):
                 content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-            return {"role": "user", "content": content}
+                result_msg = {"role": "user", "content": content}
+            else:
+                result_msg = {"role": "user", "content": content}
         elif isinstance(message, AIMessage):
             tool_calls = getattr(message, 'tool_calls', [])
             content = message.content
             if not isinstance(content, str):
-                # Handle cases where content is a list/dict of objects (e.g. from a tool call or reasoning)
                 content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
 
             msg = {"role": "assistant", "content": content or "..."}
@@ -837,7 +843,7 @@ class LLMService:
                 
                 msg["tool_calls"] = serialized_tool_calls
             
-            return msg
+            result_msg = msg
         elif isinstance(message, ToolMessage):
             content = message.content
             # ASEGURAR SIEMPRE QUE EL CONTENIDO SEA STRING PARA EL LLM
@@ -854,18 +860,23 @@ class LLMService:
             tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
             if name:
                 tool_msg["name"] = name
-            return tool_msg
+            result_msg = tool_msg
         elif isinstance(message, SystemMessage):
             content = message.content
             if not isinstance(content, str):
                 content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-            return {"role": "system", "content": content}
-        
-        # Fallback para cualquier otro tipo de mensaje
-        content = getattr(message, 'content', str(message))
-        if not isinstance(content, str):
-            content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-        return {"role": "user", "content": content}
+            result_msg = {"role": "system", "content": content}
+        else:
+            content = getattr(message, 'content', str(message))
+            if not isinstance(content, str):
+                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+            result_msg = {"role": "user", "content": content}
+
+        try:
+            message._cached_litellm_msg = result_msg
+        except Exception:
+            pass
+        return result_msg
 
     def _truncate_messages(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         # Implementación de truncamiento de mensajes
@@ -903,8 +914,16 @@ class LLMService:
         return total_tokens
 
     def _save_history(self, history: List[BaseMessage]):
-        """Método de compatibilidad que delega al history_manager."""
-        self.history_manager._save_history(history)
+        """Método de compatibilidad no bloqueante que delega al history_manager en segundo plano."""
+        try:
+            import threading
+            threading.Thread(
+                target=self.history_manager._save_history,
+                args=(list(history),),
+                daemon=True
+            ).start()
+        except Exception:
+            self.history_manager._save_history(history)
 
     def _load_history(self) -> List[BaseMessage]:
         """Método de compatibilidad que delega al history_manager."""
@@ -2769,13 +2788,17 @@ Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero con
                     if hasattr(tool, 'run') and callable(getattr(tool, 'run')):
                         target_func = tool.run
                     
-                    import inspect
-                    try:
-                        sig = inspect.signature(target_func)
-                    except Exception:
-                        sig = None
+                    sig = _TOOL_SIG_CACHE.get(target_func)
+                    if sig is None:
+                        import inspect
+                        try:
+                            sig = inspect.signature(target_func)
+                            _TOOL_SIG_CACHE[target_func] = sig
+                        except Exception:
+                            sig = False
+                            _TOOL_SIG_CACHE[target_func] = False
 
-                    if sig:
+                    if sig and sig is not False:
                         if 'llm_service' in sig.parameters and ('llm_service' not in injected_args or injected_args['llm_service'] is None):
                             injected_args['llm_service'] = self
                         if 'terminal_ui' in sig.parameters and ('terminal_ui' not in injected_args or injected_args['terminal_ui'] is None):
