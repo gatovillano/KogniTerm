@@ -261,13 +261,11 @@ class HistoryManager:
     def _get_message_length(self, message: BaseMessage) -> int:
         """
         Calcula la longitud de un mensaje en tokens usando el tokenizador del modelo.
-        
-        Args:
-            message: Mensaje en formato LangChain
-            
-        Returns:
-            Longitud del mensaje en tokens
         """
+        cached_len = getattr(message, "_cached_token_len", None)
+        if cached_len is not None:
+            return cached_len
+
         msg_hash = self._get_message_hash(message)
         if msg_hash not in self._message_length_cache:
             try:
@@ -284,7 +282,13 @@ class HistoryManager:
                 msg_litellm = self._to_litellm_message_for_len_calc(message)
                 text = json.dumps(msg_litellm, ensure_ascii=False)
                 self._message_length_cache[msg_hash] = max(1, int(len(text) / 3.5))
-        return self._message_length_cache[msg_hash]
+
+        calc_len = self._message_length_cache[msg_hash]
+        try:
+            message._cached_token_len = calc_len
+        except Exception:
+            pass
+        return calc_len
 
     def _load_history(self) -> List[BaseMessage]:
         """Carga el historial desde el archivo JSON."""
