@@ -16,8 +16,8 @@ def test_truncate_with_large_tool_message():
     """Verifica que _truncate_history proteja los pares AIMessage-ToolMessage."""
     
     # Crear instancias
-    llm_service = LLMService(workspace_id="test_workspace")
-    history_manager = HistoryManager(workspace_id="test_workspace")
+    llm_service = LLMService()
+    history_manager = HistoryManager(history_file_path="/tmp/test_history.json")
     
     # Limpiar historial
     history_manager.conversation_history = []
