@@ -2531,14 +2531,19 @@ class LLMService:
             
             recent_messages_text.append(f"### {role}:\n{content}")
 
+        initial_user_prompt = ""
+        for msg in history_source:
+            if isinstance(msg, HumanMessage) and msg.content:
+                initial_user_prompt = str(msg.content)
+                break
+
         flat_history = "\n\n".join(recent_messages_text)
         
         # Prevenir errores de contexto excedido en el modelo de resumen.
-        # Aumentamos a 100,000 chars ya que los modelos modernos tienen contextos grandes y
-        # así evitamos perder mensajes intermedios en conversaciones largas.
         max_history_chars = 100000
         if len(flat_history) > max_history_chars:
-            flat_history = "... [Mensajes intermedios antiguos truncados para resumen] ...\n\n" + flat_history[-max_history_chars:]
+            prefix_goal = f"🎯 PROMPT / OBJETIVO INICIAL DEL USUARIO:\n{initial_user_prompt[:2000]}\n\n" if initial_user_prompt else ""
+            flat_history = prefix_goal + "... [Mensajes intermedios antiguos truncados para resumen] ...\n\n" + flat_history[-max_history_chars:]
 
         merged_previous_summary = "\n\n---\n\n".join(previous_summaries) if previous_summaries else ""
 
@@ -2546,6 +2551,9 @@ class LLMService:
         if merged_previous_summary:
             summarize_prompt = f"""Genera un nuevo resumen consolidado, EXTENSO y DETALLADO de toda la conversación anterior, integrando el resumen del pasado lejano con los nuevos eventos recientes.
             
+OBJETIVO INICIAL REGISTRADO:
+{initial_user_prompt[:2000] if initial_user_prompt else "No especificado"}
+
 RESUMEN DE LA CONVERSACIÓN ANTERIOR (PASADO LEJANO):
 {merged_previous_summary}
 
@@ -2553,31 +2561,34 @@ NUEVOS EVENTOS RECIENTES A INCORPORAR:
 {flat_history}
 
 INSTRUCCIONES PARA EL NUEVO RESUMEN CONSOLIDADO:
-- **Mantener y expandir:** Integra la información del 'RESUMEN DE LA CONVERSACIÓN ANTERIOR' con los 'NUEVOS EVENTOS RECIENTES'. NO pierdas datos clave del pasado lejano (objetivos iniciales, decisiones tomadas, estado del proyecto, etc.).
-- **Estado actual:** ¿En qué punto nos encontramos ahora al final de estos nuevos eventos?
-- **Decisiones consolidadas:** Lista todas las decisiones importantes tomadas desde el inicio de la conversación hasta ahora.
-- **Tareas pendientes:** ¿Qué acciones están en progreso o planeadas para el futuro?
+- **Estructura obligatoria**:
+  1. 🎯 OBJETIVO Y TAREA PRINCIPAL INICIAL DEL USUARIO
+  2. ✅ ACCIONES Y HERRAMIENTAS EJECUTADAS (Archivos creados/modificados, comandos ejecutados)
+  3. 📌 ESTADO ACTUAL Y SIGUIENTES PASOS
+- **Mantener y expandir:** Integra la información del 'RESUMEN DE LA CONVERSACIÓN ANTERIOR' con los 'NUEVOS EVENTOS RECIENTES'. NO pierdas el objetivo inicial ni decisiones tomadas.
 - **Errores y soluciones:** Problemas relevantes encontrados y cómo se resolvieron.
-- **Contexto esencial:** Datos críticos de todo el transcurso de la sesión que el asistente necesita para continuar.
 
 IMPORTANTE: El resumen resultante debe ser sumamente completo y autónomo. Un nuevo asistente debe poder leer este único resumen y continuar trabajando perfectamente como si hubiera estado presente desde el inicio de la sesión.
-Limita el resumen consolidado a 5000 caracteres. Sé exhaustivo en los puntos clave pero conciso en los detalles menores."""
+Limita el resumen consolidado a 5000 caracteres."""
         else:
-            summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior que permita retomar el hilo sin perder contexto.
+            summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior que permita retomar el hilo sin perder contexto ni el objetivo original.
             
+OBJETIVO INICIAL REGISTRADO:
+{initial_user_prompt[:2000] if initial_user_prompt else "No especificado"}
+
 CONTEXTO DE LA CONVERSACIÓN:
 {flat_history}
 
 INSTRUCCIONES PARA EL RESUMEN:
-- **Estado actual de la conversación:** ¿En qué punto estábamos? ¿Qué tarea o tema se estaba discutiendo?
+- **Estructura obligatoria**:
+  1. 🎯 OBJETIVO Y TAREA PRINCIPAL INICIAL DEL USUARIO
+  2. ✅ ACCIONES Y HERRAMIENTAS EJECUTADAS (Archivos creados/modificados, comandos ejecutados)
+  3. 📌 ESTADO ACTUAL Y SIGUIENTES PASOS
 - **Decisiones tomadas:** ¿Qué decisiones se han tomado hasta ahora?
-- **Tareas pendientes:** ¿Qué acciones estaban en progreso o planeadas?
 - **Errores y problemas:** Cualquier error de herramienta, fallo o problema encontrado, y las acciones tomadas para resolverlos.
-- **Contexto esencial:** Información crítica que el asistente necesita recordar para continuar coherentemente.
-- **Hilo de la conversación:** El flujo lógico de la discusión para no perder la continuidad.
 
-IMPORTANTE: El resumen debe ser lo suficientemente detallado para que un asistente pueda retomar la conversación exactamente donde se dejó, sin hacer preguntas innecesarias sobre el pasado reciente.
-Limita el resumen a 5000 caracteres. Sé exhaustivo en los puntos clave pero conciso en los detalles menores."""
+IMPORTANTE: El resumen debe ser lo suficientemente detallado para que un asistente pueda retomar la conversación exactamente donde se dejó.
+Limita el resumen a 5000 caracteres."""
 
         litellm_messages_for_summary = [{"role": "user", "content": summarize_prompt}]
         

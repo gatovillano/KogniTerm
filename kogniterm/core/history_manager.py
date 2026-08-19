@@ -665,10 +665,18 @@ class HistoryManager:
             
         total_length = sum(get_unit_length(u) for u in message_units)
         
+        # Identificar si la primera unidad representa el objetivo/prompt inicial del usuario
+        has_pinned_initial_unit = (
+            len(message_units) > 1
+            and len(message_units[0]) > 0
+            and isinstance(message_units[0][0], (HumanMessage, SystemMessage))
+        )
+
         # PASO B: Eliminar mensajes antiguos si exceden la cantidad máxima de mensajes
         while len(message_units) > max_messages:
             if len(message_units) > self.MIN_MESSAGES_TO_KEEP:
-                removed_unit = message_units.pop(0)
+                pop_idx = 1 if (has_pinned_initial_unit and len(message_units) > 2) else 0
+                removed_unit = message_units.pop(pop_idx)
                 total_length -= get_unit_length(removed_unit)
             else:
                 break
@@ -676,7 +684,8 @@ class HistoryManager:
         # PASO C: Eliminar mensajes antiguos si el total de tokens aún excede el límite
         if total_length > max_tokens:
             while total_length > max_tokens and len(message_units) > 1:
-                removed_unit = message_units.pop(0)
+                pop_idx = 1 if (has_pinned_initial_unit and len(message_units) > 2) else 0
+                removed_unit = message_units.pop(pop_idx)
                 total_length -= get_unit_length(removed_unit)
             
         final_conversational_messages = []
@@ -787,11 +796,22 @@ class HistoryManager:
                 console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento estándar.[/red]")
             return history
             
-        summary_message = SystemMessage(content=f"Resumen de la conversación anterior: {summary}")
-        new_history = [summary_message] + messages_to_keep
+        # Preservar el prompt u objetivo inicial del usuario si existe
+        initial_user_msg = None
+        for m in history:
+            if isinstance(m, HumanMessage):
+                initial_user_msg = m
+                break
+
+        summary_message = SystemMessage(content=f"🎯 RESUMEN DE LA CONVERSACIÓN Y ACCIONES ANTERIORES:\n{summary}")
+        
+        if initial_user_msg and initial_user_msg not in messages_to_keep:
+            new_history = [initial_user_msg, summary_message] + messages_to_keep
+        else:
+            new_history = [summary_message] + messages_to_keep
         
         if console:
-            console.print(f"[green]Historial resumido. {len(messages_to_summarize)} mensajes condensados en un resumen.[/green]")
+            console.print(f"[green]Historial resumido. {len(messages_to_summarize)} mensajes condensados en un resumen manteniendo el objetivo inicial.[/green]")
         return new_history
 
     def get_processed_history_for_llm(self, 
