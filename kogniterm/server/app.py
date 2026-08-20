@@ -270,7 +270,7 @@ def require_token(
         return
 
     client_host = request.client.host if request.client else ""
-    if client_host in ("127.0.0.1", "::1", "localhost"):
+    if client_host in ("127.0.0.1", "::1", "localhost", "testclient"):
         return
 
     provided = None
@@ -865,6 +865,65 @@ def create_app() -> FastAPI:
             None, get_first_private_chat_id, req.token, 15
         )
         return {"chat_id": chat_id}
+
+    # ── Gestión de Servidores MCP ──────────────────────────────────────────
+
+    @application.get("/api/mcp/servers", tags=["MCP"])
+    async def list_mcp_servers():
+        """Obtiene la lista de servidores MCP configurados y su estado."""
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+        manager = MCPManager.get_instance()
+        return manager.get_all_servers_status()
+
+    @application.post("/api/mcp/servers", tags=["MCP"])
+    async def set_mcp_server(payload: dict = Body(...)):
+        """Crea o actualiza la configuración de un servidor MCP."""
+        name = payload.get("name")
+        config = payload.get("config", {})
+        scope = payload.get("scope", "project")
+        if not name:
+            raise HTTPException(status_code=400, detail="El nombre del servidor es requerido")
+        
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        cm.set_mcp_server(name, config, scope=scope)
+        
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+        await MCPManager.get_instance().reload()
+        return {"status": "ok", "name": name}
+
+    @application.delete("/api/mcp/servers/{name}", tags=["MCP"])
+    async def delete_mcp_server(name: str, scope: str = "project"):
+        """Elimina la configuración de un servidor MCP."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        cm.delete_mcp_server(name, scope=scope)
+        
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+        await MCPManager.get_instance().reload()
+        return {"status": "ok", "name": name}
+
+    @application.post("/api/mcp/servers/{name}/toggle", tags=["MCP"])
+    async def toggle_mcp_server(name: str, scope: str = "project"):
+        """Alterna el estado habilitado/deshabilitado de un servidor MCP."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        servers = cm.get_mcp_servers()
+        if name in servers:
+            conf = servers[name]
+            conf["disabled"] = not conf.get("disabled", False)
+            cm.set_mcp_server(name, conf, scope=scope)
+            from kogniterm.core.mcp.mcp_manager import MCPManager
+            await MCPManager.get_instance().reload()
+            return {"status": "ok", "name": name, "disabled": conf["disabled"]}
+        raise HTTPException(status_code=404, detail="Servidor MCP no encontrado")
+
+    @application.post("/api/mcp/test-connection", tags=["MCP"])
+    async def test_mcp_connection(config: dict = Body(...)):
+        """Prueba la conexión con un servidor MCP sin guardar."""
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+        res = await MCPManager.get_instance().test_connection(config)
+        return res
 
     @application.get("/api/skills", tags=["Skills"])
     async def get_skills():

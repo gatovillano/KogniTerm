@@ -113,3 +113,31 @@ class ConfigManager:
             self.set_global_config(key_name, key)
         else:
             self.set_project_config(key_name, key)
+
+    def get_mcp_servers(self) -> Dict[str, Any]:
+        """Obtiene la configuración de servidores MCP combinando global y proyecto."""
+        merged = self.get_all_config()
+        return merged.get("mcpServers", {})
+
+    def set_mcp_server(self, name: str, server_config: Dict[str, Any], scope: str = "project"):
+        """Guarda o actualiza la configuración de un servidor MCP."""
+        key = "mcpServers"
+        current_config = self.load_global_config() if scope == "global" else self.load_project_config()
+        mcp_servers = current_config.get(key, {})
+        mcp_servers[name] = server_config
+        if scope == "global":
+            self.set_global_config(key, mcp_servers)
+        else:
+            self.set_project_config(key, mcp_servers)
+
+    def delete_mcp_server(self, name: str, scope: str = "project"):
+        """Elimina un servidor MCP de la configuración."""
+        key = "mcpServers"
+        current_config = self.load_global_config() if scope == "global" else self.load_project_config()
+        mcp_servers = current_config.get(key, {})
+        if name in mcp_servers:
+            del mcp_servers[name]
+            if scope == "global":
+                self.set_global_config(key, mcp_servers)
+            else:
+                self.set_project_config(key, mcp_servers)
