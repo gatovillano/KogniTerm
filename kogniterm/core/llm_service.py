@@ -1316,6 +1316,25 @@ class LLMService:
         if messages_to_process is None:
             messages_to_process = []
 
+        # Para subagentes autónomos activos, si el último mensaje es un AIMessage sin tool_calls y sin haber llamado complete_task,
+        # inyectar un aviso para forzar el uso de herramientas de trabajo o la llamada a complete_task.
+        if ctx and not getattr(ctx, "metadata", {}).get("completed") and messages_to_process:
+            last_msg = messages_to_process[-1]
+            if isinstance(last_msg, AIMessage) and not getattr(last_msg, "tool_calls", None):
+                from langchain_core.messages import HumanMessage
+                recent_nudges = sum(
+                    1 for m in messages_to_process[-6:]
+                    if isinstance(m, HumanMessage) and "[SISTEMA DE SUBAGENTE AUTÓNOMO]" in str(m.content)
+                )
+                if recent_nudges < 3:
+                    nudge = HumanMessage(
+                        content="[SISTEMA DE SUBAGENTE AUTÓNOMO]: Estás en medio de la ejecución de tu tarea. "
+                                "No te detengas ni envíes solo comentarios de estado en texto. "
+                                "DEBES continuar ejecutando las herramientas de trabajo necesarias (`execute_command`, skills, etc.) para realizar tu análisis. "
+                                "Cuando hayas finalizado COMPLETAMENTE todo el trabajo, DEBES invocar la herramienta `complete_task(result=...)`."
+                    )
+                    messages_to_process = list(messages_to_process) + [nudge]
+
         # 2. Procesar historial usando HistoryManager (truncamiento adaptativo según modelo activo)
         model_context_window = self.get_model_context_window(self.model_name)
         reserved_tokens = 8192 + 40000  # 8192 para completion max_tokens + reserva para prompt/tools
@@ -2800,6 +2819,14 @@ Limita el resumen a 5000 caracteres."""
                 confirm_param_names = ['confirm', 'auto_confirm', 'auto_approve', 'confirmed', 'bypass_confirmation']
                 
                 if isinstance(injected_args, dict):
+                    # Normalización de alias de parámetros para execute_command y herramientas de consola
+                    tool_name_attr = getattr(tool, 'name', '') or getattr(tool, '__name__', '')
+                    if 'command' not in injected_args or not injected_args.get('command'):
+                        for alias in ['cmd', 'command_line', 'cmd_line', 'script', 'args', 'code', 'command_str']:
+                            if alias in injected_args and injected_args[alias]:
+                                injected_args['command'] = injected_args.pop(alias)
+                                break
+
                     # Extraer la función subyacente real (incluso en LangChain StructuredTool)
                     target_func = getattr(tool, 'func', tool)
                     if hasattr(tool, 'run') and callable(getattr(tool, 'run')):
