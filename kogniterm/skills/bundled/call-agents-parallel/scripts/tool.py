@@ -510,16 +510,16 @@ def call_agents_parallel(
                 "---\n"
                 "⚠️ **REGLAS CRÍTICAS DE SUB-AGENTE AUTÓNOMO** ⚠️\n"
                 "1. **NO INTERACTÚAS CON EL USUARIO**: Tu único receptor es el Orquestador Principal. NUNCA hagas preguntas al usuario ni le ofrezcas guardar archivos 'si lo desea'. Toma decisiones y ejecuta todas las herramientas necesarias de forma autónoma.\n"
-                "2. **task_tracker**: Tu PRIMERA acción DEBE ser inicializar `task_tracker(action='init', agent_name='{name}', plan=[...])` y actualizar su estado.\n"
-                "3. 🏁 **FINALIZACIÓN COMPLETA CON `complete_task`**: Cuando completes la tarea, DEBES invocar la herramienta `complete_task(result=...)`.\n"
-                "   **REGLA DE ENTREGABLE**: El argumento `result` DEBE contener el INFORME TÉCNICO COMPLETO, EXHAUSTIVO Y DETALLADO de tu trabajo (código completo, hallazgos, análisis de archivos, etc.). NUNCA envíes frases breves, ni digas 'el informe ya fue entregado', ni omitas información."
+                "2. **task_tracker Y CONTINUIDAD**: Inicializa y actualiza `task_tracker`. IMPORTANTE: Actualizar una tarea a 'in-progress' es solo un registro interno; NO te detengas ahí ni respondas sólo con la confirmación. Inmediatamente ejecuta las herramientas de trabajo (`execute_command`, skills, etc.).\n"
+                "3. 🏁 **FINALIZACIÓN COMPLETA CON `complete_task`**: Tu tarea NO ha terminado hasta haber ejecutado las herramientas necesarias y finalmente invocar la herramienta `complete_task(result=...)`.\n"
+                "   **REGLA DE ENTREGABLE**: El argumento `result` DEBE contener el INFORME TÉCNICO COMPLETO, EXHAUSTIVO Y DETALLADO de tu trabajo (código completo, hallazgos, análisis de archivos, etc.). NUNCA envíes frases breves ni omitas información."
             )
 
             # Inyectar instrucciones de complete_task en el prompt del sistema si existe
             if system_prompt:
                 system_prompt = (
                     f"{system_prompt}\n\n"
-                    "🏁 **IMPORTANTE**: Eres un subagente autónomo. Entrega SIEMPRE tu informe técnico completo y detallado dentro del parámetro `result` de la herramienta `complete_task`."
+                    "🏁 **IMPORTANTE**: Eres un subagente autónomo. No te detengas al actualizar el plan de tareas; ejecuta tus herramientas hasta completar el análisis y entrega SIEMPRE tu informe técnico completo dentro del parámetro `result` de la herramienta `complete_task`."
                 )
 
             agent_graph = _build_agent_graph(
