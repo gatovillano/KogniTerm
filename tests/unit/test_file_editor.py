@@ -408,6 +408,20 @@ class TestBatchEdit:
         with open(batch_file) as f:
             assert f.read() == "line1\nline2\nline3\nline4\nline5\n"
 
+    def test_get_transaction(self, batch_file):
+        tx = _transaction_manager.create_transaction(batch_file, [{"action": "noop"}])
+        retrieved_tx = _transaction_manager.get_transaction(tx.transaction_id)
+        assert retrieved_tx is not None
+        assert retrieved_tx.transaction_id == tx.transaction_id
+        assert _transaction_manager.get_transaction("non_existent_tx") is None
+
+    def test_batch_edit_with_existing_transaction_id(self, batch_file):
+        ops = [{"action": "replace_block", "target_content": "line1", "replacement_content": "modified1"}]
+        tx = _transaction_manager.create_transaction(batch_file, ops)
+        result = batch_edit(path=batch_file, operations=ops, confirm=True, transaction_id=tx.transaction_id)
+        assert "error" not in result
+        assert result["transaction_id"] == tx.transaction_id
+
 
 # ---------------------------------------------------------------------------
 # read_file_tool

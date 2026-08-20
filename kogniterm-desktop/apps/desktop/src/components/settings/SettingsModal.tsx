@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Save, Cpu, CheckCircle, AlertCircle, 
   Trash2, Plus, Globe, Folder, Settings, MessageSquare, 
-  Send, Eye, EyeOff, Loader2, Sparkles, Palette, Sun, Moon, Monitor 
+  Send, Eye, EyeOff, Loader2, Sparkles, Palette, Sun, Moon, Monitor, Server 
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import { McpTab } from './McpTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -26,7 +27,7 @@ interface ProviderModel {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const { theme, setTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<'llm' | 'advanced' | 'instructions' | 'telegram' | 'appearance'>('llm');
+  const [activeTab, setActiveTab] = useState<'llm' | 'mcp' | 'advanced' | 'instructions' | 'telegram' | 'appearance'>('llm');
   const [activeScope, setActiveScope] = useState<'global' | 'project'>('project');
   
   // Config loaded from backend
@@ -378,6 +379,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           <aside className="w-[210px] border-r border-slate-100 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-900/60 flex flex-col p-3 gap-1.5 shrink-0">
             {[
               { id: 'llm', name: 'Modelos y Llaves', icon: Cpu },
+              { id: 'mcp', name: 'Servidores MCP', icon: Server },
               { id: 'advanced', name: 'Ajustes Avanzados', icon: Settings },
               { id: 'instructions', name: 'Instrucciones', icon: MessageSquare },
               { id: 'telegram', name: 'Bot de Telegram', icon: Send },
@@ -404,6 +406,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {/* Main Panel Pane */}
           <main className="flex-1 overflow-y-auto goose-scrollbar p-6">
             
+            {/* MCP Servers Tab */}
+            {activeTab === 'mcp' && <McpTab />}
+
             {/* LLM Models and Keys Tab */}
             {activeTab === 'llm' && (
               <div className="space-y-6 animate-fade-in">

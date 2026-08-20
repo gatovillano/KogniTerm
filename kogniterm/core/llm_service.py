@@ -930,7 +930,13 @@ class LLMService:
         return self.history_manager._load_history()
 
     def get_tools(self) -> List[BaseTool]:
-        return self.skill_manager.get_tools()
+        mcp_tools = []
+        try:
+            from .mcp.mcp_manager import MCPManager
+            mcp_tools = MCPManager.get_instance().active_tools
+        except Exception:
+            pass
+        return self.skill_manager.get_tools() + mcp_tools
 
     def register_tool(self, tool_instance: BaseTool):
         """Registra una herramienta dinámicamente y actualiza las estructuras internas."""

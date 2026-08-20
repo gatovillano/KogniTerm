@@ -167,6 +167,10 @@ class TransactionManager:
         )
         return transaction
 
+    def get_transaction(self, transaction_id: str) -> Optional[Transaction]:
+        """Obtiene una transaccion por su ID."""
+        return self.transactions.get(transaction_id)
+
     def rollback_transaction(self, transaction_id: str) -> bool:
         """Revierte el archivo al estado pre-batch."""
         transaction = self.transactions.get(transaction_id)
