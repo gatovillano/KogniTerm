@@ -1321,7 +1321,6 @@ class LLMService:
         if ctx and not getattr(ctx, "metadata", {}).get("completed") and messages_to_process:
             last_msg = messages_to_process[-1]
             if isinstance(last_msg, AIMessage) and not getattr(last_msg, "tool_calls", None):
-                from langchain_core.messages import HumanMessage
                 recent_nudges = sum(
                     1 for m in messages_to_process[-6:]
                     if isinstance(m, HumanMessage) and "[SISTEMA DE SUBAGENTE AUTÓNOMO]" in str(m.content)

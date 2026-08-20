@@ -199,3 +199,96 @@ def test_call_agents_parallel_result_extraction():
         
         # Debe contener el resultado formal del agente extraído del metadato
         assert "Resultado exitoso del agente paralelo" in res
+
+
+def test_execute_command_parameter_alias_normalization():
+    """
+    Verifica que _invoke_tool_with_interrupt mapea automáticamente alias como 'cmd',
+    'command_line', 'script', 'args' a 'command' cuando 'command' no está presente.
+    """
+    import threading
+    from kogniterm.core.llm_service import LLMService
+    
+    # Función real para evitar interferencia de los atributos mágicos de MagicMock
+    def dummy_execute_command(command: str, timeout: int = 30, **kwargs):
+        return f"Ejecutado: {command}"
+    
+    dummy_execute_command.name = "execute_command"
+    
+    llm_service = MagicMock(spec=LLMService)
+    llm_service.tool_executor = MagicMock()
+    llm_service.tool_execution_lock = threading.Lock()
+    
+    def submit_side_effect(func, *args, **kwargs):
+        res = func()
+        fut = MagicMock()
+        fut.result.return_value = res
+        return fut
+
+    llm_service.tool_executor.submit.side_effect = submit_side_effect
+    
+    # Probar alias 'cmd'
+    gen = LLMService._invoke_tool_with_interrupt(llm_service, tool=dummy_execute_command, tool_args={"cmd": "docker ps"})
+    res = list(gen)
+    assert any("Ejecutado: docker ps" in str(r) for r in res)
+
+    # Probar alias 'command_line'
+    gen = LLMService._invoke_tool_with_interrupt(llm_service, tool=dummy_execute_command, tool_args={"command_line": "git status"})
+    res = list(gen)
+    assert any("Ejecutado: git status" in str(r) for r in res)
+
+
+def test_autonomous_subagent_nudge_injection():
+    """
+    Verifica que _invoke_inner inyecta un mensaje de aviso cuando un subagente autónomo
+    activo emite un AIMessage sin tool_calls y sin haber completado la tarea.
+    """
+    import threading
+    from kogniterm.core.llm_service import LLMService
+    from kogniterm.core.delegation import DelegationContext
+    
+    ctx = DelegationContext(
+        agent_id="subagent_123",
+        parent_id="orchestrator",
+        role=AgentRole.LEAF,
+        depth=1
+    )
+    
+    llm_service = MagicMock(spec=LLMService)
+    llm_service.current_delegation_context = ctx
+    llm_service.model_name = "gemini-1.5-flash"
+    llm_service.get_model_context_window = MagicMock(return_value=128000)
+    llm_service.tool_execution_lock = threading.Lock()
+    llm_service.max_history_messages = 50
+    llm_service.console = None
+    
+    # Simular historial donde el último mensaje es AIMessage sin tool_calls
+    history = [
+        HumanMessage(content="Analizar contenedores"),
+        AIMessage(content="✅ Tarea 0 actualizada: pending → in-progress.")
+    ]
+    
+    processed_history = []
+    def mock_get_processed_history(*args, **kwargs):
+        h = kwargs.get("history") or []
+        processed_history.extend(h)
+        return h
+        
+    llm_service.history_manager = MagicMock()
+    llm_service.history_manager.get_processed_history_for_llm.side_effect = mock_get_processed_history
+    
+    def mock_invoke_inner(history=None, **kwargs):
+        return LLMService._invoke_inner(llm_service, history=history, **kwargs)
+
+    try:
+        list(mock_invoke_inner(history=history))
+    except Exception:
+        pass
+
+    # El último mensaje enviado al history_manager debe ser el Nudge de sistema
+    assert len(processed_history) == 3
+    assert isinstance(processed_history[-1], HumanMessage)
+    assert "[SISTEMA DE SUBAGENTE AUTÓNOMO]" in processed_history[-1].content
+
+
+
