@@ -45,30 +45,36 @@ class MCPManager:
 
     async def _load_server_tools(self, name: str, config_dict: Dict[str, Any]) -> List[Any]:
         """Carga las herramientas de un servidor MCP por stdio o sse."""
-        try:
-            from langchain_mcp_adapters.tools import load_mcp_tools
-            from mcp import ClientSession, StdioServerParameters
-            from mcp.client.stdio import stdio_client
-            
-            transport = config_dict.get("transport", "stdio")
-            if transport == "stdio":
-                cmd = config_dict.get("command")
-                if not cmd:
-                    return []
-                server_params = StdioServerParameters(
-                    command=cmd,
-                    args=config_dict.get("args", []),
-                    env=config_dict.get("env", None)
-                )
-                async with stdio_client(server_params) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        tools = await load_mcp_tools(session)
-                        return tools
-            return []
-        except Exception as e:
-            logger.warning(f"No se pudieron cargar herramientas nativas MCP para {name}: {e}")
-            return []
+        from langchain_mcp_adapters.tools import load_mcp_tools
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+        
+        transport = config_dict.get("transport", "stdio")
+        if transport == "stdio":
+            cmd = config_dict.get("command")
+            if not cmd:
+                raise ValueError("Comando principal no especificado")
+            server_params = StdioServerParameters(
+                command=cmd,
+                args=config_dict.get("args", []),
+                env=config_dict.get("env", None)
+            )
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools = await load_mcp_tools(session)
+                    return tools
+        elif transport == "sse":
+            url = config_dict.get("url")
+            if not url:
+                raise ValueError("URL de SSE no especificada")
+            from mcp.client.sse import sse_client
+            async with sse_client(url) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    tools = await load_mcp_tools(session)
+                    return tools
+        return []
 
     async def test_connection(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Prueba la conexión con un servidor MCP sin guardar la configuración."""

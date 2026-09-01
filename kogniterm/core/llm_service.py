@@ -323,8 +323,8 @@ class LLMService:
         if configured_reasoning_effort:
             self.generation_params["reasoning_effort"] = configured_reasoning_effort
         # Configurable timeouts (env vars)
-        # KOGNITERM_AGENT_POLL_MS: poll interval (ms) used when waiting on tool futures (default 100 ms)
-        self.tool_poll_timeout = float(os.getenv("KOGNITERM_AGENT_POLL_MS", "100")) / 1000.0
+        # KOGNITERM_AGENT_POLL_MS: poll interval (ms) used when waiting on tool futures (default 20 ms)
+        self.tool_poll_timeout = float(os.getenv("KOGNITERM_AGENT_POLL_MS", "20")) / 1000.0
         # KOGNITERM_API_TIMEOUT_S: timeout for LLM/API calls in seconds (default 120 s)
         self.api_timeout_seconds = float(os.getenv("KOGNITERM_API_TIMEOUT_S", "120"))
         # Optional fallback timeout for alternative calls
@@ -338,7 +338,7 @@ class LLMService:
 
         self.tool_execution_lock = threading.Lock() # Inicializar el lock
         self.active_tool_future = None # Referencia a la última tarea iniciada
-        self.tool_executor = ThreadPoolExecutor(max_workers=20) # Aumentado para permitir mayor paralelismo en ejecución de herramientas
+        self.tool_executor = ThreadPoolExecutor(max_workers=32) # Aumentado para permitir mayor paralelismo en ejecución de herramientas
         # Referencia al ThreadManager (inyectada desde tui_app tras su creación)
         self._thread_manager = None
         # Inicializar HistoryManager para gestión optimizada del historial
@@ -2901,7 +2901,7 @@ Limita el resumen a 5000 caracteres."""
         self.active_tool_futures.append(future)
 
         try:
-            while not future.done():
+            while True:
                 if self.interrupt_queue and not self.interrupt_queue.empty():
                     raise InterruptedError("Interrupción detectada")
                 try:
@@ -2938,6 +2938,8 @@ Limita el resumen a 5000 caracteres."""
                         yield result
                     return
                 except TimeoutError:
+                    if future.done():
+                        break
                     continue
         finally:
             if future in self.active_tool_futures:
