@@ -375,8 +375,7 @@ def call_agents_parallel(
         else:
             logger.warning("complete_task: Invocado sin delegation_context")
         
-        # Levantar excepción BaseException para terminar inmediatamente el ciclo del LLM y no ser atrapada por ToolNode
-        raise AgentTaskCompleted(result)
+        return f"Tarea completada exitosamente. Resultado: {result}"
 
     if llm_service is not None and "complete_task" not in llm_service.tool_map:
         llm_service.register_tool(complete_task)
@@ -509,17 +508,17 @@ def call_agents_parallel(
                 f"{task}\n\n"
                 "---\n"
                 "⚠️ **REGLAS CRÍTICAS DE SUB-AGENTE AUTÓNOMO** ⚠️\n"
-                "1. **NO INTERACTÚAS CON EL USUARIO**: Tu único receptor es el Orquestador Principal. NUNCA hagas preguntas al usuario ni le ofrezcas guardar archivos 'si lo desea'. Toma decisiones y ejecuta todas las herramientas necesarias de forma autónoma.\n"
-                "2. **task_tracker Y CONTINUIDAD**: Inicializa y actualiza `task_tracker`. IMPORTANTE: Actualizar una tarea a 'in-progress' es solo un registro interno; NO te detengas ahí ni respondas sólo con la confirmación. Inmediatamente ejecuta las herramientas de trabajo (`execute_command`, skills, etc.).\n"
-                "3. 🏁 **FINALIZACIÓN COMPLETA CON `complete_task`**: Tu tarea NO ha terminado hasta haber ejecutado las herramientas necesarias y finalmente invocar la herramienta `complete_task(result=...)`.\n"
-                "   **REGLA DE ENTREGABLE**: El argumento `result` DEBE contener el INFORME TÉCNICO COMPLETO, EXHAUSTIVO Y DETALLADO de tu trabajo (código completo, hallazgos, análisis de archivos, etc.). NUNCA envíes frases breves ni omitas información."
+                "1. **NO INTERACTÚAS CON EL USUARIO**: Tu único receptor es el Orquestador Principal. Toma decisiones y ejecuta todas las herramientas necesarias de forma autónoma.\n"
+                "2. **EJECUCIÓN DE TRABAJO DIRECTA**: Inicia inmediatamente usando tus herramientas de trabajo (`execute_command`, skills de auditoría/desarrollo, etc.) para realizar tu investigación. NO pierdas tiempo ni turnos en registrar tareas intermedias en `task_tracker` ni en enviar comentarios de estado vacíos.\n"
+                "3. 🏁 **ENTREGA OBLIGATORIA CON `complete_task`**: Tu tarea NO ha terminado hasta haber ejecutado las herramientas necesarias y finalmente invocar la herramienta `complete_task(result=...)`.\n"
+                "   **REGLA DE ENTREGABLE**: El parámetro `result` DEBE contener el INFORME TÉCNICO COMPLETO, EXHAUSTIVO Y DETALLADO de tu trabajo (código completo, hallazgos, salidas de comandos, análisis de vulnerabilidades, etc.)."
             )
 
             # Inyectar instrucciones de complete_task en el prompt del sistema si existe
             if system_prompt:
                 system_prompt = (
                     f"{system_prompt}\n\n"
-                    "🏁 **IMPORTANTE**: Eres un subagente autónomo. No te detengas al actualizar el plan de tareas; ejecuta tus herramientas hasta completar el análisis y entrega SIEMPRE tu informe técnico completo dentro del parámetro `result` de la herramienta `complete_task`."
+                    "🏁 **IMPORTANTE**: Eres un subagente autónomo. Ejecuta directamente tus herramientas de trabajo (`execute_command`, skills) para realizar el análisis y entrega SIEMPRE tu informe técnico completo dentro del parámetro `result` de la herramienta `complete_task`."
                 )
 
             agent_graph = _build_agent_graph(
@@ -586,10 +585,10 @@ def call_agents_parallel(
                             break
                     if result == "Sin respuesta":
                         result = str(msgs[-1].content) if msgs[-1].content else "Sin respuesta"
-                logger.info(
-                    "run_agent[%s]: Finalizado (sin llamar a complete_task).", name
+                logger.warning(
+                    "run_agent[%s]: Subagente finalizó sin invocar complete_task.", name
                 )
-                status_emoji = "🏁"
+                status_emoji = "⚠️ (Incompleto)"
 
             # Actualizar el título de la pestaña con el estado
             if agent_ui and hasattr(agent_ui, "update_agent_tab_title"):

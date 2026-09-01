@@ -218,6 +218,8 @@ def test_execute_command_parameter_alias_normalization():
     llm_service = MagicMock(spec=LLMService)
     llm_service.tool_executor = MagicMock()
     llm_service.tool_execution_lock = threading.Lock()
+    llm_service.interrupt_queue = None
+    llm_service.tool_poll_timeout = 0.1
     
     def submit_side_effect(func, *args, **kwargs):
         res = func()

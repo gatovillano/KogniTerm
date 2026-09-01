@@ -1,3 +1,4 @@
+import os
 import threading
 import json
 import logging
@@ -27,9 +28,28 @@ class ToolExecutor:
     Clase centralizada para la ejecución de herramientas de agentes.
     Consolida la lógica de ejecución síncrona/asíncrona, notificaciones y manejo de confirmaciones.
     """
+    # Herramientas idempotentes/de solo lectura seguras para ejecución concurrente
+    PARALLELIZABLE_TOOLS = {
+        "read_file", "view_file", "list_dir", "grep_search", "search_web",
+        "read_url_content", "get_file_info", "read_resource", "find_by_name",
+        "web_search", "task_tracker", "fetch_url", "inspect_code", "ask_question",
+        "read_document", "read_code"
+    }
+
     # Semáforo de concurrencia: limita el número de herramientas que se ejecutan simultáneamente
     # para evitar sobrecarga del sistema (CPU, I/O, red, etc.)
-    _concurrency_semaphore = threading.Semaphore(8)
+    _concurrency_semaphore = threading.Semaphore(int(os.getenv("KOGNITERM_MAX_CONCURRENT_TOOLS", "32")))
+
+    @staticmethod
+    def is_parallel_safe(tool_name: str, is_autonomous: bool = False) -> bool:
+        """Determina si una herramienta puede ejecutarse en paralelo de forma segura."""
+        if tool_name in ToolExecutor.PARALLELIZABLE_TOOLS:
+            return True
+        if is_autonomous and tool_name not in {
+            "execute_command", "bash", "shell", "run_command", "cmd_execution"
+        }:
+            return True
+        return False
 
     @staticmethod
     def execute_single_tool(
@@ -231,8 +251,9 @@ class ToolExecutor:
         terminal_ui: Optional[Any] = None,
         interrupt_queue: Optional[queue.Queue] = None,
         delegation_context: Optional[Any] = None,
+        force_parallel: bool = False,
     ):
-        """Nodo de ejecución para grafos de agentes."""
+        """Nodo de ejecución optimizado con procesamiento concurrente para herramientas de agentes."""
         last_message = state.messages[-1]
         if not (isinstance(last_message, AIMessage) and last_message.tool_calls):
             return state
@@ -240,10 +261,11 @@ class ToolExecutor:
         tool_messages = []
         is_tui = getattr(terminal_ui, "is_tui", False)
 
-        # 1. Registrar y Verificar Interrupciones
         del_ctx = delegation_context or getattr(state, "delegation_context", None)
         is_autonomous = getattr(state, "autonomous_approvals", False) or del_ctx is not None
 
+        # 1. Validación previa de RBAC e historial
+        valid_tool_calls = []
         for tc in last_message.tool_calls:
             # Detección de bucles (hash de args)
             state.tool_call_history.append(
@@ -266,9 +288,43 @@ class ToolExecutor:
                     )
                 )
                 continue
+            valid_tool_calls.append(tc)
 
-            # Caso especial: execute_command (esperar confirmación solo si es el orquestador principal e interactivo)
+        # 2. Agrupación en lotes concurrentes vs secuenciales
+        batches: List[tuple[str, List[Dict[str, Any]]]] = []
+        current_batch: List[Dict[str, Any]] = []
+        current_mode: Optional[str] = None
+
+        for tc in valid_tool_calls:
+            # Caso interactivo: execute_command no autónomo requiere confirmación
             if tc["name"] == "execute_command" and not is_autonomous:
+                if current_batch:
+                    batches.append((current_mode, current_batch))
+                    current_batch = []
+                    current_mode = None
+                batches.append(("interactive_command", [tc]))
+                continue
+
+            can_parallel = force_parallel or ToolExecutor.is_parallel_safe(tc["name"], is_autonomous=is_autonomous)
+            mode = "parallel" if can_parallel else "sequential"
+
+            if current_mode is None:
+                current_mode = mode
+                current_batch.append(tc)
+            elif current_mode == mode and mode == "parallel":
+                current_batch.append(tc)
+            else:
+                batches.append((current_mode, current_batch))
+                current_batch = [tc]
+                current_mode = mode
+
+        if current_batch:
+            batches.append((current_mode, current_batch))
+
+        # 3. Ejecutar los lotes en orden
+        for mode, batch in batches:
+            if mode == "interactive_command":
+                tc = batch[0]
                 state.command_to_confirm = tc["args"].get("command")
                 state.tool_call_id_to_confirm = tc["id"]
                 if terminal_ui:
@@ -292,32 +348,73 @@ class ToolExecutor:
                     "command_to_confirm": state.command_to_confirm,
                 }
 
-            tid, content, exc = ToolExecutor.execute_single_tool(
-                tc,
-                llm_service,
-                terminal_ui,
-                del_ctx,
-            )
+            if mode == "parallel" and len(batch) > 1:
+                # Ejecución concurrente usando ThreadPoolExecutor
+                max_w = min(len(batch), 16)
+                res_map: Dict[str, tuple] = {}
+                with ThreadPoolExecutor(max_workers=max_w) as executor:
+                    futures = {
+                        executor.submit(
+                            ToolExecutor.execute_single_tool,
+                            tc,
+                            llm_service,
+                            terminal_ui,
+                            del_ctx,
+                        ): tc
+                        for tc in batch
+                    }
+                    for fut in as_completed(futures):
+                        tc = futures[fut]
+                        try:
+                            res_map[tc["id"]] = fut.result()
+                        except Exception as exc:
+                            res_map[tc["id"]] = (tc["id"], f"Error: {exc}", exc)
 
-            if isinstance(exc, UserConfirmationRequired):
-                if not is_autonomous:
-                    state.add_pending_confirmation(
-                        tool_name=exc.tool_name,
-                        tool_args=exc.tool_args,
-                        tool_call_id=tid,
-                        raw_tool_output=exc.raw_tool_output,
+                # Mantener orden determinista idéntico a las llamadas originales
+                for tc in batch:
+                    tid, content, exc = res_map.get(tc["id"], (tc["id"], "", None))
+                    if isinstance(exc, UserConfirmationRequired):
+                        if not is_autonomous:
+                            state.add_pending_confirmation(
+                                tool_name=exc.tool_name,
+                                tool_args=exc.tool_args,
+                                tool_call_id=tid,
+                                raw_tool_output=exc.raw_tool_output,
+                            )
+                        else:
+                            logger.info("Subagente autónomo: omitida la pausa de confirmación de usuario para '%s'.", exc.tool_name)
+
+                    if tid and tc["name"] == "complete_task":
+                        state.completed = True
+                        state.result = content
+
+                    tool_messages.append(ToolMessage(content=content, tool_call_id=tid))
+            else:
+                # Ejecución secuencial (o batch paralelo de 1 elemento)
+                for tc in batch:
+                    tid, content, exc = ToolExecutor.execute_single_tool(
+                        tc,
+                        llm_service,
+                        terminal_ui,
+                        del_ctx,
                     )
-                else:
-                    logger.info("Subagente autónomo: omitida la pausa de confirmación de usuario para '%s'.", exc.tool_name)
 
-            if tid and any(
-                tc["id"] == tid and tc["name"] == "complete_task"
-                for tc in last_message.tool_calls
-            ):
-                state.completed = True
-                state.result = content
+                    if isinstance(exc, UserConfirmationRequired):
+                        if not is_autonomous:
+                            state.add_pending_confirmation(
+                                tool_name=exc.tool_name,
+                                tool_args=exc.tool_args,
+                                tool_call_id=tid,
+                                raw_tool_output=exc.raw_tool_output,
+                            )
+                        else:
+                            logger.info("Subagente autónomo: omitida la pausa de confirmación de usuario para '%s'.", exc.tool_name)
 
-            tool_messages.append(ToolMessage(content=content, tool_call_id=tid))
+                    if tid and tc["name"] == "complete_task":
+                        state.completed = True
+                        state.result = content
+
+                    tool_messages.append(ToolMessage(content=content, tool_call_id=tid))
 
         state.messages.extend(tool_messages)
         if terminal_ui:
@@ -344,6 +441,7 @@ class ToolExecutor:
             terminal_ui=terminal_ui,
             interrupt_queue=interrupt_queue,
             delegation_context=delegation_context,
+            force_parallel=True,
         )
 
 

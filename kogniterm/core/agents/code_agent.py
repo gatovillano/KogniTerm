@@ -653,7 +653,7 @@ def execute_tool_node(
     terminal_ui: Optional[TerminalUI] = None,
     interrupt_queue: Optional[queue.Queue] = None,
 ):
-    """Nodo de ejecución de herramientas con soporte para TUI."""
+    """Nodo de ejecución de herramientas con soporte para TUI y ejecución concurrente."""
 
     last_message = state.messages[-1]
     if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -675,123 +675,214 @@ def execute_tool_node(
             )
         )
 
+    read_only_tools = {
+        "read_file", "view_file", "list_dir", "grep_search", "search_web",
+        "read_url_content", "get_file_info", "read_resource", "find_by_name",
+        "web_search", "task_tracker", "fetch_url", "inspect_code", "ask_question",
+        "read_document", "read_code"
+    }
+
+    # 1. Preprocesar herramientas y detección de bucles
+    processed_calls = []
+    editing_tools = {
+        "advanced_file_editor",
+        "file_update_tool",
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "file_create_tool",
+    }
+
     for tool_call in last_message.tool_calls:
-        # Registrar la llamada a la herramienta en el historial para detección de bucles
         tool_name = tool_call["name"]
         tool_args = tool_call["args"]
 
-        # EXCEPCIÓN: CodeAgent/DeepCoder auto-confirma ediciones para mayor autonomía
-        editing_tools = {
-            "advanced_file_editor",
-            "file_update_tool",
-            "write_to_file",
-            "replace_file_content",
-            "multi_replace_file_content",
-            "file_create_tool",
-        }
         if tool_name in editing_tools and autonomous_mode:
             logger.info(
                 f"DEBUG: Ejecutando herramienta de edición {tool_name} con args: {tool_args}"
             )
             tool_args["confirm"] = True
 
-        # Generar un hash consistente de los argumentos
         try:
             args_hash = json.dumps(tool_args, sort_keys=True)
         except TypeError:
-            args_hash = str(
-                tool_args
-            )  # Fallback si los argumentos no son serializables
+            args_hash = str(tool_args)
 
         state.tool_call_history.append({"name": tool_name, "args_hash": args_hash})
+        processed_calls.append(tool_call)
 
-        if interrupt_queue and not interrupt_queue.empty():
-            interrupt_queue.get()
-            state.clear_tool_call_history()  # Limpiar historial si se interrumpe
-            return state
+    if interrupt_queue and not interrupt_queue.empty():
+        interrupt_queue.get()
+        state.clear_tool_call_history()
+        return state
 
-        # CASO ESPECIAL: execute_command con comandos destructivos
+    # 2. Agrupación en lotes
+    batches = []
+    current_batch = []
+    current_mode = None
+
+    for tc in processed_calls:
+        tool_name = tc["name"]
+        tool_args = tc["args"]
         if tool_name == "execute_command" and not autonomous_mode:
             command = tool_args.get("command", "")
             if is_destructive_command(command):
-                # Feedback visual de preparación de comando destructivo
-                bajada = f"Comando detectado como POTENCIALMENTE DESTRUCTIVO: {command}"
+                if current_batch:
+                    batches.append((current_mode, current_batch))
+                    current_batch = []
+                    current_mode = None
+                batches.append(("destructive_command", [tc]))
+                continue
 
-                # Obtener skill_name
-                skill_name = ""
-                if hasattr(llm_service, "skill_manager"):
-                    skill = llm_service.skill_manager.get_skill_for_tool(tool_name)
-                    if skill:
-                        skill_name = skill.name
+        can_parallel = tool_name in read_only_tools
+        mode = "parallel" if can_parallel else "sequential"
 
-                if is_tui:
-                    terminal_ui.print_tool_notification(
-                        tool_name, bajada, skill_name=skill_name
-                    )
-                else:
-                    console.print(
-                        f"\n[bold red]⚠️  Comando destructivo detectado:[/bold red] [yellow]{command}[/yellow]"
-                    )
+        if current_mode is None:
+            current_mode = mode
+            current_batch.append(tc)
+        elif current_mode == mode and mode == "parallel":
+            current_batch.append(tc)
+        else:
+            batches.append((current_mode, current_batch))
+            current_batch = [tc]
+            current_mode = mode
 
-                # Establecer estado para confirmación en la UI
-                state.command_to_confirm = command
-                state.tool_call_id_to_confirm = tool_call["id"]
+    if current_batch:
+        batches.append((current_mode, current_batch))
 
-                # IMPORTANTE: Si hay un comando destructivo, salir y esperar confirmación
-                return {
-                    "messages": state.messages,
-                    "command_to_confirm": state.command_to_confirm,
-                    "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
-                }
+    # 3. Ejecución de lotes
+    for mode, batch in batches:
+        if mode == "destructive_command":
+            tc = batch[0]
+            command = tc["args"].get("command", "")
+            bajada = f"Comando detectado como POTENCIALMENTE DESTRUCTIVO: {command}"
+            skill_name = ""
+            if hasattr(llm_service, "skill_manager"):
+                skill = llm_service.skill_manager.get_skill_for_tool(tc["name"])
+                if skill:
+                    skill_name = skill.name
 
-        tool_id, content, exception = execute_single_tool(
-            tool_call,
-            llm_service,
-            terminal_ui,
-            interrupt_queue,
-        )
+            if is_tui:
+                terminal_ui.print_tool_notification(
+                    tc["name"], bajada, skill_name=skill_name
+                )
+            else:
+                console.print(
+                    f"\n[bold red]⚠️  Comando destructivo detectado:[/bold red] [yellow]{command}[/yellow]"
+                )
 
-        if isinstance(exception, UserConfirmationRequired):
-            if autonomous_mode:
-                try:
-                    auto_content = _invoke_tool_autonomously(
+            state.command_to_confirm = command
+            state.tool_call_id_to_confirm = tc["id"]
+            if tool_messages:
+                state.messages.extend(tool_messages)
+                state.save_history(llm_service)
+            return {
+                "messages": state.messages,
+                "command_to_confirm": state.command_to_confirm,
+                "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+            }
+
+        if mode == "parallel" and len(batch) > 1:
+            max_w = min(len(batch), 16)
+            res_map = {}
+            with ThreadPoolExecutor(max_workers=max_w) as executor:
+                futures = {
+                    executor.submit(
+                        execute_single_tool,
+                        tc,
                         llm_service,
-                        exception.tool_name
-                        or next(
-                            tc["name"]
-                            for tc in last_message.tool_calls
-                            if tc["id"] == tool_id
-                        ),
-                        exception.tool_args,
-                        terminal_ui=terminal_ui,
-                    )
-                    tool_messages.append(
-                        ToolMessage(content=auto_content, tool_call_id=tool_id)
-                    )
-                    continue
-                except Exception as auto_exc:  # noqa: BLE001
-                    tool_messages.append(
-                        ToolMessage(
-                            content=f"Error en aprobación autónoma de {exception.tool_name}: {auto_exc}",
-                            tool_call_id=tool_id,
-                        )
-                    )
-                    continue
+                        terminal_ui,
+                        interrupt_queue,
+                    ): tc
+                    for tc in batch
+                }
+                for fut in as_completed(futures):
+                    tc = futures[fut]
+                    try:
+                        res_map[tc["id"]] = fut.result()
+                    except Exception as exc:
+                        res_map[tc["id"]] = (tc["id"], f"Error: {exc}", exc)
 
-            # Manejo de confirmación para ediciones críticas
-            state.add_pending_confirmation(
-                tool_name=exception.tool_name,
-                tool_args=exception.tool_args,
-                tool_call_id=tool_id,
-                raw_tool_output=exception.raw_tool_output,
-            )
+            for tc in batch:
+                tool_id, content, exception = res_map.get(tc["id"], (tc["id"], "", None))
+                if isinstance(exception, UserConfirmationRequired):
+                    if autonomous_mode:
+                        try:
+                            auto_content = _invoke_tool_autonomously(
+                                llm_service,
+                                exception.tool_name or tc["name"],
+                                exception.tool_args,
+                                terminal_ui=terminal_ui,
+                            )
+                            tool_messages.append(ToolMessage(content=auto_content, tool_call_id=tool_id))
+                            continue
+                        except Exception as auto_exc:
+                            tool_messages.append(
+                                ToolMessage(
+                                    content=f"Error en aprobación autónoma de {exception.tool_name}: {auto_exc}",
+                                    tool_call_id=tool_id,
+                                )
+                            )
+                            continue
+                    state.add_pending_confirmation(
+                        tool_name=exception.tool_name,
+                        tool_args=exception.tool_args,
+                        tool_call_id=tool_id,
+                        raw_tool_output=exception.raw_tool_output,
+                    )
+                    tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+                    state.messages.extend(tool_messages)
+                    state.save_history(llm_service)
+                    return state
 
-            tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
-            state.messages.extend(tool_messages)
-            state.save_history(llm_service)
-            return state
+                tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+        else:
+            for tool_call in batch:
+                tool_id, content, exception = execute_single_tool(
+                    tool_call,
+                    llm_service,
+                    terminal_ui,
+                    interrupt_queue,
+                )
+                if isinstance(exception, UserConfirmationRequired):
+                    if autonomous_mode:
+                        try:
+                            auto_content = _invoke_tool_autonomously(
+                                llm_service,
+                                exception.tool_name
+                                or next(
+                                    tc["name"]
+                                    for tc in last_message.tool_calls
+                                    if tc["id"] == tool_id
+                                ),
+                                exception.tool_args,
+                                terminal_ui=terminal_ui,
+                            )
+                            tool_messages.append(
+                                ToolMessage(content=auto_content, tool_call_id=tool_id)
+                            )
+                            continue
+                        except Exception as auto_exc:
+                            tool_messages.append(
+                                ToolMessage(
+                                    content=f"Error en aprobación autónoma de {exception.tool_name}: {auto_exc}",
+                                    tool_call_id=tool_id,
+                                )
+                            )
+                            continue
 
-        tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+                    state.add_pending_confirmation(
+                        tool_name=exception.tool_name,
+                        tool_args=exception.tool_args,
+                        tool_call_id=tool_id,
+                        raw_tool_output=exception.raw_tool_output,
+                    )
+                    tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
+                    state.messages.extend(tool_messages)
+                    state.save_history(llm_service)
+                    return state
+
+                tool_messages.append(ToolMessage(content=content, tool_call_id=tool_id))
 
     state.messages.extend(tool_messages)
     state.save_history(llm_service)
