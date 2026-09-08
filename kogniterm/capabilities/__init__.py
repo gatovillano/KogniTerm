@@ -16,6 +16,7 @@ from kogniterm.capabilities.file_editor import (
     list_directory,
 )
 from kogniterm.capabilities.web import web_fetch, web_search
+from kogniterm.capabilities.code_tools import code_analysis, codebase_search
 
 __all__ = [
     "ToolDefinition",
@@ -32,4 +33,6 @@ __all__ = [
     "list_directory",
     "web_fetch",
     "web_search",
+    "code_analysis",
+    "codebase_search",
 ]

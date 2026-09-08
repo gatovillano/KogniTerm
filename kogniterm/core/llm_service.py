@@ -30,95 +30,17 @@ from .utils.tool_utils import normalize_tool_parameters_schema, sanitize_tool_na
 
 _TOOL_SIG_CACHE = {}
 
-def _convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> dict:
-    """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
-    args_schema = {"type": "object", "properties": {}}
-
-    # Obtener el esquema de argumentos de manera más robusta
-    if hasattr(tool, 'args_schema') and tool.args_schema is not None:
-        try:
-            # Si args_schema es directamente un dict, usarlo
-            if isinstance(tool.args_schema, dict):
-                args_schema = tool.args_schema
-            # Intentar obtener el esquema usando el método schema() si está disponible (Pydantic v1)
-            elif hasattr(tool.args_schema, 'schema') and callable(getattr(tool.args_schema, 'schema', None)):
-                try:
-                    args_schema = tool.args_schema.schema()
-                except Exception:
-                    # Si falla el método schema(), intentar model_json_schema() para Pydantic v2
-                    if hasattr(tool.args_schema, 'model_json_schema') and callable(getattr(tool.args_schema, 'model_json_schema', None)):
-                        args_schema = tool.args_schema.model_json_schema()
-            # Si args_schema es una clase Pydantic, intentar obtener su esquema (Pydantic v2)
-            elif hasattr(tool.args_schema, 'model_json_schema'):
-                args_schema = tool.args_schema.model_json_schema()
-            else:
-                # Fallback: intentar usar model_fields para Pydantic v2
-                if hasattr(tool.args_schema, 'model_fields'):
-                    properties = {}
-                    for field_name, field_info in tool.args_schema.model_fields.items():
-                        # Excluir campos marcados con exclude=True o que no deberían estar en el esquema de argumentos
-                        # como account_id, workspace_id, telegram_id, thread_id
-                        if field_name not in ["account_id", "workspace_id", "telegram_id", "thread_id"] and not getattr(field_info, 'exclude', False):
-                            field_type = 'string'  # Tipo por defecto
-                            if hasattr(field_info, 'annotation'):
-                                # Intentar inferir el tipo de la anotación
-                                if field_info.annotation == str:
-                                    field_type = 'string'
-                                elif field_info.annotation == int:
-                                    field_type = 'integer'
-                                elif field_info.annotation == bool:
-                                    field_type = 'boolean'
-                                elif field_info.annotation == list:
-                                    field_type = 'array'
-                                elif field_info.annotation == dict:
-                                    field_type = 'object'
-
-                            properties[field_name] = {
-                                "type": field_type,
-                                "description": getattr(field_info, 'description', "") or f"Parámetro {field_name}"
-                            }
-                    args_schema = {
-                        "type": "object",
-                        "properties": properties,
-                        "required": [name for name, info in tool.args_schema.model_fields.items() if info.is_required() and name in properties]
-                    }
-        except Exception as e:
-            tool_name = getattr(tool, 'name', 'Desconocido')
-            logger.error(f"Error extracting schema for tool {tool_name}: {e}")
-            args_schema = {"type": "object", "properties": {}}
-    elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
-        # Soporte para skills que usan parameters_schema directo (JSON Schema)
-        args_schema = tool.parameters_schema
-
-    cleaned_schema = normalize_tool_parameters_schema(args_schema)
-
-    # Asegurarse de que el esquema sea válido para proveedores estrictos
-    if not cleaned_schema.get("properties"):
-        cleaned_schema = {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-
-    # Usar el formato estándar de OpenAI "tools" (type: function) por defecto
-    # Esto es compatible con la mayoría de proveedores modernos y requerido por SiliconFlow/Gemini
-    raw_tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
-    clean_tool_name = sanitize_tool_name(raw_tool_name)
-    tool_desc = getattr(tool, 'description', None) or getattr(tool, '__doc__', '') or ''
-    if not isinstance(tool_desc, str):
-        tool_desc = str(tool_desc)
-
-    logger.debug(f"🔧 Generando definición de herramienta para: {clean_tool_name}")
-    tool_definition = {
-        "type": "function",
-        "function": {
-            "name": clean_tool_name,
-            "description": tool_desc[:1024] if tool_desc else f"Herramienta {clean_tool_name}",
-            "parameters": cleaned_schema,
-        }
-    }
-
-    return tool_definition
+# Importar funciones especializadas desde el módulo kogniterm.core.llm
+from kogniterm.core.llm import (
+    convert_langchain_tool_to_litellm as _convert_langchain_tool_to_litellm,
+    to_litellm_message as _core_to_litellm_message,
+    from_litellm_message as _core_from_litellm_message,
+    parse_tool_calls_from_text as _core_parse_tool_calls_from_text,
+    extract_args as _core_extract_args,
+    extract_balanced_content as _core_extract_balanced_content,
+    generate_short_id as _core_generate_short_id,
+    FallbackHandler,
+)
 
 import logging
 
@@ -211,7 +133,7 @@ class LLMService:
         else:
             self.provider_manager = None
         
-        self.model_name = config_manager.get_config("default_model") or os.environ.get("LITELLM_MODEL", default_model)
+        self.model_name = os.environ.get("LITELLM_MODEL") or config_manager.get_config("default_model") or default_model
         # Validación de seguridad: si el modelo parece una API Key de Google, corregirlo
         if self.model_name.startswith("AIza"):
             logger.warning(f"Se detectó una API Key en LITELLM_MODEL ('{self.model_name[:8]}...'). Corrigiendo a '{default_model}'.")
@@ -219,6 +141,7 @@ class LLMService:
         
         # Modelo para resumen de historial (fallback/summary) - usa el mismo por defecto
         self.summary_model = self.model_name
+        self._model_change_listeners: List[Any] = []
             
         # Determinar API Key de forma inteligente según el modelo inicial (prioriza config.json)
         if self.model_name.startswith("antigravity/"):
@@ -529,8 +452,7 @@ class LLMService:
 
     def _generate_short_id(self, length: int = 9) -> str:
         """Genera un ID alfanumérico corto compatible con proveedores strictly como Mistral."""
-        chars = string.ascii_letters + string.digits
-        return ''.join(secrets.choice(chars) for _ in range(length))
+        return _core_generate_short_id(length)
 
     def _normalize_reasoning_effort(self, effort: Optional[str]) -> Optional[str]:
         """Normaliza y valida el esfuerzo de razonamiento soportado por modelos compatibles."""
@@ -554,195 +476,25 @@ class LLMService:
     def _parse_tool_calls_from_text(self, text: str) -> List[Dict[str, Any]]:
         """
         Analiza el texto para encontrar llamadas a herramientas usando múltiples estrategias.
-        Versión conservadora: evita falsos positivos con palabras comunes y JSONs genéricos.
+        Delega en la implementación modular de kogniterm.core.llm.tool_parser.
         """
-        if not text:
-            return []
-
-        tool_calls = []
-        seen_combinations = set()
-        valid_tool_calls = []
-        import re
-        import json
-        
-        # 1. Limpieza inicial: Quitar caracteres de control invisibles
-        clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-        
-        # ESTRATEGIA A: Patrones explícitos "LLAMADA_A_HERRAMIENTA: name {args}"
-        # Estos son los más seguros porque tienen un prefijo claro.
-        explicit_patterns = [
-            r'LLAMADA_A_HERRAMIENTA:\s*(\w+)',
-            r'Herramienta:\s*(\w+)',
-            r'\[TOOL_CALL\]\s*(\w+)',
-            r'Tool:\s*(\w+)'
-        ]
-        for pat in explicit_patterns:
-            for match in re.finditer(pat, clean_text, re.IGNORECASE):
-                tool_name = match.group(1).strip()
-                # El nombre debe existir en el mapa de herramientas
-                if tool_name in self.tool_map or tool_name.lower() in self.tool_map or tool_name in ['call_agent', 'execute_command']:
-                    search_start = match.end()
-                    json_start = clean_text.find('{', search_start)
-                    # El JSON debe estar cerca del nombre
-                    if json_start != -1 and (json_start - search_start) < 100:
-                        args_str = self._extract_balanced_content(clean_text, json_start)
-                        if args_str:
-                            args = self.extract_args(args_str)
-                            tool_calls.append({"id": self._generate_short_id(), "name": tool_name, "args": args if isinstance(args, dict) else {}})
-
-        # ESTRATEGIA B: Bloques JSON estructurados
-        i = 0
-        while i < len(clean_text):
-            if clean_text[i] == '{':
-                json_str = self._extract_balanced_content(clean_text, i)
-                if json_str:
-                    try:
-                        data = json.loads(json_str)
-                        if isinstance(data, dict) and data:
-                            # Formato 1: {"name": "...", "args": {...}} o similares
-                            name_key = next((k for k in ["name", "tool", "function", "skill"] if k in data), None)
-                            if name_key:
-                                name = data.get(name_key)
-                                args = data.get("args") or data.get("arguments") or data.get("parameters") or {}
-                                
-                                if isinstance(name, str) and (name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'execute_command']):
-                                    tool_calls.append({"id": self._generate_short_id(), "name": name, "args": args if isinstance(args, dict) else {}})
-                                    i += len(json_str)
-                                    continue
-                            
-                            # Formato 2: {"tool_name": {...args...}}
-                            # MUY RESTRICTIVO: Solo si tiene exactamente una clave, esa clave es una herramienta, 
-                            # el valor es un objeto, y el nombre es lo suficientemente largo/específico.
-                            elif len(data) == 1:
-                                potential_name = list(data.keys())[0]
-                                potential_args = data[potential_name]
-                                if isinstance(potential_args, dict) and (potential_name in self.tool_map or potential_name.lower() in self.tool_map):
-                                    # Evitar palabras comunes de menos de 4 letras a menos que sea un match exacto con case
-                                    if len(potential_name) > 3 or potential_name in self.tool_map:
-                                        tool_calls.append({"id": self._generate_short_id(), "name": potential_name, "args": potential_args})
-                                        i += len(json_str)
-                                        continue
-                    except:
-                        pass
-            i += 1
-
-        # ESTRATEGIA C: Formatos Legacy tipo Código "name({args})"
-        # Solo si el nombre es una herramienta válida y está seguido por ({
-        legacy_pattern = r'\b(\w+)\s*\(\s*(\{.*?\})\s*\)'
-        for match in re.finditer(legacy_pattern, clean_text, re.DOTALL):
-            name = match.group(1)
-            # Solo aceptar funciones que estén en el tool_map o sean comandos conocidos
-            if name in self.tool_map or name.lower() in self.tool_map or name in ['call_agent', 'execute_command']:
-                # Evitar funciones comunes de Python
-                if name.lower() not in ['print', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'range', 'open']:
-                    try:
-                        args = json.loads(match.group(2))
-                        if isinstance(args, dict):
-                            tool_calls.append({"id": self._generate_short_id(), "name": name, "args": args})
-                    except:
-                        pass
-
-        # Filtrar duplicados y consolidar
-        for tc in tool_calls:
-            try:
-                args_json = json.dumps(tc['args'], sort_keys=True)
-                key = f"{tc['name']}:{args_json}"
-                if key not in seen_combinations:
-                    seen_combinations.add(key)
-                    valid_tool_calls.append(tc)
-            except:
-                if tc not in valid_tool_calls: 
-                    valid_tool_calls.append(tc)
-
-        return valid_tool_calls
+        tool_names = list(self.tool_map.keys())
+        for fallback_tool in ['call_agent', 'execute_command']:
+            if fallback_tool not in tool_names:
+                tool_names.append(fallback_tool)
+        return _core_parse_tool_calls_from_text(text, tool_names, id_generator=self._generate_short_id)
 
     def extract_args(self, args_str: str) -> Dict[str, Any]:
         """Extrae argumentos de una cadena de texto de forma permisiva."""
-        if not args_str: return {}
-        args_str = args_str.strip()
-        try:
-            return json.loads(args_str)
-        except:
-            # Fallback a extracción por regex para casos muy sucios
-            result = {}
-            pair_pattern = r'(\w+)\s*[:=]\s*(?:"([^"]*)"|\'([^\']*)\'|(\d+)|([^\s,{}]+))'
-            for m in re.finditer(pair_pattern, args_str):
-                key = m.group(1)
-                value = m.group(2) or m.group(3) or m.group(4) or m.group(5)
-                if value and value.isdigit(): value = int(value)
-                result[key] = value
-            return result
+        return _core_extract_args(args_str)
 
     def _extract_balanced_content(self, text: str, start_pos: int) -> Optional[str]:
         """Extrae contenido balanceado entre {}, [] o () manejando anidamiento y strings."""
-        if start_pos >= len(text): return None
-        chars = {'{': '}', '[': ']', '(': ')'}
-        open_char = text[start_pos]
-        if open_char not in chars: return None
-        close_char = chars[open_char]
-        
-        depth = 0
-        in_string = False
-        string_char = None
-        for i in range(start_pos, len(text)):
-            char = text[i]
-            if char in ['"', "'"] and (i == 0 or text[i-1] != '\\'):
-                if not in_string:
-                    in_string = True
-                    string_char = char
-                elif char == string_char:
-                    in_string = False
-            
-            if not in_string:
-                if char == open_char: depth += 1
-                elif char == close_char:
-                    depth -= 1
-                    if depth == 0: return text[start_pos : i + 1]
-        return None
+        return _core_extract_balanced_content(text, start_pos)
 
     def _from_litellm_message(self, message):
         """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
-        role = message.get("role")
-        content = message.get("content", "")
-        if role == "user":
-            return HumanMessage(content=content)
-        elif role == "assistant":
-            tool_calls_data = message.get("tool_calls")
-            if tool_calls_data:
-                tool_calls = []
-                thought_signatures = {}
-                for tc in tool_calls_data:
-                    function_data = tc.get("function")
-                    if function_data:
-                        args = function_data.get("arguments", "")
-                        if isinstance(args, str):
-                            try: args = json.loads(args)
-                            except: args = {}
-                        tc_id = tc.get("id") or self._generate_short_id()
-                        tool_calls.append({
-                            "id": tc_id,
-                            "name": function_data.get("name", ""),
-                            "args": args
-                        })
-                        tsig = tc.get("thought_signature") or tc.get("thoughtSignature")
-                        if tsig:
-                            thought_signatures[tc_id] = tsig
-                kwargs = {}
-                if thought_signatures:
-                    kwargs["additional_kwargs"] = {"thought_signatures": thought_signatures}
-                return AIMessage(content=content, tool_calls=tool_calls, **kwargs)
-            return AIMessage(content=content)
-        elif role == "tool":
-            # Incluir el nombre de la herramienta si está presente, para que map_messages
-            # de Antigravity pueda resolver functionResponse.name sin depender del lookback.
-            return ToolMessage(
-                content=content,
-                tool_call_id=message.get("tool_call_id"),
-                name=message.get("name") or "",
-            )
-        elif role == "system":
-            return SystemMessage(content=content)
-        return HumanMessage(content=content)
+        return _core_from_litellm_message(message, id_generator=self._generate_short_id)
 
     def _build_llm_context_message(self) -> Optional[SystemMessage]:
         if self.workspace_context_initialized:
@@ -765,118 +517,7 @@ class LLMService:
 
     def _to_litellm_message(self, message: BaseMessage, id_map: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Convierte un mensaje de LangChain a un formato compatible con LiteLLM, con soporte para mapeo de IDs."""
-        is_mistral = "mistral" in self.model_name.lower()
-        if not is_mistral and hasattr(message, "_cached_litellm_msg") and message._cached_litellm_msg:
-            return message._cached_litellm_msg.copy()
-        
-        def get_compliant_id(original_id):
-            if not is_mistral:
-                return original_id or self._generate_short_id()
-            
-            # Para Mistral, el ID debe ser alfanumérico de 9 caracteres
-            if original_id and len(original_id) == 9 and original_id.isalnum():
-                return original_id
-            
-            if not original_id:
-                return self._generate_short_id()
-            
-            # Si tenemos un mapa, intentar recuperar o crear un nuevo ID mapeado
-            if id_map is not None:
-                if original_id not in id_map:
-                    id_map[original_id] = self._generate_short_id()
-                return id_map[original_id]
-            
-            # Fallback: generar uno nuevo si no hay mapa
-            return self._generate_short_id()
-
-        result_msg = None
-        if isinstance(message, HumanMessage):
-            content = message.content
-            if isinstance(content, list):
-                result_msg = {"role": "user", "content": content}
-            elif not isinstance(content, str):
-                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-                result_msg = {"role": "user", "content": content}
-            else:
-                result_msg = {"role": "user", "content": content}
-        elif isinstance(message, AIMessage):
-            tool_calls = getattr(message, 'tool_calls', [])
-            content = message.content
-            if not isinstance(content, str):
-                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-
-            msg = {"role": "assistant", "content": content or "..."}
-            
-            # Preservar razonamiento para OpenRouter/LiteLLM
-            reasoning = message.additional_kwargs.get("reasoning_content") or getattr(message, 'reasoning_content', None)
-            if reasoning:
-                msg["reasoning_content"] = str(reasoning)
-
-            if tool_calls:
-                serialized_tool_calls = []
-                for tc in tool_calls:
-                    tc_id = get_compliant_id(tc.get("id"))
-                    tc_name = tc.get("name", "")
-                    tc_args = tc.get("args", {})
-                    # Asegurarse de que los argumentos sean siempre una cadena JSON válida.
-                    arguments_json = json.dumps(tc_args) if tc_args else "{}"
-                    
-                    serialized_tc = {
-                        "id": tc_id,
-                        "type": "function",
-                        "function": {"name": tc_name, "arguments": arguments_json},
-                    }
-                    # Propagar thought_signature para Antigravity
-                    thought_sig = tc.get("thought_signature")
-                    if not thought_sig and isinstance(message, AIMessage):
-                        thought_sigs = message.additional_kwargs.get("thought_signatures", {})
-                        if isinstance(thought_sigs, dict):
-                            # Se busca por el ID original del tool call
-                            thought_sig = thought_sigs.get(tc.get("id"))
-                    
-                    if thought_sig:
-                        serialized_tc["thought_signature"] = thought_sig
-                    serialized_tool_calls.append(serialized_tc)
-                
-                if not content or not str(content).strip():
-                    msg["content"] = ""
-                
-                msg["tool_calls"] = serialized_tool_calls
-            
-            result_msg = msg
-        elif isinstance(message, ToolMessage):
-            content = message.content
-            # ASEGURAR SIEMPRE QUE EL CONTENIDO SEA STRING PARA EL LLM
-            if not isinstance(content, str):
-                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-            
-            if not content or not str(content).strip():
-                content = "Operación completada (sin salida)."
-            
-            tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
-            
-            # Propagar el nombre de la herramienta si está presente
-            name = getattr(message, 'name', None)
-            tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
-            if name:
-                tool_msg["name"] = name
-            result_msg = tool_msg
-        elif isinstance(message, SystemMessage):
-            content = message.content
-            if not isinstance(content, str):
-                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-            result_msg = {"role": "system", "content": content}
-        else:
-            content = getattr(message, 'content', str(message))
-            if not isinstance(content, str):
-                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-            result_msg = {"role": "user", "content": content}
-
-        try:
-            message._cached_litellm_msg = result_msg
-        except Exception:
-            pass
-        return result_msg
+        return _core_to_litellm_message(message, model_name=self.model_name, id_map=id_map, id_generator=self._generate_short_id)
 
     def _truncate_messages(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         # Implementación de truncamiento de mensajes
@@ -1235,6 +876,20 @@ class LLMService:
             logger.info(f"🔄 Cambiado a modelo: {model_name}")
 
         logger.info(f"✅ Estado de LiteLLM actualizado satisfactoriamente.")
+
+        # Notificar a los observadores registrados (AgentInteractionManager, runners, etc.)
+        for listener in list(getattr(self, "_model_change_listeners", [])):
+            try:
+                listener(model_name)
+            except Exception as e:
+                logger.warning(f"Error notificando cambio de modelo a listener: {e}")
+
+    def register_model_change_listener(self, listener: Any) -> None:
+        """Registra un callback que será invocado cuando cambie el modelo."""
+        if not hasattr(self, "_model_change_listeners"):
+            self._model_change_listeners = []
+        if listener not in self._model_change_listeners:
+            self._model_change_listeners.append(listener)
 
     def set_summary_model(self, summary_model: str):
         """Cambia el modelo usado para resumir historial en tiempo de ejecución."""
@@ -2934,6 +2589,11 @@ Limita el resumen a 5000 caracteres."""
         try:
             while True:
                 if self.interrupt_queue and not self.interrupt_queue.empty():
+                    while not self.interrupt_queue.empty():
+                        try:
+                            self.interrupt_queue.get_nowait()
+                        except Exception:
+                            break
                     raise InterruptedError("Interrupción detectada")
                 try:
                     result = future.result(timeout=self.tool_poll_timeout)

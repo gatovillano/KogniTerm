@@ -74,6 +74,8 @@ class TUICommandProcessor:
                 await set_llm_config(model_name=selected)
                 if self.app.llm_service:
                     self.app.llm_service.set_model(selected)
+                if hasattr(self.app, "agent_interaction_manager") and self.app.agent_interaction_manager:
+                    self.app.agent_interaction_manager.set_model(selected)
                 self.app.update_status_footer(selected)
                 self.terminal_ui.print_message(f"✅ Modelo actualizado en el servidor: {selected}", style="green")
         except Exception as e:
@@ -106,6 +108,8 @@ class TUICommandProcessor:
                 if new_model:
                     if self.app.llm_service:
                         self.app.llm_service.set_model(new_model)
+                    if hasattr(self.app, "agent_interaction_manager") and self.app.agent_interaction_manager:
+                        self.app.agent_interaction_manager.set_model(new_model)
                     self.app.update_status_footer(new_model)
             except Exception as ex:
                 logger.warning(f"Error al sincronizar modelo local tras cambio de proveedor: {ex}")

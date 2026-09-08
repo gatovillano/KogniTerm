@@ -33,6 +33,7 @@ from rich.padding import Padding
 from rich.text import Text
 
 from kogniterm.core.agent_state import AgentState
+from kogniterm.core.agents.super_agent import SuperAgentRunner
 from kogniterm.core.exceptions import UserConfirmationRequired
 from kogniterm.core.agents.base_agent import BaseAgentNode
 from kogniterm.core.agents.tool_executor import ToolExecutor
@@ -721,7 +722,58 @@ def should_continue(state: DeepResearchState) -> str:
     return "call_model"
 
 
+# --- Motor Asíncrono de Deep Researcher basado en SuperAgent ---
+
+class DeepResearcherRunner(SuperAgentRunner):
+    """
+    Motor de investigación profunda para KogniTerm, basado en SuperAgentRunner.
+    Ofrece streaming de razonamiento y hallazgos, notificaciones limpias con solo
+    la URL o consulta investigada, y reporte técnico estructurado de alta calidad.
+    """
+
+    def __init__(
+        self,
+        llm_service: LLMService,
+        terminal_ui: Optional[Any] = None,
+        interrupt_queue: Optional[queue.Queue] = None,
+        command_approval_handler=None,
+    ) -> None:
+        custom_prompt = get_deep_research_system_prompt(llm_service)
+        super().__init__(
+            llm_service=llm_service,
+            terminal_ui=terminal_ui,
+            interrupt_queue=interrupt_queue,
+            command_approval_handler=command_approval_handler,
+            custom_system_prompt=custom_prompt,
+        )
+
+    async def _run_async(self, state: AgentState) -> Dict[str, Any]:
+        # Notificación inicial
+        if self.terminal_ui and hasattr(self.terminal_ui, "print_status"):
+            try:
+                self.terminal_ui.print_status("🔬 DeepResearcher: Investigando a fondo...", spinner_style="dots")
+            except Exception:
+                pass
+
+        return await super()._run_async(state)
+
+
 def create_deep_researcher(
+    llm_service: LLMService,
+    terminal_ui: Any = None,
+    interrupt_queue: Optional[queue.Queue] = None,
+    command_approval_handler=None,
+) -> DeepResearcherRunner:
+    """Crea una instancia de DeepResearcherRunner basada en SuperAgent."""
+    return DeepResearcherRunner(
+        llm_service=llm_service,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue,
+        command_approval_handler=command_approval_handler,
+    )
+
+
+def create_legacy_deep_researcher_graph(
     llm_service: LLMService,
     terminal_ui: Any = None,
     interrupt_queue: Optional[queue.Queue] = None,

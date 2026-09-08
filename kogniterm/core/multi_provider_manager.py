@@ -534,25 +534,66 @@ class MultiProviderManager:
             
         available = self.get_available_providers()
         explicit_target = (os.getenv("OLLAMA_PROVIDER_TARGET") or "").strip().lower()
+
+        # 1. Si el modelo especifica un prefijo explícito de proveedor, respetarlo prioritariamente
+        prefix = model_name.split("/")[0].lower() if "/" in model_name else ""
+        if prefix:
+            if prefix == "openrouter":
+                provider = next((p for p in available if p.name == "openrouter"), None)
+                if provider:
+                    return provider
+            elif prefix == "kilocode":
+                provider = next((p for p in available if p.name == "kilocode"), None)
+                if provider:
+                    return provider
+            elif prefix == "antigravity":
+                provider = next((p for p in available if p.name == "antigravity"), None)
+                if provider:
+                    return provider
+            elif prefix in ("google", "gemini"):
+                provider = next((p for p in available if p.name == "google"), None)
+                if provider:
+                    return provider
+            elif prefix == "ollama":
+                if explicit_target in ["cloud", "ollama_cloud"]:
+                    provider = next((p for p in available if p.name == "ollama_cloud"), None)
+                    if provider:
+                        return provider
+                provider = next((p for p in available if p.name == "ollama"), None)
+                if provider:
+                    return provider
+                provider = next((p for p in available if p.name == "ollama_cloud"), None)
+                if provider:
+                    return provider
+            elif prefix == "ollama_cloud":
+                provider = next((p for p in available if p.name == "ollama_cloud"), None)
+                if provider:
+                    return provider
+            elif prefix == "openai":
+                provider = next((p for p in available if p.name == "openai"), None)
+                if provider:
+                    return provider
+            elif prefix == "anthropic":
+                provider = next((p for p in available if p.name == "anthropic"), None)
+                if provider:
+                    return provider
+            elif prefix == "cohere":
+                provider = next((p for p in available if p.name == "cohere"), None)
+                if provider:
+                    return provider
+            elif prefix == "zhipuai":
+                provider = next((p for p in available if p.name == "zhipuai"), None)
+                if provider:
+                    return provider
+
         owner_provider, _ = self._parse_model_name(model_name)
         
-        # 1. Priorizar el proveedor preferido si está disponible Y es compatible
+        # 2. Priorizar el proveedor preferido si está disponible Y es compatible
         if self.preferred_provider:
             pref_p = next((p for p in available if p.name == self.preferred_provider), None)
             if pref_p:
                 if not owner_provider or owner_provider == pref_p.name or owner_provider == pref_p.model_prefix:
                     return pref_p
-
-        # 2. Si no se resolvió por preferido, intentar por prefijo de Ollama
-        if model_name.startswith("ollama/"):
-            if explicit_target in ["cloud", "ollama_cloud"]:
-                provider = next((p for p in available if p.name == "ollama_cloud"), None)
-                if provider:
-                    return provider
-            provider = next((p for p in available if p.name == "ollama"), None)
-            if provider: return provider
-            provider = next((p for p in available if p.name == "ollama_cloud"), None)
-            if provider: return provider
         
         # 3. Lógica basada en owner_provider extraído
         if owner_provider:

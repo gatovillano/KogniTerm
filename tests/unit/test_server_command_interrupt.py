@@ -117,3 +117,61 @@ def test_command_executor_interruption_via_queue():
     output = "".join(chunks)
 
     assert "⚠️  Comando interrumpido por el usuario." in output
+
+
+def test_command_approval_handler_drains_stale_interrupt_before_execution():
+    """Verifica que señales residuales previas en interrupt_queue se drenen al aprobar un comando."""
+    q = queue.Queue()
+    # Insertar una señal residual previa
+    q.put(True)
+
+    terminal_ui_mock = MagicMock()
+    terminal_ui_mock.get_interrupt_queue.return_value = q
+
+    executor_mock = MagicMock()
+    captured_queue_state = []
+
+    def mock_execute(cmd, **kwargs):
+        iq = kwargs.get("interrupt_queue")
+        captured_queue_state.append(iq.empty() if iq else None)
+        return ["output normal\n"]
+
+    executor_mock.execute.side_effect = mock_execute
+
+    state_mock = MagicMock()
+    state_mock.messages = []
+    state_mock.tool_call_id_to_confirm = "call_test_456"
+
+    handler = CommandApprovalHandler(
+        llm_service=MagicMock(),
+        command_executor=executor_mock,
+        prompt_session=None,
+        terminal_ui=terminal_ui_mock,
+        agent_state=state_mock,
+    )
+    handler.auto_approve = True
+
+    result = handler.handle_command_approval("echo test")
+
+    executor_mock.execute.assert_called_once()
+    assert captured_queue_state == [True], "La cola de interrupción no fue vaciada antes de la ejecución"
+    assert q.empty() is True
+    assert "output normal" in result.get("tool_message_content", "")
+
+
+def test_command_executor_drains_all_interrupt_items_on_interrupt():
+    """Verifica que CommandExecutor limpie todos los ítems residuales de la cola al ser interrumpido."""
+    executor = CommandExecutor()
+    q = queue.Queue()
+
+    # Poner múltiples señales
+    q.put(True)
+    q.put(True)
+    q.put(True)
+
+    chunks = list(executor.execute("sleep 5", interrupt_queue=q))
+    output = "".join(chunks)
+
+    assert "⚠️  Comando interrumpido por el usuario." in output
+    assert q.empty() is True, "La cola de interrupción debió quedar completamente vacía"
+

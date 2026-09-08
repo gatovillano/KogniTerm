@@ -304,12 +304,20 @@ class CommandApprovalHandler:
                     return fallback_diff
         return fallback_diff
 
-    def _replace_or_append_tool_message(self, tool_call_id: str, content: str) -> None:
+    def _replace_or_append_tool_message(
+        self, tool_call_id: str, content: str, tool_name: Optional[str] = None
+    ) -> None:
         """
         Reemplaza el ToolMessage provisional asociado a una confirmación.
         Evita dejar mensajes duplicados para el mismo tool_call_id.
         """
-        replacement = ToolMessage(content=content, tool_call_id=tool_call_id)
+        raw_name = tool_name
+        if not isinstance(raw_name, str):
+            state_tool = getattr(self.agent_state, "tool_pending_confirmation", None)
+            raw_name = state_tool if isinstance(state_tool, str) else None
+        name = raw_name if (isinstance(raw_name, str) and raw_name.strip()) else "execute_command"
+
+        replacement = ToolMessage(content=content, tool_call_id=tool_call_id, name=name)
         for index in range(len(self.agent_state.messages) - 1, -1, -1):
             message = self.agent_state.messages[index]
             if isinstance(message, ToolMessage) and message.tool_call_id == tool_call_id:
@@ -747,6 +755,14 @@ class CommandApprovalHandler:
                         except Exception:
                             pass
 
+                    # Drenar cualquier señal residual de interrupción previa a la ejecución del comando aprobado
+                    if self.interrupt_queue:
+                        while not self.interrupt_queue.empty():
+                            try:
+                                self.interrupt_queue.get_nowait()
+                            except Exception:
+                                break
+
                     for output_chunk in self.command_executor.execute(command_to_execute, **execute_kwargs):
                         if output_chunk:
                             logger.info(f"Chunk recibido ({len(output_chunk)} bytes)")
@@ -810,6 +826,7 @@ class CommandApprovalHandler:
             self._replace_or_append_tool_message(
                 tool_call_id,
                 tool_message_content,
+                tool_name=tool_name if isinstance(tool_name, str) else None,
             )
             # logger.debug(f"DEBUG: CommandApprovalHandler - ToolMessage añadido al historial con ID: {tool_call_id}") # <-- Añadir este log
         else: # Acción denegada

@@ -337,6 +337,7 @@ class CommandApprovalModal(ModalScreen[Any]):
     # ── Eventos ──────────────────────────────────────────────────────────────
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
         if event.button.id == "btn-yes":
             self.dismiss(True)
         elif event.button.id == "btn-always":
@@ -346,10 +347,16 @@ class CommandApprovalModal(ModalScreen[Any]):
 
     def on_key(self, event: events.Key) -> None:
         if event.key in ("s", "y", "enter"):
+            event.stop()
+            event.prevent_default()
             self.dismiss(True)
         elif event.key == "a":
+            event.stop()
+            event.prevent_default()
             self.dismiss("accept_all")
         elif event.key in ("n", "escape"):
+            event.stop()
+            event.prevent_default()
             self.dismiss(False)
 
     # ── Helpers ──────────────────────────────────────────────────────────────

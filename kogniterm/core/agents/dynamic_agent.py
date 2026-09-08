@@ -7,8 +7,33 @@ from kogniterm.core.agent_state import AgentState
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.base_agent import BaseAgentNode
 from kogniterm.core.agents.tool_executor import ToolExecutor, should_continue
+from kogniterm.core.agents.super_agent import SuperAgentRunner
 
 logger = logging.getLogger(__name__)
+
+
+class DynamicAgentRunner(SuperAgentRunner):
+    """
+    Motor asíncrono para agentes dinámicos configurados al vuelo con prompts personalizados.
+    Basado en SuperAgentRunner para ejecución de alto rendimiento, streaming fluido y
+    gestión limpia de herramientas.
+    """
+
+    def __init__(
+        self,
+        llm_service: LLMService,
+        system_prompt: str,
+        terminal_ui: Optional[Any] = None,
+        interrupt_queue: Optional[queue.Queue] = None,
+        command_approval_handler=None,
+    ) -> None:
+        super().__init__(
+            llm_service=llm_service,
+            terminal_ui=terminal_ui,
+            interrupt_queue=interrupt_queue,
+            command_approval_handler=command_approval_handler,
+            custom_system_prompt=system_prompt,
+        )
 
 
 def call_dynamic_model_node(
@@ -45,8 +70,25 @@ def create_dynamic_agent(
     system_prompt: str,
     terminal_ui: Optional[Any] = None,
     interrupt_queue: Optional[queue.Queue] = None,
+    command_approval_handler=None,
+) -> DynamicAgentRunner:
+    """Construye y devuelve un DynamicAgentRunner basado en SuperAgent."""
+    return DynamicAgentRunner(
+        llm_service=llm_service,
+        system_prompt=system_prompt,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue,
+        command_approval_handler=command_approval_handler,
+    )
+
+
+def create_legacy_dynamic_agent_graph(
+    llm_service: LLMService,
+    system_prompt: str,
+    terminal_ui: Optional[Any] = None,
+    interrupt_queue: Optional[queue.Queue] = None,
 ):
-    """Construye y compila un grafo LangGraph genérico para un agente dinámico bajo demanda."""
+    """Construye y compila un grafo LangGraph genérico para un agente dinámico (fallback legacy)."""
     workflow = StateGraph(AgentState)
 
     workflow.add_node(

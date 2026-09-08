@@ -90,13 +90,13 @@ class ToolExecutor:
                 or ""
             )
 
-        from kogniterm.capabilities import default_tool_registry
-        cap_def = default_tool_registry.get_tool(tool_name)
-
-        if cap_def:
-            tool = cap_def.handler
-        else:
-            tool = llm_service.get_tool(tool_name)
+        tool = llm_service.get_tool(tool_name) if llm_service and hasattr(llm_service, "get_tool") else None
+        cap_def = None
+        if not tool:
+            from kogniterm.capabilities import default_tool_registry
+            cap_def = default_tool_registry.get_tool(tool_name)
+            if cap_def:
+                tool = cap_def.handler
 
         if not tool:
             sm = getattr(llm_service, "skill_manager", None)
@@ -124,20 +124,19 @@ class ToolExecutor:
                 skill_name = skill.name
 
         # Notificación inicial
+        from ..utils.tool_utils import format_tool_action_target
+        action_target = format_tool_action_target(tool_name, tool_args)
         if terminal_ui:
             if is_tui:
                 terminal_ui.print_tool_notification(
-                    tool_name, action_desc, skill_name=skill_name
+                    tool_name, action_target or action_desc, skill_name=skill_name
                 )
             else:
-                args_json = json.dumps(tool_args, indent=2, ensure_ascii=False)
-                console.print(
-                    Panel(
-                        Syntax(args_json, "json", theme="monokai"),
-                        title=f"[bold cyan]🛠️ Ejecutando: {tool_name}[/bold cyan]",
-                        border_style="cyan",
-                    )
-                )
+                suffix = f": [bold white]{action_target}[/bold white]" if action_target else ""
+                console.print(f"[cyan]🛠️  {tool_name}{suffix}[/cyan]")
+        else:
+            suffix = f": [bold white]{action_target}[/bold white]" if action_target else ""
+            console.print(f"[cyan]🛠️  {tool_name}{suffix}[/cyan]")
         # Adquirir semáforo de concurrencia antes de ejecutar la herramienta
         # para evitar que se ejecuten demasiadas herramientas simultáneamente
         ToolExecutor._concurrency_semaphore.acquire()

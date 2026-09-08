@@ -29,7 +29,9 @@ from ..async_io_manager import get_io_manager
 from ..utils.tool_utils import (
     get_tool_action_description,
     tool_requires_content_for_confirmation,
+    format_tool_action_target,
 )
+from .super_agent import is_terminal_tool
 
 console = Console()
 
@@ -451,19 +453,14 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
 
         bajada = get_tool_action_description(tool, tool_args, tool_name=tool_name)
 
-    if is_tui:
-        terminal_ui.print_tool_notification(tool_name, bajada, skill_name=skill_name)
+    action_target = format_tool_action_target(tool_name, tool_args)
+    if terminal_ui and hasattr(terminal_ui, "print_tool_notification"):
+        terminal_ui.print_tool_notification(tool_name, action_target, skill_name=skill_name)
+    elif is_tui and terminal_ui:
+        terminal_ui.print_tool_notification(tool_name, action_target, skill_name=skill_name)
     else:
-        args_json = json.dumps(tool_args, indent=2, ensure_ascii=False)
-        console.print(
-            Panel(
-                Syntax(args_json, "json", theme="monokai", line_numbers=False),
-                title=f"[bold cyan]🛠️ Ejecutando: {tool_name}[/bold cyan]",
-                border_style="cyan",
-                padding=(0, 4),
-                expand=True,
-            )
-        )
+        suffix = f": [bold white]{action_target}[/bold white]" if action_target else ""
+        console.print(f"[cyan]🛠️  {tool_name}{suffix}[/cyan]")
 
     if not tool:
         return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
@@ -491,33 +488,32 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
             display_output = output_str
             is_truncated = False
 
-        # Renderizar el resultado
-        if not is_tui:
-            if is_markdown:
-                content_renderable = Markdown(display_output)
+        # Renderizar el resultado únicamente para herramientas de terminal
+        if is_terminal_tool(tool_name):
+            if not is_tui:
+                if is_markdown:
+                    content_renderable = Markdown(display_output)
+                else:
+                    content_renderable = Text(display_output)
+
+                console.print(
+                    Panel(
+                        content_renderable,
+                        title=f"[bold green]✅ Resultado de {tool_name}[/bold green]"
+                        + (" (truncado)" if is_truncated else ""),
+                        border_style="green",
+                        padding=(0, 4),
+                        expand=True,
+                    )
+                )
             else:
-                content_renderable = Text(display_output)
+                # En TUI, si estamos en paneles paralelos (proxied), debemos mostrar el resultado
+                if hasattr(terminal_ui, "panel_id") and terminal_ui.panel_id:
+                    from kogniterm.terminal.visual_components import (
+                        create_tool_output_panel,
+                    )
 
-            console.print(
-                Panel(
-                    content_renderable,
-                    title=f"[bold green]✅ Resultado de {tool_name}[/bold green]"
-                    + (" (truncado)" if is_truncated else ""),
-                    border_style="green",
-                    padding=(0, 4),
-                    expand=True,
-                )
-            )
-        else:
-            # En TUI, si estamos en paneles paralelos (proxied), debemos mostrar el resultado
-            # para que el flujo sea visible en la columna correspondiente.
-            # Si no es proxied, el ChatLogWidget ya maneja los ToolMessage de forma nativa.
-            if hasattr(terminal_ui, "panel_id") and terminal_ui.panel_id:
-                from kogniterm.terminal.visual_components import (
-                    create_tool_output_panel,
-                )
-
-                panel = create_tool_output_panel(
+                    panel = create_tool_output_panel(
                     tool_name, display_output, is_markdown=is_markdown
                 )
                 terminal_ui.update_live(panel)
@@ -912,10 +908,26 @@ def should_continue(state: AgentState) -> str:
     return END
 
 
-# --- Construcción del Grafo ---
+# --- Construcción del Agente ---
 
 
 def create_code_agent(
+    llm_service: LLMService,
+    terminal_ui: TerminalUI,
+    interrupt_queue: Optional[queue.Queue] = None,
+    command_approval_handler=None,
+):
+    """Crea un agente de código basado en DeepCoderRunner."""
+    from .deep_coder import create_deep_coder
+    return create_deep_coder(
+        llm_service=llm_service,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue,
+        command_approval_handler=command_approval_handler,
+    )
+
+
+def create_legacy_code_agent_graph(
     llm_service: LLMService,
     terminal_ui: TerminalUI,
     interrupt_queue: Optional[queue.Queue] = None,
