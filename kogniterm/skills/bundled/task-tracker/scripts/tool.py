@@ -38,8 +38,16 @@ def _update_ui():
     """Actualiza el panel lateral de tareas en la UI (TUI o ServerUI)."""
     global _agent_plans, _llm_service
     try:
+        import sys
         tui = globals().get('_terminal_ui')
         llm_svc = _llm_service or globals().get('_llm_service')
+
+        if not tui:
+            mod = sys.modules.get("_task_tracker_bundled_tool")
+            if mod:
+                tui = getattr(mod, "_terminal_ui", None)
+                if not llm_svc:
+                    llm_svc = getattr(mod, "_llm_service", None)
 
         if not tui and llm_svc:
             if hasattr(llm_svc, 'terminal_ui') and llm_svc.terminal_ui:
@@ -58,16 +66,41 @@ def _normalize_agent_name(agent_name: str) -> str:
     return agent_name.strip().lower().replace(" ", "_")
 
 
-def _init_tasks(agent_name: str, plan: List[str]) -> str:
+def _normalize_plan(plan: Any) -> List[str]:
+    """Normaliza el plan garantizando que sea una lista de tareas limpias y no un JSON serializado."""
+    if not plan:
+        return []
+    if isinstance(plan, str):
+        plan_str = plan.strip()
+        if plan_str.startswith("[") and plan_str.endswith("]"):
+            try:
+                import json
+                parsed = json.loads(plan_str)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except Exception:
+                pass
+        if "\n" in plan_str:
+            return [line.strip().lstrip("-*0123456789. ") for line in plan_str.split("\n") if line.strip()]
+        return [plan_str]
+    elif isinstance(plan, (list, tuple)):
+        return [str(item).strip() for item in plan if str(item).strip()]
+    return [str(plan)]
+
+
+def _init_tasks(agent_name: str, plan: Any) -> str:
     """Inicializa la lista de tareas para un agente."""
     global _agent_plans
     normalized_name = _normalize_agent_name(agent_name)
-    _agent_plans[normalized_name] = [{"task": t, "status": STATUS_PENDING} for t in plan]
+    clean_plan = _normalize_plan(plan)
+    if not clean_plan:
+        return "❌ Error: 'plan' debe contener al menos una tarea válida."
+    _agent_plans[normalized_name] = [{"task": t, "status": STATUS_PENDING} for t in clean_plan]
     _update_ui()
     return f"✅ Plan de {len(_agent_plans[normalized_name])} tareas inicializado para '{normalized_name}'."
 
 
-def _update_task(agent_name: str, task_index: int, status: str) -> str:
+def _update_task(agent_name: str, task_index: Any, status: str) -> str:
     """Marca una tarea como completada o en curso para un agente."""
     global _agent_plans
     normalized_name = _normalize_agent_name(agent_name)
@@ -79,30 +112,39 @@ def _update_task(agent_name: str, task_index: int, status: str) -> str:
         return f"❌ Error: agente '{agent_name}' no encontrado. Inicializa un plan primero con action='init'."
 
     tasks = _agent_plans[normalized_name]
-    if not isinstance(task_index, int) or task_index < 0 or task_index >= len(tasks):
-        return f"❌ Error: índice {task_index} fuera de rango. El plan tiene {len(tasks)} tareas (0-{len(tasks)-1})."
+    try:
+        idx = int(task_index)
+    except (ValueError, TypeError):
+        return f"❌ Error: índice '{task_index}' no es un número entero válido."
 
-    old_status = tasks[task_index]["status"]
-    tasks[task_index]["status"] = status
+    if idx < 0 or idx >= len(tasks):
+        return f"❌ Error: índice {idx} fuera de rango. El plan tiene {len(tasks)} tareas (0-{len(tasks)-1})."
+
+    old_status = tasks[idx]["status"]
+    tasks[idx]["status"] = status
     _update_ui()
 
     if old_status == status:
-        return f"ℹ️ Tarea {task_index} de '{normalized_name}' ya estaba en estado '{status}'."
-    return f"✅ Tarea {task_index} de '{normalized_name}' actualizada: '{old_status}' → '{status}'."
+        return f"ℹ️ Tarea {idx} de '{normalized_name}' ya estaba en estado '{status}'."
+    return f"✅ Tarea {idx} de '{normalized_name}' actualizada: '{old_status}' → '{status}'."
 
 
-def _batch_update_tasks(agent_name: str, updates: List[Dict[str, Any]]) -> str:
-    """Aplica múltiples actualizaciones de estado en una sola llamada atómica.
-
-    Cada elemento de ``updates`` debe ser un dict ``{"task_index": int, "status": str}``.
-    Las actualizaciones válidas se aplican todas; las inválidas se reportan sin
-    abortar el resto. La UI se refresca una única vez al final del lote.
-    """
+def _batch_update_tasks(agent_name: str, updates: Any) -> str:
+    """Aplica múltiples actualizaciones de estado en una sola llamada atómica."""
     global _agent_plans
     normalized_name = _normalize_agent_name(agent_name)
 
     if normalized_name not in _agent_plans:
         return f"❌ Error: agente '{agent_name}' no encontrado. Inicializa un plan primero con action='init'."
+
+    if isinstance(updates, str):
+        try:
+            import json
+            parsed = json.loads(updates)
+            if isinstance(parsed, list):
+                updates = parsed
+        except Exception:
+            pass
 
     tasks = _agent_plans[normalized_name]
     successes: List[str] = []
@@ -113,14 +155,20 @@ def _batch_update_tasks(agent_name: str, updates: List[Dict[str, Any]]) -> str:
             errors.append(f"item #{i}: se esperaba un objeto {{'task_index', 'status'}}")
             continue
 
-        task_index = update.get("task_index")
+        raw_idx = update.get("task_index")
         status = update.get("status")
 
         if status not in VALID_STATUSES:
             errors.append(f"item #{i}: estado '{status}' no válido. Usa: {', '.join(sorted(VALID_STATUSES))}")
             continue
 
-        if not isinstance(task_index, int) or task_index < 0 or task_index >= len(tasks):
+        try:
+            task_index = int(raw_idx)
+        except (ValueError, TypeError):
+            errors.append(f"item #{i}: índice '{raw_idx}' no es un entero")
+            continue
+
+        if task_index < 0 or task_index >= len(tasks):
             errors.append(f"item #{i}: índice {task_index} fuera de rango (0-{len(tasks)-1})")
             continue
 
@@ -243,7 +291,7 @@ tool_schema = {
 
 def task_tracker(
     action: str,
-    agent_name: str,
+    agent_name: str = "kogni_agent",
     plan: List[str] = None,
     task_index: int = None,
     status: str = None,

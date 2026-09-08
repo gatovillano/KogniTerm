@@ -32,3 +32,23 @@ async def test_tool_registry_adapter_custom_handler():
 
     res = await adapter.execute("custom_echo", {"msg": "hello"})
     assert res == "echo: hello"
+
+
+@pytest.mark.asyncio
+async def test_tool_registry_adapter_registers_bundled_task_tracker():
+    adapter = ToolRegistryAdapter()
+    schemas = adapter.get_schemas_for_litellm()
+    assert any(s["function"]["name"] == "task_tracker" for s in schemas)
+
+
+@pytest.mark.asyncio
+async def test_task_tracker_normalizes_stringified_json_plan():
+    adapter = ToolRegistryAdapter()
+    res = await adapter.execute("task_tracker", {
+        "action": "init",
+        "plan": '["Explorar estructura", "Analizar dependencias"]',
+        "agent_name": "test_agent"
+    })
+    assert "Plan de 2 tareas inicializado" in res
+    assert "162 tareas" not in res
+

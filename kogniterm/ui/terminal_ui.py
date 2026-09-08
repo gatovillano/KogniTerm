@@ -147,6 +147,62 @@ class TerminalUI:
                 pass
             self._last_live_renderable = None
 
+    def update_task_tracker(self, agent_plans: dict):
+        """Actualiza el estado de las tareas para el panel visual o la CLI."""
+        self._last_agent_plans = agent_plans
+        if not agent_plans:
+            return
+
+        from rich.table import Table
+        from rich.text import Text
+        from rich.console import Group
+        from rich.panel import Panel
+        from kogniterm.terminal.themes import ColorPalette
+
+        blocks = []
+        for agent_name, tasks in agent_plans.items():
+            if not tasks:
+                continue
+            header = Text.from_markup(
+                f"[bold {ColorPalette.SECONDARY}]● {agent_name}[/bold {ColorPalette.SECONDARY}]"
+            )
+            table = Table(
+                expand=True, box=None, show_header=False, padding=(0, 1), title=None
+            )
+            table.add_column("Status")
+            table.add_column("Task")
+
+            for task in tasks:
+                status = task.get("status", "pending")
+                task_text = task.get("task", "")
+
+                if status == "done":
+                    style = "strike #525252"
+                    status_icon = "✅"
+                elif status == "in-progress":
+                    style = "bold cyan"
+                    status_icon = "🔄"
+                else:
+                    style = "white"
+                    status_icon = "⏳"
+
+                table.add_row(status_icon, f"[{style}]{task_text}[/]")
+
+            blocks.append(Group(header, table))
+
+        if blocks and hasattr(self, "console") and self.console:
+            panel = Panel(
+                Group(*blocks),
+                border_style="green",
+                title="[bold green]Task Tracker[/bold green]",
+                title_align="left",
+                expand=True,
+            )
+            try:
+                self.console.print(panel)
+            except Exception:
+                pass
+
     async def handle_file_update_confirmation(self, diff_json_str: str, original_tool_call: dict) -> dict:
         """
         Handles the approval process for a file update operation, displaying the diff and requesting confirmation.
