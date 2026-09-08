@@ -983,35 +983,57 @@ class LLMService:
             converted_tools = []
             seen_names = set()
             is_thinking = self.is_thinking_model()
+
+            # 1. Cargar Capabilities nativas precalculadas de alto rendimiento (KAI-CLI approach)
+            try:
+                from kogniterm.capabilities import default_tool_registry
+                for cap_schema in default_tool_registry.get_schemas_for_litellm():
+                    fn_name = cap_schema["function"]["name"]
+                    if is_thinking and fn_name == "think":
+                        continue
+                    if fn_name not in seen_names:
+                        seen_names.add(fn_name)
+                        converted_tools.append(cap_schema)
+            except Exception as e:
+                logger.debug(f"Capabilities no cargadas en _get_litellm_tools: {e}")
+
+            # 2. Cargar herramientas procedimentales/adicionales de skills que no choquen
             for tool in self.skill_manager.get_tools():
                 tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
                 clean_name = sanitize_tool_name(tool_name)
                 if clean_name in seen_names:
-                    logger.warning(f"⚠️ Omitiendo herramienta duplicada: {clean_name}")
                     continue
                 seen_names.add(clean_name)
                 if is_thinking and tool_name == 'think':
-                    logger.info("🧠 Excluyendo la herramienta 'think' porque el modelo soporta razonamiento nativo.")
                     continue
                 try:
                     converted = _convert_langchain_tool_to_litellm(tool, self.model_name)
-                    logger.debug(f"✅ Herramienta convertida: {tool_name} -> {converted.get('type', 'standard')}")
                     converted_tools.append(converted)
                 except Exception as e:
                     logger.error(f"Error al convertir herramienta {tool_name}: {e}", exc_info=True)
-            # Reconstruir el mapa de herramientas para incluir las recién cargadas con mapeo dual
+
+            # 3. Reconstruir el mapa de herramientas dual
             try:
                 new_map = {}
+                from kogniterm.capabilities import default_tool_registry
+                for t_name, t_def in default_tool_registry.get_all().items():
+                    new_map[t_name] = t_def.handler
+                    new_map[sanitize_tool_name(t_name)] = t_def.handler
+
                 for tool in self.skill_manager.get_tools():
                     raw_n = getattr(tool, 'name', getattr(tool, '__name__', tool.__class__.__name__))
                     clean_n = sanitize_tool_name(raw_n)
-                    new_map[raw_n] = tool
-                    new_map[clean_n] = tool
+                    if raw_n not in new_map:
+                        new_map[raw_n] = tool
+                    if clean_n not in new_map:
+                        new_map[clean_n] = tool
                 self.tool_map = new_map
             except Exception:
                 pass
+
             self.litellm_tools = converted_tools
-            logger.debug(f"📋 Total herramientas convertidas: {len(converted_tools)}")
+            self._cached_tools_token_overhead = None
+            logger.debug(f"📋 Total herramientas disponibles (Capabilities + Skills): {len(converted_tools)}")
         return self.litellm_tools
 
     def get_model_context_window(self, model_name: Optional[str] = None) -> int:
@@ -1510,9 +1532,17 @@ class LLMService:
             if include_tools:
                 tools_list = self._get_litellm_tools()
                 if tools_list:
-                    tools_token_overhead = self._get_token_count(json.dumps(tools_list)) + 500
+                    if getattr(self, "_cached_tools_token_overhead", None) is None:
+                        self._cached_tools_token_overhead = self._get_token_count(json.dumps(tools_list)) + 500
+                    tools_token_overhead = self._cached_tools_token_overhead
             
-            total_prompt_tokens = self._get_messages_token_count(litellm_messages) + tools_token_overhead
+            # Estimación O(1) de caracteres antes de invocar tiktoken O(N) para reducir latencia pre-llamada
+            total_chars = sum(len(str(m.get("content") or "")) for m in litellm_messages)
+            if total_chars < 60000 and (model_context_window > 32000):
+                total_prompt_tokens = int(total_chars / 3.5) + tools_token_overhead
+            else:
+                total_prompt_tokens = self._get_messages_token_count(litellm_messages) + tools_token_overhead
+
             max_allowed_prompt = max(4000, model_context_window - 8192 - 3000 - tools_token_overhead)
             
             if total_prompt_tokens > max_allowed_prompt:
@@ -1715,8 +1745,9 @@ class LLMService:
             sys.stderr.flush()
             start_time = time.perf_counter()
             
-            logger.debug(f"DEBUG: Enviando mensajes al LLM: {json.dumps(completion_kwargs['messages'], indent=2)}")
-            logger.debug(f"DEBUG: completion_kwargs: {json.dumps(completion_kwargs, indent=2)}")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"DEBUG: Enviando mensajes al LLM: {json.dumps(completion_kwargs['messages'], indent=2)}")
+                logger.debug(f"DEBUG: completion_kwargs: {json.dumps(completion_kwargs, indent=2)}")
             
             # Usar MultiProviderManager si está habilitado
             if self.use_multi_provider and self.provider_manager:

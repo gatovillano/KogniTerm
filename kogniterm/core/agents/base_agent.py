@@ -239,8 +239,9 @@ class BaseAgentNode:
     @staticmethod
     def _finalize_display(s_state, terminal_ui, is_tui):
         if is_tui and terminal_ui:
-            # Asegurar una última actualización con el contenido final completo
-            BaseAgentNode._update_display(s_state, terminal_ui, is_tui, None)
+            # Asegurar una última actualización con el contenido final completo solo si hubo respuesta o no se transmitió pensamiento
+            if s_state["text_streamed"] or not s_state["thinking_streamed"]:
+                BaseAgentNode._update_display(s_state, terminal_ui, is_tui, None)
             
             if s_state["text_streamed"] or s_state["full_thinking"] or s_state["full_response"]:
                 terminal_ui.stop_live()

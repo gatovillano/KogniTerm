@@ -122,10 +122,11 @@ class CommandApprovalHandler:
         self.prompt_session = prompt_session
         self.terminal_ui = terminal_ui
         self.agent_state = agent_state
+        self._interrupt_queue = None
         if terminal_ui and hasattr(terminal_ui, "get_interrupt_queue"):
-            self.interrupt_queue = terminal_ui.get_interrupt_queue()
+            self._interrupt_queue = terminal_ui.get_interrupt_queue()
         else:
-            self.interrupt_queue = getattr(terminal_ui, "interrupt_queue", None)
+            self._interrupt_queue = getattr(terminal_ui, "interrupt_queue", None)
         self.file_update_tool = file_update_tool
         self.advanced_file_editor_tool = advanced_file_editor_tool
         self.file_operations_tool = file_operations_tool
@@ -146,6 +147,18 @@ class CommandApprovalHandler:
         from kogniterm.terminal.config_manager import ConfigManager
         self.auto_approve = bool(ConfigManager().get_config("auto_approve"))
         self._command_rules = CommandRulesResolver()  # Resolver de permisos granulares
+
+    @property
+    def interrupt_queue(self):
+        if getattr(self, "_interrupt_queue", None) is not None:
+            return self._interrupt_queue
+        if self.terminal_ui and hasattr(self.terminal_ui, "get_interrupt_queue"):
+            return self.terminal_ui.get_interrupt_queue()
+        return getattr(self.terminal_ui, "interrupt_queue", None)
+
+    @interrupt_queue.setter
+    def interrupt_queue(self, value):
+        self._interrupt_queue = value
 
     def _ensure_unified_diff(self, file_path: str, diff_or_content: str) -> str:
         """
@@ -742,7 +755,13 @@ class CommandApprovalHandler:
                             self.terminal_ui.update_terminal_output(command_to_execute, full_command_output)
                     
                     # Separador visual después del comando con temas
-                    if THEMES_AVAILABLE:
+                    is_interrupted = "Comando interrumpido por el usuario" in full_command_output
+                    if is_interrupted:
+                        if THEMES_AVAILABLE:
+                            self.terminal_ui.console.print(f"\n[bold {ColorPalette.WARNING}]{Icons.WARNING} Comando interrumpido por el usuario[/]\n")
+                        else:
+                            self.terminal_ui.console.print(f"\n[bold yellow]⚠️ Comando interrumpido por el usuario[/bold yellow]\n")
+                    elif THEMES_AVAILABLE:
                         self.terminal_ui.console.print(f"\n[bold {ColorPalette.SUCCESS}]{Icons.SUCCESS} Comando completado[/]\n")
                     else:
                         # Fallback al separador original

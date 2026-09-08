@@ -382,8 +382,9 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
                 if (interrupt_queue and not interrupt_queue.empty()) or llm_service.stop_generation_flag:
                     break
 
-            # Llamada final para asegurar que todo se muestre (especialmente con throttling)
-            update_display()
+            # Llamada final para asegurar que todo se muestre (solo si hubo respuesta de texto o en CLI)
+            if full_response_content or not is_tui:
+                update_display()
 
             if is_tui and terminal_ui and hasattr(terminal_ui, "stop_live"):
                 terminal_ui.stop_live()

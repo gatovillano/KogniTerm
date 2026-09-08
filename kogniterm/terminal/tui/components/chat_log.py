@@ -316,7 +316,22 @@ class ChatLogWidget(VerticalScroll):
                         self._active_thinking_widget = None
                         self._active_message_widget = None
 
-                if is_thinking and self._active_thinking_widget and getattr(self._active_thinking_widget, "parent", None) is not None:
+                # Si es un pensamiento y no tenemos referencia activa, intentar re-vincular
+                # al último widget de mensaje si este era un bloque de pensamiento (evita duplicados).
+                if is_thinking and (self._active_thinking_widget is None or (getattr(self, "is_mounted", False) and getattr(self._active_thinking_widget, "parent", None) is None)):
+                    for child in reversed(self.children):
+                        if isinstance(child, MessageWidget):
+                            child_r = getattr(child, "renderable", None) or getattr(child, "_renderable", None)
+                            if child_r and _check_is_thinking(child_r):
+                                self._active_thinking_widget = child
+                                self._active_message_widget = child
+                                break
+                        elif isinstance(child, AnimatedSpinnerWidget):
+                            continue
+                        else:
+                            break
+
+                if is_thinking and self._active_thinking_widget and (not getattr(self, "is_mounted", False) or getattr(self._active_thinking_widget, "parent", None) is not None):
                     self._active_thinking_widget.update(r)
                 elif spinner_flag:
                     if self._active_message_widget is None or not isinstance(self._active_message_widget, AnimatedSpinnerWidget):

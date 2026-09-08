@@ -226,12 +226,18 @@ class ServerUI(TerminalUI):
     `call_soon_threadsafe` para pasar eventos al loop del servidor.
     """
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, session_id: str):
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        session_id: str,
+        interrupt_queue: Optional[queue.Queue] = None,
+    ):
         super().__init__(
             console=Console(force_terminal=False, no_color=True, width=120)
         )
         self._loop = loop
         self.session_id = session_id
+        self.interrupt_queue: queue.Queue = interrupt_queue or queue.Queue()
         # Sistema de Broadcast: Múltiples colas activas
         self._queues = []
         self._queues_lock = threading.Lock()
@@ -265,6 +271,25 @@ class ServerUI(TerminalUI):
 
     def get_interrupt_queue(self):
         return getattr(self, "interrupt_queue", None)
+
+    def cancel_pending(self) -> None:
+        """Cancela todas las aprobaciones y preguntas pendientes por interrupción."""
+        with self._pending_lock:
+            for req_id, (ev, _) in list(self._pending_approvals.items()):
+                self._pending_approvals[req_id] = (ev, False)
+                ev.set()
+            for req_id, (ev, _) in list(self._pending_approvals_async.items()):
+                self._pending_approvals_async[req_id] = (ev, False)
+                if self._loop and self._loop.is_running():
+                    self._loop.call_soon_threadsafe(ev.set)
+                else:
+                    ev.set()
+            for req_id, (ev, _) in list(self._pending_questions.items()):
+                self._pending_questions[req_id] = (
+                    ev,
+                    {"selected": "none", "cancelled": True},
+                )
+                ev.set()
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -698,12 +723,19 @@ class AgentSession:
         from kogniterm.core.context.workspace_context import WorkspaceContext
         self.workspace_context = WorkspaceContext(root_dir=self.workspace_dir)
 
-        # UI adapter (sin pantalla)
-        self.ui = ServerUI(loop=loop, session_id=session_id)
+        # Cola de interrupción de sesión (para Ctrl+C / ESC desde el canal)
+        self.interrupt_queue: queue.Queue = queue.Queue()
 
-        # Inyectar terminal_ui en el LLMService y SkillManager para que
-        # skills como task_tracker puedan acceder al canal de eventos.
+        # UI adapter (sin pantalla) con interrupt_queue enlazada
+        self.ui = ServerUI(
+            loop=loop, session_id=session_id, interrupt_queue=self.interrupt_queue
+        )
+        self.ui.interrupt_queue = self.interrupt_queue
+
+        # Inyectar terminal_ui e interrupt_queue en el LLMService y SkillManager para que
+        # skills como task_tracker puedan acceder al canal de eventos e interrupciones.
         llm_service.terminal_ui = self.ui
+        llm_service.interrupt_queue = self.interrupt_queue
         if hasattr(llm_service, "skill_manager") and llm_service.skill_manager:
             llm_service.skill_manager.terminal_ui = self.ui
             # Inyectar retroactivamente en los módulos de herramientas cargadas
@@ -744,9 +776,6 @@ class AgentSession:
         # Estado del agente
         self.agent_state = AgentState(messages=initial_messages)
 
-        # Cola de interrupción (para Ctrl+C desde el canal)
-        self.interrupt_queue: queue.Queue = queue.Queue()
-
         # Cola de mensajes pendientes cuando el agente está ocupado
         self._pending_messages: list = []
 
@@ -769,6 +798,7 @@ class AgentSession:
                 llm_service.get_tool("advanced_file_editor") if llm_service else None,
                 llm_service.get_tool("file_operations") if llm_service else None,
             )
+            self.command_approval_handler.interrupt_queue = self.interrupt_queue
         except Exception as e:
             logger.error(
                 f"[Session:{self.session_id}] Error al inicializar CommandApprovalHandler: {e}"
@@ -856,6 +886,16 @@ class AgentSession:
         self.interrupt_queue.put_nowait(True)
         if self.llm_service:
             self.llm_service.stop_generation_flag = True
+        if hasattr(self, "command_executor") and self.command_executor:
+            try:
+                self.command_executor.terminate()
+            except Exception as e:
+                logger.warning(f"[Session:{self.session_id}] Error al terminar command_executor: {e}")
+        if hasattr(self, "ui") and self.ui and hasattr(self.ui, "cancel_pending"):
+            try:
+                self.ui.cancel_pending()
+            except Exception as e:
+                logger.warning(f"[Session:{self.session_id}] Error al cancelar pendientes en UI: {e}")
 
     def _drain_pending_messages(self) -> list:
         """Extrae y retorna todos los mensajes pendientes en cola."""

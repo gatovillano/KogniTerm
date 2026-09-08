@@ -90,7 +90,15 @@ class ToolExecutor:
                 or ""
             )
 
-        tool = llm_service.get_tool(tool_name)
+        from kogniterm.capabilities import default_tool_registry
+        cap_def = default_tool_registry.get_tool(tool_name)
+
+        if cap_def:
+            tool = cap_def.handler
+            action_desc = cap_def.description
+        else:
+            tool = llm_service.get_tool(tool_name)
+
         if not tool:
             sm = getattr(llm_service, "skill_manager", None)
             if sm and hasattr(sm, "get_skill_instructions"):
@@ -104,7 +112,8 @@ class ToolExecutor:
                     ), None
             return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
 
-        action_desc = get_tool_action_description(tool, tool_args)
+        if not cap_def:
+            action_desc = get_tool_action_description(tool, tool_args)
 
         # Obtener skill_name
         skill_name = ""
@@ -142,9 +151,27 @@ class ToolExecutor:
                 or any(kw in tool_name.lower() for kw in ["command", "bash", "terminal", "shell", "python_exec"])
             )
 
-            res = llm_service._invoke_tool_with_interrupt(
-                tool, tool_args, delegation_context
-            )
+            if cap_def:
+                import inspect
+                import asyncio
+                if inspect.iscoroutinefunction(cap_def.handler):
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    if loop.is_running():
+                        import nest_asyncio
+                        nest_asyncio.apply()
+                        res = loop.run_until_complete(cap_def.handler(**tool_args))
+                    else:
+                        res = loop.run_until_complete(cap_def.handler(**tool_args))
+                else:
+                    res = cap_def.handler(**tool_args)
+            else:
+                res = llm_service._invoke_tool_with_interrupt(
+                    tool, tool_args, delegation_context
+                )
             if isinstance(res, str):
                 full_tool_output = res
             elif isinstance(res, (dict, list)):
