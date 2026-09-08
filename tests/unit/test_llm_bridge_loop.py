@@ -47,3 +47,47 @@ async def test_llm_bridge_executes_tools_and_loops_for_final_answer():
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
         assert len(tool_msgs) == 1
         assert tool_msgs[0]["content"] == "contenido de prueba"
+
+
+def test_parse_text_tool_calls():
+    from kogniterm.core.ai_cli_bridge.llm_bridge import _parse_text_tool_calls
+
+    xml_text = (
+        "Voy a listar los archivos.\n"
+        "<function_calls>\n"
+        '<invoke name="execute_command">\n'
+        "<parameter name=\"command\">ls -la</parameter>\n"
+        "</invoke>\n"
+        "</function_calls>"
+    )
+    calls, clean = _parse_text_tool_calls(xml_text)
+    assert len(calls) == 1
+    assert calls[0]["name"] == "execute_command"
+    assert calls[0]["arguments"] == {"command": "ls -la"}
+    assert "Voy a listar los archivos." in clean
+    assert "<invoke" not in clean
+
+
+@pytest.mark.asyncio
+async def test_llm_bridge_handles_inline_think_tags():
+    bridge = LLMBridge(model="test-model")
+
+    chunk1 = MagicMock()
+    chunk1.choices = [MagicMock(delta=MagicMock(content="<think>Pensando en la solución...</think>Respuesta lista", reasoning_content=None, thinking=None, reasoning=None, thinking_content=None, tool_calls=None))]
+
+    async def mock_stream():
+        yield chunk1
+
+    with patch("litellm.acompletion", AsyncMock(return_value=mock_stream())):
+        messages = [{"role": "user", "content": "hola"}]
+        events = []
+        async for ev in bridge.chat(messages=messages):
+            events.append(ev)
+
+        reasoning_events = [e for e in events if e["type"] == "reasoning"]
+        content_events = [e for e in events if e["type"] == "content"]
+
+        assert len(reasoning_events) >= 1
+        assert "Pensando en la solución..." in reasoning_events[0]["text"]
+        assert len(content_events) >= 1
+        assert "Respuesta lista" in content_events[0]["text"]
