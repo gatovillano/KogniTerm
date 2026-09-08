@@ -123,6 +123,23 @@ class AntigravityClient:
         logger.info("Token de Antigravity refrescado correctamente.")
         return cls._access_token
 
+    CODE_ASSIST_ENDPOINT_DAILY = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+    CODE_ASSIST_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com"
+    CODE_ASSIST_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com"
+
+    CODE_ASSIST_ENDPOINTS = [
+        CODE_ASSIST_ENDPOINT_DAILY,
+        CODE_ASSIST_ENDPOINT_AUTOPUSH,
+        CODE_ASSIST_ENDPOINT_PROD,
+    ]
+
+    @classmethod
+    def get_endpoints(cls) -> List[str]:
+        custom_ep = os.getenv("KOGNITERM_ANTIGRAVITY_ENDPOINT")
+        if custom_ep:
+            return [custom_ep.rstrip("/")]
+        return list(cls.CODE_ASSIST_ENDPOINTS)
+
     @classmethod
     def get_project_id(cls) -> str:
         """
@@ -135,7 +152,7 @@ class AntigravityClient:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "antigravity/2.0.0 linux/amd64",
+            "User-Agent": "antigravity/1.15.8 linux/amd64",
             "X-Goog-Api-Client": "google-cloud-sdk vscode_cloudshelleditor/0.1",
             "Client-Metadata": '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}'
         }
@@ -146,20 +163,22 @@ class AntigravityClient:
                 "pluginType": "GEMINI"
             }
         }
-        url = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
         
-        try:
-            resp = requests.post(url, headers=headers, json=body, timeout=12)
-            resp.raise_for_status()
-            res_data = resp.json()
-            cls._project_id = res_data.get("cloudaicompanionProject", "")
-        except Exception as e:
-            logger.warning(f"Error al obtener el project_id dinámico de Antigravity: {e}. Usando fallback.")
-            cls._project_id = None
+        for ep in cls.get_endpoints():
+            url = f"{ep}/v1internal:loadCodeAssist"
+            try:
+                resp = requests.post(url, headers=headers, json=body, timeout=12)
+                if resp.status_code == 200:
+                    res_data = resp.json()
+                    cls._project_id = res_data.get("cloudaicompanionProject", "")
+                    if cls._project_id:
+                        break
+            except Exception as e:
+                logger.warning(f"Error al obtener el project_id dinámico de Antigravity desde {ep}: {e}. Probando siguiente...")
         
         if not cls._project_id:
-            # GCP Project ID por defecto de la sesión
-            cls._project_id = "knitted-reflector-3fgnf"
+            # Fallback al proyecto administrado estándar para usuarios individuales de Antigravity
+            cls._project_id = "aicode-consumers"
 
         logger.info(f"Project ID de Antigravity resuelto: {cls._project_id}")
         return cls._project_id
@@ -734,40 +753,91 @@ class AntigravityClient:
             "request": request_payload
         }
 
-        endpoint = "https://cloudcode-pa.googleapis.com"
+        endpoints_to_try = cls.get_endpoints()
         max_retries = int(os.getenv("KOGNITERM_ANTIGRAVITY_MAX_RETRIES", "3"))
-        retry_delay = float(os.getenv("KOGNITERM_ANTIGRAVITY_RETRY_DELAY", "1.0"))
-        
-        if stream:
-            url = f"{endpoint}/v1internal:streamGenerateContent?alt=sse"
-            resp = None
+        base_retry_delay = float(os.getenv("KOGNITERM_ANTIGRAVITY_RETRY_DELAY", "1.0"))
+
+        resp = None
+        for ep_idx, endpoint in enumerate(endpoints_to_try):
+            retry_delay = base_retry_delay
+            endpoint_failed = False
+            
             for attempt in range(max_retries + 1):
-                resp = requests.post(url, headers=headers, json=body, stream=True, timeout=120)
-                if resp.status_code in (429, 503, 529) and attempt < max_retries:
-                    logger.warning(f"⚠️ Antigravity API Rate Limit ({resp.status_code}), reintentando (intento {attempt+1}/{max_retries+1}) en {retry_delay:.1f}s...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                    continue
+                url = f"{endpoint}/v1internal:streamGenerateContent?alt=sse" if stream else f"{endpoint}/v1internal:generateContent"
+                try:
+                    resp = requests.post(url, headers=headers, json=body, stream=stream, timeout=120)
+                except Exception as ex:
+                    logger.warning(f"Error de red contactando {endpoint}: {ex}")
+                    if attempt < max_retries:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    endpoint_failed = True
+                    break
+
+                if resp.status_code in (429, 503, 529):
+                    # Si no es el último endpoint y es el primer intento en este endpoint, rotar al siguiente inmediatamente
+                    if ep_idx < len(endpoints_to_try) - 1 and attempt == 0:
+                        logger.warning(
+                            f"⚠️ Antigravity endpoint {endpoint} devolvió {resp.status_code}. "
+                            f"Probando endpoint alternativo..."
+                        )
+                        endpoint_failed = True
+                        break
+                    
+                    if attempt < max_retries:
+                        retry_after = resp.headers.get("retry-after") or resp.headers.get("retry-after-ms")
+                        wait_s = retry_delay
+                        if retry_after:
+                            try:
+                                wait_s = float(retry_after) if "ms" not in str(retry_after) else float(retry_after.replace("ms", "")) / 1000.0
+                            except Exception:
+                                pass
+                        logger.warning(
+                            f"⚠️ Antigravity API Rate Limit ({resp.status_code}) en {endpoint}, "
+                            f"reintentando (intento {attempt+1}/{max_retries+1}) en {wait_s:.1f}s..."
+                        )
+                        time.sleep(wait_s)
+                        retry_delay *= 2
+                        continue
+                    endpoint_failed = True
+                    break
+
+                if resp.status_code in (403, 404) and ep_idx < len(endpoints_to_try) - 1:
+                    logger.warning(
+                        f"⚠️ Antigravity endpoint {endpoint} devolvió {resp.status_code}. "
+                        f"Probando endpoint alternativo..."
+                    )
+                    endpoint_failed = True
+                    break
+
                 break
 
-            if resp.status_code >= 400:
-                error_detail = resp.text
-                try:
+            if not endpoint_failed and resp is not None and resp.status_code < 400:
+                break
+
+        if resp is None or resp.status_code >= 400:
+            error_detail = resp.text if resp is not None else "No se pudo conectar a ningún endpoint de Antigravity."
+            status_code = resp.status_code if resp is not None else 500
+            try:
+                if resp is not None:
                     err_json = resp.json()
                     error_detail = err_json.get("error", {}).get("message", resp.text)
-                except Exception:
-                    pass
-                try:
-                    debug_file = os.path.expanduser("~/.kogniterm/logs/antigravity_debug.log")
-                    with open(debug_file, "a", encoding="utf-8") as df:
-                        df.write(f"Response Status: {resp.status_code}\n")
-                        df.write(f"Response Error Body: {resp.text}\n")
-                except Exception:
-                    pass
-                logger.error(f"Error en API de Antigravity ({resp.status_code}): {error_detail}")
-                raise requests.HTTPError(f"API Error ({resp.status_code}): {error_detail}", response=resp)
-            resp.raise_for_status()
+            except Exception:
+                pass
+            try:
+                debug_file = os.path.expanduser("~/.kogniterm/logs/antigravity_debug.log")
+                with open(debug_file, "a", encoding="utf-8") as df:
+                    df.write(f"Response Status: {status_code}\n")
+                    df.write(f"Response Error Body: {error_detail}\n")
+            except Exception:
+                pass
+            logger.error(f"Error en API de Antigravity ({status_code}): {error_detail}")
+            raise requests.HTTPError(f"API Error ({status_code}): {error_detail}", response=resp)
 
+        resp.raise_for_status()
+
+        if stream:
             def generator():
                 for line in resp.iter_lines():
                     if line:
@@ -814,9 +884,10 @@ class AntigravityClient:
                                             tc_ns.thought_signature = thought_sig
                                         tool_calls.append(tc_ns)
                                 
-                                delta = SimpleNamespace()
-                                if text:
-                                    delta.content = text
+                                delta = SimpleNamespace(
+                                    content=text if text else None,
+                                    role="assistant"
+                                )
                                 if reasoning_text:
                                     delta.reasoning_content = reasoning_text
                                 if tool_calls:
@@ -832,34 +903,6 @@ class AntigravityClient:
                                 logger.error(f"Error parsing SSE chunk: {e}")
             return generator()
         else:
-            url = f"{endpoint}/v1internal:generateContent"
-            resp = None
-            for attempt in range(max_retries + 1):
-                resp = requests.post(url, headers=headers, json=body, timeout=120)
-                if resp.status_code in (429, 503, 529) and attempt < max_retries:
-                    logger.warning(f"⚠️ Antigravity API Rate Limit ({resp.status_code}), reintentando (intento {attempt+1}/{max_retries+1}) en {retry_delay:.1f}s...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                    continue
-                break
-
-            if resp.status_code >= 400:
-                error_detail = resp.text
-                try:
-                    err_json = resp.json()
-                    error_detail = err_json.get("error", {}).get("message", resp.text)
-                except Exception:
-                    pass
-                try:
-                    debug_file = os.path.expanduser("~/.kogniterm/logs/antigravity_debug.log")
-                    with open(debug_file, "a", encoding="utf-8") as df:
-                        df.write(f"Response Status: {resp.status_code}\n")
-                        df.write(f"Response Error Body: {resp.text}\n")
-                except Exception:
-                    pass
-                logger.error(f"Error en API de Antigravity ({resp.status_code}): {error_detail}")
-                raise requests.HTTPError(f"API Error ({resp.status_code}): {error_detail}", response=resp)
-            resp.raise_for_status()
             res_data = resp.json()
 
             candidate = res_data.get("response", {}).get("candidates", [{}])[0]
@@ -954,12 +997,22 @@ class AntigravityClient:
         body = {
             "project": project_id
         }
-        url = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
-        
+        data = None
+        for ep in cls.get_endpoints():
+            url = f"{ep}/v1internal:fetchAvailableModels"
+            try:
+                resp = requests.post(url, headers=headers, json=body, timeout=12)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    break
+            except Exception as e:
+                logger.warning(f"Error consultando modelos de Antigravity en {ep}: {e}")
+                continue
+
+        if not data:
+            return fallback_models
+
         try:
-            resp = requests.post(url, headers=headers, json=body, timeout=12)
-            resp.raise_for_status()
-            data = resp.json()
             models_data = data.get("models")
             
             models = []

@@ -75,10 +75,12 @@ class BaseAgentNode:
         # 3. Estado de Streaming
         streaming_state = {
             "full_response": "",
-
+            "total_response": "",
             "full_thinking": "",
             "final_ai_message": None,
             "text_streamed": False,
+            "thinking_streamed": False,
+            "thinking_active": False,
             "last_update": 0,
             "update_throttle": 0.05
         }
@@ -172,14 +174,25 @@ class BaseAgentNode:
             # Actualizar full_response si el mensaje final tiene contenido y no hubo stream previo
             if part.content and not s_state["full_response"]:
                 s_state["full_response"] = part.content
+                s_state["total_response"] = part.content
                 if is_tui and terminal_ui:
                     terminal_ui.print_stream(str(part.content))
                     s_state["text_streamed"] = True
         elif isinstance(part, str):
             if part.startswith("__THINKING__:") or part.startswith("THINKING:"):
                 prefix = "__THINKING__:" if part.startswith("__THINKING__:") else "THINKING:"
+                # Si el pensamiento anterior ya se había detenido (porque hubo texto previo),
+                # congelamos la respuesta anterior y empezamos un nuevo bloque secuencial.
+                if not s_state.get("thinking_active", False) and s_state.get("text_streamed", False):
+                    if is_tui and terminal_ui and hasattr(terminal_ui, "stop_live"):
+                        terminal_ui.stop_live()
+                    s_state["full_thinking"] = ""
+                    s_state["full_response"] = ""
+                    s_state["text_streamed"] = False
+
                 s_state["full_thinking"] += part[len(prefix):]
                 s_state["thinking_active"] = True
+                s_state["thinking_streamed"] = True
             else:
                 # Si el pensamiento estaba activo y ahora empieza la respuesta de texto,
                 # congelar el panel de pensamiento en TUI para que la respuesta fluya abajo.
@@ -189,6 +202,7 @@ class BaseAgentNode:
                         terminal_ui.stop_live()
 
                 s_state["full_response"] += part
+                s_state["total_response"] = s_state.get("total_response", "") + part
                 s_state["text_streamed"] = True
                 if is_tui and terminal_ui:
                     terminal_ui.print_stream(part)
@@ -240,10 +254,10 @@ class BaseAgentNode:
     def _finalize_display(s_state, terminal_ui, is_tui):
         if is_tui and terminal_ui:
             # Asegurar una última actualización con el contenido final completo solo si hubo respuesta o no se transmitió pensamiento
-            if s_state["text_streamed"] or not s_state["thinking_streamed"]:
+            if s_state.get("text_streamed", False) or not s_state.get("thinking_streamed", False):
                 BaseAgentNode._update_display(s_state, terminal_ui, is_tui, None)
             
-            if s_state["text_streamed"] or s_state["full_thinking"] or s_state["full_response"]:
+            if s_state.get("text_streamed", False) or s_state.get("full_thinking") or s_state.get("full_response"):
                 terminal_ui.stop_live()
             else:
                 try: terminal_ui.app.hide_live_display()
@@ -251,9 +265,9 @@ class BaseAgentNode:
 
     @staticmethod
     def _build_node_output(state: AgentState, s_state, llm_service: LLMService) -> Dict[str, Any]:
-        msg = s_state["final_ai_message"]
+        msg = s_state.get("final_ai_message")
         if not msg:
-            content = s_state["full_response"] or "Respuesta vacía."
+            content = s_state.get("total_response") or s_state.get("full_response") or "Respuesta vacía."
             msg = AIMessage(content=content)
             
         state.add_message(msg)
