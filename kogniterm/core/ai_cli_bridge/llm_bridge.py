@@ -15,6 +15,7 @@ from litellm.exceptions import (
 )
 
 from kogniterm.core.ai_cli_bridge.tool_registry_adapter import get_default_adapter
+from kogniterm.core.multi_provider_manager import get_provider_manager
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,47 @@ class LLMBridge:
 
     def __init__(self, model: Optional[str] = None) -> None:
         self.model = model or os.environ.get("LITELLM_MODEL") or _DEFAULT_FAST_PATH_MODEL
+        self.provider_manager = get_provider_manager()
         self.adapter = get_default_adapter()
 
+    def _resolve_model_provider(self, model_name: str):
+        provider = self.provider_manager._determine_ideal_provider(model_name)
+        if provider is None:
+            return model_name, {}
 
-    def _build_litellm_kwargs(self, tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        full_model = self.provider_manager._resolve_model_for_provider(provider, model_name)
+        api_key = provider.get_api_key()
+        api_base = provider.get_api_base()
+
+        kwargs: Dict[str, Any] = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if api_base:
+            kwargs["api_base"] = api_base
+
+        if provider.name == "ollama":
+            kwargs["custom_llm_provider"] = "ollama"
+        elif provider.name == "ollama_cloud":
+            kwargs["custom_llm_provider"] = "openai"
+        elif provider.name == "kilocode":
+            kwargs["custom_llm_provider"] = "openai"
+        elif provider.model_prefix == "gemini" or provider.name == "google":
+            kwargs["custom_llm_provider"] = "gemini"
+            if api_key:
+                os.environ["GEMINI_API_KEY"] = api_key
+
+        if provider.name == "openrouter":
+            kwargs["headers"] = {
+                "HTTP-Referer": "https://github.com/gatovillano/KogniTerm",
+                "X-Title": "KogniTerm",
+            }
+
+        return full_model, kwargs
+
+
+    def _build_litellm_kwargs(self, tools: Optional[List[Dict[str, Any]]] = None, model: Optional[str] = None) -> Dict[str, Any]:
         kwargs: Dict[str, Any] = {
-            "model": self.model,
+            "model": model or self.model,
             "stream": True,
         }
         if tools:
@@ -56,8 +92,10 @@ class LLMBridge:
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         tool_schemas = tools if tools is not None else self.adapter.get_schemas_for_litellm()
-        call_kwargs = self._build_litellm_kwargs(tools=tool_schemas)
+        resolved_model, provider_kwargs = self._resolve_model_provider(self.model)
+        call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
         call_kwargs["messages"] = messages
+        call_kwargs.update(provider_kwargs)
 
         accumulated_content = ""
         tool_calls_dict: Dict[int, Dict[str, Any]] = {}
