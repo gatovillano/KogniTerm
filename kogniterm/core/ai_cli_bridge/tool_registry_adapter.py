@@ -1,9 +1,33 @@
 import asyncio
 import inspect
 import json
-from typing import Any, Dict, List, Optional
+import logging
+from pathlib import Path
+import sys
+import importlib.util
+from typing import Any, Callable, Dict, List, Optional
 
 from kogniterm.capabilities.registry import ToolDefinition, default_tool_registry
+
+logger = logging.getLogger(__name__)
+
+
+def _load_bundled_task_tracker():
+    try:
+        bundled_dir = Path(__file__).resolve().parent.parent.parent / "skills" / "bundled"
+        tt_path = bundled_dir / "task-tracker" / "scripts" / "tool.py"
+        mod_key = "_task_tracker_bundled_tool"
+        if mod_key in sys.modules:
+            mod = sys.modules[mod_key]
+        else:
+            spec = importlib.util.spec_from_file_location(mod_key, str(tt_path))
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_key] = mod
+            spec.loader.exec_module(mod)
+        return getattr(mod, "task_tracker", None)
+    except Exception as exc:
+        logger.debug(f"No se pudo cargar task_tracker desde bundled: {exc}")
+        return None
 
 
 class ToolRegistryAdapter:
@@ -11,15 +35,46 @@ class ToolRegistryAdapter:
 
     def __init__(self, registry=None) -> None:
         self._registry = registry or default_tool_registry
+        self._custom_handlers: Dict[str, Callable[..., Any]] = {}
+        self._custom_schemas: Dict[str, Dict[str, Any]] = {}
+
+    def register_handler(
+        self,
+        name: str,
+        handler: Callable[..., Any],
+        schema: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Registra un manejador dinámico o externo con su esquema LiteLLM."""
+        self._custom_handlers[name] = handler
+        if schema:
+            self._custom_schemas[name] = schema
 
     def get_all(self):
         return self._registry.get_all()
 
     def get_schemas_for_litellm(self) -> List[Dict[str, Any]]:
-        return self._registry.get_schemas_for_litellm()
+        base_schemas = list(self._registry.get_schemas_for_litellm())
+        for name, schema in self._custom_schemas.items():
+            if not any(s.get("function", {}).get("name") == name for s in base_schemas):
+                base_schemas.append(schema)
+        return base_schemas
 
-    def get_handler(self, name: str):
-        return self._registry.get_handler(name)
+    def get_handler(self, name: str) -> Optional[Callable[..., Any]]:
+        if name in self._custom_handlers:
+            return self._custom_handlers[name]
+
+        try:
+            return self._registry.get_handler(name)
+        except (KeyError, AttributeError):
+            pass
+
+        if name == "task_tracker":
+            tt_fn = _load_bundled_task_tracker()
+            if tt_fn:
+                self._custom_handlers["task_tracker"] = tt_fn
+                return tt_fn
+
+        return None
 
     async def execute(self, name: str, args: Dict[str, Any]) -> Any:
         handler = self.get_handler(name)
