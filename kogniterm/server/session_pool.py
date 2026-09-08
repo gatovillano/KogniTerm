@@ -1188,6 +1188,16 @@ class AgentSession:
                     except Exception as e:
                         logger.error(f"[Session:{self.session_id}] Error al actualizar el workspace en el LLMService: {e}")
 
+                # Limpiar cualquier interrupción residual previa a iniciar un nuevo ciclo de interacción
+                if hasattr(self, "interrupt_queue") and self.interrupt_queue:
+                    while not self.interrupt_queue.empty():
+                        try:
+                            self.interrupt_queue.get_nowait()
+                        except Exception:
+                            break
+                if self.llm_service and hasattr(self.llm_service, "stop_generation_flag"):
+                    self.llm_service.stop_generation_flag = False
+
                 is_first_iteration = True
                 while True:
                     pending = self._drain_pending_messages()

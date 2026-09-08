@@ -2351,7 +2351,6 @@ class KogniTermTUI(App):
             self._input_queue.append(user_input)
             if hasattr(self, "queue_display"):
                 self.queue_display.update_queue(self._input_queue)
-            self.tui_ui.interrupt_queue.put_nowait(True)
             return
 
         rw = getattr(self, "run_worker", None)
@@ -2653,6 +2652,17 @@ class KogniTermTUI(App):
     @work(thread=True)
     def process_agent_request(self, user_input: str):
         self.is_processing = True
+        # Drenar cualquier señal de interrupción residual y reiniciar banderas de parada
+        if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "interrupt_queue"):
+            iq = self.tui_ui.interrupt_queue
+            while iq and not iq.empty():
+                try:
+                    iq.get_nowait()
+                except Exception:
+                    break
+        if hasattr(self, "llm_service") and self.llm_service:
+            self.llm_service.stop_generation_flag = False
+
         # Mostrar spinner animado mientras el LLM procesa
         self.call_from_thread(self._start_spinner)
         # Añadir el mensaje del usuario al historial
@@ -2824,6 +2834,16 @@ class KogniTermTUI(App):
             next_message = self._input_queue.pop(0)
             if hasattr(self, "queue_display"):
                 self.queue_display.update_queue(self._input_queue)
+            # Drenar interrupciones antes de lanzar el mensaje en cola
+            if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "interrupt_queue"):
+                iq = self.tui_ui.interrupt_queue
+                while iq and not iq.empty():
+                    try:
+                        iq.get_nowait()
+                    except Exception:
+                        break
+            if hasattr(self, "llm_service") and self.llm_service:
+                self.llm_service.stop_generation_flag = False
             # Volver a llamar a handle_input_async para el siguiente mensaje
             self.run_worker(self._handle_input_async(next_message))
 

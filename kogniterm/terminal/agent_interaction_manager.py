@@ -67,6 +67,21 @@ class AgentInteractionManager(BaseAgentInteractionManager):
                         self.agent_state.messages.pop(i)
                         break
 
+        # Sincronizar automáticamente cuando cambie el modelo en LLMService
+        if hasattr(self.llm_service, "register_model_change_listener"):
+            self.llm_service.register_model_change_listener(self.set_model)
+
+    def set_model(self, model: str) -> None:
+        """Actualiza el modelo del LLMService y de los runners de agentes activos."""
+        if self.llm_service and getattr(self.llm_service, "model_name", None) != model:
+            self.llm_service.set_model(model)
+        if hasattr(self, "super_agent_app") and hasattr(self.super_agent_app, "set_model"):
+            self.super_agent_app.set_model(model)
+        if hasattr(self, "active_agent_app") and hasattr(self.active_agent_app, "set_model"):
+            self.active_agent_app.set_model(model)
+        if hasattr(self, "bash_agent_app") and hasattr(self.bash_agent_app, "set_model"):
+            self.bash_agent_app.set_model(model)
+
     def invoke_agent(self, user_input: Optional[str]) -> Dict[str, Any]:
         import os
         

@@ -790,6 +790,10 @@ def create_app() -> FastAPI:
                         session.llm_service.set_model(target_model)
                     else:
                         session.llm_service.reload_config()
+                if hasattr(session, "manager") and session.manager:
+                    eff_model = target_model or cm.get_config("default_model")
+                    if eff_model and hasattr(session.manager, "set_model"):
+                        session.manager.set_model(eff_model)
 
         return {
             "status": "ok",

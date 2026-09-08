@@ -1218,6 +1218,8 @@ Example: /autosave restore autosave_20250515_141530
                         
                         if self.llm_service:
                             self.llm_service.set_model(selected_model)
+                        if hasattr(self.kogniterm_app, "agent_interaction_manager") and self.kogniterm_app.agent_interaction_manager:
+                            self.kogniterm_app.agent_interaction_manager.set_model(selected_model)
                         
                         # Actualizar proveedor preferido en MultiProviderManager
                         from kogniterm.core.multi_provider_manager import set_preferred_provider
@@ -1508,9 +1510,11 @@ Example: /autosave restore autosave_20250515_141530
                             dotenv_path = find_dotenv()
                             if dotenv_path: set_key(dotenv_path, "OLLAMA_PROVIDER_TARGET", "cloud")
                     
-                    # Actualizar LLMService
+                    # Actualizar LLMService y AgentInteractionManager
                     if self.llm_service:
                         self.llm_service.set_model(new_model)
+                    if hasattr(self.kogniterm_app, "agent_interaction_manager") and self.kogniterm_app.agent_interaction_manager:
+                        self.kogniterm_app.agent_interaction_manager.set_model(new_model)
                     # Actualizar proveedor preferido en MultiProviderManager
                     from kogniterm.core.multi_provider_manager import set_preferred_provider
                     set_preferred_provider(selected_provider)

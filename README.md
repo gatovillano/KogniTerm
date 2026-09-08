@@ -358,7 +358,6 @@ kogniterm/
 ├── core/                    # Cerebro: orquestación, agentes, LLM
 │   ├── llm_service.py       # motor multi-proveedor (LiteLLM)
 │   ├── llm/                 # parser, streaming, rate-limiter, fallback
-│   ├── llm_services/        # tipos, providers, tools, parser
 │   ├── agents/              # BashAgent, CodeAgent, ResearcherAgent, DeepCoder, DeepResearcher
 │   ├── delegation/          # DelegationManager + RBAC por rol
 │   ├── skills/              # SkillManager, SkillMigrator

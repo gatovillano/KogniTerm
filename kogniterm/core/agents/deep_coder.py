@@ -29,6 +29,7 @@ from rich.syntax import Syntax
 
 from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
+from kogniterm.core.agents.super_agent import SuperAgentRunner
 from kogniterm.ui.themes import ColorPalette, Icons
 
 console = Console()
@@ -404,9 +405,72 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
     return {"messages": state.messages}
 
 
-# --- Construcción del Grafo ---
+# --- Motor Asíncrono de Deep Coder basado en SuperAgent ---
 
-def create_deep_coder(llm_service: LLMService, terminal_ui: Any = None, interrupt_queue: Optional[queue.Queue] = None):
+class DeepCoderRunner(SuperAgentRunner):
+    """
+    Motor de desarrollo de código profundo para KogniTerm, basado en SuperAgentRunner.
+    Combina la velocidad de LLMBridge, el formateo limpio de acciones de herramientas,
+    el filtrado de salidas de terminal, la inyección proactiva de contexto y la
+    verificación automática de sintaxis.
+    """
+
+    def __init__(
+        self,
+        llm_service: LLMService,
+        terminal_ui: Optional[Any] = None,
+        interrupt_queue: Optional[queue.Queue] = None,
+        command_approval_handler=None,
+    ) -> None:
+        custom_prompt = get_deep_coder_system_prompt(llm_service)
+        super().__init__(
+            llm_service=llm_service,
+            terminal_ui=terminal_ui,
+            interrupt_queue=interrupt_queue,
+            command_approval_handler=command_approval_handler,
+            custom_system_prompt=custom_prompt,
+        )
+
+    async def _run_async(self, state: AgentState) -> Dict[str, Any]:
+        # 1. Inyección de contexto técnico proactivo (estructura de archivos y RAG)
+        try:
+            context_injection_node(state, self.llm_service, self.terminal_ui)
+        except Exception as e:
+            logger.warning(f"Error en inyección de contexto para DeepCoder: {e}")
+
+        # 2. Ejecución con el motor de SuperAgent
+        res = await super()._run_async(state)
+
+        # 3. Verificación de integridad técnica de archivos modificados
+        try:
+            verification_node(state, self.llm_service, self.terminal_ui)
+        except Exception as e:
+            logger.debug(f"Error en verificación técnica de DeepCoder: {e}")
+
+        return res
+
+
+def create_deep_coder(
+    llm_service: LLMService,
+    terminal_ui: Any = None,
+    interrupt_queue: Optional[queue.Queue] = None,
+    command_approval_handler=None,
+) -> DeepCoderRunner:
+    """Crea una instancia de DeepCoderRunner basada en SuperAgent."""
+    return DeepCoderRunner(
+        llm_service=llm_service,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue,
+        command_approval_handler=command_approval_handler,
+    )
+
+
+def create_legacy_deep_coder_graph(
+    llm_service: LLMService,
+    terminal_ui: Any = None,
+    interrupt_queue: Optional[queue.Queue] = None,
+):
+    """Constructor legacy de grafo LangGraph para DeepCoder (fallback)."""
     from .code_agent import execute_tool_node, should_continue
 
     workflow = StateGraph(AgentState)
@@ -435,7 +499,6 @@ def create_deep_coder(llm_service: LLMService, terminal_ui: Any = None, interrup
         }
     )
 
-    # El flujo de ejecución ahora pasa por verificación antes de volver al modelo
     workflow.add_edge("execute_tool", "verify")
     workflow.add_edge("verify", "call_model")
 

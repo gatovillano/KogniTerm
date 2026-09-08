@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import threading
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 import litellm
@@ -89,6 +90,10 @@ class LLMBridge:
         self.provider_manager = get_provider_manager()
         self.adapter = get_default_adapter()
 
+    def set_model(self, model: str) -> None:
+        """Actualiza el modelo activo del puente."""
+        self.model = model
+
     def _resolve_model_provider(self, model_name: str):
         provider = self.provider_manager._determine_ideal_provider(model_name)
         if provider is None:
@@ -110,6 +115,8 @@ class LLMBridge:
             kwargs["custom_llm_provider"] = "openai"
         elif provider.name == "kilocode":
             kwargs["custom_llm_provider"] = "openai"
+        elif provider.name == "antigravity":
+            kwargs["custom_llm_provider"] = "antigravity"
         elif provider.model_prefix == "gemini" or provider.name == "google":
             kwargs["custom_llm_provider"] = "gemini"
             if api_key:
@@ -149,6 +156,7 @@ class LLMBridge:
         max_steps: int = 25,
         interrupt_queue: Optional[Any] = None,
         stop_check: Optional[Callable[[], bool]] = None,
+        model: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         def _is_interrupted() -> bool:
             if stop_check and stop_check():
@@ -157,8 +165,9 @@ class LLMBridge:
                 return True
             return False
 
+        target_model = model or self.model
         tool_schemas = tools if tools is not None else self.adapter.get_schemas_for_litellm()
-        resolved_model, provider_kwargs = self._resolve_model_provider(self.model)
+        resolved_model, provider_kwargs = self._resolve_model_provider(target_model)
 
         step_count = 0
         final_accumulated_content = ""
@@ -179,7 +188,45 @@ class LLMBridge:
             in_func_tag = False
 
             try:
-                response = await litellm.acompletion(**call_kwargs, timeout=120)
+                if provider_kwargs.get("custom_llm_provider") == "antigravity":
+                    from kogniterm.core.antigravity_client import AntigravityClient
+                    def _get_ag_stream():
+                        return AntigravityClient.completion(
+                            model=resolved_model,
+                            messages=messages,
+                            tools=tool_schemas,
+                            stream=True,
+                        )
+                    sync_gen = await asyncio.to_thread(_get_ag_stream)
+
+                    loop = asyncio.get_running_loop()
+                    q = asyncio.Queue()
+                    def _worker():
+                        try:
+                            for item in sync_gen:
+                                if _is_interrupted():
+                                    break
+                                loop.call_soon_threadsafe(q.put_nowait, ("item", item))
+                            loop.call_soon_threadsafe(q.put_nowait, ("done", None))
+                        except Exception as exc:
+                            loop.call_soon_threadsafe(q.put_nowait, ("error", exc))
+
+                    t = threading.Thread(target=_worker, daemon=True)
+                    t.start()
+
+                    async def _ag_stream_wrapper():
+                        while True:
+                            status, val = await q.get()
+                            if status == "item":
+                                yield val
+                            elif status == "error":
+                                raise val
+                            elif status == "done":
+                                break
+
+                    response = _ag_stream_wrapper()
+                else:
+                    response = await litellm.acompletion(**call_kwargs, timeout=120)
                 async for chunk in response:
                     if _is_interrupted():
                         yield {"type": "interrupted", "message": "Generación interrumpida por el usuario."}

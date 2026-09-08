@@ -3,3 +3,4 @@ from .message_converter import to_litellm_message, from_litellm_message, convert
 from .tool_parser import parse_tool_calls_from_text, extract_args, extract_balanced_content, generate_short_id
 from .streaming_executor import StreamingExecutor
 from .rate_limiter import RateLimiter
+from .fallback_handler import FallbackHandler

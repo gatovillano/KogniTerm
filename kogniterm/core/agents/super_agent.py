@@ -116,6 +116,12 @@ class SuperAgent:
         self.model = model
         self.llm_bridge = LLMBridge(model=self.model)
 
+    def set_model(self, model: str) -> None:
+        """Actualiza el modelo del agente y de su puente LLM."""
+        self.model = model
+        if hasattr(self, "llm_bridge") and self.llm_bridge:
+            self.llm_bridge.set_model(model)
+
     async def execute_stream(
         self,
         task: Optional[str] = None,
@@ -124,6 +130,7 @@ class SuperAgent:
         max_steps: int = 25,
         interrupt_queue: Optional[Any] = None,
         stop_check: Optional[Any] = None,
+        model: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         if messages is None:
             messages = []
@@ -139,19 +146,30 @@ class SuperAgent:
         if task:
             messages.append({"role": "user", "content": task})
 
+        target_model = model or self.model
+        if target_model and getattr(self, "model", None) != target_model:
+            self.set_model(target_model)
+
         tools_used: List[str] = []
         full_content: List[str] = []
         error_msg: Optional[str] = None
 
-        chat_kwargs: Dict[str, Any] = {"messages": messages, "max_steps": max_steps}
+        chat_kwargs: Dict[str, Any] = {
+            "messages": messages,
+            "max_steps": max_steps,
+        }
         try:
             import inspect
             sig = inspect.signature(self.llm_bridge.chat)
+            if "model" in sig.parameters and target_model is not None:
+                chat_kwargs["model"] = target_model
             if "interrupt_queue" in sig.parameters and interrupt_queue is not None:
                 chat_kwargs["interrupt_queue"] = interrupt_queue
             if "stop_check" in sig.parameters and stop_check is not None:
                 chat_kwargs["stop_check"] = stop_check
         except Exception:
+            if target_model is not None:
+                chat_kwargs["model"] = target_model
             if interrupt_queue is not None:
                 chat_kwargs["interrupt_queue"] = interrupt_queue
             if stop_check is not None:
@@ -268,11 +286,13 @@ class SuperAgentRunner:
         terminal_ui: Optional[TerminalUI] = None,
         interrupt_queue: Optional[queue.Queue] = None,
         command_approval_handler=None,
+        custom_system_prompt: Optional[str] = None,
     ) -> None:
         self.llm_service = llm_service
         self.terminal_ui = terminal_ui
         self.interrupt_queue = interrupt_queue or getattr(llm_service, "interrupt_queue", None)
         self.command_approval_handler = command_approval_handler
+        self.custom_system_prompt = custom_system_prompt
 
         model_name = getattr(llm_service, "model_name", None) or os.environ.get("LITELLM_MODEL")
         self.agent = SuperAgent(model=model_name)
@@ -284,8 +304,13 @@ class SuperAgentRunner:
         except Exception:
             pass
 
+    def set_model(self, model: str) -> None:
+        """Actualiza el modelo de SuperAgent y propaga al puente subyacente."""
+        if hasattr(self, "agent") and self.agent:
+            self.agent.set_model(model)
+
     def invoke(self, state: AgentState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Punto de entrada síncrono para AgentInteractionManager."""
+        """Punto de entrada síncrono para AgentInteractionManager y call-agent."""
         try:
             try:
                 loop = asyncio.get_running_loop()
@@ -303,8 +328,19 @@ class SuperAgentRunner:
             logger.debug(f"Fallback en SuperAgentRunner.invoke: {e}")
             return asyncio.run(self._run_async(state))
 
+    async def ainvoke(self, state: AgentState, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Punto de entrada asíncrono para call-agents-parallel u orquestadores async."""
+        return await self._run_async(state)
+
     async def _run_async(self, state: AgentState) -> Dict[str, Any]:
         state.stop_requested = False
+        if self.llm_service is not None and hasattr(self.llm_service, "stop_generation_flag"):
+            self.llm_service.stop_generation_flag = False
+
+        # Sincronizar dinámicamente el modelo con llm_service o el entorno si cambió
+        current_model = getattr(self.llm_service, "model_name", None) or os.environ.get("LITELLM_MODEL")
+        if current_model and getattr(self.agent, "model", None) != current_model:
+            self.set_model(current_model)
 
         def _check_stop() -> bool:
             if self.interrupt_queue is not None and hasattr(self.interrupt_queue, "empty"):
@@ -337,13 +373,16 @@ class SuperAgentRunner:
         except Exception:
             pass
 
-        # 3. Obtener el system prompt enriquecido de KogniTerm
-        try:
-            sys_msg = get_system_message(self.llm_service)
-            system_prompt = sys_msg.content if hasattr(sys_msg, "content") else str(sys_msg)
-        except Exception as exc:
-            logger.debug(f"No se pudo generar system_message dinámico: {exc}")
-            system_prompt = "Eres KogniTerm, un asistente evolutivo de terminal de alta velocidad."
+        # 3. Obtener el system prompt enriquecido de KogniTerm o personalizado
+        if self.custom_system_prompt:
+            system_prompt = self.custom_system_prompt
+        else:
+            try:
+                sys_msg = get_system_message(self.llm_service)
+                system_prompt = sys_msg.content if hasattr(sys_msg, "content") else str(sys_msg)
+            except Exception as exc:
+                logger.debug(f"No se pudo generar system_message dinámico: {exc}")
+                system_prompt = "Eres KogniTerm, un asistente evolutivo de terminal de alta velocidad."
 
         # 4. Convertir mensajes al formato de LiteLLM
         llm_messages = _langchain_to_dict_messages(state.messages)
@@ -358,6 +397,7 @@ class SuperAgentRunner:
             except Exception:
                 pass
 
+        target_model = current_model or getattr(self.agent, "model", None)
         stream_kwargs: Dict[str, Any] = {
             "messages": llm_messages,
             "system_prompt": system_prompt,
@@ -366,11 +406,15 @@ class SuperAgentRunner:
         try:
             import inspect
             sig = inspect.signature(self.agent.execute_stream)
+            if "model" in sig.parameters and target_model is not None:
+                stream_kwargs["model"] = target_model
             if "interrupt_queue" in sig.parameters and self.interrupt_queue is not None:
                 stream_kwargs["interrupt_queue"] = self.interrupt_queue
             if "stop_check" in sig.parameters and _check_stop is not None:
                 stream_kwargs["stop_check"] = _check_stop
         except Exception:
+            if target_model is not None:
+                stream_kwargs["model"] = target_model
             if self.interrupt_queue is not None:
                 stream_kwargs["interrupt_queue"] = self.interrupt_queue
             if _check_stop is not None:
@@ -492,16 +536,25 @@ class SuperAgentRunner:
                         except Exception:
                             pass
 
+                    # Registro inmediato de complete_task si un subagente lo invoca
+                    if t_name == "complete_task":
+                        task_res = t_args.get("result", "")
+                        state.completed = True
+                        if hasattr(state, "delegation_context") and state.delegation_context:
+                            state.delegation_context.metadata["completed"] = True
+                            state.delegation_context.metadata["result"] = task_res
+
                     # Pausa para confirmación de comandos de terminal (delegado a command_approval_handler en UI)
                     if t_name in ("execute_command", "run_shell"):
-                        cmd = t_args.get("command", "")
-                        state.command_to_confirm = cmd
-                        state.tool_call_id_to_confirm = t_id
-                        return {
-                            "messages": state.messages,
-                            "command_to_confirm": state.command_to_confirm,
-                            "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
-                        }
+                        if not getattr(state, "autonomous_approvals", False):
+                            cmd = t_args.get("command", "")
+                            state.command_to_confirm = cmd
+                            state.tool_call_id_to_confirm = t_id
+                            return {
+                                "messages": state.messages,
+                                "command_to_confirm": state.command_to_confirm,
+                                "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                            }
 
                     # Pausa para confirmación de modificaciones de archivo si aplica
                     if t_name in (
@@ -511,7 +564,7 @@ class SuperAgentRunner:
                         "advanced_file_editor",
                         "file_update_tool",
                     ):
-                        if getattr(state, "require_tool_confirmation", False):
+                        if getattr(state, "require_tool_confirmation", False) and not getattr(state, "autonomous_approvals", False):
                             state.tool_pending_confirmation = t_name
                             state.tool_args_pending_confirmation = t_args
                             state.tool_call_id_to_confirm = t_id
@@ -531,6 +584,14 @@ class SuperAgentRunner:
                     res_str = json.dumps(t_res, ensure_ascii=False) if isinstance(t_res, (dict, list)) else str(t_res)
                     state.add_message(ToolMessage(content=res_str, tool_call_id=t_id, name=t_name))
 
+                    # Si fue complete_task, marcar estado completado
+                    if t_name == "complete_task":
+                        state.completed = True
+                        if hasattr(state, "delegation_context") and state.delegation_context:
+                            state.delegation_context.metadata["completed"] = True
+                            if not state.delegation_context.metadata.get("result"):
+                                state.delegation_context.metadata["result"] = str(t_res)
+
                     # Las herramientas no necesitan mostrar toda su salida en pantalla,
                     # solamente la terminal. Para el resto basta el indicador de ejecución.
                     if is_terminal_tool(t_name):
@@ -548,6 +609,10 @@ class SuperAgentRunner:
                             pass
 
                     final_text = event.get("output", "").strip() or "".join(accumulated_chunks).strip()
+                    res_val = getattr(state, "delegation_context", None) and state.delegation_context.metadata.get("result")
+                    if res_val and not final_text:
+                        final_text = str(res_val)
+
                     if not text_streamed and final_text:
                         if self.terminal_ui and hasattr(self.terminal_ui, "print_stream"):
                             try:
@@ -586,6 +651,8 @@ class SuperAgentRunner:
                         "messages": state.messages,
                         "command_to_confirm": None,
                         "tool_call_id_to_confirm": None,
+                        "completed": getattr(state, "completed", False),
+                        "result": final_text,
                     }
 
         except Exception as exc:
@@ -597,6 +664,8 @@ class SuperAgentRunner:
             "messages": state.messages,
             "command_to_confirm": getattr(state, "command_to_confirm", None),
             "tool_call_id_to_confirm": getattr(state, "tool_call_id_to_confirm", None),
+            "completed": getattr(state, "completed", False),
+            "result": getattr(state, "delegation_context", None) and state.delegation_context.metadata.get("result"),
         }
 
 

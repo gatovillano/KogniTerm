@@ -280,7 +280,11 @@ class CommandExecutor:
             while True:
                 # Verificar interrupción
                 if interrupt_queue and not interrupt_queue.empty():
-                    interrupt_queue.get()
+                    while not interrupt_queue.empty():
+                        try:
+                            interrupt_queue.get_nowait()
+                        except Exception:
+                            break
                     os.write(master_fd, b"\x03") # Ctrl+C al shell
                     yield "\n\n⚠️  Comando interrumpido por el usuario.\n"
                     break

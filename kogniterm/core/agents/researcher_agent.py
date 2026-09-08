@@ -297,9 +297,29 @@ def should_continue(state: AgentState) -> str:
     
     return END
 
-# --- Construcción del Grafo ---
+# --- Construcción del Agente ---
 
-def create_researcher_agent(llm_service: LLMService, terminal_ui: TerminalUI, interrupt_queue: Optional[queue.Queue] = None):
+def create_researcher_agent(
+    llm_service: LLMService,
+    terminal_ui: TerminalUI,
+    interrupt_queue: Optional[queue.Queue] = None,
+    command_approval_handler=None,
+):
+    """Crea un agente de investigación potenciado por DeepResearcherRunner."""
+    from .deep_researcher import create_deep_researcher
+    return create_deep_researcher(
+        llm_service=llm_service,
+        terminal_ui=terminal_ui,
+        interrupt_queue=interrupt_queue,
+        command_approval_handler=command_approval_handler,
+    )
+
+
+def create_legacy_researcher_agent_graph(
+    llm_service: LLMService,
+    terminal_ui: TerminalUI,
+    interrupt_queue: Optional[queue.Queue] = None,
+):
     workflow = StateGraph(AgentState)
 
     workflow.add_node("call_model", functools.partial(call_model_node, llm_service=llm_service, interrupt_queue=interrupt_queue))

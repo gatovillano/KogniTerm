@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 from typing import List, Dict, Any, Optional, Union
@@ -64,7 +65,8 @@ def convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> d
     if not isinstance(tool_desc, str):
         tool_desc = str(tool_desc)
 
-    return {
+    logger.debug(f"🔧 Generando definición de herramienta para: {clean_tool_name}")
+    tool_definition = {
         "type": "function",
         "function": {
             "name": clean_tool_name,
@@ -72,6 +74,7 @@ def convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> d
             "parameters": cleaned_schema,
         }
     }
+    return tool_definition
 
 def from_litellm_message(message: Dict[str, Any], id_generator=None) -> BaseMessage:
     """Convierte un mensaje de LiteLLM a un formato compatible con LangChain."""
@@ -87,6 +90,7 @@ def from_litellm_message(message: Dict[str, Any], id_generator=None) -> BaseMess
         tool_calls_data = message.get("tool_calls")
         if tool_calls_data:
             tool_calls = []
+            thought_signatures = {}
             for tc in tool_calls_data:
                 function_data = tc.get("function")
                 if function_data:
@@ -94,14 +98,24 @@ def from_litellm_message(message: Dict[str, Any], id_generator=None) -> BaseMess
                     if isinstance(args, str):
                         try: args = json.loads(args)
                         except: args = {}
+                    tc_id = tc.get("id") or id_generator()
                     tool_calls.append({
-                        "id": tc.get("id", id_generator()),
+                        "id": tc_id,
                         "name": function_data.get("name", ""),
                         "args": args
                     })
-            return AIMessage(content=content, tool_calls=tool_calls)
+                    tsig = tc.get("thought_signature") or tc.get("thoughtSignature")
+                    if tsig:
+                        thought_signatures[tc_id] = tsig
+            kwargs = {}
+            if thought_signatures:
+                kwargs["thought_signatures"] = thought_signatures
+            return AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=kwargs)
         return AIMessage(content=content)
     elif role == "tool":
+        tool_name = message.get("name") or ""
+        if tool_name:
+            return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"), name=tool_name)
         return ToolMessage(content=content, tool_call_id=message.get("tool_call_id"))
     elif role == "system":
         return SystemMessage(content=content)
@@ -112,7 +126,9 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
     if id_generator is None:
         id_generator = generate_short_id
         
-    is_mistral = "mistral" in model_name.lower()
+    is_mistral = "mistral" in model_name.lower() or "mistral" in os.getenv("LITELLM_MODEL", "").lower()
+    if not is_mistral and hasattr(message, "_cached_litellm_msg") and message._cached_litellm_msg:
+        return message._cached_litellm_msg.copy()
     
     def get_compliant_id(original_id):
         if not is_mistral:
@@ -127,13 +143,16 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
             return id_map[original_id]
         return id_generator()
 
+    result_msg = None
     if isinstance(message, HumanMessage):
         content = message.content
         if isinstance(content, list):
-            return {"role": "user", "content": content}
+            result_msg = {"role": "user", "content": content}
         elif not isinstance(content, str):
             content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-        return {"role": "user", "content": content}
+            result_msg = {"role": "user", "content": content}
+        else:
+            result_msg = {"role": "user", "content": content}
     elif isinstance(message, AIMessage):
         tool_calls = getattr(message, 'tool_calls', [])
         content = message.content
@@ -154,17 +173,25 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
                 tc_args = tc.get("args", {})
                 arguments_json = json.dumps(tc_args) if tc_args else "{}"
                 
-                serialized_tool_calls.append({
+                serialized_tc = {
                     "id": tc_id,
                     "type": "function",
                     "function": {"name": tc_name, "arguments": arguments_json},
-                })
+                }
+                thought_sig = tc.get("thought_signature")
+                if not thought_sig and isinstance(message, AIMessage):
+                    thought_sigs = message.additional_kwargs.get("thought_signatures", {})
+                    if isinstance(thought_sigs, dict):
+                        thought_sig = thought_sigs.get(tc.get("id"))
+                if thought_sig:
+                    serialized_tc["thought_signature"] = thought_sig
+                serialized_tool_calls.append(serialized_tc)
             
             if not content or not str(content).strip():
                 msg["content"] = ""
             msg["tool_calls"] = serialized_tool_calls
         
-        return msg
+        result_msg = msg
     elif isinstance(message, ToolMessage):
         content = message.content
         if not isinstance(content, str):
@@ -173,14 +200,24 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
             content = "Operación completada (sin salida)."
         
         tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
-        return {"role": "tool", "content": content, "tool_call_id": tc_id}
+        tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
+        name = getattr(message, 'name', None)
+        if name:
+            tool_msg["name"] = name
+        result_msg = tool_msg
     elif isinstance(message, SystemMessage):
         content = message.content
         if not isinstance(content, str):
             content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-        return {"role": "system", "content": content}
-    
-    content = getattr(message, 'content', str(message))
-    if not isinstance(content, str):
-        content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-    return {"role": "user", "content": content}
+        result_msg = {"role": "system", "content": content}
+    else:
+        content = getattr(message, 'content', str(message))
+        if not isinstance(content, str):
+            content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+        result_msg = {"role": "user", "content": content}
+
+    try:
+        message._cached_litellm_msg = result_msg
+    except Exception:
+        pass
+    return result_msg

@@ -1,16 +1,12 @@
 ---
 name: code-tools
-version: 1.0.0
-author: "KogniTerm Core"
-description: "Colección unificada de herramientas para análisis de código y búsqueda semántica en la base de datos vectorial del proyecto"
-category: "code"
-tags: ["code", "analysis", "search", "semantic", "complexity", "linting", "codebase"]
-dependencies: ["radon", "pylint", "langchain", "numpy", "beautifulsoup4"]
-required_permissions: ["filesystem"]
-security_level: "standard"
-allowlist: false
-auto_approve: true
-sandbox_required: false
+description: Use when analyzing Python code quality, cyclomatic complexity, maintainability, linting, or performing semantic code search in the project's vector database.
+metadata:
+  version: "1.1.0"
+  author: "KogniTerm Core"
+  category: "code"
+  tags: ["code", "analysis", "search", "semantic", "complexity", "linting", "codebase"]
+  dependencies: ["radon", "pylint", "rich"]
 ---
 
 # Instrucciones para el LLM - Code Tools

@@ -118,7 +118,6 @@ Content:
     yield "\n".join(formatted_results)
 
 
-# Función alternativa para ejecución síncrona
 def codebase_search_sync(
     query: str, 
     k: int = 5, 
@@ -126,13 +125,54 @@ def codebase_search_sync(
     language_filter: Optional[str] = None
 ) -> str:
     """
-    Versión síncrona de codebase_search.
+    Versión síncrona de codebase_search delegada a la Capability nativa.
     Retorna el resultado completo como string.
     """
-    output = []
-    for chunk in codebase_search(query, k, file_path_filter, language_filter):
-        output.append(chunk)
-    return "".join(output)
+    import asyncio
+    from kogniterm.capabilities.code_tools import codebase_search as cap_codebase_search
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_running():
+        import nest_asyncio
+        nest_asyncio.apply()
+
+    result = loop.run_until_complete(
+        cap_codebase_search(
+            query=query,
+            k=k,
+            file_path_filter=file_path_filter,
+            language_filter=language_filter,
+        )
+    )
+    if isinstance(result, dict):
+        return result.get("output", str(result))
+    return str(result)
+
+
+def codebase_search(
+    query: str, 
+    k: int = 5, 
+    file_path_filter: Optional[str] = None, 
+    language_filter: Optional[str] = None
+) -> Generator[str, None, None]:
+    """
+    Realiza búsqueda semántica de código en la base de datos vectorial mediante Capability nativa.
+
+    Args:
+        query: La consulta de búsqueda para encontrar snippets de código relevantes
+        k: Número de snippets de código a retornar
+        file_path_filter: Filtro para buscar solo dentro de una ruta de archivo específica
+        language_filter: Filtro para buscar solo snippets de un lenguaje específico
+
+    Yields:
+        str: Resultados de la búsqueda formateados
+    """
+    yield codebase_search_sync(query, k, file_path_filter, language_filter)
 
 
 def get_action_description(query: str, **kwargs) -> str:
