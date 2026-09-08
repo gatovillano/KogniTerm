@@ -3,7 +3,8 @@ import inspect
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Dict, List, Optional
+import re
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import litellm
 from litellm.exceptions import (
@@ -23,6 +24,61 @@ litellm.suppress_debug_info = True
 litellm.drop_params = True
 
 _DEFAULT_FAST_PATH_MODEL = "gemini/gemini-1.5-flash"
+
+
+def _parse_text_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], str]:
+    """Detecta y extrae llamadas a herramientas en texto/XML/JSON cuando el modelo no usa tool_calls nativos."""
+    if not text:
+        return [], text
+
+    tool_calls: List[Dict[str, Any]] = []
+    clean_text = text
+
+    # Formato 1: XML <invoke name="...">...</invoke>
+    invoke_pattern = re.compile(
+        r"<invoke\s+name=[\"'](?P<name>[^\"']+)[\"']>(?P<body>.*?)</invoke>",
+        re.DOTALL,
+    )
+    for match in invoke_pattern.finditer(text):
+        name = match.group("name").strip()
+        body = match.group("body")
+        args: Dict[str, Any] = {}
+
+        param_pattern = re.compile(
+            r"<parameter\s+name=[\"'](?P<pname>[^\"']+)[\"']>(?P<pval>.*?)</parameter>",
+            re.DOTALL,
+        )
+        for pmatch in param_pattern.finditer(body):
+            pname = pmatch.group("pname").strip()
+            pval = pmatch.group("pval").strip()
+            try:
+                args[pname] = json.loads(pval)
+            except Exception:
+                args[pname] = pval
+
+        tool_calls.append({"name": name, "arguments": args})
+
+    if tool_calls:
+        clean_text = invoke_pattern.sub("", clean_text)
+        clean_text = re.sub(r"<\/?function_calls>", "", clean_text)
+
+    # Formato 2: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+    tool_call_tag_pattern = re.compile(r"<tool_call>(?P<body>.*?)</tool_call>", re.DOTALL)
+    for match in tool_call_tag_pattern.finditer(clean_text):
+        body = match.group("body").strip()
+        try:
+            parsed = json.loads(body)
+            if isinstance(parsed, dict) and ("name" in parsed or "tool" in parsed):
+                t_name = parsed.get("name") or parsed.get("tool")
+                t_args = parsed.get("arguments") or parsed.get("args") or {}
+                tool_calls.append({"name": t_name, "arguments": t_args})
+        except Exception:
+            pass
+
+    if tool_call_tag_pattern.search(clean_text):
+        clean_text = tool_call_tag_pattern.sub("", clean_text)
+
+    return tool_calls, clean_text.strip()
 
 
 class LLMBridge:
@@ -106,6 +162,8 @@ class LLMBridge:
 
             accumulated_content = ""
             tool_calls_dict: Dict[int, Dict[str, Any]] = {}
+            in_think_tag = False
+            in_func_tag = False
 
             try:
                 response = await litellm.acompletion(**call_kwargs, timeout=120)
@@ -124,11 +182,55 @@ class LLMBridge:
                     if reasoning_text:
                         yield {"type": "reasoning", "text": reasoning_text}
 
-                    content = getattr(delta, "content", "") or ""
-                    if content:
-                        accumulated_content += content
-                        final_accumulated_content += content
-                        yield {"type": "content", "text": content}
+                    raw_content = getattr(delta, "content", "") or ""
+                    if raw_content:
+                        # Normalizar etiquetas de pensamiento (<thought> -> <think>)
+                        curr_text = raw_content.replace("<thought>", "<think>").replace("</thought>", "</think>")
+
+                        # Suprimir streaming de bloques de herramientas en texto (<function_calls>, <invoke>, <tool_call>)
+                        if any(tag in curr_text for tag in ("<function_calls>", "<invoke", "<tool_call>")):
+                            in_func_tag = True
+
+                        if in_func_tag:
+                            accumulated_content += curr_text
+                            if any(tag in curr_text for tag in ("</function_calls>", "</invoke>", "</tool_call>")):
+                                in_func_tag = False
+                            continue
+
+                        # Filtrado en streaming de bloques <think>...</think>
+                        if "<think>" in curr_text:
+                            parts = curr_text.split("<think>", 1)
+                            if parts[0]:
+                                accumulated_content += parts[0]
+                                final_accumulated_content += parts[0]
+                                yield {"type": "content", "text": parts[0]}
+                            in_think_tag = True
+                            curr_text = parts[1]
+
+                        if in_think_tag:
+                            if "</think>" in curr_text:
+                                think_parts = curr_text.split("</think>", 1)
+                                if think_parts[0]:
+                                    yield {"type": "reasoning", "text": think_parts[0]}
+                                in_think_tag = False
+                                remainder = think_parts[1]
+                                if remainder:
+                                    accumulated_content += remainder
+                                    final_accumulated_content += remainder
+                                    yield {"type": "content", "text": remainder}
+                            else:
+                                yield {"type": "reasoning", "text": curr_text}
+                        else:
+                            if "</think>" in curr_text:
+                                remainder = curr_text.split("</think>", 1)[1]
+                                if remainder:
+                                    accumulated_content += remainder
+                                    final_accumulated_content += remainder
+                                    yield {"type": "content", "text": remainder}
+                            else:
+                                accumulated_content += curr_text
+                                final_accumulated_content += curr_text
+                                yield {"type": "content", "text": curr_text}
 
                     delta_tool_calls = getattr(delta, "tool_calls", None)
                     if delta_tool_calls:
@@ -175,9 +277,20 @@ class LLMBridge:
                 return
 
             if not tool_calls_dict:
-                messages.append({"role": "assistant", "content": accumulated_content})
-                yield {"type": "done", "content": final_accumulated_content}
-                return
+                # Fallback: verificar si el LLM devolvió tool calls en texto o XML
+                text_calls, clean_text = _parse_text_tool_calls(accumulated_content)
+                if text_calls:
+                    for i, tc in enumerate(text_calls):
+                        tool_calls_dict[i] = {
+                            "id": f"call_text_{step_count}_{i}",
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False) if isinstance(tc["arguments"], dict) else str(tc["arguments"]),
+                        }
+                    accumulated_content = clean_text
+                else:
+                    messages.append({"role": "assistant", "content": accumulated_content})
+                    yield {"type": "done", "content": final_accumulated_content}
+                    return
 
             formatted_tool_calls = []
             for idx in sorted(tool_calls_dict.keys()):

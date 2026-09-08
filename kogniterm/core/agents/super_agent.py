@@ -248,6 +248,7 @@ class SuperAgentRunner:
 
         accumulated_chunks = []
         thinking_text = ""
+        text_streamed = False
 
         if self.terminal_ui and hasattr(self.terminal_ui, "print_status"):
             try:
@@ -266,26 +267,52 @@ class SuperAgentRunner:
                 if ev_type == "reasoning":
                     r_text = event.get("text", "")
                     thinking_text += r_text
-                    if self.terminal_ui and hasattr(self.terminal_ui, "print_thinking_chunk"):
+                    if self.terminal_ui and hasattr(self.terminal_ui, "update_live"):
                         try:
-                            self.terminal_ui.print_thinking_chunk(r_text)
+                            from rich.markdown import Markdown
+                            from rich.panel import Panel
+                            from kogniterm.ui.themes import ColorPalette
+
+                            thinking_panel = Panel(
+                                Markdown(thinking_text),
+                                title=f"[{ColorPalette.TEXT_DIM}]💭 Pensando...[/{ColorPalette.TEXT_DIM}]",
+                                border_style=ColorPalette.TEXT_DIM,
+                                style=ColorPalette.TEXT_DIM,
+                                padding=(0, 2),
+                                expand=True,
+                            )
+                            self.terminal_ui.update_live(thinking_panel)
                         except Exception:
                             pass
 
                 elif ev_type in ("content", "chunk"):
                     c_text = event.get("text", "")
-                    accumulated_chunks.append(c_text)
-                    if self.terminal_ui and hasattr(self.terminal_ui, "print_stream_chunk"):
-                        try:
-                            self.terminal_ui.print_stream_chunk(c_text)
-                        except Exception:
-                            pass
+                    if c_text:
+                        if thinking_text and not text_streamed:
+                            if self.terminal_ui and hasattr(self.terminal_ui, "stop_live"):
+                                try:
+                                    self.terminal_ui.stop_live()
+                                except Exception:
+                                    pass
+                        accumulated_chunks.append(c_text)
+                        text_streamed = True
+                        if self.terminal_ui and hasattr(self.terminal_ui, "print_stream"):
+                            try:
+                                self.terminal_ui.print_stream(c_text)
+                            except Exception:
+                                pass
 
                 elif ev_type == "tool_start":
                     t_name = event.get("name", "")
                     t_args = event.get("args", {})
 
-                    # Pausa para confirmación de comandos de terminal
+                    if self.terminal_ui and hasattr(self.terminal_ui, "print_tool_notification"):
+                        try:
+                            self.terminal_ui.print_tool_notification(t_name, str(t_args)[:100])
+                        except Exception:
+                            pass
+
+                    # Pausa para confirmación de comandos de terminal (delegado a command_approval_handler en UI)
                     if t_name in ("execute_command", "run_shell"):
                         cmd = t_args.get("command", "")
                         state.command_to_confirm = cmd
@@ -315,8 +342,37 @@ class SuperAgentRunner:
                                 "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
                             }
 
+                elif ev_type == "tool_result":
+                    t_name = event.get("name", "")
+                    t_res = event.get("result", "")
+                    if self.terminal_ui and hasattr(self.terminal_ui, "update_tool_display"):
+                        try:
+                            self.terminal_ui.update_tool_display(t_name, str(t_res))
+                        except Exception:
+                            pass
+
                 elif ev_type == "done":
+                    if self.terminal_ui and hasattr(self.terminal_ui, "stop_live"):
+                        try:
+                            self.terminal_ui.stop_live()
+                        except Exception:
+                            pass
+
                     final_text = event.get("output", "").strip() or "".join(accumulated_chunks).strip()
+                    if not text_streamed and final_text:
+                        if self.terminal_ui and hasattr(self.terminal_ui, "print_stream"):
+                            try:
+                                self.terminal_ui.print_stream(final_text)
+                            except Exception:
+                                pass
+                        text_streamed = True
+
+                    if self.terminal_ui and hasattr(self.terminal_ui, "console") and not hasattr(self.terminal_ui, "app"):
+                        try:
+                            self.terminal_ui.console.print()
+                        except Exception:
+                            pass
+
                     if final_text:
                         state.add_message(AIMessage(content=final_text))
 

@@ -46,3 +46,28 @@ def test_super_agent_runner_pause_for_command_confirmation():
         result = runner.invoke(state)
         assert result.get("command_to_confirm") == "ls -la"
         assert state.command_to_confirm == "ls -la"
+
+
+def test_super_agent_runner_streams_to_terminal_ui():
+    llm_service = MagicMock()
+    llm_service.model_name = "test-model"
+    terminal_ui = MagicMock()
+    runner = create_super_agent(llm_service=llm_service, terminal_ui=terminal_ui)
+
+    state = AgentState(messages=[HumanMessage(content="Hola")])
+
+    async def fake_stream(task=None, messages=None, system_prompt=None, max_steps=25):
+        yield {"type": "reasoning", "text": "pensando..."}
+        yield {"type": "chunk", "text": "Hola "}
+        yield {"type": "chunk", "text": "mundo"}
+        yield {"type": "done", "output": "Hola mundo", "tools_used": [], "success": True, "error": None}
+
+    with patch.object(runner.agent, "execute_stream", side_effect=fake_stream):
+        runner.invoke(state)
+
+    terminal_ui.update_live.assert_called()
+    terminal_ui.stop_live.assert_called()
+    assert terminal_ui.print_stream.call_count >= 2
+    calls = [c.args[0] for c in terminal_ui.print_stream.call_args_list]
+    assert "Hola " in calls
+    assert "mundo" in calls
