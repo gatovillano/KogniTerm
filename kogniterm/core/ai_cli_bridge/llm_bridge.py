@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 import litellm
 from litellm.exceptions import (
@@ -147,7 +147,16 @@ class LLMBridge:
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         max_steps: int = 25,
+        interrupt_queue: Optional[Any] = None,
+        stop_check: Optional[Callable[[], bool]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
+        def _is_interrupted() -> bool:
+            if stop_check and stop_check():
+                return True
+            if interrupt_queue and not getattr(interrupt_queue, "empty", lambda: True)():
+                return True
+            return False
+
         tool_schemas = tools if tools is not None else self.adapter.get_schemas_for_litellm()
         resolved_model, provider_kwargs = self._resolve_model_provider(self.model)
 
@@ -155,6 +164,10 @@ class LLMBridge:
         final_accumulated_content = ""
 
         while step_count < max_steps:
+            if _is_interrupted():
+                yield {"type": "interrupted", "message": "Generación interrumpida por el usuario."}
+                return
+
             step_count += 1
             call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
             call_kwargs["messages"] = messages
@@ -168,6 +181,10 @@ class LLMBridge:
             try:
                 response = await litellm.acompletion(**call_kwargs, timeout=120)
                 async for chunk in response:
+                    if _is_interrupted():
+                        yield {"type": "interrupted", "message": "Generación interrumpida por el usuario."}
+                        return
+
                     choices = getattr(chunk, "choices", [])
                     if not choices:
                         continue
@@ -307,8 +324,17 @@ class LLMBridge:
                 )
 
             messages.append({"role": "assistant", "content": accumulated_content or None, "tool_calls": formatted_tool_calls})
+            yield {
+                "type": "tool_calls_start",
+                "content": accumulated_content or "",
+                "tool_calls": formatted_tool_calls,
+            }
 
             for tc in formatted_tool_calls:
+                if _is_interrupted():
+                    yield {"type": "interrupted", "message": "Generación interrumpida por el usuario."}
+                    return
+
                 t_id = tc["id"]
                 t_name = tc["function"]["name"]
                 try:
@@ -316,14 +342,14 @@ class LLMBridge:
                 except json.JSONDecodeError:
                     t_args = {}
 
-                yield {"type": "tool_start", "name": t_name, "args": t_args}
+                yield {"type": "tool_start", "name": t_name, "args": t_args, "id": t_id}
                 try:
                     result = await self.execute_tool_call(t_name, t_args)
-                    yield {"type": "tool_result", "name": t_name, "result": result}
+                    yield {"type": "tool_result", "name": t_name, "result": result, "id": t_id}
                     result_str = json.dumps(result, ensure_ascii=False) if not isinstance(result, str) else result
                 except Exception as exc:
                     result_str = f"Error ejecutando herramienta '{t_name}': {exc}"
-                    yield {"type": "error", "message": result_str}
+                    yield {"type": "error", "message": result_str, "id": t_id}
 
                 messages.append(
                     {

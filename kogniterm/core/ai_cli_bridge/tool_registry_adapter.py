@@ -12,7 +12,7 @@ from kogniterm.capabilities.registry import ToolDefinition, default_tool_registr
 logger = logging.getLogger(__name__)
 
 
-def _load_bundled_task_tracker():
+def _load_bundled_task_tracker_and_schema():
     try:
         bundled_dir = Path(__file__).resolve().parent.parent.parent / "skills" / "bundled"
         tt_path = bundled_dir / "task-tracker" / "scripts" / "tool.py"
@@ -24,10 +24,36 @@ def _load_bundled_task_tracker():
             mod = importlib.util.module_from_spec(spec)
             sys.modules[mod_key] = mod
             spec.loader.exec_module(mod)
-        return getattr(mod, "task_tracker", None)
+        fn = getattr(mod, "task_tracker", None)
+        raw_schema = getattr(mod, "tool_schema", None)
+        schema = {"type": "function", "function": raw_schema} if raw_schema else None
+        return fn, schema
     except Exception as exc:
         logger.debug(f"No se pudo cargar task_tracker desde bundled: {exc}")
-        return None
+        return None, None
+
+
+def _load_bundled_task_tracker():
+    fn, _ = _load_bundled_task_tracker_and_schema()
+    return fn
+
+
+def bind_task_tracker_context(terminal_ui: Any = None, llm_service: Any = None) -> None:
+    """Vincula la instancia activa de TerminalUI o LLMService al módulo de task_tracker para actualizar la UI."""
+    try:
+        mod = sys.modules.get("_task_tracker_bundled_tool")
+        if mod is None:
+            _load_bundled_task_tracker_and_schema()
+            mod = sys.modules.get("_task_tracker_bundled_tool")
+        if mod:
+            if terminal_ui is not None:
+                setattr(mod, "_terminal_ui", terminal_ui)
+                mod.__dict__["_terminal_ui"] = terminal_ui
+            if llm_service is not None:
+                setattr(mod, "_llm_service", llm_service)
+                mod.__dict__["_llm_service"] = llm_service
+    except Exception as exc:
+        logger.debug(f"No se pudo vincular contexto a task_tracker: {exc}")
 
 
 class ToolRegistryAdapter:
@@ -37,6 +63,12 @@ class ToolRegistryAdapter:
         self._registry = registry or default_tool_registry
         self._custom_handlers: Dict[str, Callable[..., Any]] = {}
         self._custom_schemas: Dict[str, Dict[str, Any]] = {}
+        self._register_bundled_task_tracker()
+
+    def _register_bundled_task_tracker(self) -> None:
+        tt_fn, tt_schema = _load_bundled_task_tracker_and_schema()
+        if tt_fn and tt_schema:
+            self.register_handler("task_tracker", tt_fn, schema=tt_schema)
 
     def register_handler(
         self,
@@ -69,9 +101,9 @@ class ToolRegistryAdapter:
             pass
 
         if name == "task_tracker":
-            tt_fn = _load_bundled_task_tracker()
+            tt_fn, tt_schema = _load_bundled_task_tracker_and_schema()
             if tt_fn:
-                self._custom_handlers["task_tracker"] = tt_fn
+                self.register_handler("task_tracker", tt_fn, schema=tt_schema)
                 return tt_fn
 
         return None
@@ -80,6 +112,17 @@ class ToolRegistryAdapter:
         handler = self.get_handler(name)
         if handler is None:
             raise KeyError(f"Herramienta no registrada: '{name}'")
+
+        if name == "task_tracker":
+            # Normalizar y proteger argumentos para task_tracker
+            call_args = dict(args)
+            if not call_args.get("agent_name"):
+                call_args["agent_name"] = "SuperAgent"
+            valid_keys = {"action", "agent_name", "plan", "task_index", "status", "updates"}
+            filtered_args = {k: v for k, v in call_args.items() if k in valid_keys}
+            if inspect.iscoroutinefunction(handler):
+                return await handler(**filtered_args)
+            return await asyncio.to_thread(handler, **filtered_args)
 
         if inspect.iscoroutinefunction(handler):
             return await handler(**args)
