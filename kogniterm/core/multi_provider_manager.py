@@ -469,13 +469,20 @@ class MultiProviderManager:
 
         # 2. Si el proveedor destino es Antigravity:
         if provider.name == "antigravity":
-            if "3.6" in pure_model or "agent" in pure_model or "antigravity" in pure_model:
-                return "gemini-3.6-flash-medium"
-            if "flash" in pure_model.lower():
+            lower_pure = pure_model.lower()
+            if any(m in lower_pure for m in ["3-flash", "3.0-flash", "3.5-flash", "3.6-flash"]):
+                if "3.6" in lower_pure or "medium" in lower_pure:
+                    return "gemini-3.6-flash-medium"
+                return "gemini-3-flash"
+            if any(m in lower_pure for m in ["3-pro", "3.0-pro", "3.5-pro"]):
+                return "gemini-3-pro-high"
+            if "agent" in lower_pure or "antigravity" in lower_pure:
+                return "gemini-pro-agent"
+            if "flash" in lower_pure:
                 return "gemini-2.5-flash"
-            if "pro" in pure_model.lower():
-                return "gemini-2.5-pro"
-            return "gemini-3.6-flash-medium"
+            if "pro" in lower_pure:
+                return "gemini-3-pro-high"
+            return pure_model
 
         # 3. Si el proveedor destino es el propietario del modelo (o compatible nativo):
         is_native = False

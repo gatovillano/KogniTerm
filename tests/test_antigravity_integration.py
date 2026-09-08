@@ -642,8 +642,8 @@ def test_antigravity_map_tools_sanitization():
 
 @patch("kogniterm.core.antigravity_client.time.sleep")
 @patch("kogniterm.core.antigravity_client.requests.post")
-def test_antigravity_rate_limit_retry_success(mock_post, mock_sleep):
-    """Verifica que AntigravityClient reintente automáticamente ante respuesta HTTP 429 y tenga éxito en el siguiente intento."""
+def test_antigravity_rate_limit_endpoint_fallback(mock_post, mock_sleep):
+    """Verifica que AntigravityClient rote inmediatamente al siguiente endpoint ante un 429 sin demora innecesaria."""
     mock_resp_429 = MagicMock()
     mock_resp_429.status_code = 429
     mock_resp_429.text = '{"error": {"message": "Resource has been exhausted (e.g. check quota)."}}'
@@ -655,7 +655,7 @@ def test_antigravity_rate_limit_retry_success(mock_post, mock_sleep):
         "response": {
             "candidates": [{
                 "content": {
-                    "parts": [{"text": "Éxito tras reintento de 429!"}]
+                    "parts": [{"text": "Éxito tras fallback de endpoint!"}]
                 }
             }]
         }
@@ -672,9 +672,62 @@ def test_antigravity_rate_limit_retry_success(mock_post, mock_sleep):
             stream=False
         )
 
-        assert response.choices[0].message.content == "Éxito tras reintento de 429!"
+        assert response.choices[0].message.content == "Éxito tras fallback de endpoint!"
+        assert mock_post.call_count == 2
+        # La rotación inmediata de endpoint no duerme
+        assert mock_sleep.call_count == 0
+
+
+@patch("kogniterm.core.antigravity_client.time.sleep")
+@patch("kogniterm.core.antigravity_client.requests.post")
+def test_antigravity_rate_limit_backoff_on_last_endpoint(mock_post, mock_sleep):
+    """Verifica que ante un 429 en el último endpoint, aplique backoff exponencial con sleep."""
+    mock_resp_429 = MagicMock()
+    mock_resp_429.status_code = 429
+    mock_resp_429.text = '{"error": {"message": "Resource has been exhausted (e.g. check quota)."}}'
+    mock_resp_429.json.return_value = {"error": {"message": "Resource has been exhausted (e.g. check quota)."}}
+    mock_resp_429.headers = {"retry-after": "2"}
+
+    mock_resp_200 = MagicMock()
+    mock_resp_200.status_code = 200
+    mock_resp_200.json.return_value = {
+        "response": {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "Éxito tras retry en el mismo endpoint!"}]
+                }
+            }]
+        }
+    }
+
+    mock_post.side_effect = [mock_resp_429, mock_resp_200]
+
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch.object(AntigravityClient, "get_endpoints", return_value=["https://single-endpoint.example.com"]):
+
+        response = AntigravityClient.completion(
+            model="antigravity/gemini-3.6-flash-medium",
+            messages=[{"role": "user", "content": "Hola"}],
+            stream=False
+        )
+
+        assert response.choices[0].message.content == "Éxito tras retry en el mismo endpoint!"
         assert mock_post.call_count == 2
         assert mock_sleep.call_count == 1
+        mock_sleep.assert_called_with(2.0)
+
+
+def test_multi_provider_manager_antigravity_model_mapping():
+    manager = MultiProviderManager()
+    provider = next(p for p in manager.providers if p.name == "antigravity")
+    
+    assert manager._resolve_model_for_provider(provider, "gemini-3-flash") == "gemini-3-flash"
+    assert manager._resolve_model_for_provider(provider, "gemini-3-pro") == "gemini-3-pro-high"
+    assert manager._resolve_model_for_provider(provider, "antigravity/gemini-pro-agent") == "gemini-pro-agent"
+    assert manager._resolve_model_for_provider(provider, "gemini-2.5-flash") == "gemini-2.5-flash"
+    assert manager._resolve_model_for_provider(provider, "gemini-2.5-pro") == "gemini-3-pro-high"
+
 
 
 
