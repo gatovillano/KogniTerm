@@ -100,10 +100,6 @@ def _render_applied_diff_if_needed(terminal_ui, tool_name: str, tool_args: dict,
     except Exception as e:
         logger.warning(f"No se pudo renderizar diff post-edición en code_agent: {e}")
 
-console = Console()
-
-
-# --- Mensaje de Sistema del Agente de Código ---
 
 
 

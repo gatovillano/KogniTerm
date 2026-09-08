@@ -725,7 +725,7 @@ class CommandApprovalHandler:
                     should_render_applied_diff = self._tool_result_succeeded(normalized_result)
 
                     if not diff_content and file_path and original_tool_args.get("content"):
-                        diff_content = self._ensure_unified_diff(file_path, original_tool_args.get("content", ""), original_file_content)
+                        diff_content = self._ensure_unified_diff(file_path, original_tool_args.get("content", ""))
                 elif tool_name in ["python_executor", "python_executor_tool"]:
                     args_to_pass = dict(original_tool_args)
                     args_to_pass["auto_confirm"] = True
