@@ -2168,13 +2168,14 @@ class KogniTermTUI(App):
                 is_interactive_mode = True
 
         if is_interactive_mode:
-            # Si es escape, devolver foco al input
+            # Si es escape, devolver foco al input y continuar con la interrupción si se está procesando
             if event.key == "escape":
                 try:
                     self.query_one("#chat_input").focus()
                 except:
                     pass
-                return
+                if not self.is_processing:
+                    return
 
             # Mapeo de teclas de Textual a secuencias PTY
             key_map = {

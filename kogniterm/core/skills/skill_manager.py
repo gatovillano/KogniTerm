@@ -973,7 +973,14 @@ class SkillManager:
         logger.info(f"Herramienta dinámica registrada en SkillManager: {unique_name}")
 
     def get_tool(self, tool_name: str) -> Optional[Any]:
-        """Obtiene la instancia de una herramienta por nombre."""
+        """Obtiene la instancia de una herramienta por nombre, priorizando Capabilities nativas."""
+        try:
+            from kogniterm.capabilities import default_tool_registry
+            cap = default_tool_registry.get_tool(tool_name)
+            if cap:
+                return cap.handler
+        except ImportError:
+            pass
         tool_info = self.tool_registry.get(tool_name) or self.tool_registry.get(sanitize_tool_name(tool_name))
         if tool_info:
             return tool_info.get('tool')
@@ -1419,5 +1426,21 @@ class SkillManager:
                 tool.agent_state = agent_state
 
     def get_tools(self) -> List[Any]:
-        """Devuelve lista de todas las herramientas (objetos/funciones) registradas."""
-        return [info['tool'] for info in self.tool_registry.values()]
+        """Devuelve lista de todas las herramientas (objetos/funciones) registradas incluyendo Capabilities."""
+        tools = []
+        cap_names = set()
+        try:
+            from kogniterm.capabilities import default_tool_registry
+            for tool_def in default_tool_registry.get_all().values():
+                tools.append(tool_def.handler)
+                cap_names.add(tool_def.name)
+                cap_names.add(sanitize_tool_name(tool_def.name))
+        except ImportError:
+            pass
+
+        for info in self.tool_registry.values():
+            tool_obj = info.get('tool')
+            tool_n = getattr(tool_obj, 'name', None) or getattr(tool_obj, '__name__', '')
+            if tool_n not in cap_names and sanitize_tool_name(tool_n) not in cap_names:
+                tools.append(tool_obj)
+        return tools
