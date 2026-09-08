@@ -15,9 +15,11 @@ from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import create_bash_agent, create_learning_agent, AgentState, get_system_message
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import Dict, Any, Optional
+import os
 import queue # Importar queue
 from kogniterm.terminal.terminal_ui import TerminalUI # Importar TerminalUI
 from kogniterm.terminal.keyboard_handler import KeyboardHandler # Importar KeyboardHandler
+from kogniterm.core.agents.super_agent import create_super_agent
 
 """
 This module contains the AgentInteractionManager class, responsible for
@@ -32,7 +34,16 @@ class AgentInteractionManager(BaseAgentInteractionManager):
         self.terminal_ui = terminal_ui # Guardar la instancia de TerminalUI
         self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
         self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue, command_approval_handler) # Pasar command_approval_handler
+        self.super_agent_app = create_super_agent(llm_service, terminal_ui, interrupt_queue, command_approval_handler)
         self.learning_agent_app = create_learning_agent(llm_service, terminal_ui)
+        
+        main_agent = os.environ.get("KOGNITERM_MAIN_AGENT", "super_agent").lower().strip()
+        if main_agent == "super_agent":
+            self.active_agent_app = self.super_agent_app
+            logger.info("AgentInteractionManager: Usando SuperAgent como agente principal.")
+        else:
+            self.active_agent_app = self.bash_agent_app
+            logger.info("AgentInteractionManager: Usando BashAgent como agente principal.")
         
         # Obtener el SYSTEM_MESSAGE dinámico para este llm_service
         current_system_message = get_system_message(self.llm_service)
@@ -111,7 +122,7 @@ Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
         
         try:
             # Ejecutar invoke sin timeout
-            final_state_dict = self.bash_agent_app.invoke(self.agent_state, config={"recursion_limit": 1000})
+            final_state_dict = self.active_agent_app.invoke(self.agent_state, config={"recursion_limit": 1000})
         finally:
             pass
 
