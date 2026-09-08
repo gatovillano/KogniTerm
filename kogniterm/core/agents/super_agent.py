@@ -646,6 +646,9 @@ class SuperAgentRunner:
                             tool_calls=[{"id": t_id, "name": t_name, "args": t_args}]
                         ))
 
+                    # Almacenar args para uso en tool_result (mostrar diff post-edición)
+                    state.last_tool_args = t_args
+
                     if self.terminal_ui and hasattr(self.terminal_ui, "print_tool_notification"):
                         try:
                             action_desc = format_tool_action_target(t_name, t_args)
@@ -696,6 +699,9 @@ class SuperAgentRunner:
                     t_name = event.get("name", "")
                     t_res = event.get("result", "")
                     t_id = event.get("id") or t_name
+
+                    # Recuperar args del tool_start almacenados en state
+                    t_args = getattr(state, "last_tool_args", {}) or {}
 
                     # Sincronizar ToolMessage en el historial de state.messages para conservar contexto
                     res_str = json.dumps(t_res, ensure_ascii=False) if isinstance(t_res, (dict, list)) else str(t_res)

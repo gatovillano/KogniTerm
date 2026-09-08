@@ -135,7 +135,7 @@ class SuperAgent:
         if messages is None:
             messages = []
 
-        default_system = "Eres KogniTerm en modo fast path. Responde claro, breve y ejecuta tools cuando ayuden."
+        default_system = "Eres KogniTerm un agente de experto en terminal y edición de código. Responde claro, breve y ejecuta tools cuando ayuden."
         sys_content = system_prompt or default_system
 
         if not messages or messages[0].get("role") != "system":
@@ -356,7 +356,15 @@ class SuperAgentRunner:
 
         if not diff_content:
             # Generar diff a partir del path y el contenido esperado
-            content = tool_args.get("content") or ""
+            content = ""
+            for key in ("content", "new_content", "replacement_content", "text"):
+                content = tool_args.get(key, "")
+                if content:
+                    break
+
+            # Extraer file_path de distintas convenciones de parámetros
+            file_path = tool_args.get("path") or tool_args.get("file_path") or tool_args.get("target_file") or tool_args.get("TargetFile") or ""
+
             if file_path and content:
                 try:
                     import difflib
@@ -638,6 +646,9 @@ class SuperAgentRunner:
                             tool_calls=[{"id": t_id, "name": t_name, "args": t_args}]
                         ))
 
+                    # Almacenar args para uso en tool_result (mostrar diff post-edición)
+                    state.last_tool_args = t_args
+
                     if self.terminal_ui and hasattr(self.terminal_ui, "print_tool_notification"):
                         try:
                             action_desc = format_tool_action_target(t_name, t_args)
@@ -689,6 +700,9 @@ class SuperAgentRunner:
                     t_res = event.get("result", "")
                     t_id = event.get("id") or t_name
 
+                    # Recuperar args del tool_start almacenados en state
+                    t_args = getattr(state, "last_tool_args", {}) or {}
+
                     # Sincronizar ToolMessage en el historial de state.messages para conservar contexto
                     res_str = json.dumps(t_res, ensure_ascii=False) if isinstance(t_res, (dict, list)) else str(t_res)
                     state.add_message(ToolMessage(content=res_str, tool_call_id=t_id, name=t_name))
@@ -711,7 +725,7 @@ class SuperAgentRunner:
                                 pass
                     else:
                         # Mostrar diff aplicado después de operaciones de edición de archivos
-                        self._show_applied_diff_if_any(t_name, t_res, t_args)
+                        self._show_applied_diff_if_any(t_name, t_res, {})
 
                 elif ev_type == "done":
                     if self.terminal_ui and hasattr(self.terminal_ui, "stop_live"):

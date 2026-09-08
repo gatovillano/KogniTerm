@@ -104,27 +104,9 @@ def append_file_tool(path: str, content: str, confirm: bool = False) -> str | Di
         }
 
     try:
-        # Capturar contenido original antes de añadir para generar diff aplicado
-        original_content = ""
-        if os.path.exists(path):
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    original_content = f.read()
-            except Exception:
-                pass
-
         with open(path, 'a', encoding='utf-8') as f:
             f.write(content)
-
-        # Generar diff aplicado
-        applied_diff = "".join(difflib.unified_diff(
-            original_content.splitlines(keepends=True),
-            (original_content + content).splitlines(keepends=True),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}",
-        ))
-
-        return {"status": "success", "message": f"Contenido añadido exitosamente a: {path}", "path": path, "applied_diff": applied_diff}
+        return {"status": "success", "message": f"Contenido añadido exitosamente a: {path}"}
     except Exception as e:
         return {"error": f"Error al añadir a '{path}': {e}"}
 
