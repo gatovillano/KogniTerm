@@ -209,9 +209,8 @@ class ToolExecutor:
                 )
             elif terminal_ui:
                 # Para herramientas de edición de archivos, mostrar el diff aplicado
-                # Se pasa full_tool_output (normalizado) para extraer el diff del resultado
                 ToolExecutor._render_file_edit_diff(
-                    terminal_ui, tool_name, tool_args, full_tool_output
+                    terminal_ui, tool_name, tool_args, res
                 )
             # Post-procesamiento (Skills refresh, etc.)
             full_tool_output = ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)

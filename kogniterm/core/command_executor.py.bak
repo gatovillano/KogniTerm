@@ -423,12 +423,6 @@ class CommandExecutor:
             cwd=target_cwd,
             env=os.environ.copy()
         )
-        # CRÍTICO: Desactivar variables de paginador para evitar que comandos como
-        # git, man, etc. invoquen a 'less' y bloqueen la terminal esperando entrada.
-        env["PAGER"] = "cat"
-        env["MANPAGER"] = "cat"
-        env["LESS"] = "-F"
-        env["GIT_PAGER"] = "cat"
         # Consumir el banner inicial del shell y configurar variables sin demoras estáticas
         try:
             # Desactivar el PROMPT para que no se filtre en la TUI
