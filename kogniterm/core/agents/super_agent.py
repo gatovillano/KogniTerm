@@ -23,6 +23,7 @@ from kogniterm.core.agents.bash_agent import (
 )
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.utils.prompt_processor import process_prompt_references
+from kogniterm.core.utils.tool_utils import format_tool_action_target
 from kogniterm.terminal.terminal_ui import TerminalUI
 
 logger = logging.getLogger(__name__)
@@ -486,7 +487,8 @@ class SuperAgentRunner:
 
                     if self.terminal_ui and hasattr(self.terminal_ui, "print_tool_notification"):
                         try:
-                            self.terminal_ui.print_tool_notification(t_name, str(t_args)[:100])
+                            action_desc = format_tool_action_target(t_name, t_args)
+                            self.terminal_ui.print_tool_notification(t_name, action_desc)
                         except Exception:
                             pass
 
