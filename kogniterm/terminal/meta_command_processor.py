@@ -1906,8 +1906,11 @@ Example: /autosave restore autosave_20250515_141530
                 if tool_calls:
                     for tc in tool_calls:
                         tool_name = tc.get("name", "unknown")
-                        args = tc.get("args", {})
-                        action_desc = f"Llamando a {tool_name} con {json.dumps(args)}"
+                        from kogniterm.core.utils.tool_utils import get_tool_action_description
+                        action_desc = (
+                            get_tool_action_description(tool_name, args, tool_name=tool_name)
+                            or f"Llamando a {tool_name} con {json.dumps(args)}"
+                        )
                         
                         if chat_log is not None:
                             chat_log.write_tool_notification(tool_name, action_desc)

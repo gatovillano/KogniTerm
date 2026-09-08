@@ -107,6 +107,13 @@ class ChatLogWidget(VerticalScroll):
         """Escribe un mensaje de usuario con línea vertical izquierda."""
         self._last_tracker_widget = None
         self._active_thinking_widget = None
+        if self._active_message_widget:
+            if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                try:
+                    self._active_message_widget.remove()
+                except Exception:
+                    pass
+            self._active_message_widget = None
         from rich.text import Text
         from rich.console import Console, Group
         
@@ -321,19 +328,29 @@ class ChatLogWidget(VerticalScroll):
                 elif spinner_flag:
                     if self._active_message_widget is None or not isinstance(self._active_message_widget, AnimatedSpinnerWidget):
                         if self._active_message_widget:
-                            self._active_message_widget.remove()
+                            if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                                self._active_message_widget.remove()
+                            else:
+                                self._active_message_widget = None
                         self._active_message_widget = AnimatedSpinnerWidget(r)
                         self.mount(self._active_message_widget)
                         is_new_widget = True
                     else:
                         if self._active_message_widget.text != r:
                             self._active_message_widget.text = r
-                # Si es terminal, forzar el uso de ToolOutputWidget para interactividad
+                # Si es terminal, forzar el uso de ToolOutputWidget para interactividad y persistencia
                 elif terminal_flag:
-                    if self._active_message_widget is None or not isinstance(self._active_message_widget, ToolOutputWidget):
-                        # Reemplazar widget si cambió de tipo
+                    is_same_terminal = (
+                        isinstance(self._active_message_widget, ToolOutputWidget)
+                        and getattr(self._active_message_widget, "command", "") == t_command
+                        and getattr(self._active_message_widget, "tool_name", "") == t_name
+                    )
+                    if not is_same_terminal:
                         if self._active_message_widget:
-                            self._active_message_widget.remove()
+                            if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                                self._active_message_widget.remove()
+                            else:
+                                self._active_message_widget = None
                         
                         self._active_message_widget = ToolOutputWidget("", t_name, command=t_command)
                         self.mount(self._active_message_widget)
@@ -342,9 +359,12 @@ class ChatLogWidget(VerticalScroll):
                     # ToolOutputWidget.update_content maneja la lógica de pyte
                     self._active_message_widget.update_content(r, command=t_command)
                 else:
-                    if self._active_message_widget is None or isinstance(self._active_message_widget, ToolOutputWidget) or isinstance(self._active_message_widget, AnimatedSpinnerWidget):
-                        if self._active_message_widget and isinstance(self._active_message_widget, (ToolOutputWidget, AnimatedSpinnerWidget)):
-                            self._active_message_widget.remove()
+                    if self._active_message_widget is None or not isinstance(self._active_message_widget, MessageWidget):
+                        if self._active_message_widget:
+                            if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                                self._active_message_widget.remove()
+                            else:
+                                self._active_message_widget = None
                         new_widget = MessageWidget(r)
                         self._active_message_widget = new_widget
                         if is_thinking:
@@ -391,15 +411,8 @@ class ChatLogWidget(VerticalScroll):
         from kogniterm.terminal.themes import ColorPalette, Icons
         
         line1 = Text()
-        if skill_name:
-            # Formatear el nombre de la skill (ej. file_operations -> File Operations)
-            skill_title = skill_name.replace('_', ' ').title()
-            line1.append(f"{Icons.TOOL} Ejecutando Skill: ", style=f"bold {ColorPalette.SECONDARY}")
-            line1.append(skill_title, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
-            line1.append(f" ({skill_name})", style=f"dim {ColorPalette.SECONDARY_LIGHT}")
-        else:
-            line1.append(f"{Icons.TOOL} Ejecutando herramienta: ", style=f"bold {ColorPalette.SECONDARY}")
-            line1.append(tool_name, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
+        line1.append(f"{Icons.TOOL} ", style=f"bold {ColorPalette.SECONDARY}")
+        line1.append(tool_name, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
         
         lines = [line1]
         if action_desc:

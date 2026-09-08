@@ -235,54 +235,277 @@ def convert_langchain_tool_to_litellm(tool: BaseTool) -> Dict[str, Any]:
         }
     }
 
-def get_tool_action_description(tool: Any, tool_args: Dict[str, Any]) -> str:
+def get_tool_action_description(
+    tool: Any,
+    tool_args: Dict[str, Any],
+    tool_name: Optional[str] = None,
+) -> str:
     """Obtiene una descripción legible de la acción que realiza la herramienta."""
-    # 1. Intentar usar el método propio de la herramienta si existe
-    if hasattr(tool, 'get_action_description'):
+    if not isinstance(tool_args, dict):
+        tool_args = {}
+
+    # 1. Resolver el nombre de la herramienta de forma flexible
+    resolved_name = (
+        tool_name
+        or getattr(tool, "name", None)
+        or getattr(tool, "__name__", None)
+        or (getattr(tool, "_tool_definition", None) and getattr(tool._tool_definition, "name", None))
+        or (tool if isinstance(tool, str) else "")
+    )
+    clean_name = str(resolved_name or "").lower().strip()
+
+    # 2. Intentar usar el método propio get_action_description si existe
+    action_fn = (
+        getattr(tool, "get_action_description", None)
+        or (getattr(tool, "_tool_definition", None) and getattr(tool._tool_definition, "get_action_description", None))
+    )
+    if callable(action_fn):
         try:
-            return tool.get_action_description(**tool_args)
+            desc = action_fn(**tool_args)
+            if desc and isinstance(desc, str) and desc.strip():
+                return desc.strip()
         except Exception:
             pass
-            
-    # 2. Fallback: Inferencia basada en el nombre de la herramienta
-    tool_name = getattr(tool, 'name', '').lower()
-    
-    if 'read_file' in tool_name or 'file_read' in tool_name:
-        path = tool_args.get('path') or tool_args.get('file_path') or ''
-        return f"Leyendo archivo: {path}"
-    elif 'write_file' in tool_name or 'file_write' in tool_name:
-        path = tool_args.get('path') or tool_args.get('file_path') or ''
-        return f"Escribiendo en archivo: {path}"
-    elif 'list_dir' in tool_name or 'file_list' in tool_name:
-        path = tool_args.get('path') or tool_args.get('directory') or '.'
-        return f"Listando directorio: {path}"
-    elif 'search' in tool_name:
-        query = (
-            tool_args.get('query') or 
-            tool_args.get('search_query') or 
-            tool_args.get('pattern') or 
-            tool_args.get('text') or 
-            tool_args.get('target') or
-            tool_args.get('regex_pattern') or
-            tool_args.get('target_content') or
-            ''
+
+    # 3. Extraer argumentos clave comunes
+    raw_path = (
+        tool_args.get("path")
+        or tool_args.get("file_path")
+        or tool_args.get("filepath")
+        or tool_args.get("file")
+        or tool_args.get("filename")
+        or tool_args.get("target_file")
+        or tool_args.get("source_file")
+        or tool_args.get("dest")
+        or tool_args.get("destination")
+        or tool_args.get("dir_path")
+        or tool_args.get("directory")
+        or ""
+    )
+    if isinstance(raw_path, (list, tuple)) and raw_path:
+        path = str(raw_path[0])
+    else:
+        path = str(raw_path) if raw_path else ""
+
+    query = (
+        tool_args.get("query")
+        or tool_args.get("search_query")
+        or tool_args.get("q")
+        or tool_args.get("pattern")
+        or tool_args.get("text")
+        or tool_args.get("terms")
+        or tool_args.get("target")
+        or tool_args.get("regex_pattern")
+        or tool_args.get("target_content")
+        or ""
+    )
+    if isinstance(query, (list, tuple)) and query:
+        query = str(query[0])
+    else:
+        query = str(query) if query else ""
+
+    url = tool_args.get("url") or tool_args.get("uri") or tool_args.get("link") or ""
+    if url:
+        url = str(url)
+
+    cmd = tool_args.get("command") or tool_args.get("cmd") or ""
+    if cmd:
+        cmd = str(cmd)
+
+    # 4. Inferencia según tipo de herramienta
+
+    # A) Búsquedas web y obtención de contenido web
+    if (
+        "web_search" in clean_name
+        or "tavily_search" in clean_name
+        or "duckduckgo" in clean_name
+        or "google_search" in clean_name
+        or ("web" in clean_name and "search" in clean_name)
+    ):
+        if query:
+            return f"Buscando en la web: '{query}'"
+        return "Buscando en la web"
+
+    if (
+        "web_fetch" in clean_name
+        or "web_scraping" in clean_name
+        or ("web" in clean_name and any(k in clean_name for k in ("fetch", "scrape", "get", "read")))
+        or "fetch_url" in clean_name
+    ):
+        if url:
+            return f"Consultando web: {url}"
+        return "Consultando página web"
+
+    if "browser" in clean_name or "navigate" in clean_name:
+        if url:
+            return f"Navegando a: {url}"
+        action = tool_args.get("action")
+        if action:
+            return f"Navegador: {action}"
+        return "Navegando en la web"
+
+    # B) Operaciones de archivos
+    # B.1) Lectura de archivo
+    if any(k in clean_name for k in ("read_file", "file_read", "cat", "view_file", "load_file")):
+        if path:
+            start = tool_args.get("start_line") or tool_args.get("offset")
+            end = tool_args.get("end_line")
+            if start and end:
+                return f"Leyendo archivo: {path} (líneas {start}-{end})"
+            elif start:
+                return f"Leyendo archivo: {path} (desde línea {start})"
+            return f"Leyendo archivo: {path}"
+        return "Leyendo archivo"
+
+    # B.2) Creación de archivo
+    if any(k in clean_name for k in ("create_file", "file_create", "new_file", "touch")):
+        if path:
+            return f"Creando archivo: {path}"
+        return "Creando archivo"
+
+    # B.3) Escritura en archivo
+    if any(k in clean_name for k in ("write_file", "file_write")):
+        if path:
+            return f"Escribiendo en archivo: {path}"
+        return "Escribiendo en archivo"
+
+    # B.4) Edición / Actualización / Reemplazo en archivo
+    if any(
+        k in clean_name
+        for k in (
+            "edit_file",
+            "file_editor",
+            "advanced_file_editor",
+            "file_update",
+            "update_file",
+            "replace_all",
+            "replace_lines",
+            "patch",
+            "modify_file",
         )
-        path = tool_args.get('path') or tool_args.get('file_path') or tool_args.get('directory') or ''
-        
-        if 'file' in tool_name or 'glob' in tool_name or path:
-            if path and query:
-                return f"Buscando '{query}' en {path}"
-            elif path:
-                return f"Buscando en {path}"
-            elif query:
-                return f"Buscando: {query}"
-        
-        return f"Buscando: {query}" if query else "Buscando..."
-    elif 'execute_command' in tool_name:
-        cmd = tool_args.get('command') or ''
-        if len(cmd) > 40: cmd = cmd[:37] + "..."
-        return f"Ejecutando comando: {cmd}"
-    elif 'python_executor' in tool_name:
+    ):
+        action = tool_args.get("action")
+        if path and action:
+            return f"Editando archivo ({action}): {path}"
+        elif path:
+            if "replace" in clean_name:
+                return f"Reemplazando en archivo: {path}"
+            elif "update" in clean_name:
+                return f"Actualizando archivo: {path}"
+            return f"Editando archivo: {path}"
+        return "Editando archivo"
+
+    # B.5) Eliminación de archivo
+    if any(k in clean_name for k in ("delete_file", "file_delete", "remove_file", "rm_file")):
+        if path:
+            return f"Eliminando archivo: {path}"
+        return "Eliminando archivo"
+
+    # B.6) Listado de directorio
+    if any(
+        k in clean_name
+        for k in (
+            "list_dir",
+            "file_list",
+            "list_directory",
+            "directory_list",
+            "read_directory",
+            "file_read_directory",
+        )
+    ):
+        target_dir = path or tool_args.get("directory") or "."
+        return f"Listando directorio: {target_dir}"
+
+    # B.7) Búsqueda en archivos o código
+    if (
+        any(
+            k in clean_name
+            for k in (
+                "search_in_file",
+                "file_search",
+                "glob_search",
+                "codebase_search",
+                "find_by_name",
+                "grep_search",
+            )
+        )
+        or ("search" in clean_name and any(k in clean_name for k in ("file", "code", "dir")))
+    ):
+        if path and query:
+            return f"Buscando '{query}' en {path}"
+        elif path:
+            return f"Buscando archivos en {path}"
+        elif query:
+            return f"Buscando código: '{query}'"
+        return "Buscando en archivos..."
+
+    # C) Búsquedas generales
+    if "search" in clean_name or "find" in clean_name:
+        if path and query:
+            return f"Buscando '{query}' en {path}"
+        elif query:
+            return f"Buscando: '{query}'"
+        elif path:
+            return f"Buscando en {path}"
+        return "Buscando..."
+
+    # D) Comandos de terminal
+    if any(
+        k in clean_name
+        for k in (
+            "execute_command",
+            "run_command",
+            "bash",
+            "terminal",
+            "cmd_execution",
+            "shell",
+        )
+    ):
+        if cmd:
+            preview = cmd if len(cmd) <= 50 else cmd[:47] + "..."
+            return f"Ejecutando comando: {preview}"
+        return "Ejecutando comando de terminal"
+
+    # E) Ejecución de Python
+    if any(k in clean_name for k in ("python_executor", "python_exec", "python")):
+        code = tool_args.get("code") or ""
+        if code:
+            single = str(code).strip().replace("\n", " ")
+            preview = single if len(single) <= 40 else single[:37] + "..."
+            return f"Ejecutando Python: {preview}"
         return "Ejecutando código Python"
-        
+
+    # F) Preguntas e interacción
+    if "ask_question" in clean_name:
+        q = tool_args.get("question") or ""
+        if not q and tool_args.get("questions") and isinstance(tool_args["questions"], list):
+            first_q = tool_args["questions"][0]
+            q = first_q.get("question", "") if isinstance(first_q, dict) else str(first_q)
+        if q:
+            preview = q if len(q) <= 50 else q[:47] + "..."
+            return f"Preguntando al usuario: '{preview}'"
+        return "Preguntando al usuario"
+
+    # G) Tareas en segundo plano
+    if "background_task" in clean_name or "manage_task" in clean_name:
+        action = tool_args.get("action") or ""
+        task_id = tool_args.get("task_id") or tool_args.get("TaskId") or ""
+        if action and task_id:
+            return f"Gestionando tarea {task_id} ({action})"
+        elif action:
+            return f"Gestionando tarea en segundo plano ({action})"
+        return "Gestionando tarea en segundo plano"
+
+    # 5. Fallback contextual por presencia de parámetros si no hubo coincidencia previa
+    if path:
+        return f"Operando archivo: {path}"
+    if query:
+        return f"Buscando: '{query}'"
+    if url:
+        return f"Consultando web: {url}"
+    if cmd:
+        preview = cmd if len(cmd) <= 50 else cmd[:47] + "..."
+        return f"Ejecutando comando: {preview}"
+
     return ""
+

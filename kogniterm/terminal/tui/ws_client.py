@@ -361,16 +361,18 @@ class TUIWebSocketClient:
             if isinstance(data, dict):
                 output = data.get("content", "")
                 tool_name = data.get("tool", "Terminal")
+                command = data.get("command", tool_name)
             else:
                 output, tool_name = str(data), "Terminal"
+                command = tool_name
             if output is not None:
                 if agent_id:
                     chat_log = self._get_chat_log(agent_id)
-                    self._app.call_from_thread(chat_log.write_stream, ("__TERMINAL__", tool_name, output))
+                    self._app.call_from_thread(chat_log.write_stream, ("__TERMINAL__", tool_name, output, command))
                 else:
                     self._app.call_from_thread(
                         self._app.tui_ui.update_terminal_output,
-                        tool_name, output,
+                        tool_name, output, command=command,
                     )
 
         elif event_type == "set_terminal_cursor":
