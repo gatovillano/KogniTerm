@@ -509,3 +509,73 @@ def get_tool_action_description(
 
     return ""
 
+
+def format_tool_action_target(tool_name: str, tool_args: Dict[str, Any]) -> str:
+    """
+    Extrae de forma concisa únicamente la ruta del archivo/directorio, el comando o el parámetro clave relevante,
+    evitando volcar todo el diccionario de argumentos o tool call.
+    """
+    if not isinstance(tool_args, dict):
+        return ""
+
+    clean_name = str(tool_name or "").lower().strip()
+
+    # 1. Comando de terminal / shell
+    cmd_keys = ("command", "cmd", "CommandLine", "command_line")
+    for k in cmd_keys:
+        val = tool_args.get(k)
+        if val and isinstance(val, str):
+            lines = val.strip().splitlines()
+            return lines[0].strip() if lines else val.strip()
+
+    # 2. Rutas de archivo o directorio
+    path_keys = (
+        "path", "file_path", "filepath", "target_file", "TargetFile",
+        "AbsolutePath", "absolute_path", "DirectoryPath", "directory_path",
+        "SearchDirectory", "search_directory", "SearchPath", "search_path",
+        "directory", "dir_path", "dir", "source_file", "file",
+        "destination", "dest", "folder"
+    )
+    for k in path_keys:
+        val = tool_args.get(k)
+        if val:
+            if isinstance(val, (list, tuple)) and val:
+                val = val[0]
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
+    # 3. URL / Web
+    url_keys = ("url", "Url", "uri", "link")
+    for k in url_keys:
+        val = tool_args.get(k)
+        if val and isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # 4. Consultas o patrones de búsqueda
+    query_keys = ("query", "Query", "pattern", "Pattern", "search_query", "q", "regex_pattern")
+    for k in query_keys:
+        val = tool_args.get(k)
+        if val and isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # 5. Herramientas específicas
+    if "task_tracker" in clean_name:
+        action = tool_args.get("action", "")
+        t_idx = tool_args.get("task_index")
+        if action == "init":
+            return "Inicializar plan"
+        elif action in ("update", "complete") and t_idx is not None:
+            status = tool_args.get("status", "")
+            return f"Tarea #{t_idx}" + (f" → {status}" if status else "")
+        elif action:
+            return f"{action}"
+
+    if "python" in clean_name:
+        code = tool_args.get("code") or ""
+        if code and isinstance(code, str):
+            lines = code.strip().splitlines()
+            return lines[0].strip() if lines else code.strip()
+
+    return ""
+
+

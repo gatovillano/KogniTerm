@@ -185,3 +185,50 @@ def test_langchain_to_dict_messages_handles_orphan_tool_message():
     assert dict_msgs[2]["tool_call_id"] == "call_orphan"
 
 
+def test_super_agent_runner_formats_tool_notification_cleanly():
+    llm_service = MagicMock()
+    llm_service.model_name = "test-model"
+    terminal_ui = MagicMock()
+    runner = create_super_agent(llm_service=llm_service, terminal_ui=terminal_ui)
+
+    state = AgentState(messages=[HumanMessage(content="haz cosas")])
+
+    async def fake_stream(**kwargs):
+        # 1. Herramienta de lectura de archivo con argumentos complejos
+        yield {
+            "type": "tool_start",
+            "name": "read_file",
+            "args": {"path": "kogniterm/main.py", "offset": 10, "limit": 50},
+            "id": "c1",
+        }
+        # 2. Herramienta de listado de directorio
+        yield {
+            "type": "tool_start",
+            "name": "list_dir",
+            "args": {"DirectoryPath": "/home/user/workspace"},
+            "id": "c2",
+        }
+        # 3. Herramienta de comando
+        yield {
+            "type": "tool_start",
+            "name": "run_command",
+            "args": {"CommandLine": "git status -s", "Cwd": "/home/user"},
+            "id": "c3",
+        }
+        yield {"type": "done", "output": "ok"}
+
+    with patch.object(runner.agent, "execute_stream", side_effect=fake_stream):
+        runner.invoke(state)
+
+    notify_calls = terminal_ui.print_tool_notification.call_args_list
+    assert len(notify_calls) >= 3
+
+    # Para read_file: solo la ruta del archivo, no el dict completo
+    assert notify_calls[0].args == ("read_file", "kogniterm/main.py")
+    # Para list_dir: solo la ruta del directorio
+    assert notify_calls[1].args == ("list_dir", "/home/user/workspace")
+    # Para run_command: solo el comando
+    assert notify_calls[2].args == ("run_command", "git status -s")
+
+
+
