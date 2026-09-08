@@ -126,20 +126,26 @@ class TerminalUI:
 
     def update_live(self, renderable):
         """Actualiza el contenido en streaming (sobrescrito en adaptadores)."""
-        pass
+        self._last_live_renderable = renderable
 
-    def update_terminal_output(self, tool_name: str, output: str):
+    def update_terminal_output(self, tool_name: str, output: str, **kwargs):
         """
         Actualiza específicamente un panel de salida de terminal.
         Los adaptadores pueden usar esto para manejar cursores o refrescos por tiempo.
         """
         from .visual_components import create_terminal_output_panel
-        panel = create_terminal_output_panel(tool_name, output)
+        command = kwargs.get("command", tool_name)
+        panel = create_terminal_output_panel(command, output)
         self.update_live(panel)
 
     def stop_live(self):
         """Finaliza el streaming y consolida el mensaje (sobrescrito en adaptadores)."""
-        pass
+        if getattr(self, "_last_live_renderable", None) is not None:
+            try:
+                self.console.print(self._last_live_renderable)
+            except Exception:
+                pass
+            self._last_live_renderable = None
 
     async def handle_file_update_confirmation(self, diff_json_str: str, original_tool_call: dict) -> dict:
         """

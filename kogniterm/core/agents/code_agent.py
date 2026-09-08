@@ -449,7 +449,7 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
             if skill:
                 skill_name = skill.name
 
-        bajada = get_tool_action_description(tool, tool_args)
+        bajada = get_tool_action_description(tool, tool_args, tool_name=tool_name)
 
     if is_tui:
         terminal_ui.print_tool_notification(tool_name, bajada, skill_name=skill_name)

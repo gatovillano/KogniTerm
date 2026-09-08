@@ -95,7 +95,6 @@ class ToolExecutor:
 
         if cap_def:
             tool = cap_def.handler
-            action_desc = cap_def.description
         else:
             tool = llm_service.get_tool(tool_name)
 
@@ -112,8 +111,10 @@ class ToolExecutor:
                     ), None
             return tool_id, f"Error: Herramienta '{tool_name}' no encontrada.", None
 
-        if not cap_def:
-            action_desc = get_tool_action_description(tool, tool_args)
+        # Obtener descripción específica y dinámica de la acción en curso
+        action_desc = get_tool_action_description(tool or cap_def, tool_args, tool_name=tool_name)
+        if not action_desc and cap_def:
+            action_desc = cap_def.description
 
         # Obtener skill_name
         skill_name = ""
