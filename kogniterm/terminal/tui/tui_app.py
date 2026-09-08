@@ -3301,3 +3301,7 @@ class KogniTermTUI(App):
 
         # Scroll al final
         self.chat_log.scroll_end(animate=False)
+
+
+# Alias para retrocompatibilidad
+TUIApp = KogniTermTUI
