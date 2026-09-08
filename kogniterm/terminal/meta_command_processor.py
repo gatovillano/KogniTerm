@@ -1564,6 +1564,53 @@ Example: /autosave restore autosave_20250515_141530
             await self._list_skills_command()
             return True
 
+        # /fastpath → modo rápido KAI-CLI sin pasar por skills / LangChain
+        if user_input.lower().strip().startswith('/fastpath'):
+            query = user_input.strip()[len('/fastpath'):].strip()
+            if not query:
+                self.terminal_ui.print_message(
+                    "Uso: /fastpath <mensaje>",
+                    style="yellow",
+                )
+                return True
+
+            from kogniterm.core.ai_cli_bridge.super_agent import SuperAgent
+
+            model_override = None
+            try:
+                model_override = getattr(self.llm_service, 'model_name', None) or os.environ.get('LITELLM_MODEL')
+            except Exception:
+                pass
+            agent = SuperAgent(model=model_override)
+            self.terminal_ui.print_message(
+                f"⚡ Fast path: {query}", style="cyan"
+            )
+
+            async def _run_fastpath():
+                try:
+                    result = await agent.run(query)
+                    output = result.get("output", "")
+                    tools_used = [t for t in result.get("tools_used", []) if t]
+                    if tools_used:
+                        self.terminal_ui.print_message(
+                            f"🛠️ Tools: {', '.join(tools_used)}",
+                            style="dim",
+                        )
+                    if output:
+                        self.terminal_ui.print_message(output)
+                    if not result.get("success"):
+                        self.terminal_ui.print_message(
+                            f"❌ Fast path failed: {result.get('error')}",
+                            style="red",
+                        )
+                except Exception as exc:
+                    self.terminal_ui.print_message(
+                        f"❌ Error en fast path: {exc}", style="red"
+                    )
+
+            asyncio.create_task(_run_fastpath())
+            return True
+
         # /skill_name [args_json | key=value ...] → invocar skill directamente
         if is_meta and hasattr(self.llm_service, 'skill_manager'):
             slash_cmd = user_input.strip()
