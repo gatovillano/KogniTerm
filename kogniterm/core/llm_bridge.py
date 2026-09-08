@@ -99,3 +99,9 @@ class KogniChatModel(BaseChatModel):
     @property
     def _identifying_params(self) -> Any:
         return {"model_name": self.model_name}
+
+
+# Re-exportación de LLMBridge para unificar la API en core
+from kogniterm.core.ai_cli_bridge.llm_bridge import LLMBridge
+
+__all__ = ["KogniChatModel", "LLMBridge"]
