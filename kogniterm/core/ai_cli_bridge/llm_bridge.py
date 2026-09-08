@@ -90,121 +90,135 @@ class LLMBridge:
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        max_steps: int = 25,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         tool_schemas = tools if tools is not None else self.adapter.get_schemas_for_litellm()
         resolved_model, provider_kwargs = self._resolve_model_provider(self.model)
-        call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
-        call_kwargs["messages"] = messages
-        call_kwargs.update(provider_kwargs)
 
-        accumulated_content = ""
-        tool_calls_dict: Dict[int, Dict[str, Any]] = {}
+        step_count = 0
+        final_accumulated_content = ""
 
-        try:
-            response = await litellm.acompletion(**call_kwargs, timeout=120)
-            async for chunk in response:
-                choices = getattr(chunk, "choices", [])
-                if not choices:
-                    continue
-                delta = choices[0].delta
+        while step_count < max_steps:
+            step_count += 1
+            call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
+            call_kwargs["messages"] = messages
+            call_kwargs.update(provider_kwargs)
 
-                reasoning_text = getattr(delta, "reasoning_content", None) or getattr(delta, "thinking", None) or getattr(delta, "reasoning", None) or getattr(delta, "thinking_content", None)
-                if reasoning_text:
-                    yield {"type": "reasoning", "text": reasoning_text}
+            accumulated_content = ""
+            tool_calls_dict: Dict[int, Dict[str, Any]] = {}
 
-                content = getattr(delta, "content", "") or ""
-                if content:
-                    accumulated_content += content
-                    yield {"type": "content", "text": content}
-
-                delta_tool_calls = getattr(delta, "tool_calls", None)
-                if delta_tool_calls:
-                    for tc in delta_tool_calls:
-                        idx = getattr(tc, "index", 0)
-                        if idx not in tool_calls_dict:
-                            tool_calls_dict[idx] = {
-                                "id": getattr(tc, "id", "") or f"call_{idx}",
-                                "name": "",
-                                "arguments": "",
-                            }
-                        tc_id = getattr(tc, "id", None)
-                        if tc_id:
-                            tool_calls_dict[idx]["id"] = tc_id
-
-                        fn = getattr(tc, "function", None)
-                        if fn:
-                            fn_name = getattr(fn, "name", None)
-                            if fn_name:
-                                cur_name = tool_calls_dict[idx]["name"]
-                                if not cur_name:
-                                    tool_calls_dict[idx]["name"] = fn_name
-                                elif cur_name == fn_name or cur_name.endswith(fn_name):
-                                    pass
-                                elif fn_name.startswith(cur_name):
-                                    tool_calls_dict[idx]["name"] = fn_name
-                                else:
-                                    tool_calls_dict[idx]["name"] += fn_name
-
-                            fn_args = getattr(fn, "arguments", None)
-                            if fn_args:
-                                tool_calls_dict[idx]["arguments"] += fn_args
-        except AuthenticationError as exc:
-            yield {"type": "error", "message": f"Error de autenticación: {exc}"}
-            return
-        except BadRequestError as exc:
-            yield {"type": "error", "message": f"Petición inválida al modelo (Bad Request): {exc}"}
-            return
-        except (RateLimitError, ServiceUnavailableError, APIConnectionError) as exc:
-            yield {"type": "error", "message": f"Error de comunicación con el proveedor ({type(exc).__name__}): {exc}"}
-            return
-        except Exception as exc:
-            yield {"type": "error", "message": f"Error inesperado en LiteLLM: {exc}"}
-            return
-
-        if not tool_calls_dict:
-            yield {"type": "done", "content": accumulated_content}
-            return
-
-        formatted_tool_calls = []
-        for idx in sorted(tool_calls_dict.keys()):
-            tc_data = tool_calls_dict[idx]
-            formatted_tool_calls.append(
-                {
-                    "id": tc_data["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc_data["name"],
-                        "arguments": tc_data["arguments"],
-                    },
-                }
-            )
-
-        messages.append({"role": "assistant", "content": accumulated_content or None, "tool_calls": formatted_tool_calls})
-
-        for tc in formatted_tool_calls:
-            t_id = tc["id"]
-            t_name = tc["function"]["name"]
             try:
-                t_args = json.loads(tc["function"]["arguments"] or "{}")
-            except json.JSONDecodeError:
-                t_args = {}
+                response = await litellm.acompletion(**call_kwargs, timeout=120)
+                async for chunk in response:
+                    choices = getattr(chunk, "choices", [])
+                    if not choices:
+                        continue
+                    delta = choices[0].delta
 
-            yield {"type": "tool_start", "name": t_name, "args": t_args}
-            try:
-                result = await self.execute_tool_call(t_name, t_args)
-                yield {"type": "tool_result", "name": t_name, "result": result}
-                result_str = json.dumps(result, ensure_ascii=False) if not isinstance(result, str) else result
+                    reasoning_text = (
+                        getattr(delta, "reasoning_content", None)
+                        or getattr(delta, "thinking", None)
+                        or getattr(delta, "reasoning", None)
+                        or getattr(delta, "thinking_content", None)
+                    )
+                    if reasoning_text:
+                        yield {"type": "reasoning", "text": reasoning_text}
+
+                    content = getattr(delta, "content", "") or ""
+                    if content:
+                        accumulated_content += content
+                        final_accumulated_content += content
+                        yield {"type": "content", "text": content}
+
+                    delta_tool_calls = getattr(delta, "tool_calls", None)
+                    if delta_tool_calls:
+                        for tc in delta_tool_calls:
+                            idx = getattr(tc, "index", 0)
+                            if idx not in tool_calls_dict:
+                                tool_calls_dict[idx] = {
+                                    "id": getattr(tc, "id", "") or f"call_{idx}",
+                                    "name": "",
+                                    "arguments": "",
+                                }
+                            tc_id = getattr(tc, "id", None)
+                            if tc_id:
+                                tool_calls_dict[idx]["id"] = tc_id
+
+                            fn = getattr(tc, "function", None)
+                            if fn:
+                                fn_name = getattr(fn, "name", None)
+                                if fn_name:
+                                    cur_name = tool_calls_dict[idx]["name"]
+                                    if not cur_name:
+                                        tool_calls_dict[idx]["name"] = fn_name
+                                    elif cur_name == fn_name or cur_name.endswith(fn_name):
+                                        pass
+                                    elif fn_name.startswith(cur_name):
+                                        tool_calls_dict[idx]["name"] = fn_name
+                                    else:
+                                        tool_calls_dict[idx]["name"] += fn_name
+
+                                fn_args = getattr(fn, "arguments", None)
+                                if fn_args:
+                                    tool_calls_dict[idx]["arguments"] += fn_args
+            except AuthenticationError as exc:
+                yield {"type": "error", "message": f"Error de autenticación: {exc}"}
+                return
+            except BadRequestError as exc:
+                yield {"type": "error", "message": f"Petición inválida al modelo (Bad Request): {exc}"}
+                return
+            except (RateLimitError, ServiceUnavailableError, APIConnectionError) as exc:
+                yield {"type": "error", "message": f"Error de comunicación con el proveedor ({type(exc).__name__}): {exc}"}
+                return
             except Exception as exc:
-                result_str = f"Error ejecutando herramienta '{t_name}': {exc}"
-                yield {"type": "error", "message": result_str}
+                yield {"type": "error", "message": f"Error inesperado en LiteLLM: {exc}"}
+                return
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": t_id,
-                    "name": t_name,
-                    "content": result_str,
-                }
-            )
+            if not tool_calls_dict:
+                messages.append({"role": "assistant", "content": accumulated_content})
+                yield {"type": "done", "content": final_accumulated_content}
+                return
 
-        yield {"type": "done", "content": accumulated_content}
+            formatted_tool_calls = []
+            for idx in sorted(tool_calls_dict.keys()):
+                tc_data = tool_calls_dict[idx]
+                formatted_tool_calls.append(
+                    {
+                        "id": tc_data["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc_data["name"],
+                            "arguments": tc_data["arguments"],
+                        },
+                    }
+                )
+
+            messages.append({"role": "assistant", "content": accumulated_content or None, "tool_calls": formatted_tool_calls})
+
+            for tc in formatted_tool_calls:
+                t_id = tc["id"]
+                t_name = tc["function"]["name"]
+                try:
+                    t_args = json.loads(tc["function"]["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    t_args = {}
+
+                yield {"type": "tool_start", "name": t_name, "args": t_args}
+                try:
+                    result = await self.execute_tool_call(t_name, t_args)
+                    yield {"type": "tool_result", "name": t_name, "result": result}
+                    result_str = json.dumps(result, ensure_ascii=False) if not isinstance(result, str) else result
+                except Exception as exc:
+                    result_str = f"Error ejecutando herramienta '{t_name}': {exc}"
+                    yield {"type": "error", "message": result_str}
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": t_id,
+                        "name": t_name,
+                        "content": result_str,
+                    }
+                )
+
+        yield {"type": "done", "content": final_accumulated_content}
