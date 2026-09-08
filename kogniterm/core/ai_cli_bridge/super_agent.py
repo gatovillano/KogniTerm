@@ -10,17 +10,32 @@ class SuperAgent:
         self.model = model
         self.llm_bridge = LLMBridge(model=self.model)
 
-    async def execute_stream(self, task: str) -> AsyncGenerator[Dict[str, Any], None]:
-        messages = [
-            {"role": "system", "content": "Eres KogniTerm en modo fast path. Responde claro, breve y ejecuta tools cuando ayuden."},
-            {"role": "user", "content": task},
-        ]
+    async def execute_stream(
+        self,
+        task: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        max_steps: int = 25,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        if messages is None:
+            messages = []
+
+        default_system = "Eres KogniTerm en modo fast path. Responde claro, breve y ejecuta tools cuando ayuden."
+        sys_content = system_prompt or default_system
+
+        if not messages or messages[0].get("role") != "system":
+            messages.insert(0, {"role": "system", "content": sys_content})
+        elif system_prompt:
+            messages[0]["content"] = system_prompt
+
+        if task:
+            messages.append({"role": "user", "content": task})
 
         tools_used: List[str] = []
         full_content: List[str] = []
         error_msg: Optional[str] = None
 
-        async for event in self.llm_bridge.chat(messages=messages):
+        async for event in self.llm_bridge.chat(messages=messages, max_steps=max_steps):
             ev_type = event.get("type")
             if ev_type in ("content", "chunk"):
                 text = event.get("text", "")
@@ -58,14 +73,25 @@ class SuperAgent:
             "error": error_msg,
         }
 
-    async def run(self, task: str) -> Dict[str, Any]:
+    async def run(
+        self,
+        task: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        system_prompt: Optional[str] = None,
+        max_steps: int = 25,
+    ) -> Dict[str, Any]:
         """Ejecuta una tarea y devuelve el resultado final consolidado."""
         output_text = ""
         tools_used: List[str] = []
         error_msg: Optional[str] = None
         success = True
 
-        async for event in self.execute_stream(task):
+        async for event in self.execute_stream(
+            task=task,
+            messages=messages,
+            system_prompt=system_prompt,
+            max_steps=max_steps,
+        ):
             ev_type = event.get("type")
             if ev_type in ("content", "chunk"):
                 output_text += event.get("text", "")
