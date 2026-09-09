@@ -1113,7 +1113,7 @@ class AgentSession:
                     self.session_id, self.agent_state.messages
                 )
 
-            # Nombrado inmediato del hilo si aún no tiene título significativo
+            # Nombrado automático del hilo al iniciar el chat
             if self.thread_manager:
                 try:
                     current = self.thread_manager.get_thread(self.session_id)
@@ -1121,12 +1121,15 @@ class AgentSession:
                         "Nueva conversación", "Nueva Conversación",
                         "Conversación sin título", "Conversación", "",
                     }
-                    if current and (
-                        current.title in generic_titles
+                    can_auto_title = current and (
+                        current.title_source in ("default", "fallback", None)
+                        or current.title in generic_titles
                         or current.title == self.session_id
-                    ):
+                    ) and current.title_source != "manual"
+
+                    if can_auto_title:
                         immediate_title = ThreadManager._fallback_title(message)
-                        if immediate_title and immediate_title != "Conversación":
+                        if immediate_title and immediate_title not in generic_titles:
                             self.thread_manager.rename_thread(
                                 self.session_id, immediate_title, source="fallback"
                             )
@@ -1134,9 +1137,11 @@ class AgentSession:
                                 "thread_title_updated",
                                 {"thread_id": self.session_id, "title": immediate_title},
                             )
+                        # Disparar de inmediato en segundo plano la generación con LLM
+                        asyncio.create_task(self._try_generate_title())
                 except Exception as exc:
                     logger.debug(
-                        f"[Session:{self.session_id}] No se pudo aplicar nombrado inmediato: {exc}"
+                        f"[Session:{self.session_id}] No se pudo aplicar nombrado automático inicial: {exc}"
                     )
 
             loop = asyncio.get_event_loop()
@@ -1341,13 +1346,18 @@ class AgentSession:
     async def _try_generate_title(self):
         """Intenta generar un título en background y notifica al cliente si se generó."""
         if self.thread_manager and self.llm_service:
-            new_title = await self.thread_manager.generate_title_if_needed(
-                self.session_id, self.agent_state.messages, self.llm_service
-            )
-            if new_title:
-                self.ui._push(
-                    "thread_title_updated",
-                    {"thread_id": self.session_id, "title": new_title},
+            try:
+                new_title = await self.thread_manager.generate_title_if_needed(
+                    self.session_id, self.agent_state.messages, self.llm_service
+                )
+                if new_title:
+                    self.ui._push(
+                        "thread_title_updated",
+                        {"thread_id": self.session_id, "title": new_title},
+                    )
+            except Exception as exc:
+                logger.debug(
+                    f"[Session:{self.session_id}] Error en _try_generate_title: {exc}"
                 )
 
 # ── Pool global de sesiones ───────────────────────────────────────────────────

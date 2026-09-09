@@ -1,5 +1,6 @@
-import pytest
+import asyncio
 import os
+import pytest
 import shutil
 from langchain_core.messages import HumanMessage, AIMessage
 from kogniterm.core.thread_manager import ThreadManager
@@ -177,4 +178,43 @@ async def test_generate_title_if_needed_ignores_manual_source(temp_workspace):
     updated = tm.get_thread(thread.id)
     assert updated.title == "Mi Título Manual"
     assert updated.title_source == "manual"
+
+
+@pytest.mark.asyncio
+async def test_session_pool_auto_naming_trigger(temp_workspace):
+    from unittest.mock import MagicMock, AsyncMock
+    from kogniterm.server.session_pool import AgentSession
+
+    tm = ThreadManager(workspace_dir=temp_workspace)
+    thread = tm.create_thread(thread_id="test-session-1")
+    
+    mock_llm = MagicMock()
+    mock_llm.model_name = "test-model"
+    mock_llm.max_history_messages = 20
+    mock_llm.max_history_chars = 10000
+    mock_llm.auto_save_interval = 60
+    mock_llm.skill_manager = None
+    tm._call_llm_for_title = AsyncMock(return_value="Título Generado por IA")
+
+    loop = asyncio.get_running_loop()
+    session = AgentSession(
+        session_id="test-session-1",
+        llm_service=mock_llm,
+        loop=loop,
+        thread_manager=tm,
+        workspace_dir=temp_workspace,
+    )
+
+    # Sin mensajes aún, no genera
+    await session._try_generate_title()
+    updated = tm.get_thread("test-session-1")
+    assert updated.title == "Nueva conversación"
+
+    # Con mensaje de usuario
+    session.agent_state.add_message(HumanMessage(content="¿Cómo configurar Nginx?"))
+    await session._try_generate_title()
+
+    updated = tm.get_thread("test-session-1")
+    assert updated.title == "Título Generado por IA"
+    assert updated.title_source == "llm"
 
