@@ -19,7 +19,7 @@ class ChatThread:
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     title: str = "Nueva conversación"
-    title_source: str = "manual"  # "llm" | "fallback" | "manual"
+    title_source: str = "default"  # "llm" | "fallback" | "manual" | "default"
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     parent_thread_id: Optional[str] = None

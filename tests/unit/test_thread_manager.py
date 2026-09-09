@@ -113,3 +113,27 @@ def test_thread_manager_known_workspaces_persistence(tmp_path, monkeypatch):
     assert t1.id in thread_ids
     assert t2.id in thread_ids
 
+
+def test_chat_thread_default_title_source():
+    from kogniterm.core.chat_thread import ChatThread
+    thread = ChatThread()
+    assert thread.title_source == "default"
+
+
+def test_thread_manager_fallback_title_cleaning():
+    from kogniterm.core.thread_manager import ThreadManager
+
+    # Saludos iniciales removidos y formateo limpio
+    assert ThreadManager._fallback_title("Hola, necesito crear un script de bash") == "Crear un script de bash"
+    assert ThreadManager._fallback_title("Buenas! Podrías ayudarme a refactorizar el código?") == "Refactorizar el código"
+    assert ThreadManager._fallback_title("Hello, please fix the database query") == "Fix the database query"
+
+    # Markdown y código
+    assert ThreadManager._fallback_title("```python\ndef test(): pass\n```") == "Código python"
+    assert ThreadManager._fallback_title("Revisa https://github.com/repo y dime qué opinas") == "Revisa y dime qué opinas"
+
+    # Mensajes cortos o vacíos
+    assert ThreadManager._fallback_title("") == "Nueva conversación"
+    assert ThreadManager._fallback_title("   ") == "Nueva conversación"
+    assert ThreadManager._fallback_title("hola") == "Nueva conversación"
+

@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import uuid
@@ -603,5 +604,59 @@ class ThreadManager:
 
     @staticmethod
     def _fallback_title(first_user_message: str) -> str:
-        text = " ".join(first_user_message.split())[:40]
-        return text if text else "Conversación"
+        if not first_user_message or not first_user_message.strip():
+            return "Nueva conversación"
+
+        text = first_user_message.strip()
+
+        # Detectar bloque de código markdown al inicio
+        code_match = re.match(r"^```(\w+)?", text)
+        if code_match:
+            lang = code_match.group(1)
+            return f"Código {lang}".strip() if lang else "Código"
+
+        # Remover URLs
+        text = re.sub(r"https?://\S+", "", text)
+
+        # Remover markdown residual (#, *, _, `, >, ~)
+        text = re.sub(r"[`*_#~>]", " ", text)
+
+        # Normalizar espacios
+        text = " ".join(text.split())
+
+        # Remover saludos y muletillas iniciales iterativamente
+        greeting_patterns = [
+            r"^(?:hola|buenas\s+tardes|buenas\s+noches|buenos\s+d[ií]as|buenas|hello|hi|hey)\b[\s,!.-]*",
+            r"^(?:por\s+favor|porfa|please)\b[\s,!.-]*",
+            r"^(?:podr[ií]as\s+ayudarme\s+a|podr[ií]as\s+ayudarme|podr[ií]as|puedes\s+ayudarme\s+a|puedes\s+ayudarme|puedes)\b[\s,!.-]*",
+            r"^(?:ay[uú]dame\s+a|ay[uú]dame|help\s+me\s+to|help\s+me|can\s+you|could\s+you)\b[\s,!.-]*",
+            r"^(?:necesito\s+que|necesito|quisiera|quiero|i\s+want\s+to|i\s+need\s+to)\b[\s,!.-]*",
+        ]
+
+        changed = True
+        while changed:
+            changed = False
+            for pat in greeting_patterns:
+                new_text = re.sub(pat, "", text, flags=re.IGNORECASE).strip()
+                if new_text != text:
+                    text = new_text
+                    changed = True
+
+        # Limpiar puntuación sobrante al inicio y final
+        text = text.strip(" ,;:!?.-\t\n\r¿¡")
+
+        if not text or len(text) < 3 or text.lower() in ("hola", "hello", "hi", "test"):
+            return "Nueva conversación"
+
+        # Limitar a 6-7 palabras y máx 50 caracteres
+        words = text.split()
+        if len(words) > 6:
+            text = " ".join(words[:6])
+        elif len(text) > 50:
+            text = text[:50].rsplit(" ", 1)[0]
+
+        text = text.strip(" ,;:!?.-\t\n\r¿¡")
+        if not text:
+            return "Nueva conversación"
+
+        return text[0].upper() + text[1:]
