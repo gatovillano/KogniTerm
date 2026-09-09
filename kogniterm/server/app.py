@@ -429,6 +429,7 @@ def create_app() -> FastAPI:
         anthropic_models = ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229"]
         ollama_models = ["ollama/llama3", "ollama/mistral"]
         kilocode_models = ["kilocode/kilo/auto", "kilocode/openai/gpt-4o"]
+        inception_models = ["inception/mercury", "inception/mercury-coder"]
         ollama_cloud_models = [
             "ollama_cloud/llama3:70b",
             "ollama_cloud/llama3:8b",
@@ -642,6 +643,41 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+        async def fetch_inception():
+            nonlocal inception_models
+            inception_key = (
+                cm.get_api_key("inception")
+                or os.environ.get("INCEPTION_API_KEY")
+                or os.environ.get("INCEPTIONLABS_API_KEY")
+            )
+            if not inception_key:
+                return
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        "https://api.inceptionlabs.ai/v1/models",
+                        headers={"Authorization": f"Bearer {inception_key}"},
+                        timeout=3.0,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        model_list = (
+                            data
+                            if isinstance(data, list)
+                            else data.get("data", data.get("models", []))
+                        )
+                        for m in model_list:
+                            model_id = m.get("id", m.get("model", ""))
+                            if model_id:
+                                if not model_id.startswith("inception/"):
+                                    model_id = f"inception/{model_id}"
+                                fetched.append(model_id)
+                        if fetched:
+                            inception_models = fetched
+            except Exception:
+                pass
+
         # Ejecutar todas las consultas en paralelo
         await asyncio.gather(
             fetch_google(),
@@ -650,6 +686,7 @@ def create_app() -> FastAPI:
             fetch_anthropic(),
             fetch_ollama(),
             fetch_kilocode(),
+            fetch_inception(),
             fetch_ollama_cloud(),
             fetch_antigravity(),
             return_exceptions=True,
@@ -668,6 +705,11 @@ def create_app() -> FastAPI:
                     "id": "kilocode",
                     "name": "KiloCode Gateway",
                     "models": kilocode_models,
+                },
+                {
+                    "id": "inception",
+                    "name": "Inception Labs",
+                    "models": inception_models,
                 },
             ]
         }
@@ -699,6 +741,8 @@ def create_app() -> FastAPI:
             provider = "ollama"
         elif "kilocode" in model_lower:
             provider = "kilocode"
+        elif "inception" in model_lower or "mercury" in model_lower:
+            provider = "inception"
         elif "antigravity" in model_lower:
             provider = "antigravity"
 
@@ -738,6 +782,7 @@ def create_app() -> FastAPI:
                 "ollama": "ollama/llama3",
                 "ollama_cloud": "ollama_cloud/llama3:70b",
                 "kilocode": "kilocode/kilo/auto",
+                "inception": "inception/mercury",
                 "antigravity": "antigravity/gemini-3-flash",
                 "litellm": "google/gemini-1.5-flash",
             }
@@ -768,6 +813,8 @@ def create_app() -> FastAPI:
                     provider = "ollama_cloud"
                 elif "kilocode" in model_lower:
                     provider = "kilocode"
+                elif "inception" in model_lower or "mercury" in model_lower:
+                    provider = "inception"
                 elif "antigravity" in model_lower:
                     provider = "antigravity"
                 else:
