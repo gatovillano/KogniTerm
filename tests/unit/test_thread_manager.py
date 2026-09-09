@@ -137,3 +137,44 @@ def test_thread_manager_fallback_title_cleaning():
     assert ThreadManager._fallback_title("   ") == "Nueva conversación"
     assert ThreadManager._fallback_title("hola") == "Nueva conversación"
 
+
+@pytest.mark.asyncio
+async def test_generate_title_if_needed_with_fallback_source(temp_workspace):
+    from unittest.mock import MagicMock, AsyncMock
+    tm = ThreadManager(workspace_dir=temp_workspace)
+    thread = tm.create_thread(title="Script de bash")
+    thread.title_source = "fallback"
+    tm.save_thread(thread)
+
+    mock_llm = MagicMock()
+    tm._call_llm_for_title = AsyncMock(return_value="Automatización de scripts")
+
+    # Requiere únicamente HumanMessage
+    messages = [HumanMessage(content="Crea un script para backup")]
+    new_title = await tm.generate_title_if_needed(thread.id, messages, mock_llm)
+
+    assert new_title == "Automatización de scripts"
+    updated = tm.get_thread(thread.id)
+    assert updated.title == "Automatización de scripts"
+    assert updated.title_source == "llm"
+
+
+@pytest.mark.asyncio
+async def test_generate_title_if_needed_ignores_manual_source(temp_workspace):
+    from unittest.mock import MagicMock, AsyncMock
+    tm = ThreadManager(workspace_dir=temp_workspace)
+    thread = tm.create_thread(title="Mi Título Manual")
+    thread.title_source = "manual"
+    tm.save_thread(thread)
+
+    mock_llm = MagicMock()
+    tm._call_llm_for_title = AsyncMock(return_value="Otro título")
+
+    messages = [HumanMessage(content="Crea un script")]
+    new_title = await tm.generate_title_if_needed(thread.id, messages, mock_llm)
+
+    assert new_title is None
+    updated = tm.get_thread(thread.id)
+    assert updated.title == "Mi Título Manual"
+    assert updated.title_source == "manual"
+

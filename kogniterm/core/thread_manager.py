@@ -424,17 +424,19 @@ class ThreadManager:
         if not metadata:
             return
 
-        current_title = metadata.get("title", "")
-        default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
-        is_generic = current_title in default_titles or current_title == thread_id
-
-        if not is_generic or metadata.get("title_source") == "llm":
+        source = metadata.get("title_source")
+        if source in ("manual", "llm"):
             return
 
-        # Verificar que tengamos al menos un HumanMessage y un AIMessage
+        current_title = metadata.get("title", "")
+        default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
+        is_generic = current_title in default_titles or current_title == thread_id or source in ("default", "fallback", None)
+
+        if not is_generic:
+            return
+
         human_msgs = [m for m in messages if getattr(m, "type", None) == "human" or isinstance(m, HumanMessage)]
-        ai_msgs = [m for m in messages if getattr(m, "type", None) == "ai" or isinstance(m, AIMessage)]
-        if not human_msgs or not ai_msgs:
+        if not human_msgs:
             return
 
         try:
@@ -460,17 +462,19 @@ class ThreadManager:
         if not metadata:
             return None
 
-        current_title = metadata.get("title", "")
-        default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
-        is_generic = current_title in default_titles or current_title == thread_id
-
-        if not is_generic or metadata.get("title_source") == "llm":
+        source = metadata.get("title_source")
+        if source in ("manual", "llm"):
             return None
 
-        # Verificar que tengamos al menos un HumanMessage y un AIMessage
+        current_title = metadata.get("title", "")
+        default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
+        is_generic = current_title in default_titles or current_title == thread_id or source in ("default", "fallback", None)
+
+        if not is_generic:
+            return None
+
         human_msgs = [m for m in messages if getattr(m, "type", None) == "human" or isinstance(m, HumanMessage)]
-        ai_msgs = [m for m in messages if getattr(m, "type", None) == "ai" or isinstance(m, AIMessage)]
-        if not human_msgs or not ai_msgs:
+        if not human_msgs:
             return None
 
         return await self._generate_title(thread_id, messages, llm_service)
@@ -504,15 +508,22 @@ class ThreadManager:
                 elif getattr(m, "type", None) == "ai" or isinstance(m, AIMessage):
                     ai_msgs.append(content.strip())
 
-            if not human_msgs or not ai_msgs:
+            if not human_msgs:
                 return None
 
-            prompt = (
-                "Genera un título conciso (máximo 5-6 palabras) para este hilo de conversación. "
-                "Solo responde con el título, sin comillas, markdown ni explicaciones.\n\n"
-                f"Usuario: {human_msgs[0][:300]}\n"
-                f"Asistente: {ai_msgs[0][:300]}"
-            )
+            if ai_msgs:
+                prompt = (
+                    "Genera un título conciso (máximo 4 a 6 palabras) para este tema de conversación. "
+                    "Solo responde con el título, sin comillas, markdown ni explicaciones.\n\n"
+                    f"Usuario: {human_msgs[0][:300]}\n"
+                    f"Asistente: {ai_msgs[0][:300]}"
+                )
+            else:
+                prompt = (
+                    "Genera un título conciso (máximo 4 a 6 palabras) para una conversación que inicia con este mensaje. "
+                    "Solo responde con el título, sin comillas, markdown ni explicaciones.\n\n"
+                    f"Mensaje: {human_msgs[0][:300]}"
+                )
 
             title = await self._call_llm_for_title(prompt, llm_service)
             if title:
@@ -520,12 +531,18 @@ class ThreadManager:
                 for prefix in ("título:", "title:", "asunto:", "subject:"):
                     if title.lower().startswith(prefix):
                         title = title[len(prefix):].strip()
-                title = title.strip("\"'")
+                title = title.strip("\"'#*` ")
+                title = title.rstrip(".")
                 words = title.split()
                 if len(words) > 7:
                     title = " ".join(words[:6]) + "..."
             if not title:
                 title = self._fallback_title(human_msgs[0])
+
+            # Re-verificar que el usuario no haya renombrado manualmente el hilo mientras se esperaba al LLM
+            current_meta = self._load_metadata(thread_id)
+            if current_meta and current_meta.get("title_source") == "manual":
+                return current_meta.get("title")
 
             self.rename_thread(thread_id, title, source="llm")
             return title
