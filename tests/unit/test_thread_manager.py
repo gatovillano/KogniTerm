@@ -218,3 +218,16 @@ async def test_session_pool_auto_naming_trigger(temp_workspace):
     assert updated.title == "Título Generado por IA"
     assert updated.title_source == "llm"
 
+
+def test_llm_service_set_thread_manager_wires_llm_service():
+    from unittest.mock import MagicMock
+    from kogniterm.core.llm_service import LLMService
+
+    llm = LLMService(use_multi_provider=False)
+    mock_tm = MagicMock()
+    llm.set_thread_manager(mock_tm)
+
+    assert llm.history_manager._thread_manager == mock_tm
+    assert llm.history_manager._llm_service == llm
+
+

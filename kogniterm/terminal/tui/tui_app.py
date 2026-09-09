@@ -2665,6 +2665,29 @@ class KogniTermTUI(App):
 
         # Mostrar spinner animado mientras el LLM procesa
         self.call_from_thread(self._start_spinner)
+
+        # Nombrado automático del hilo activo al iniciar el chat si aún es genérico
+        if getattr(self, "thread_manager", None):
+            try:
+                active_id = self.thread_manager.get_current_thread_id()
+                if active_id:
+                    current_t = self.thread_manager.get_thread(active_id)
+                    generic_titles = {
+                        "Nueva conversación", "Nueva Conversación",
+                        "Conversación sin título", "Conversación", "",
+                    }
+                    if current_t and (
+                        current_t.title_source in ("default", "fallback", None)
+                        or current_t.title in generic_titles
+                        or current_t.title == active_id
+                    ) and current_t.title_source != "manual":
+                        from kogniterm.core.thread_manager import ThreadManager
+                        immediate_title = ThreadManager._fallback_title(user_input)
+                        if immediate_title and immediate_title not in generic_titles:
+                            self.thread_manager.rename_thread(active_id, immediate_title, source="fallback")
+            except Exception:
+                pass
+
         # Añadir el mensaje del usuario al historial
         self.agent_state.add_message(HumanMessage(content=user_input))
 

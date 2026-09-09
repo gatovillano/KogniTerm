@@ -269,7 +269,8 @@ class LLMService:
             history_file_path=self.history_file_path,
             max_history_messages=self.max_history_messages,
             max_history_chars=self.max_history_chars,
-            auto_save_interval=self.auto_save_interval
+            auto_save_interval=self.auto_save_interval,
+            llm_service=self,
         )
         self.SUMMARY_MAX_TOKENS = 800 # Tokens, longitud máxima del resumen de herramientas
         
@@ -304,6 +305,7 @@ class LLMService:
             max_history_chars=self.max_history_chars,
             auto_save_interval=self.auto_save_interval,
             thread_manager=self._thread_manager,
+            llm_service=self,
         )
 
         from .context.vector_db_manager import VectorDBManager
@@ -343,6 +345,7 @@ class LLMService:
         self._thread_manager = thread_manager
         if self.history_manager:
             self.history_manager.set_thread_manager(thread_manager)
+            self.history_manager.set_llm_service(self)
 
     @property
     def history_file_path(self):
