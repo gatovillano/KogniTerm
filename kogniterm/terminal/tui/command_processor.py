@@ -91,6 +91,7 @@ class TUICommandProcessor:
             ("ollama", "Ollama Local"),
             ("ollama_cloud", "Ollama Cloud"),
             ("kilocode", "KiloCode Gateway"),
+            ("inception", "Inception Labs"),
             ("antigravity", "Google Antigravity (Session OAuth2)"),
         ]
         
@@ -122,7 +123,8 @@ class TUICommandProcessor:
             ("openai", "OPENAI_API_KEY"),
             ("anthropic", "ANTHROPIC_API_KEY"),
             ("openrouter", "OPENROUTER_API_KEY"),
-            ("kilocode", "KILOCODE_API_KEY")
+            ("kilocode", "KILOCODE_API_KEY"),
+            ("inception", "INCEPTION_API_KEY")
         ]
         
         selected_provider = await self.terminal_ui.ask_radiolist_async(
