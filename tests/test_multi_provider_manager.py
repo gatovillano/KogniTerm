@@ -142,3 +142,43 @@ def test_resolve_model_for_provider_cross_fallback():
     assert resolved_fast_google == "gemini/gemini-2.5-flash"
 
 
+def test_inception_provider_configuration(monkeypatch):
+    from kogniterm.core.multi_provider_manager import DEFAULT_PROVIDERS, MultiProviderManager
+    inception = next((p for p in DEFAULT_PROVIDERS if p.name == "inception"), None)
+    assert inception is not None
+    assert inception.api_base == "https://api.inceptionlabs.ai/v1"
+    assert inception.api_key_env == "INCEPTION_API_KEY"
+
+    monkeypatch.setenv("INCEPTION_API_KEY", "test-key-123")
+    assert inception.get_api_key() == "test-key-123"
+    assert inception.is_configured() is True
+
+
+def test_parse_model_name_inception():
+    from kogniterm.core.multi_provider_manager import MultiProviderManager
+
+    owner, pure = MultiProviderManager._parse_model_name("inception/mercury")
+    assert owner == "inception"
+    assert pure == "mercury"
+
+    owner_alias, pure_alias = MultiProviderManager._parse_model_name("inceptionlabs/mercury-coder")
+    assert owner_alias == "inception"
+    assert pure_alias == "mercury-coder"
+
+
+def test_resolve_model_for_inception():
+    from kogniterm.core.multi_provider_manager import MultiProviderManager, ProviderConfig
+
+    manager = MultiProviderManager()
+    p_inception = ProviderConfig(
+        name="inception",
+        model_prefix="openai",
+        api_key_env="INCEPTION_API_KEY",
+        api_base="https://api.inceptionlabs.ai/v1"
+    )
+
+    # El modelo nativo de Inception debe resolverse sin el prefijo de namespace para LiteLLM
+    assert manager._resolve_model_for_provider(p_inception, "inception/mercury-2") == "mercury-2"
+    assert manager._resolve_model_for_provider(p_inception, "mercury") == "mercury"
+
+
