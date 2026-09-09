@@ -24,7 +24,8 @@ def config_kogniterm():
         "4": ("anthropic", "Anthropic (Claude)"),
         "5": ("ollama", "Ollama Local"),
         "6": ("ollama_cloud", "Ollama Cloud"),
-        "7": ("kilocode", "KiloCode Gateway")
+        "7": ("kilocode", "KiloCode Gateway"),
+        "8": ("inception", "Inception Labs")
     }
     
     print("Proveedores disponibles:")
@@ -51,7 +52,8 @@ def config_kogniterm():
         "anthropic": "ANTHROPIC_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
         "ollama_cloud": "OLLAMA_CLOUD_API_KEY",
-        "kilocode": "KILOCODE_API_KEY"
+        "kilocode": "KILOCODE_API_KEY",
+        "inception": "INCEPTION_API_KEY"
     }
     
     key_name = key_mapping.get(provider_key, "LLM_API_KEY")
