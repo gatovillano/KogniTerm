@@ -692,7 +692,7 @@ class LLMService:
             return int(env_limit)
 
         model_lower = target_model.lower()
-        is_openrouter_or_openai = "openrouter" in model_lower or "openai" in model_lower or "kilocode" in model_lower or "inception" in model_lower or "mercury" in model_lower or "stepfun" in model_lower or ":free" in model_lower
+        is_openrouter_or_openai = "openrouter" in model_lower or "openai" in model_lower or "kilocode" in model_lower or "stepfun" in model_lower or ":free" in model_lower
 
         try:
             info = litellm.get_model_info(target_model)
@@ -756,8 +756,6 @@ class LLMService:
             provider = "ollama"
         elif "kilocode" in model_lower:
             provider = "kilocode"
-        elif "inception" in model_lower or "mercury" in model_lower:
-            provider = "inception"
         elif "antigravity" in model_lower:
             provider = "antigravity"
         
@@ -824,17 +822,6 @@ class LLMService:
             litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a KiloCode: {model_name}")
-
-        elif provider == "inception":
-            key = cm.get_api_key("inception") or os.environ.get("INCEPTION_API_KEY") or os.environ.get("INCEPTIONLABS_API_KEY") or os.environ.get("LITELLM_API_KEY")
-            if key:
-                self.api_key = key
-                os.environ["LITELLM_API_KEY"] = key
-                os.environ["INCEPTION_API_KEY"] = key
-            
-            litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.inceptionlabs.ai/v1"
-            litellm.headers = {}
-            logger.info(f"⚡ Cambiado a Inception Labs: {model_name}")
 
         elif provider == "antigravity":
             self.api_key = _ANTIGRAVITY_SESSION_TOKEN
@@ -1421,11 +1408,9 @@ class LLMService:
             if self.use_multi_provider and self.provider_manager:
                 logger.info("🔄 Usando MultiProviderManager con fallback automático")
                 
-                # Inyectar custom_llm_provider si es kilocode o inception
+                # Inyectar custom_llm_provider si es kilocode
                 extra_args = {}
                 if "kilocode" in self.model_name.lower() or (hasattr(self, 'api_base') and self.api_base and "kilo.ai" in self.api_base):
-                    extra_args["custom_llm_provider"] = "openai"
-                elif "inception" in self.model_name.lower() or "mercury" in self.model_name.lower() or (hasattr(self, 'api_base') and self.api_base and "inceptionlabs.ai" in self.api_base):
                     extra_args["custom_llm_provider"] = "openai"
 
                 response_generator = self.provider_manager.execute_with_fallback(

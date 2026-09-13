@@ -132,10 +132,6 @@ class ProviderConfig:
         env_key = os.getenv(self.api_key_env)
         if env_key:
             return env_key
-        if self.name in ("inception", "inceptionlabs"):
-            alt_key = os.getenv("INCEPTIONLABS_API_KEY") or os.getenv("INCEPTION_API_KEY")
-            if alt_key:
-                return alt_key
             
         # 2. Intentar desde ConfigManager
         try:
@@ -149,9 +145,7 @@ class ProviderConfig:
                 "openrouter": "openrouter",
                 "cohere": "cohere",
                 "kilocode": "kilocode",
-                "ollama_cloud": "ollama_cloud",
-                "inception": "inception",
-                "inceptionlabs": "inception"
+                "ollama_cloud": "ollama_cloud"
             }
             cm_name = provider_map.get(self.name, self.name)
             cm_key = cm.get_api_key(cm_name)
@@ -312,16 +306,6 @@ DEFAULT_PROVIDERS = [
         priority=999,
         fallback_on_error_codes=["429", "503", "timeout"]
     ),
-    ProviderConfig(
-        name="inception",
-        # Inception Labs es OpenAI-compatible → LiteLLM requiere prefijo 'openai'
-        model_prefix="openai",
-        api_key_env="INCEPTION_API_KEY",
-        api_base="https://api.inceptionlabs.ai/v1",
-        api_base_env="INCEPTION_API_BASE",
-        priority=80,
-        fallback_on_error_codes=["429", "503", "timeout"]
-    ),
 ]
 
 
@@ -446,9 +430,7 @@ class MultiProviderManager:
                 "zhipuai": "zhipuai",
                 "ollama": "ollama",
                 "antigravity": "antigravity",
-                "kilocode": "kilocode",
-                "inception": "inception",
-                "inceptionlabs": "inception"
+                "kilocode": "kilocode"
             }
             mapped_owner = prefix_map.get(owner, owner)
             return mapped_owner, pure
@@ -466,8 +448,6 @@ class MultiProviderManager:
             return "zhipuai", s
         elif lower_pure.startswith("qwen") or lower_pure.startswith("llama") or lower_pure.startswith("deepseek"):
             return "ollama", s
-        elif lower_pure.startswith("mercury"):
-            return "inception", s
 
         return None, s
 
@@ -520,8 +500,6 @@ class MultiProviderManager:
 
             if provider.name.startswith("ollama"):
                 return pure_model
-            if provider.name in ("inception", "kilocode"):
-                return pure_model
             return f"{provider.model_prefix}/{pure_model}"
 
         # 4. Si el proveedor destino es un PROVEEDOR AJENO (Cross-provider fallback):
@@ -537,13 +515,12 @@ class MultiProviderManager:
             "zhipuai": "glm-4-plus" if is_flagship else "glm-4-flash",
             "ollama": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
             "ollama_cloud": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
-            "kilocode": "kilo/auto",
-            "inception": "mercury"
+            "kilocode": "kilo/auto"
         }
 
         default_model = provider_defaults.get(provider.name, "gpt-4o-mini")
 
-        if provider.name.startswith("ollama") or provider.name in ("kilocode", "inception"):
+        if provider.name.startswith("ollama") or provider.name == "kilocode":
             return default_model
 
         return f"{provider.model_prefix}/{default_model}"
@@ -608,10 +585,6 @@ class MultiProviderManager:
                 provider = next((p for p in available if p.name == "zhipuai"), None)
                 if provider:
                     return provider
-            elif prefix in ("inception", "inceptionlabs"):
-                provider = next((p for p in available if p.name == "inception"), None)
-                if provider:
-                    return provider
 
         owner_provider, _ = self._parse_model_name(model_name)
         
@@ -639,9 +612,6 @@ class MultiProviderManager:
             if provider: return provider
         elif "claude" in lower_model:
             provider = next((p for p in available if p.name == "anthropic"), None)
-            if provider: return provider
-        elif "mercury" in lower_model:
-            provider = next((p for p in available if p.name == "inception"), None)
             if provider: return provider
 
         # 5. Fallback final al proveedor primario
@@ -699,7 +669,7 @@ class MultiProviderManager:
                 # Sin custom_llm_provider, LiteLLM infiere "ollama" nativo y arma
                 # https://ollama.com/v1/api/generate, que devuelve 404 ("path not found").
                 completion_kwargs["custom_llm_provider"] = "openai"
-            elif provider.name in ("kilocode", "inception"):
+            elif provider.name == "kilocode":
                 completion_kwargs["custom_llm_provider"] = "openai"
             elif provider.model_prefix == "gemini" or provider.name == "google":
                 completion_kwargs["custom_llm_provider"] = "gemini"

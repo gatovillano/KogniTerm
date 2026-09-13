@@ -1006,45 +1006,6 @@ Example: /autosave restore autosave_20250515_141530
                     self.terminal_ui.print_message(f"⚠️ Exception connecting to KiloCode Gateway: {e}", style="red")
                     return []
 
-            # Función auxiliar para obtener modelos de Inception Labs
-            async def _fetch_inception_models():
-                try:
-                    from kogniterm.terminal.config_manager import ConfigManager
-                    api_key = os.getenv("INCEPTION_API_KEY") or os.getenv("INCEPTIONLABS_API_KEY") or ConfigManager().get_api_key("inception")
-                    if not api_key:
-                        self.terminal_ui.print_message("⚠️ No se encontró INCEPTION_API_KEY en el entorno ni en la configuración.", style="yellow")
-                        return []
-
-                    self.terminal_ui.print_message("⏳ Consultando lista de modelos desde Inception Labs...", style="dim")
-                    import httpx
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(
-                            "https://api.inceptionlabs.ai/v1/models",
-                            headers={"Authorization": f"Bearer {api_key}"},
-                            timeout=20.0
-                        )
-                        if response.status_code == 200:
-                            data = response.json()
-                            models = []
-                            model_list = data if isinstance(data, list) else data.get('data', data.get('models', []))
-                            for m in model_list:
-                                model_id = m.get('id', m.get('model', ''))
-                                if not model_id:
-                                    continue
-                                if not model_id.startswith('inception/'):
-                                    model_id = f"inception/{model_id}"
-                                name = m.get('name', model_id)
-                                models.append((model_id, name))
-
-                            models.sort(key=lambda x: x[1])
-                            return models
-                        else:
-                            self.terminal_ui.print_message(f"⚠️ Error consultando modelos de Inception Labs: {response.status_code}", style="yellow")
-                            return []
-                except Exception as e:
-                    self.terminal_ui.print_message(f"⚠️ Excepción al conectar con Inception Labs: {e}", style="red")
-                    return []
-
             # Función auxiliar para obtener modelos de Ollama Local
             async def _fetch_ollama_local_models():
                 try:
@@ -1166,8 +1127,6 @@ Example: /autosave restore autosave_20250515_141530
                 current_provider = "anthropic"
             elif "kilocode" in current_model:
                 current_provider = "kilocode"
-            elif "inception" in current_model or "mercury" in current_model:
-                current_provider = "inception"
             
             target_list = []
 
@@ -1234,13 +1193,6 @@ Example: /autosave restore autosave_20250515_141530
                         ("kilocode/anthropic/claude-sonnet-4", "Claude Sonnet 4 via Kilo"),
                         ("kilocode/openai/gpt-4o", "GPT-4o via Kilo"),
                         ("kilocode/google/gemini-3-pro-preview", "Gemini 3 Pro via Kilo"),
-                    ]
-            elif current_provider == "inception":
-                target_list = await _fetch_inception_models()
-                if not target_list:
-                    target_list = [
-                        ("inception/mercury", "Mercury (Inception Labs)"),
-                        ("inception/mercury-coder", "Mercury Coder (Inception Labs)"),
                     ]
             else:
                 target_list = await _fetch_openrouter_models()
@@ -1486,7 +1438,6 @@ Example: /autosave restore autosave_20250515_141530
                 ("ollama", "🦙 Ollama Local (servidor local)",),
                 ("ollama_cloud", "☁️  Ollama Cloud (Ollama Models)"),
                 ("kilocode", "⚡ KiloCode Gateway (Routing inteligente)"),
-                ("inception", "⚡ Inception Labs (Diffusion LLMs)"),
                 ("antigravity", "🛸 Google Antigravity (Dynamic Session OAuth2)"),
             ]
 
@@ -1516,7 +1467,6 @@ Example: /autosave restore autosave_20250515_141530
                     "ollama": "ollama/llama3",
                     "ollama_cloud": "ollama/llama3",
                     "kilocode": "kilocode/kilo/auto",
-                    "inception": "inception/mercury",
                     "antigravity": "antigravity/gemini-3-flash",
                 }
                 new_model = default_models.get(selected_provider)
@@ -1822,8 +1772,6 @@ Example: /autosave restore autosave_20250515_141530
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "OLLAMA_CLOUD_API_KEY",
-            "KILOCODE_API_KEY",
-            "INCEPTION_API_KEY",
             "BRAVE_API_KEY",
             "GITHUB_TOKEN"
         ]
@@ -1930,8 +1878,6 @@ Example: /autosave restore autosave_20250515_141530
                             self.llm_service.api_key = new_val
                         elif selected_key == "GOOGLE_API_KEY" and "gemini" in self.llm_service.model_name:
                             self.llm_service.api_key = new_val
-                        elif selected_key in ("INCEPTION_API_KEY", "INCEPTIONLABS_API_KEY") and ("inception" in self.llm_service.model_name or "mercury" in self.llm_service.model_name):
-                            self.llm_service.api_key = new_val
                             
                         # Si estamos en modo servidor, enviar también la API key al servidor
                         is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
@@ -1944,8 +1890,7 @@ Example: /autosave restore autosave_20250515_141530
                                     "ANTHROPIC_API_KEY": "anthropic",
                                     "OPENROUTER_API_KEY": "openrouter",
                                     "OLLAMA_CLOUD_API_KEY": "ollama_cloud",
-                                    "KILOCODE_API_KEY": "kilocode",
-                                    "INCEPTION_API_KEY": "inception"
+                                    "KILOCODE_API_KEY": "kilocode"
                                 }
                                 prov = provider_map.get(selected_key)
                                 if prov:
