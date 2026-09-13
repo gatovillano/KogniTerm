@@ -3,14 +3,24 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Loader2, Sparkles } from 'lucide-react';
 import { Message } from '../../types/chat';
 import { ThinkingSpinner } from './ThinkingSpinner';
 import { AppliedDiffCard } from './AppliedDiffCard';
 import { parseAppliedDiff } from '../../hooks/useChat';
 
+export const stripRichMarkup = (text: string): string => {
+    if (!text) return '';
+    return text
+        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+        .replace(/\[(?:\d+;)*\d+m/g, '')
+        .replace(/\[\/?(?:dim|italic|bold|cyan|white|yellow|green|red|blue|magenta|black|strike|underline|#\w+)(?:\s+[a-zA-Z0-9_#]+)*\]/gi, '')
+        .replace(/\[\/\]/g, '');
+};
+
 interface ChatMessageProps {
     message: Message;
+    isGenerating?: boolean;
 }
 
 const renderCodeBlock = (children: any, className?: string, props?: any) => {
@@ -51,7 +61,7 @@ const renderCodeBlock = (children: any, className?: string, props?: any) => {
     );
 };
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isGenerating = false }) => {
     const isUser = message.role === 'user';
     const isTool = message.role === 'tool';
     const isSystem = message.role === 'system';
@@ -91,6 +101,41 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                             {rawText}
                         </div>
                     )}
+                </div>
+            </div>
+        );
+    }
+
+    const isLearning = message.role === 'learning' ||
+        (isSystem && typeof message.content === 'string' && (
+            message.content.includes('Aprendizaje consolidado') ||
+            message.content.includes('aprendizaje consolidado')
+        ));
+
+    if (isLearning) {
+        let learnedText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+        learnedText = stripRichMarkup(learnedText).trim();
+        learnedText = learnedText.replace(/^([🤔🧠\s]*\**[aA]prendizaje consolidado:?\**\s*)/i, '').trim();
+
+        return (
+            <div className="flex w-full mb-3 justify-start pl-12 pr-4 animate-fade-in max-w-[95%]">
+                <div className="flex items-start gap-3 w-full bg-cyan-950/15 border border-cyan-500/25 dark:bg-cyan-950/30 dark:border-cyan-500/30 rounded-xl p-3 shadow-xs text-left">
+                    <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5">
+                        <Sparkles size={15} />
+                    </div>
+                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-cyan-800 dark:text-cyan-300 tracking-wide">
+                                Aprendizaje consolidado
+                            </span>
+                            <span className="text-[10px] text-cyan-600/80 dark:text-cyan-400/80 bg-cyan-500/10 px-1.5 py-0.5 rounded font-mono">
+                                Memoria guardada
+                            </span>
+                        </div>
+                        <p className="text-[13px] text-zinc-700 dark:text-zinc-200 leading-relaxed italic">
+                            "{learnedText}"
+                        </p>
+                    </div>
                 </div>
             </div>
         );
@@ -165,31 +210,77 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                     </div>
                 )}
 
-                {/* Tool Calls - OpenClaw Style "Ran · <cmd> <duration>" */}
+                {/* Tool Calls - "<tool_name> · <action> <duration>" */}
                 {!isUser && message.tool_calls && message.tool_calls.length > 0 && (
-                    <div className="flex flex-col gap-1 w-full my-2">
+                    <div className="flex flex-col gap-1.5 w-full my-3">
                         {message.tool_calls.map((tool, idx) => {
-                            const argStr = typeof tool.args === 'string' ? tool.args : JSON.stringify(tool.args || {});
-                            const displayArgs = argStr
-                                .replace(/^{"CommandLine":"|"}$/g, '')
-                                .replace(/\\"/g, '"')
-                                .replace(/\\n/g, ' ');
-                            const shortCmd = displayArgs || tool.name;
-                            const sampleTime = (tool as any).execution_time || `${Math.floor(Math.random() * 700 + 80)}ms`;
+                            let displayAction = '';
+                            if (typeof tool.args === 'string') {
+                                displayAction = tool.args;
+                            } else if (tool.args && typeof tool.args === 'object') {
+                                displayAction =
+                                    tool.args.command ||
+                                    tool.args.CommandLine ||
+                                    tool.args.path ||
+                                    tool.args.file_path ||
+                                    tool.args.target_path ||
+                                    tool.args.query ||
+                                    tool.args.description ||
+                                    tool.args.action ||
+                                    '';
+                                if (!displayAction) {
+                                    const stringValues = Object.values(tool.args).filter(v => typeof v === 'string' || typeof v === 'number');
+                                    if (stringValues.length === 1) {
+                                        displayAction = String(stringValues[0]);
+                                    } else if (Object.keys(tool.args).length > 0) {
+                                        displayAction = JSON.stringify(tool.args);
+                                    }
+                                }
+                            }
+
+                            if (displayAction) {
+                                displayAction = displayAction
+                                    .replace(/^{"(CommandLine|command)":"|"}$/g, '')
+                                    .replace(/\\"/g, '"')
+                                    .replace(/\\n/g, ' ')
+                                    .trim();
+                            }
+
+                            const toolName = tool.name || 'tool';
+                            const hasAction = Boolean(displayAction && displayAction !== toolName);
+                            const isRunning = Boolean(isGenerating && tool.status === 'running');
+                            const sampleTime = tool.execution_time || (tool as any).execution_time || `${Math.floor(Math.random() * 700 + 80)}ms`;
 
                             return (
-                                <div key={tool.id || idx} className="tool-run-row select-none">
+                                <div key={tool.id || idx} className="tool-run-row select-none py-1">
                                     <div className="tool-run-badge truncate max-w-[82%]">
-                                        <span className="tool-run-icon">&gt;_</span>
-                                        <span className="truncate">
-                                            <span className="text-zinc-600 dark:text-zinc-400 font-medium">Ran</span>
-                                            <span className="text-zinc-400 dark:text-zinc-500 mx-1">·</span>
-                                            <span className="font-mono text-zinc-700 dark:text-zinc-300">{shortCmd}</span>
+                                        <span className="truncate flex items-center">
+                                            <ChevronRight size={12} className="text-zinc-400 dark:text-zinc-500 shrink-0 mr-1.5" />
+                                            <span className="text-zinc-700 dark:text-zinc-300 font-medium text-xs shrink-0 flex items-center gap-1.5">
+                                                <span>{toolName}</span>
+                                                {isRunning && (
+                                                    <Loader2 size={11} className="animate-spin text-zinc-400 dark:text-zinc-500 shrink-0" />
+                                                )}
+                                            </span>
+                                            {hasAction && (
+                                                <>
+                                                    <span className="text-zinc-400 dark:text-zinc-500 mx-1.5 text-xs shrink-0">·</span>
+                                                    <span className="font-mono text-zinc-500 dark:text-zinc-400 text-[11px] truncate">
+                                                        {displayAction}
+                                                    </span>
+                                                </>
+                                            )}
                                         </span>
                                     </div>
-                                    <span className="text-zinc-400 dark:text-zinc-500 text-xs font-mono shrink-0">
-                                        {sampleTime}
-                                    </span>
+                                    {isRunning ? (
+                                        <span className="text-zinc-400 dark:text-zinc-500 text-xs font-mono shrink-0 ml-2 animate-pulse">
+                                            ejecutando...
+                                        </span>
+                                    ) : (
+                                        <span className="text-zinc-400 dark:text-zinc-500 text-xs font-mono shrink-0 ml-2">
+                                            {sampleTime}
+                                        </span>
+                                    )}
                                 </div>
                             );
                         })}
@@ -232,7 +323,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                             </ReactMarkdown>
                         </div>
                     ) : (() => {
-                        const rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+                        const rawText = typeof message.content === 'string' ? stripRichMarkup(message.content) : JSON.stringify(message.content, null, 2);
                         const parsedDiff = parseAppliedDiff(rawText);
                         if (parsedDiff) {
                             return (

@@ -54,7 +54,11 @@ class ProviderConfig:
             return os.getenv("OPENROUTER_API_KEY") or os.getenv("LITELLM_API_KEY")
         elif self.model_name.startswith("ollama/"):
             return os.getenv("OLLAMA_CLOUD_API_KEY") or os.getenv("OLLAMA_API_KEY")
-        return os.getenv("LITELLM_API_KEY") or os.getenv("OPENROUTER_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        elif self.model_name.startswith("inception/") or "inception" in self.model_name.lower() or "mercury" in self.model_name.lower():
+            return os.getenv("INCEPTION_API_KEY") or os.getenv("INCEPTIONLABS_API_KEY") or os.getenv("LITELLM_API_KEY")
+        elif self.model_name.startswith("kilocode/") or "kilocode" in self.model_name.lower():
+            return os.getenv("KILOCODE_API_KEY") or os.getenv("LITELLM_API_KEY")
+        return os.getenv("INCEPTION_API_KEY") or os.getenv("INCEPTIONLABS_API_KEY") or os.getenv("KILOCODE_API_KEY") or os.getenv("LITELLM_API_KEY") or os.getenv("OPENROUTER_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
     def setup_provider(self):
         """Configura el proveedor y LiteLLM para el modelo actual."""
@@ -126,6 +130,42 @@ class ProviderConfig:
             )
             return
         
+        # Inception Labs
+        if model_to_use.startswith("inception/") or "inception" in model_to_use.lower() or "mercury" in model_to_use.lower():
+            if model_to_use.startswith("inception/"):
+                self.model_name = model_to_use.replace("inception/", "", 1)
+            else:
+                self.model_name = model_to_use
+            key = os.getenv("INCEPTION_API_KEY") or os.getenv("INCEPTIONLABS_API_KEY")
+            self.api_key = key
+            self.api_base = os.getenv("LITELLM_API_BASE") or "https://api.inceptionlabs.ai/v1"
+            self.headers = {}
+            os.environ["LITELLM_MODEL"] = self.model_name
+            if self.api_key:
+                os.environ["LITELLM_API_KEY"] = self.api_key
+            os.environ["LITELLM_API_BASE"] = self.api_base
+            litellm.api_base = self.api_base
+            logger.info(f"⚡ Inception Labs activo: {self.model_name} (base={self.api_base})")
+            return
+
+        # KiloCode
+        if model_to_use.startswith("kilocode/") or "kilocode" in model_to_use.lower():
+            if model_to_use.startswith("kilocode/"):
+                self.model_name = model_to_use.replace("kilocode/", "", 1)
+            else:
+                self.model_name = model_to_use
+            key = os.getenv("KILOCODE_API_KEY")
+            self.api_key = key
+            self.api_base = os.getenv("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
+            self.headers = {}
+            os.environ["LITELLM_MODEL"] = self.model_name
+            if self.api_key:
+                os.environ["LITELLM_API_KEY"] = self.api_key
+            os.environ["LITELLM_API_BASE"] = self.api_base
+            litellm.api_base = self.api_base
+            logger.info(f"🤖 KiloCode activo: {self.model_name} (base={self.api_base})")
+            return
+
         # OpenRouter o Fallback
         or_key = os.getenv("OPENROUTER_API_KEY")
         if or_key:
@@ -168,6 +208,15 @@ class ProviderConfig:
             if self.api_key and "ollama.com" in (self.api_base or ""):
                 params["headers"] = {"Authorization": f"Bearer {self.api_key}"}
                 
+        if "inception" in self.model_name.lower() or "mercury" in self.model_name.lower() or (self.api_base and "inceptionlabs.ai" in self.api_base):
+            params["custom_llm_provider"] = "openai"
+            if self.api_base:
+                params["api_base"] = self.api_base
+        elif "kilocode" in self.model_name.lower() or (self.api_base and "kilo.ai" in self.api_base):
+            params["custom_llm_provider"] = "openai"
+            if self.api_base:
+                params["api_base"] = self.api_base
+
         if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower()):
             params["custom_llm_provider"] = "gemini"
             if self.api_key:

@@ -2037,17 +2037,13 @@ Example: /autosave restore autosave_20250515_141530
             elif msg_type == "tool" or isinstance(msg, ToolMessage):
                 if not content: continue
                 tool_name = getattr(msg, "name", "tool")
-                
-                if chat_log is not None:
-                    chat_log.write_tool_output(content, tool_name)
-                else:
-                    # En CLI, usar el panel de visual_components
-                    # Detectar si es salida de terminal (bash)
-                    if tool_name == "bash" or "comando" in tool_name.lower():
-                        panel = create_terminal_output_panel(tool_name, content)
+                from kogniterm.core.agents.super_agent import is_terminal_tool
+                if is_terminal_tool(tool_name):
+                    if chat_log is not None:
+                        chat_log.write_tool_output(content, tool_name)
                     else:
-                        panel = create_tool_output_panel(tool_name, content)
-                    self.terminal_ui.console.print(panel)
+                        panel = create_terminal_output_panel(tool_name, content)
+                        self.terminal_ui.console.print(panel)
 
     def _show_themes_table(self):
         """Muestra una tabla con los temas disponibles y sus colores."""

@@ -84,28 +84,43 @@ class AgentInteractionManager(BaseAgentInteractionManager):
 
     def invoke_agent(self, user_input: Optional[str]) -> Dict[str, Any]:
         import os
-        
+        from datetime import datetime
+
         # El mensaje ya fue añadido al historial por KogniTermApp antes de llamar a este método.
         # No lo añadimos de nuevo para evitar duplicación.
-        
+
         # Inyectar contexto dinámico del directorio de trabajo actual
         current_working_directory = os.getcwd()
-        
+
+        # Obtener fecha y hora actual en formato legible
+        now = datetime.now()
+        current_datetime = now.strftime("%Y-%m-%d %H:%M:%S")
+        current_date = now.strftime("%Y-%m-%d")
+        current_time = now.strftime("%H:%M:%S")
+        current_weekday = now.strftime("%A")
+
         # Mantener los mensajes existentes pero limpiar contextos dinámicos previos in-place
         i = 0
         while i < len(self.agent_state.messages):
             msg = self.agent_state.messages[i]
-            if isinstance(msg, SystemMessage) and "📂 **Directorio de Trabajo Actual:**" in msg.content:
+            if isinstance(msg, SystemMessage) and ("📂 **Directorio de Trabajo Actual:**" in msg.content or "📅 **Fecha y Hora Actual:**" in msg.content):
                 self.agent_state.messages.pop(i)
             else:
                 i += 1
-        
+
         # Crear el mensaje de contexto dinámico
         context_message = SystemMessage(content=f"""
 📂 **Directorio de Trabajo Actual:** `{current_working_directory}`
 
 Este es el directorio en el que estás trabajando actualmente. Todas las rutas relativas se resolverán desde aquí.
 Cuando ejecutes comandos o manipules archivos, ten en cuenta esta ubicación.
+
+📅 **Fecha y Hora Actual:**
+- Fecha: {current_date} ({current_weekday})
+- Hora: {current_time}
+- Timestamp completo: {current_datetime}
+
+Usa esta información cuando el usuario pregunte sobre la fecha/hora actual o cuando necesites referenciarla.
 """)
         
         # Insertar el contexto en una posición segura (justo después del sistema principal)

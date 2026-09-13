@@ -158,14 +158,23 @@ class LLMService:
             self.api_key = config_manager.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("LITELLM_API_KEY")
         elif self.model_name.startswith("ollama_cloud/"):
             self.api_key = config_manager.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("kilocode/"):
+            self.api_key = config_manager.get_api_key("kilocode") or os.environ.get("KILOCODE_API_KEY") or os.environ.get("LITELLM_API_KEY")
+        elif self.model_name.startswith("inception/") or "inception" in self.model_name.lower() or "mercury" in self.model_name.lower():
+            self.api_key = config_manager.get_api_key("inception") or os.environ.get("INCEPTION_API_KEY") or os.environ.get("INCEPTIONLABS_API_KEY") or os.environ.get("LITELLM_API_KEY")
         else:
             # Fallback: cualquier key válida
             self.api_key = (
-                config_manager.get_api_key("openrouter")
+                config_manager.get_api_key("inception")
+                or config_manager.get_api_key("kilocode")
+                or config_manager.get_api_key("openrouter")
                 or config_manager.get_api_key("google")
                 or config_manager.get_api_key("openai")
                 or config_manager.get_api_key("anthropic")
                 or config_manager.get_api_key("ollama_cloud")
+                or os.environ.get("INCEPTION_API_KEY")
+                or os.environ.get("INCEPTIONLABS_API_KEY")
+                or os.environ.get("KILOCODE_API_KEY")
                 or os.environ.get("LITELLM_API_KEY")
                 or os.environ.get("OPENROUTER_API_KEY")
                 or os.environ.get("GOOGLE_API_KEY")
@@ -542,8 +551,17 @@ class LLMService:
             if isinstance(content, str):
                 total_tokens += self._get_token_count(content)
             elif isinstance(content, list):
-                # Manejar contenido multimodal o estructurado
-                total_tokens += self._get_token_count(json.dumps(content))
+                # Manejar contenido multimodal o estructurado evitando contar caracteres base64
+                for item in content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "image_url":
+                            total_tokens += 800  # Token overhead estándar para imágenes
+                        elif item.get("type") == "text":
+                            total_tokens += self._get_token_count(item.get("text", ""))
+                        else:
+                            total_tokens += self._get_token_count(json.dumps(item))
+                    elif isinstance(item, str):
+                        total_tokens += self._get_token_count(item)
             
             # Overhead por rol y estructura (aprox 4 tokens por mensaje)
             total_tokens += 4
@@ -776,7 +794,8 @@ class LLMService:
                 os.environ["LITELLM_API_KEY"] = key
                 os.environ["OPENROUTER_API_KEY"] = key
             
-            litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://openrouter.ai/api/v1"
+            self.api_base = os.environ.get("LITELLM_API_BASE") or "https://openrouter.ai/api/v1"
+            litellm.api_base = self.api_base
             litellm.headers = {
                 "HTTP-Referer": "https://github.com/gatovillano/KogniTerm",
                 "X-Title": "KogniTerm"
@@ -791,6 +810,7 @@ class LLMService:
                 os.environ["GEMINI_API_KEY"] = key
                 os.environ["GOOGLE_API_KEY"] = key
             
+            self.api_base = None  # Crucial: limpiar api_base de proveedores anteriores (ej. Ollama)
             litellm.api_base = None  # Crucial para que no intente usar OpenRouter
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a Google Nativo: {model_name}")
@@ -802,7 +822,8 @@ class LLMService:
                 os.environ["LITELLM_API_KEY"] = key
                 os.environ["OPENAI_API_KEY"] = key
             
-            litellm.api_base = os.environ.get("LITELLM_API_BASE")
+            self.api_base = os.environ.get("LITELLM_API_BASE")
+            litellm.api_base = self.api_base
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a OpenAI: {model_name}")
 
@@ -813,7 +834,8 @@ class LLMService:
                 os.environ["LITELLM_API_KEY"] = key
                 os.environ["ANTHROPIC_API_KEY"] = key
             
-            litellm.api_base = os.environ.get("LITELLM_API_BASE")
+            self.api_base = os.environ.get("LITELLM_API_BASE")
+            litellm.api_base = self.api_base
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a Anthropic: {model_name}")
 
@@ -824,7 +846,8 @@ class LLMService:
                 os.environ["LITELLM_API_KEY"] = key
                 os.environ["KILOCODE_API_KEY"] = key
             
-            litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
+            self.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
+            litellm.api_base = self.api_base
             litellm.headers = {}
             logger.info(f"🤖 Cambiado a KiloCode: {model_name}")
 
@@ -835,13 +858,15 @@ class LLMService:
                 os.environ["LITELLM_API_KEY"] = key
                 os.environ["INCEPTION_API_KEY"] = key
             
-            litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.inceptionlabs.ai/v1"
+            self.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.inceptionlabs.ai/v1"
+            litellm.api_base = self.api_base
             litellm.headers = {}
             logger.info(f"⚡ Cambiado a Inception Labs: {model_name}")
 
         elif provider == "antigravity":
             self.api_key = _ANTIGRAVITY_SESSION_TOKEN
             os.environ["LITELLM_API_KEY"] = self.api_key
+            self.api_base = None
             litellm.api_base = None
             litellm.headers = {}
             logger.info(f"🚀 Cambiado a Antigravity: {model_name}")
@@ -1078,9 +1103,16 @@ class LLMService:
         if hasattr(self, 'skill_manager') and self.skill_manager:
             user_query = ""
             for msg in reversed(processed_history):
-                if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
-                    user_query = msg.content
-                    break
+                if isinstance(msg, HumanMessage):
+                    if isinstance(msg.content, str):
+                        user_query = msg.content
+                        break
+                    elif isinstance(msg.content, list):
+                        user_query = " ".join(
+                            part.get("text", "") for part in msg.content
+                            if isinstance(part, dict) and part.get("type") == "text"
+                        )
+                        break
             
             skill_context_message = self.skill_manager.build_skill_context_message(query=user_query)
             if skill_context_message:
@@ -1208,7 +1240,23 @@ class LLMService:
                     tools_token_overhead = self._cached_tools_token_overhead
             
             # Estimación O(1) de caracteres antes de invocar tiktoken O(N) para reducir latencia pre-llamada
-            total_chars = sum(len(str(m.get("content") or "")) for m in litellm_messages)
+            def _estimate_content_chars(c):
+                if isinstance(c, str):
+                    return len(c)
+                elif isinstance(c, list):
+                    chars = 0
+                    for item in c:
+                        if isinstance(item, dict):
+                            if item.get("type") == "image_url":
+                                chars += 2800  # ~800 tokens
+                            elif item.get("type") == "text":
+                                chars += len(item.get("text", ""))
+                        elif isinstance(item, str):
+                            chars += len(item)
+                    return chars
+                return len(str(c or ""))
+
+            total_chars = sum(_estimate_content_chars(m.get("content")) for m in litellm_messages)
             if total_chars < 60000 and (model_context_window > 32000):
                 total_prompt_tokens = int(total_chars / 3.5) + tools_token_overhead
             else:
@@ -1288,8 +1336,30 @@ class LLMService:
         if hasattr(self, 'headers') and self.headers:
             completion_kwargs["headers"] = self.headers
         
+        # Configuración específica para Inception Labs
+        if (
+            self.model_name.startswith("inception/")
+            or "inception" in self.model_name.lower()
+            or "mercury" in self.model_name.lower()
+            or (hasattr(self, 'api_base') and self.api_base and "inceptionlabs.ai" in self.api_base)
+        ):
+            completion_kwargs["custom_llm_provider"] = "openai"
+            # Siempre sobrescribir api_base: set_model ya lo estableció correctamente,
+            # pero también forzamos el valor correcto si viene de otro proveedor (ej. Ollama)
+            completion_kwargs["api_base"] = os.environ.get("LITELLM_API_BASE") or "https://api.inceptionlabs.ai/v1"
+
+        # Configuración específica para KiloCode
+        elif (
+            self.model_name.startswith("kilocode/")
+            or "kilocode" in self.model_name.lower()
+            or (hasattr(self, 'api_base') and self.api_base and "kilo.ai" in self.api_base)
+        ):
+            completion_kwargs["custom_llm_provider"] = "openai"
+            # Siempre sobrescribir api_base: forzamos el valor correcto
+            completion_kwargs["api_base"] = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
+
         # Configuración específica para Gemini (Google AI Studio)
-        if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower() and "antigravity" not in self.model_name.lower()):
+        elif self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower() and "antigravity" not in self.model_name.lower()):
             completion_kwargs["custom_llm_provider"] = "gemini"
             if self.api_key:
                 os.environ["GEMINI_API_KEY"] = self.api_key
@@ -2374,6 +2444,25 @@ Limita el resumen a 5000 caracteres."""
 
             # Logging para debug
             logger.debug(f"OpenRouter configuration (resumen): model={summary_completion_kwargs['model']}, user={summary_completion_kwargs.get('user', 'N/A')}")
+
+        # Configuración específica para Inception Labs / KiloCode (resumen)
+        if (
+            self.summary_model.startswith("inception/")
+            or "inception" in self.summary_model.lower()
+            or "mercury" in self.summary_model.lower()
+            or (hasattr(self, 'api_base') and self.api_base and "inceptionlabs.ai" in self.api_base)
+        ):
+            summary_completion_kwargs["custom_llm_provider"] = "openai"
+            # Siempre sobrescribir api_base para el resumen
+            summary_completion_kwargs["api_base"] = os.environ.get("LITELLM_API_BASE") or "https://api.inceptionlabs.ai/v1"
+        elif (
+            self.summary_model.startswith("kilocode/")
+            or "kilocode" in self.summary_model.lower()
+            or (hasattr(self, 'api_base') and self.api_base and "kilo.ai" in self.api_base)
+        ):
+            summary_completion_kwargs["custom_llm_provider"] = "openai"
+            # Siempre sobrescribir api_base para el resumen
+            summary_completion_kwargs["api_base"] = os.environ.get("LITELLM_API_BASE") or "https://api.kilo.ai/api/gateway/v1"
 
         try:
             # Usar MultiProviderManager si está disponible para aprovechar fallbacks y prefijos correctos

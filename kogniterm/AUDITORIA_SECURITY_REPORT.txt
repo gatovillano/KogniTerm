@@ -1,0 +1,3627 @@
+Working... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% 0:00:05
+Run started:2026-09-11 16:08:45.600486+00:00
+
+Test results:
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/capabilities/code_tools.py:7:0
+6	import shutil
+7	import subprocess
+8	import sys
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/capabilities/code_tools.py:356:26
+355	                    cmd = [pylint_bin, f, "--output-format=text", "--score=n", "--reports=n"]
+356	                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+357	                    out = res.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/capabilities/code_tools.py:364:26
+363	                    cmd = [flake8_bin, f]
+364	                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+365	                    out = res.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/capabilities/code_tools.py:386:26
+385	                    cmd = [eslint_bin, f, "--format", "stylish"]
+386	                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+387	                    out = res.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/capabilities/terminal.py:9:0
+8	import shlex
+9	import subprocess
+10	import termios
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/capabilities/terminal.py:95:8
+94	            termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+95	        except Exception:
+96	            pass
+97	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/capabilities/terminal.py:111:18
+110	
+111	        process = subprocess.Popen(
+112	            ["/bin/bash", "-c", full_script],
+113	            cwd=target_cwd,
+114	            stdin=slave_fd,
+115	            stdout=slave_fd,
+116	            stderr=slave_fd,
+117	            text=False,
+118	            preexec_fn=os.setsid,
+119	        )
+120	        os.close(slave_fd)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/capabilities/terminal.py:172:8
+171	            os.close(master_fd)
+172	        except Exception:
+173	            pass
+174	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/capabilities/terminal.py:178:12
+177	                os.unlink(temp_path)
+178	            except Exception:
+179	                pass
+180	
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/capabilities/web.py:33:59
+32	        host_lower = host.lower()
+33	        if host_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+34	            return False
+
+--------------------------------------------------
+>> Issue: [B310:blacklist] Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.
+   Severity: Medium   Confidence: High
+   CWE: CWE-22 (https://cwe.mitre.org/data/definitions/22.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen
+   Location: kogniterm/capabilities/web.py:65:13
+64	        )
+65	        with urllib.request.urlopen(req, timeout=15) as response:
+66	            raw_html = response.read().decode("utf-8", errors="replace")
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/capabilities/web.py:101:12
+100	                return {"success": True, "provider": "tavily", "results": res.get("results", [])}
+101	            except Exception:
+102	                pass
+103	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/capabilities/web.py:110:8
+109	                return {"success": True, "provider": "duckduckgo", "results": results}
+110	        except Exception:
+111	            pass
+112	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/base_agent.py:264:16
+263	                try: terminal_ui.app.hide_live_display()
+264	                except: pass
+265	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/bash_agent.py:259:4
+258	                base_content += f"- {ins}\n"
+259	    except Exception:
+260	        pass
+261	    
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/bash_agent.py:267:4
+266	            base_content += f"\n\n### Memorias y Preferencias Aprendidas:\n{learned_memories}\n"
+267	    except Exception:
+268	        pass
+269	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/bash_agent.py:277:4
+276	            base_content += "\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO:\nActualmente no existe el archivo `.kogniterm/llm_context.md`. Debes sugerir al usuario ejecutar `/init` al inicio de la interacción para realizar la investigación y construirla automáticamente.\n"
+277	    except Exception:
+278	        pass
+279	    
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/bash_agent.py:455:12
+454	                    llm_service.skill_manager.load_skill('task_tracker')
+455	            except Exception:
+456	                pass
+457	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/code_agent.py:64:4
+63	            file_path = parsed.get("path") or ""
+64	    except Exception:
+65	        pass
+66	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/code_crew.py:27:8
+26	                console.print(create_tool_output_panel(tool_name, str(result)))
+27	        except Exception:
+28	            pass
+29	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/deep_coder.py:291:8
+290	            kh.start()
+291	        except Exception:
+292	            pass
+293	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/deep_coder.py:402:8
+401	            state.save_history(llm_service)
+402	        except Exception:
+403	            pass
+404	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/deep_researcher.py:755:12
+754	                self.terminal_ui.print_status("🔬 DeepResearcher: Investigando a fondo...", spinner_style="dots")
+755	            except Exception:
+756	                pass
+757	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/researcher_crew.py:54:8
+53	                console.print(create_tool_output_panel(tool_name, output_str))
+54	        except Exception:
+55	            pass
+56	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:307:8
+306	            bind_task_tracker_context(terminal_ui=self.terminal_ui, llm_service=self.llm_service)
+307	        except Exception:
+308	            pass
+309	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:357:12
+356	                    file_path = parsed.get("path") or ""
+357	            except Exception:
+358	                pass
+359	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:386:16
+385	                        diff_content = unified
+386	                except Exception:
+387	                    pass
+388	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:437:12
+436	                )
+437	            except Exception:
+438	                pass
+439	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:478:16
+477	                        return True
+478	                except Exception:
+479	                    pass
+480	            if self.llm_service is not None:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:501:8
+500	            bind_task_tracker_context(terminal_ui=self.terminal_ui, llm_service=self.llm_service)
+501	        except Exception:
+502	            pass
+503	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:525:12
+524	                self.terminal_ui.print_status("⚡ SuperAgent procesando...", spinner_style="dots")
+525	            except Exception:
+526	                pass
+527	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:572:24
+571	                            self.terminal_ui.stop_live()
+572	                        except Exception:
+573	                            pass
+574	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:578:24
+577	                            self.terminal_ui.print_message("\n⚠️ Generación cancelada por el usuario.", style="yellow")
+578	                        except Exception:
+579	                            pass
+580	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:605:24
+604	                            self.terminal_ui.update_live(thinking_panel)
+605	                        except Exception:
+606	                            pass
+607	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:615:32
+614	                                    self.terminal_ui.stop_live()
+615	                                except Exception:
+616	                                    pass
+617	                        accumulated_chunks.append(c_text)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:622:28
+621	                                self.terminal_ui.print_stream(c_text)
+622	                            except Exception:
+623	                                pass
+624	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:667:24
+666	                            self.terminal_ui.print_tool_notification(t_name, action_desc)
+667	                        except Exception:
+668	                            pass
+669	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:735:28
+734	                                self.terminal_ui.update_tool_display(t_name, res_str)
+735	                            except Exception:
+736	                                pass
+737	                    else:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:745:24
+744	                            self.terminal_ui.stop_live()
+745	                        except Exception:
+746	                            pass
+747	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:757:28
+756	                                self.terminal_ui.print_stream(final_text)
+757	                            except Exception:
+758	                                pass
+759	                        text_streamed = True
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/super_agent.py:764:24
+763	                            self.terminal_ui.console.print()
+764	                        except Exception:
+765	                            pass
+766	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/agents/tool_executor.py:314:12
+313	                    file_path = parsed.get("path") or ""
+314	            except Exception:
+315	                pass
+316	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/ai_cli_bridge/llm_bridge.py:76:8
+75	                tool_calls.append({"name": t_name, "arguments": t_args})
+76	        except Exception:
+77	            pass
+78	
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: kogniterm/core/antigravity_client.py:526:24
+525	        if len(sanitized) > 64:
+526	            name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:6]
+527	            sanitized = f"{sanitized[:57]}_{name_hash}"
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/antigravity_client.py:819:28
+818	                                wait_s = float(retry_after) if "ms" not in str(retry_after) else float(retry_after.replace("ms", "")) / 1000.0
+819	                            except Exception:
+820	                                pass
+821	                        logger.warning(
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/antigravity_client.py:851:12
+850	                    error_detail = err_json.get("error", {}).get("message", resp.text)
+851	            except Exception:
+852	                pass
+853	            try:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/antigravity_client.py:858:12
+857	                    df.write(f"Response Error Body: {error_detail}\n")
+858	            except Exception:
+859	                pass
+860	            logger.error(f"Error en API de Antigravity ({status_code}): {error_detail}")
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/core/background_task_manager.py:13:0
+12	import select
+13	import subprocess
+14	import threading
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/background_task_manager.py:127:12
+126	                termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+127	            except Exception:
+128	                pass
+129	
+
+--------------------------------------------------
+>> Issue: [B602:subprocess_popen_with_shell_equals_true] subprocess call with shell=True identified, security issue.
+   Severity: High   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html
+   Location: kogniterm/core/background_task_manager.py:132:22
+131	                task.command,
+132	                shell=True,
+133	                cwd=task.cwd,
+134	                stdout=slave_fd,
+135	                stderr=slave_fd,
+136	                stdin=slave_fd,
+137	                start_new_session=True,
+138	            )
+139	            os.close(slave_fd)
+140	            slave_fd = None
+141	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/background_task_manager.py:214:16
+213	                    task.process.kill()
+214	                except Exception:
+215	                    pass
+216	        return True
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/core/command_executor.py:6:0
+5	import select
+6	import subprocess
+7	import sys
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/command_executor.py:210:8
+209	            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, buf)
+210	        except:
+211	            pass
+212	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/command_executor.py:223:8
+222	                    break
+223	        except:
+224	            pass
+225	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/command_executor.py:393:16
+392	                    os.unlink(temp_path)
+393	                except:
+394	                    pass
+395	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/command_executor.py:408:8
+407	            termios.tcsetattr(self._persistent_slave_fd, termios.TCSANOW, attrs)
+408	        except Exception:
+409	            pass
+410	
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/core/command_executor.py:425:41
+424	        # Usar 'bash' como shell persistente
+425	        self._persistent_shell_process = subprocess.Popen(
+426	            ["bash", "--login"],
+427	            stdin=self._persistent_slave_fd,
+428	            stdout=self._persistent_slave_fd,
+429	            stderr=self._persistent_slave_fd,
+430	            close_fds=True,
+431	            preexec_fn=os.setsid,
+432	            cwd=target_cwd,
+433	            env=env
+434	        )
+435	        # Consumir el banner inicial del shell y configurar variables sin demoras estáticas
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/core/command_executor.py:425:41
+424	        # Usar 'bash' como shell persistente
+425	        self._persistent_shell_process = subprocess.Popen(
+426	            ["bash", "--login"],
+427	            stdin=self._persistent_slave_fd,
+428	            stdout=self._persistent_slave_fd,
+429	            stderr=self._persistent_slave_fd,
+430	            close_fds=True,
+431	            preexec_fn=os.setsid,
+432	            cwd=target_cwd,
+433	            env=env
+434	        )
+435	        # Consumir el banner inicial del shell y configurar variables sin demoras estáticas
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/command_executor.py:448:8
+447	                    break
+448	        except:
+449	            pass
+450	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/command_executor.py:457:12
+456	                os.killpg(os.getpgid(self._persistent_shell_process.pid), signal.SIGINT)
+457	            except:
+458	                pass
+459	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/command_executor.py:466:8
+465	            os.write(self._input_pipe_write, data)
+466	        except Exception:
+467	            pass
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/context/project_memory_builder.py:53:20
+52	                            llm_service.skill_manager.load_skill(skill)
+53	                    except Exception:
+54	                        pass
+55	            
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/context/project_memory_builder.py:256:16
+255	                        bullets.append(f"  - `{d}/` contiene componentes como: {', '.join([f'`{sd}`' for sd in subdirs])}.")
+256	                except Exception:
+257	                    pass
+258	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/context/workspace_context.py:35:16
+34	                                patterns.append(line)
+35	                except Exception:
+36	                    pass
+37	        return patterns
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/context/workspace_context.py:170:12
+169	                    context_parts.append("\n" + "="*40 + "\n")
+170	            except Exception:
+171	                pass
+172	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/history_manager.py:289:8
+288	            message._cached_token_len = calc_len
+289	        except Exception:
+290	            pass
+291	        return calc_len
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/history_manager.py:450:20
+449	                    try: os.remove(temp_path)
+450	                    except: pass
+451	                raise e
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/history_manager.py:644:20
+643	                            self._message_length_cache.pop(msg_hash, None)
+644	                    except Exception:
+645	                        pass
+646	                elif isinstance(msg, (HumanMessage, AIMessage)) and (msg_len > 8000 or len(str(msg.content)) > 16000):
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/history_manager.py:656:20
+655	                            self._message_length_cache.pop(msg_hash, None)
+656	                    except Exception:
+657	                        pass
+658	                new_unit.append(msg)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm/message_converter.py:221:4
+220	        message._cached_litellm_msg = result_msg
+221	    except Exception:
+222	        pass
+223	    return result_msg
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html
+   Location: kogniterm/core/llm/tool_parser.py:154:16
+153	                                    break
+154	                except:
+155	                    continue
+156	
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'antigravity-session-token'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: kogniterm/core/llm_service.py:23:29
+22	
+23	_ANTIGRAVITY_SESSION_TOKEN = "antigravity-session-token"
+24	
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/core/llm_service.py:91:90
+90	        use_cloud_init = False
+91	    elif ollama_api_base and any(h in ollama_api_base for h in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+92	        use_cloud_init = False
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm_service.py:306:12
+305	                self.history_manager.stop_auto_save()
+306	            except Exception:
+307	                pass
+308	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm_service.py:599:8
+598	            mcp_tools = MCPManager.get_instance().active_tools
+599	        except Exception:
+600	            pass
+601	        return self.skill_manager.get_tools() + mcp_tools
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm_service.py:642:12
+641	                            logger.debug(f"No se pudo cargar skill 'task_tracker': {e}")
+642	            except Exception:
+643	                pass
+644	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm_service.py:693:12
+692	                self.tool_map = new_map
+693	            except Exception:
+694	                pass
+695	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm_service.py:726:8
+725	                    return max_input
+726	        except Exception:
+727	            pass
+728	
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/core/llm_service.py:887:96
+886	                use_cloud = False
+887	            elif api_base_local and any(h in api_base_local for h in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+888	                use_cloud = False
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm_service.py:950:12
+949	                    memory_init_tool.invoke({"history_file_path": self.history_file_path})
+950	            except Exception as e:
+951	                # print(f"Advertencia: Error al inicializar la memoria: {e}", file=sys.stderr)
+952	                pass # No es crítico si falla la inicialización de memoria
+953	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/llm_service.py:2521:12
+2520	                                    return str(content)
+2521	            except Exception:
+2522	                pass
+2523	            return "Error: No se pudo generar el resumen de la conversación."
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/multi_provider_manager.py:127:12
+126	                    return "antigravity-session-token"
+127	            except Exception:
+128	                pass
+129	            return None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/multi_provider_manager.py:160:8
+159	                return cm_key
+160	        except Exception:
+161	            pass
+162	            
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/core/multi_provider_manager.py:216:73
+215	            if api_base:
+216	                if any(x in api_base for x in ["localhost", "127.0.0.1", "0.0.0.0", "::1"]):
+217	                    return True
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/skills/jit_skill_manager.py:47:8
+46	                return SkillHeader(name=name, description=desc, file_path=filepath)
+47	        except Exception:
+48	            pass
+49	        return None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/skills/skill_manager.py:738:24
+737	                            setattr(tool, 'llm_service', self.llm_service)
+738	                        except Exception:
+739	                            pass
+740	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/skills/skill_manager.py:754:24
+753	                            setattr(tool, 'terminal_ui', self.terminal_ui)
+754	                        except Exception:
+755	                            pass
+756	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/skills/skill_manager.py:801:20
+800	                        setattr(tool, 'name', unique_name)
+801	                    except Exception:
+802	                        pass
+803	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/skills/skill_manager.py:809:24
+808	                            setattr(tool, 'parameters_schema', self._infer_schema_from_hints(tool.run))
+809	                        except Exception:
+810	                            pass
+811	                    elif callable(tool) and hasattr(tool, '__annotations__'):
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/skills/skill_manager.py:814:24
+813	                            setattr(tool, 'parameters_schema', self._infer_schema_from_hints(tool))
+814	                        except Exception:
+815	                            pass
+816	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/core/skills/skill_manager.py:867:8
+866	        """
+867	        import subprocess
+868	        import sys
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/core/skills/skill_manager.py:894:20
+893	                try:
+894	                    subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
+895	                    logger.info(f"✅ Dependencia '{dep}' instalada exitosamente.")
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/skills/skill_manager.py:954:12
+953	                setattr(tool_instance, 'name', unique_name)
+954	            except Exception:
+955	                pass
+956	
+
+--------------------------------------------------
+>> Issue: [B324:hashlib] Use of weak MD5 hash for security. Consider usedforsecurity=False
+   Severity: High   Confidence: High
+   CWE: CWE-327 (https://cwe.mitre.org/data/definitions/327.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
+   Location: kogniterm/core/utils/tool_utils.py:38:20
+37	    if len(sanitized) > 64:
+38	        name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:6]
+39	        sanitized = f"{sanitized[:57]}_{name_hash}"
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/core/utils/tool_utils.py:267:8
+266	                return desc.strip()
+267	        except Exception:
+268	            pass
+269	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/server/__main__.py:16:0
+15	import time
+16	import subprocess
+17	from pathlib import Path
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/__main__.py:40:4
+39	                return "kogniterm" in cmdline or "python" in cmdline
+40	    except Exception:
+41	        pass
+42	    return True  # Retorna True por defecto si no se puede leer (ej. macOS/Windows o permisos)
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/server/__main__.py:49:17
+48	    try:
+49	        output = subprocess.check_output(["lsof", "-t", "-i", f"tcp:{port}"], stderr=subprocess.DEVNULL)
+50	        pids = [int(p.strip()) for p in output.decode().splitlines() if p.strip()]
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/server/__main__.py:49:17
+48	    try:
+49	        output = subprocess.check_output(["lsof", "-t", "-i", f"tcp:{port}"], stderr=subprocess.DEVNULL)
+50	        pids = [int(p.strip()) for p in output.decode().splitlines() if p.strip()]
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/__main__.py:52:4
+51	        return pids
+52	    except Exception:
+53	        pass
+54	        
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/server/__main__.py:57:17
+56	    try:
+57	        output = subprocess.check_output(["fuser", f"{port}/tcp"], stderr=subprocess.DEVNULL)
+58	        pids = [int(p.strip()) for p in output.decode().split() if p.strip()]
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/server/__main__.py:57:17
+56	    try:
+57	        output = subprocess.check_output(["fuser", f"{port}/tcp"], stderr=subprocess.DEVNULL)
+58	        pids = [int(p.strip()) for p in output.decode().split() if p.strip()]
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/__main__.py:60:4
+59	        return pids
+60	    except Exception:
+61	        pass
+62	        
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/__main__.py:74:8
+73	            pid = int(pid_file.read_text().strip())
+74	        except Exception:
+75	            pass
+76	            
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/__main__.py:92:12
+91	                pid_file.unlink()
+92	            except Exception:
+93	                pass
+94	        return
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/__main__.py:117:16
+116	                    os.kill(p, signal.SIGKILL)
+117	                except Exception:
+118	                    pass
+119	        time.sleep(0.5)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/__main__.py:128:12
+127	                pid_file.unlink()
+128	            except Exception:
+129	                pass
+130	    else:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:254:8
+253	                return content
+254	        except Exception:
+255	            pass
+256	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:262:8
+261	            os.chmod(token_dir, 0o700)
+262	        except Exception:
+263	            pass
+264	        token_file.write_text(new_token)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:267:8
+266	            os.chmod(token_file, 0o600)
+267	        except Exception:
+268	            pass
+269	    except Exception as e:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:499:12
+498	                            google_models = fetched
+499	            except Exception:
+500	                pass
+501	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:518:12
+517	                            openrouter_models = fetched
+518	            except Exception:
+519	                pass
+520	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:540:12
+539	                            openai_models = sorted(fetched)
+540	            except Exception:
+541	                pass
+542	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:567:12
+566	                            anthropic_models = fetched
+567	            except Exception:
+568	                pass
+569	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:593:12
+592	                            ollama_models = fetched
+593	            except Exception:
+594	                pass
+595	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:626:12
+625	                            kilocode_models = fetched
+626	            except Exception:
+627	                pass
+628	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:651:12
+650	                            ollama_cloud_models = fetched
+651	            except Exception:
+652	                pass
+653	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:670:12
+669	                        antigravity_models = fetched
+670	            except Exception:
+671	                pass
+672	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:705:12
+704	                            inception_models = fetched
+705	            except Exception:
+706	                pass
+707	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:1189:20
+1188	                        vdb.close()
+1189	                    except Exception:
+1190	                        pass
+1191	            else:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:1682:8
+1681	            await asyncio.gather(read_output(), read_input())
+1682	        except Exception:
+1683	            pass
+1684	        finally:
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/server/app.py:1964:27
+1963	
+1964	def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False, workspace: Optional[str] = None):
+1965	    """Lanza el servidor KogniTerm."""
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/app.py:1984:12
+1983	                    pid_file.unlink()
+1984	            except Exception:
+1985	                pass
+1986	        atexit.register(remove_pid_file)
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/server/config.py:30:16
+29	class ServerSettings(BaseModel):
+30	    host: str = "0.0.0.0"
+31	    port: int = 8765
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'YOUR_TELEGRAM_BOT_TOKEN'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: kogniterm/server/config.py:35:95
+34	        ChannelConfig(name="webhook_default", type="webhook", enabled=False, params={"url": "http://localhost:5000/hook"}),
+35	        ChannelConfig(name="telegram_bot_default", type="telegram_bot", enabled=False, params={"token": "YOUR_TELEGRAM_BOT_TOKEN"})
+36	    ]
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/session_pool.py:51:4
+50	        _original_chdir(abs_path)
+51	    except Exception:
+52	        pass
+53	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/session_pool.py:64:4
+63	        _original_chdir(cwd)
+64	    except Exception:
+65	        pass
+66	    tokens = []
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/server/session_pool.py:1525:16
+1524	                    os.chdir(old_cwd)
+1525	                except Exception:
+1526	                    pass
+1527	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/advanced-file-editor/scripts/tool.py:479:8
+478	                operations = parsed
+479	        except Exception:
+480	            pass
+481	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/skills/bundled/agent-skills-adapter/scripts/tool.py:68:4
+67	    import shutil
+68	    import subprocess
+69	
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/skills/bundled/agent-skills-adapter/scripts/tool.py:82:18
+81	            # Clone repo shallowly
+82	            res = subprocess.run(
+83	                ["git", "clone", "--depth", "1", repo_url, temp_dir],
+84	                capture_output=True,
+85	                text=True
+86	            )
+87	            if res.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/bundled/agent-skills-adapter/scripts/tool.py:82:18
+81	            # Clone repo shallowly
+82	            res = subprocess.run(
+83	                ["git", "clone", "--depth", "1", repo_url, temp_dir],
+84	                capture_output=True,
+85	                text=True
+86	            )
+87	            if res.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/ask_question/scripts/tool.py:213:8
+212	                return input("")
+213	        except Exception:
+214	            pass
+215	    return input("")
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agent/scripts/tool.py:165:4
+164	            return app.chat_log
+165	    except Exception:
+166	        pass
+167	    return None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py:241:4
+240	                return app.query_one(f"#live_display_{pid}", ChatLogWidget)
+241	    except Exception:
+242	        pass
+243	    return None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py:557:20
+556	                        agent_ui.update_agent_tab_title(panel_id, f"{name} {status_emoji}")
+557	                    except Exception as ex:
+558	                        pass
+559	                return result
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py:615:16
+614	                    agent_ui.update_agent_tab_title(panel_id, f"{name} ❌")
+615	                except Exception:
+616	                    pass
+617	            return f"Error en {name}: {e}"
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py:759:16
+758	                    target_app.query_one("#bottom_container").display = True
+759	                except Exception:
+760	                    pass
+761	                try:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py:763:16
+762	                    target_app.query_one("#parallel_agents_container").display = True
+763	                except Exception:
+764	                    pass
+765	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py:797:16
+796	                        panel.write_stream(f"{emoji} **{name}** iniciando...")
+797	                except Exception:
+798	                    pass
+799	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py:848:16
+847	                    target_app.query_one("#parallel_agents_container").display = False
+848	                except Exception:
+849	                    pass
+850	                target_app.refresh(layout=True)
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/skills/bundled/code-tools/scripts/code_analysis.py:11:0
+10	import logging
+11	import subprocess
+12	import shutil
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/bundled/code-tools/scripts/code_analysis.py:332:33
+331	                        cmd = [pylint_bin, f, '--output-format=text', '--score=n', '--reports=n']
+332	                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+333	                        output = result.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/bundled/code-tools/scripts/code_analysis.py:343:33
+342	                        cmd = [flake8_bin, f]
+343	                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+344	                        output = result.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/bundled/code-tools/scripts/code_analysis.py:368:29
+367	                    cmd = [eslint_bin, f, '--format', 'stylish']
+368	                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+369	                    output = result.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/skills/bundled/execute-command/scripts/tool.py:11:0
+10	import shlex
+11	import subprocess
+12	import selectors
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/execute-command/scripts/tool.py:215:8
+214	            termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+215	        except Exception:
+216	            pass
+217	        
+
+--------------------------------------------------
+>> Issue: [B602:subprocess_popen_with_shell_equals_true] subprocess call with shell=True identified, security issue.
+   Severity: High   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html
+   Location: kogniterm/skills/bundled/execute-command/scripts/tool.py:222:18
+221	            command if shell else shlex.split(command),
+222	            shell=shell,
+223	            stdout=slave_fd,
+224	            stderr=slave_fd,
+225	            stdin=slave_fd,
+226	            text=True,
+227	            bufsize=1,
+228	            universal_newlines=True,
+229	            preexec_fn=os.setsid,  # Crear un nuevo grupo de procesos
+230	            cwd=target_cwd
+231	        )
+232	        
+233	        # Cerrar el slave_fd en el proceso padre ya que lo usará el hijo
+234	        os.close(slave_fd)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/execute-command/scripts/tool.py:282:8
+281	            os.close(master_fd)
+282	        except:
+283	            pass
+284	        
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/execute-command/scripts/tool.py:289:12
+288	                os.unlink(temp_path)
+289	            except:
+290	                pass
+291	        
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/file-operations/scripts/file_write.py:67:12
+66	                    original_content = f.read()
+67	            except Exception:
+68	                pass
+69	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/file-operations/scripts/file_write.py:113:12
+112	                    original_content = f.read()
+113	            except Exception:
+114	                pass
+115	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/skills/bundled/pc-interaction/scripts/tool.py:9:0
+8	import logging
+9	import subprocess
+10	from typing import List, Dict, Any, Optional, Tuple
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/pc-interaction/scripts/tool.py:65:12
+64	                        return True, ""
+65	            except Exception:
+66	                pass
+67	        return False, f"Error al acceder al servidor gráfico: {type(e).__name__}: {e or repr(e)}"
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/pc-interaction/scripts/tool.py:95:28
+94	                                app_name = w.getAppName() or "N/A"
+95	                            except Exception:
+96	                                pass
+97	                            windows_info.append(f"- [{title.strip()}] (App: {app_name})")
+
+--------------------------------------------------
+>> Issue: [B112:try_except_continue] Try, Except, Continue detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html
+   Location: kogniterm/skills/bundled/pc-interaction/scripts/tool.py:98:20
+97	                            windows_info.append(f"- [{title.strip()}] (App: {app_name})")
+98	                    except Exception:
+99	                        continue
+100	            except Exception as e:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/pc-interaction/scripts/tool.py:123:24
+122	                                windows_info.append(f"- [{t.strip()}]")
+123	                        except Exception:
+124	                            pass
+125	                except Exception:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/pc-interaction/scripts/tool.py:125:16
+124	                            pass
+125	                except Exception:
+126	                    pass
+127	
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/bundled/pc-interaction/scripts/tool.py:276:26
+275	                try:
+276	                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+277	                    if res.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 0:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/python-executor/scripts/tool.py:169:20
+168	                        terminal_ui.update_terminal_output("python_executor", accumulated_text, command=command_title)
+169	                    except Exception:
+170	                        pass
+171	                yield err_msg
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/python-executor/scripts/tool.py:195:28
+194	                                terminal_ui.update_terminal_output("python_executor", accumulated_text, command=command_title)
+195	                            except Exception:
+196	                                pass
+197	                        yield chunk
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/python-executor/scripts/tool.py:221:12
+220	                self.kc.stop_channels()
+221	            except Exception:
+222	                pass
+223	            self.kc = None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/python-executor/scripts/tool.py:229:12
+228	                self.km.shutdown_kernel()
+229	            except Exception:
+230	                pass
+231	            self.km = None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/python-executor/scripts/tool.py:248:12
+247	                _kernel_instance.stop_kernel()
+248	            except Exception:
+249	                pass
+250	            _kernel_instance = None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/task-tracker/scripts/tool.py:81:12
+80	                    return [str(item).strip() for item in parsed if str(item).strip()]
+81	            except Exception:
+82	                pass
+83	        if "\n" in plan_str:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/bundled/task-tracker/scripts/tool.py:146:8
+145	                updates = parsed
+146	        except Exception:
+147	            pass
+148	
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/skills/bundled/web-tools/scripts/web_fetch.py:30:59
+29	        host_lower = host.lower()
+30	        if host_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+31	            return False
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/skills/workspace/docker_auditor/scripts/tool.py:3:0
+2	import re
+3	import subprocess
+4	from typing import Dict, Any
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/workspace/docker_auditor/scripts/tool.py:13:20
+12	        cmd_ps = ["docker", "ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}"]
+13	        ps_output = subprocess.check_output(cmd_ps, stderr=subprocess.STDOUT).decode("utf-8", errors="replace").strip()
+14	        
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/skills/workspace/docker_auditor/scripts/tool.py:31:24
+30	        try:
+31	            df_output = subprocess.check_output(["docker", "system", "df"], stderr=subprocess.STDOUT).decode("utf-8", errors="replace").strip()
+32	        except Exception as e:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/workspace/docker_auditor/scripts/tool.py:31:24
+30	        try:
+31	            df_output = subprocess.check_output(["docker", "system", "df"], stderr=subprocess.STDOUT).decode("utf-8", errors="replace").strip()
+32	        except Exception as e:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/skills/workspace/docker_auditor/scripts/tool.py:66:27
+65	                try:
+66	                    logs = subprocess.check_output(
+67	                        ["docker", "logs", "--since", since, c["name"]],
+68	                        stderr=subprocess.STDOUT,
+69	                        timeout=10
+70	                    ).decode("utf-8", errors="replace")
+71	                    
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/workspace/docker_auditor/scripts/tool.py:66:27
+65	                try:
+66	                    logs = subprocess.check_output(
+67	                        ["docker", "logs", "--since", since, c["name"]],
+68	                        stderr=subprocess.STDOUT,
+69	                        timeout=10
+70	                    ).decode("utf-8", errors="replace")
+71	                    
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/workspace/email-manager/scripts/tool.py:196:24
+195	                            break
+196	                        except:
+197	                            pass
+198	                    elif content_type == "text/html" and not body:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/workspace/email-manager/scripts/tool.py:201:24
+200	                            body = part.get_payload(decode=True).decode('utf-8', errors='replace')
+201	                        except:
+202	                            pass
+203	            else:
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: kogniterm/skills/workspace/native-photo-organizer/scripts/tool.py:43:49
+42	    source = sys.argv[1] if len(sys.argv) > 1 else "/home/gato/Pictures"
+43	    dest = sys.argv[2] if len(sys.argv) > 2 else "/tmp/photo_native"
+44	    copy = sys.argv[3].lower() == "true" if len(sys.argv) > 3 else True
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/skills/workspace/parse-iso-mirrors-from-html/scripts/tool.py:1:0
+1	import subprocess
+2	import re
+3	import os
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/skills/workspace/parse-iso-mirrors-from-html/scripts/tool.py:26:17
+25	        # Obtener HTML
+26	        result = subprocess.run(
+27	            ['curl', '-s', html_url],
+28	            capture_output=True,
+29	            text=True,
+30	            timeout=30
+31	        )
+32	        if result.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/skills/workspace/parse-iso-mirrors-from-html/scripts/tool.py:26:17
+25	        # Obtener HTML
+26	        result = subprocess.run(
+27	            ['curl', '-s', html_url],
+28	            capture_output=True,
+29	            text=True,
+30	            timeout=30
+31	        )
+32	        if result.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: kogniterm/skills/workspace/photo-organizer-tool/scripts/tool.py:43:49
+42	    source = sys.argv[1] if len(sys.argv) > 1 else "/home/gato/Pictures"
+43	    dest = sys.argv[2] if len(sys.argv) > 2 else "/tmp/photo_organized"
+44	    copy = sys.argv[3].lower() == "true" if len(sys.argv) > 3 else True
+
+--------------------------------------------------
+>> Issue: [B108:hardcoded_tmp_directory] Probable insecure usage of temp file/directory.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-377 (https://cwe.mitre.org/data/definitions/377.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html
+   Location: kogniterm/skills/workspace/photo-organizer/scripts/tool.py:69:54
+68	    test_source = sys.argv[1] if len(sys.argv) > 1 else "/home/gato/Pictures"
+69	    test_dest = sys.argv[2] if len(sys.argv) > 2 else "/tmp/organized_photos"
+70	    print(run({"source_dir": test_source, "dest_dir": test_dest, "copy": False}))
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/workspace/project-analyzer/scripts/tool.py:62:12
+61	                break
+62	            except Exception:
+63	                pass
+64	    
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/workspace/project-analyzer/scripts/tool.py:70:8
+69	            package_info = json.loads(package_json_path.read_text(encoding='utf-8'))
+70	        except Exception:
+71	            pass
+72	    
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/skills/workspace/project-analyzer/scripts/tool.py:78:8
+77	            requirements_content = requirements_path.read_text(encoding='utf-8')[:300]  # Primeros 300 chars
+78	        except Exception:
+79	            pass
+80	    
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b113_request_without_timeout.html
+   Location: kogniterm/terminal/api_client.py:18:11
+17	    """Obtiene la configuración LLM centralizada desde el backend."""
+18	    resp = requests.get(f"{API_BASE_URL}/config/llm")
+19	    resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B113:request_without_timeout] Call to requests without timeout
+   Severity: Medium   Confidence: Low
+   CWE: CWE-400 (https://cwe.mitre.org/data/definitions/400.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b113_request_without_timeout.html
+   Location: kogniterm/terminal/api_client.py:31:11
+30	        payload["api_key"] = api_key
+31	    resp = requests.post(f"{API_BASE_URL}/config/llm", json=payload)
+32	    resp.raise_for_status()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/api_client_tui.py:23:4
+22	            return {"Authorization": f"Bearer {token}"}
+23	    except Exception:
+24	        pass
+25	    return {}
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: ''
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: kogniterm/terminal/cli.py:172:16
+171	
+172	        token = ""
+173	        while not token:
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/terminal/cli.py:440:8
+439	        """Handles 'upgrade' command to update KogniTerm from GitHub."""
+440	        import subprocess
+441	        import os
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:505:21
+504	        try:
+505	            result = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], 
+506	                                   capture_output=True, cwd=repo_dir)
+507	            if result.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:505:21
+504	        try:
+505	            result = subprocess.run(["git", "diff-index", "--quiet", "HEAD", "--"], 
+506	                                   capture_output=True, cwd=repo_dir)
+507	            if result.returncode != 0:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:509:16
+508	                print("⚠️  Local changes detected. Stashing them temporarily...", flush=True)
+509	                subprocess.run(["git", "stash"], check=True, cwd=repo_dir)
+510	                stash_created = True
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:509:16
+508	                print("⚠️  Local changes detected. Stashing them temporarily...", flush=True)
+509	                subprocess.run(["git", "stash"], check=True, cwd=repo_dir)
+510	                stash_created = True
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:517:21
+516	        try:
+517	            result = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], 
+518	                                  capture_output=True, text=True, check=True, cwd=repo_dir)
+519	            current_branch = result.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:517:21
+516	        try:
+517	            result = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], 
+518	                                  capture_output=True, text=True, check=True, cwd=repo_dir)
+519	            current_branch = result.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:529:12
+528	        try:
+529	            subprocess.run(["git", "pull", "--no-rebase", "origin", current_branch], 
+530	                         check=True, cwd=repo_dir)
+531	        except subprocess.CalledProcessError:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:529:12
+528	        try:
+529	            subprocess.run(["git", "pull", "--no-rebase", "origin", current_branch], 
+530	                         check=True, cwd=repo_dir)
+531	        except subprocess.CalledProcessError:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:535:20
+534	                try:
+535	                    subprocess.run(["git", "pull", "--no-rebase", "origin", "main"], 
+536	                                 check=True, cwd=repo_dir)
+537	                except subprocess.CalledProcessError:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:535:20
+534	                try:
+535	                    subprocess.run(["git", "pull", "--no-rebase", "origin", "main"], 
+536	                                 check=True, cwd=repo_dir)
+537	                except subprocess.CalledProcessError:
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:540:24
+539	                    if stash_created:
+540	                        subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+541	                    return
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:540:24
+539	                    if stash_created:
+540	                        subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+541	                    return
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:545:20
+544	                if stash_created:
+545	                    subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+546	                return
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:545:20
+544	                if stash_created:
+545	                    subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+546	                return
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/cli.py:551:12
+550	            print("📦 Restoring your local changes...", flush=True)
+551	            subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+552	        
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:551:12
+550	            print("📦 Restoring your local changes...", flush=True)
+551	            subprocess.run(["git", "stash", "pop"], check=False, cwd=repo_dir)
+552	        
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:564:16
+563	            try:
+564	                subprocess.run([pip_cmd, "install", "-e", "."], 
+565	                             check=True, cwd=repo_dir)
+566	            except subprocess.CalledProcessError:
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/terminal/cli.py:586:8
+585	
+586	        import subprocess
+587	        
+
+--------------------------------------------------
+>> Issue: [B103:set_bad_file_permissions] Chmod setting a permissive mask 0o755 on file (script_path).
+   Severity: Medium   Confidence: High
+   CWE: CWE-732 (https://cwe.mitre.org/data/definitions/732.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b103_set_bad_file_permissions.html
+   Location: kogniterm/terminal/cli.py:619:12
+618	        try:
+619	            os.chmod(script_path, 0o755)
+620	        except Exception:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/cli.py:620:8
+619	            os.chmod(script_path, 0o755)
+620	        except Exception:
+621	            pass
+622	            
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/cli.py:633:12
+632	                
+633	            subprocess.Popen(cmd, cwd=desktop_dir, env=env)
+634	            print("✨ Proceso de inicio lanzado en segundo plano.")
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/command_approval_handler.py:285:12
+284	                    return parsed
+285	            except Exception:
+286	                pass
+287	            return {"message": result}
+
+--------------------------------------------------
+>> Issue: [B105:hardcoded_password_string] Possible hardcoded password: 'bash'
+   Severity: Low   Confidence: Medium
+   CWE: CWE-259 (https://cwe.mitre.org/data/definitions/259.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html
+   Location: kogniterm/terminal/command_approval_handler.py:628:37
+627	                 diff_to_pass = command_to_execute
+628	                 file_path_to_pass = "bash"
+629	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/command_approval_handler.py:660:20
+659	                            original_file_content = f.read()
+660	                    except Exception:
+661	                        pass
+662	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/command_approval_handler.py:795:24
+794	                            execute_kwargs["rows"] = rows
+795	                        except Exception:
+796	                            pass
+797	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/config_manager.py:28:8
+27	            os.chmod(self.GLOBAL_CONFIG_DIR, 0o700)
+28	        except Exception:
+29	            pass
+30	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/config_manager.py:52:8
+51	            os.chmod(path, 0o600)
+52	        except Exception:
+53	            pass
+54	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/terminal/file_completer.py:11:0
+10	import sys
+11	import subprocess
+12	import threading
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/file_completer.py:155:21
+154	        try:
+155	            result = subprocess.run(
+156	                ["docker", "ps", "--format", "{{.Names}}"],
+157	                capture_output=True, text=True, check=True
+158	            )
+159	            containers = [c.strip() for c in result.stdout.split('\n') if c.strip()]
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/file_completer.py:155:21
+154	        try:
+155	            result = subprocess.run(
+156	                ["docker", "ps", "--format", "{{.Names}}"],
+157	                capture_output=True, text=True, check=True
+158	            )
+159	            containers = [c.strip() for c in result.stdout.split('\n') if c.strip()]
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/file_completer.py:227:20
+226	                                all_commands.append(entry)
+227	                    except Exception:
+228	                        pass
+229	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:99:16
+98	                    self.terminal_ui.console.clear()
+99	                except Exception:
+100	                    pass
+101	                # Recreate console (if applicable) to reapply Rich options
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:104:16
+103	                    self.terminal_ui.refresh_theme()
+104	                except Exception:
+105	                    pass
+106	                # Finally print banner again
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:345:20
+344	                        self.llm_service._save_history(history)
+345	                    except Exception:
+346	                        pass
+347	                    self.terminal_ui.print_message(f"Thread '{thread_id}' loaded. History updated. 🔄", style="green")
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Low
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
+   Location: kogniterm/terminal/meta_command_processor.py:407:57
+406	                    elif len(matches) > 1:
+407	                        self.terminal_ui.print_message(f"Multiple matches found for '{query}'. Please select from list.", style="yellow")
+408	                        threads = matches
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:439:16
+438	                    self.llm_service._save_history(history)
+439	                except Exception:
+440	                    pass
+441	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:447:20
+446	                        self.terminal_ui.console.clear()
+447	                    except Exception:
+448	                        pass
+449	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:1121:16
+1120	                    current_model = server_conf.get("model")
+1121	                except Exception:
+1122	                    pass
+1123	            if not current_model and self.llm_service:
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: kogniterm/terminal/meta_command_processor.py:1150:81
+1149	                        # Si la base apunta a localhost, es local
+1150	                        if any(h in api_base for h in ("localhost", "127.0.0.1", "0.0.0.0", "::1")):
+1151	                            current_provider = "ollama"
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:1636:12
+1635	                model_override = getattr(self.llm_service, 'model_name', None) or os.environ.get('LITELLM_MODEL')
+1636	            except Exception:
+1637	                pass
+1638	            agent = SuperAgent(model=model_override)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:1843:16
+1842	                                    current_env_keys.append(k)
+1843	                except Exception:
+1844	                    pass
+1845	            
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/meta_command_processor.py:1981:8
+1980	            chat_log = self.terminal_ui.app.chat_log
+1981	        except Exception:
+1982	            pass
+1983	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/terminal.py:259:8
+258	            sys.stderr.flush()
+259	        except:
+260	            pass
+261	        os._exit(0)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:114:16
+113	                    self._active_message_widget.remove()
+114	                except Exception:
+115	                    pass
+116	            self._active_message_widget = None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:181:8
+180	                return
+181	        except Exception:
+182	            pass
+183	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:208:16
+207	                    self.scroll_end(animate=False)
+208	                except Exception:
+209	                    pass
+210	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:215:8
+214	                return
+215	        except Exception:
+216	            pass
+217	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:401:16
+400	                    self._active_message_widget.remove()
+401	                except Exception:
+402	                    pass
+403	        self._active_message_widget = None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:430:12
+429	                self.scroll_end(animate=False)
+430	            except Exception:
+431	                pass
+432	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:437:8
+436	                return
+437	        except Exception:
+438	            pass
+439	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/chat_log.py:462:8
+461	                return None
+462	        except Exception:
+463	            pass
+464	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/inline_approval.py:186:8
+185	            title.styles.color = p.TEXT_PRIMARY
+186	        except: pass
+187	        
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/inline_approval.py:192:8
+191	            scroll.styles.background = "black" if p.CURRENT_THEME != "light" else "#eeeeee"
+192	        except: pass
+193	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/inline_approval.py:197:8
+196	            msg.styles.color = p.TEXT_SECONDARY
+197	        except: pass
+198	        
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/inline_approval.py:204:8
+203	            self.query_one("#ia-btn-cancel").styles.background = p.ERROR
+204	        except: pass
+205	
+
+--------------------------------------------------
+>> Issue: [B606:start_process_with_no_shell] Starting a process without a shell.
+   Severity: Low   Confidence: Medium
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b606_start_process_with_no_shell.html
+   Location: kogniterm/terminal/tui/components/pty_terminal.py:435:12
+434	            env = dict(TERM="xterm", LC_ALL="en_US.UTF-8", HOME=str(Path.home()))
+435	            os.execvpe(argv[0], argv, env)
+436	
+
+--------------------------------------------------
+>> Issue: [B404:blacklist] Consider possible security implications associated with the subprocess module.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess
+   Location: kogniterm/terminal/tui/components/status_footer.py:6:0
+5	import os
+6	import subprocess
+7	import asyncio
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:30:21
+29	        try:
+30	            result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True, check=True)
+31	            return result.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:30:21
+29	        try:
+30	            result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True, check=True)
+31	            return result.stdout.strip()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:71:8
+70	            self.query_one("#footer_right", Static).update(right_text)
+71	        except Exception:
+72	            pass
+73	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:95:8
+94	            footer_right.update(f"{mode_label}  {display_model} 🤖{indicator}")
+95	        except Exception:
+96	            pass
+97	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:175:12
+174	                self.app.action_toggle_auto_approve()
+175	            except Exception:
+176	                pass
+177	            event.prevent_default()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:326:12
+325	                    self.suggester.workspace_directory = workspace
+326	            except Exception:
+327	                pass
+328	        # Iniciar el suggester cuando se monte
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:440:8
+439	                self._file_token_map = token_map
+440	        except Exception as e:
+441	            # Registrar error si es posible (aunque aquí suele ser silencioso)
+442	            pass
+443	
+
+--------------------------------------------------
+>> Issue: [B607:start_process_with_partial_path] Starting a process with a partial executable path
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:448:21
+447	            # Solo intentar si docker está disponible
+448	            result = subprocess.run(
+449	                ["docker", "ps", "--format", "{{.Names}}|{{.Status}}|{{.Image}}"],
+450	                capture_output=True, text=True, timeout=5
+451	            )
+452	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B603:subprocess_without_shell_equals_true] subprocess call - check for execution of untrusted input.
+   Severity: Low   Confidence: High
+   CWE: CWE-78 (https://cwe.mitre.org/data/definitions/78.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:448:21
+447	            # Solo intentar si docker está disponible
+448	            result = subprocess.run(
+449	                ["docker", "ps", "--format", "{{.Names}}|{{.Status}}|{{.Image}}"],
+450	                capture_output=True, text=True, timeout=5
+451	            )
+452	            if result.returncode == 0:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/status_footer.py:465:8
+464	                    self._cached_containers = containers
+465	        except Exception:
+466	            pass
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/tool_output.py:169:16
+168	                    self.update(renderable)
+169	                except Exception:
+170	                    pass
+171	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/tool_output.py:231:8
+230	            self._stream.feed(data)
+231	        except Exception:
+232	            pass
+233	        return self._render_tool_output()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/components/tool_output.py:428:12
+427	                return "json"
+428	            except Exception:
+429	                pass
+430	        return None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:187:16
+186	                        arg = Text.from_markup(arg)
+187	                except Exception:
+188	                    pass
+189	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:296:16
+295	                    return
+296	                except Exception:
+297	                    pass  # Fallback a write_agent_message si el markup falla
+298	            self._safe_call(target_log.write_agent_message, message)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:347:20
+346	                            panel.update(accumulated)
+347	                    except Exception:
+348	                        pass
+349	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:444:8
+443	            self._safe_call(target_log.write_message, panel)
+444	        except Exception:
+445	            pass
+446	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:464:16
+463	                        panel.stop_stream()
+464	                except Exception:
+465	                    pass
+466	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:549:8
+548	                return cols, rows
+549	        except Exception:
+550	            pass
+551	        # Fallback a shutil si no está disponible
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:634:16
+633	                    splash_input.focus()
+634	                except Exception:
+635	                    pass
+636	                try:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:639:16
+638	                    bottom_container.display = False
+639	                except Exception:
+640	                    pass
+641	            except Exception:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1112:12
+1111	                self.llm_service.set_thread_manager(self.thread_manager)
+1112	            except Exception:
+1113	                pass
+1114	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1121:12
+1120	                self.thread_manager.create_thread(title="Nueva conversación")
+1121	            except Exception:
+1122	                pass
+1123	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1298:8
+1297	            )
+1298	        except Exception:
+1299	            pass
+1300	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1439:12
+1438	                self.query_one("#chat_input", ChatInput).focus()
+1439	            except Exception:
+1440	                pass
+1441	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1566:16
+1565	                    self.query_one("#indexing_progress_container").display = False
+1566	                except Exception:
+1567	                    pass
+1568	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1594:16
+1593	                    self.query_one("#indexing_progress_container").display = False
+1594	                except Exception:
+1595	                    pass
+1596	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1615:20
+1614	                            self.llm_service.skill_manager.load_skill(skill)
+1615	                    except Exception:
+1616	                        pass
+1617	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1743:8
+1742	                )
+1743	        except Exception:
+1744	            pass
+1745	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1757:8
+1756	            title_widget.update(self._build_splash_title())
+1757	        except Exception:
+1758	            pass
+1759	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1764:8
+1763	            input_row.styles.background = p.GRAY_800
+1764	        except Exception:
+1765	            pass
+1766	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1773:8
+1772	            model_info.update(f"[{p.TEXT_PRIMARY}]{display_model}[/{p.TEXT_PRIMARY}]")
+1773	        except Exception:
+1774	            pass
+1775	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1779:8
+1778	            shortcuts.styles.color = p.TEXT_MUTED
+1779	        except Exception:
+1780	            pass
+1781	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1785:8
+1784	            splash_overlay.styles.background = p.GRAY_900
+1785	        except Exception:
+1786	            pass
+1787	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:1794:8
+1793	            splash_input.focus()
+1794	        except Exception:
+1795	            pass
+1796	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2137:12
+2136	                    target_region = container.region
+2137	            except Exception:
+2138	                pass
+2139	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2155:8
+2154	            self.command_popup.styles.offset = (popup_x, popup_y)
+2155	        except Exception:
+2156	            pass
+2157	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2229:16
+2228	                    self.query_one("#chat_input").focus()
+2229	                except:
+2230	                    pass
+2231	                if not self.is_processing:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2302:20
+2301	                        self.tui_ui.get_interrupt_queue().put_nowait(True)
+2302	                    except Exception:
+2303	                        pass
+2304	                else:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2362:12
+2361	                main_input.refresh_history()
+2362	            except:
+2363	                pass
+2364	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2399:8
+2398	            event.input.focus()
+2399	        except Exception:
+2400	            pass
+2401	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2414:12
+2413	                rw(self._handle_input_async(user_input))
+2414	            except Exception:
+2415	                pass
+2416	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2430:24
+2429	                            rw(None)
+2430	                        except Exception:
+2431	                            pass
+2432	                    return
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2433:12
+2432	                    return
+2433	            except Exception:
+2434	                pass
+2435	        res = self.on_input_submitted(event)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2449:8
+2448	            self.query_one("#bottom_container").display = True
+2449	        except:
+2450	            pass
+2451	        # Enfocar el ChatInput del chat (buscar por tipo, no por id)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2455:8
+2454	            chat_input.focus()
+2455	        except Exception:
+2456	            pass
+2457	        # Procesar el primer mensaje
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2500:8
+2499	            chat_container.styles.background = bg_color
+2500	        except Exception:
+2501	            pass
+2502	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2527:8
+2526	            input_container.styles.border_left = ("tall", p.PRIMARY)
+2527	        except Exception:
+2528	            pass
+2529	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2559:12
+2558	                self.query_one("#splash_title").update(self._build_splash_title())
+2559	            except Exception:
+2560	                pass
+2561	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2585:12
+2584	                self.call_from_thread(self._stop_spinner)
+2585	            except Exception:
+2586	                pass
+2587	        self.chat_log.write_stream(content)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2651:12
+2650	                self.query_one("#chat_input", ChatInput).focus()
+2651	            except Exception:
+2652	                pass
+2653	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2683:8
+2682	                self.live_display.remove_class("interactive")
+2683	        except:
+2684	            pass
+2685	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2742:12
+2741	                            self.thread_manager.rename_thread(active_id, immediate_title, source="fallback")
+2742	            except Exception:
+2743	                pass
+2744	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2944:8
+2943	            ConfigManager().set_project_config("auto_approve", active)
+2944	        except Exception:
+2945	            pass
+2946	        if hasattr(self, "command_approval_handler") and self.command_approval_handler:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:2952:8
+2951	            footer.set_auto_approve(active)
+2952	        except Exception:
+2953	            pass
+2954	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3150:8
+3149	            return widget
+3150	        except Exception:
+3151	            pass
+3152	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3172:12
+3171	                tabbed_content.remove_pane(pane_id)
+3172	            except Exception:
+3173	                pass
+3174	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3207:8
+3206	            self.query_one("#bottom_container").display = True
+3207	        except Exception:
+3208	            pass
+3209	        try:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3211:8
+3210	            self.query_one("#parallel_agents_container").display = True
+3211	        except Exception:
+3212	            pass
+3213	        self.refresh(layout=True)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3219:8
+3218	            self.query_one("#parallel_agents_container").display = False
+3219	        except Exception:
+3220	            pass
+3221	        self.refresh(layout=True)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3249:12
+3248	                return
+3249	            except Exception:
+3250	                pass
+3251	        # Detener spinner INMEDIATAMENTE cuando llega contenido real.
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3262:8
+3261	                log.scroll_end(animate=False)
+3262	        except Exception:
+3263	            pass
+3264	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/tui_app.py:3386:8
+3385	            self.live_display.display = False
+3386	        except Exception:
+3387	            pass
+3388	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:46:4
+45	                return content
+46	    except Exception:
+47	        pass
+48	    if "kogniterm.server.app" in sys.modules:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:53:8
+52	                return API_TOKEN
+53	        except Exception:
+54	            pass
+55	    return ""
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:135:12
+134	                self._app._auto_approve_all = bool(ConfigManager().get_config("auto_approve"))
+135	            except Exception:
+136	                pass
+137	        self._send_queue: asyncio.Queue = asyncio.Queue()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:572:8
+571	                return self._app.query_one(f"#live_display_{agent_id}", ChatLogWidget)
+572	        except Exception:
+573	            pass
+574	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:604:16
+603	                        container.display = True
+604	                except Exception:
+605	                    pass
+606	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:618:12
+617	                container.active = pane_id
+618	            except Exception:
+619	                pass
+620	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:632:12
+631	                self._app.query_one("#live_display").display = True
+632	            except Exception:
+633	                pass
+634	        except Exception as e:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/terminal/tui/ws_client.py:755:12
+754	                asyncio.run_coroutine_threadsafe(self._ws.close(), asyncio.get_event_loop())
+755	            except Exception:
+756	                pass
+757	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/ui/terminal_ui.py:72:12
+71	                self.resize_callback(size.columns, size.lines)
+72	            except Exception:
+73	                pass # No propagar errores del callback
+74	        
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/ui/terminal_ui.py:146:12
+145	                self.console.print(self._last_live_renderable)
+146	            except Exception:
+147	                pass
+148	            self._last_live_renderable = None
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/ui/terminal_ui.py:237:12
+236	                self.console.print(panel)
+237	            except Exception:
+238	                pass
+239	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/ui/terminal_ui.py:593:8
+592	            self.console.clear()
+593	        except Exception:
+594	            pass
+595	        try:
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/ui/terminal_ui.py:597:8
+596	            self.refresh_theme()
+597	        except Exception:
+598	            pass
+599	        self.print_welcome_banner()
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/ui/themes.py:425:12
+424	                    theme_name = "light"
+425	            except Exception:
+426	                # Si falla la detección, permanecemos en default (dark)
+427	                pass
+428	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/ui/themes.py:888:8
+887	                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+888	        except Exception:
+889	            pass
+890	
+
+--------------------------------------------------
+>> Issue: [B311:blacklist] Standard pseudo-random generators are not suitable for security/cryptographic purposes.
+   Severity: Low   Confidence: High
+   CWE: CWE-330 (https://cwe.mitre.org/data/definitions/330.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b311-random
+   Location: kogniterm/ui/visual_components.py:681:11
+680	    """Retorna un mensaje motivacional aleatorio."""
+681	    return random.choice(MOTIVATIONAL_MESSAGES)
+682	
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/utils/logger.py:164:8
+163	            handler.close()
+164	        except Exception:
+165	            pass
+166	    # Route root-level records to the file so third-party libs are captured there.
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/utils/logger.py:209:8
+208	            handler.close()
+209	        except Exception:
+210	            pass
+211	    root.addHandler(file_handler)
+
+--------------------------------------------------
+>> Issue: [B110:try_except_pass] Try, Except, Pass detected.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html
+   Location: kogniterm/utils/logger.py:229:12
+228	                handler.close()
+229	            except Exception:
+230	                pass
+231	        l.propagate = True
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 43816
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 308
+		Medium: 16
+		High: 4
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 3
+		Medium: 16
+		High: 309
+Files skipped (0):

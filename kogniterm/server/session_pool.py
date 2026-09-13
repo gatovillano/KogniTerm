@@ -9,6 +9,7 @@ Cada sesión tiene su propio historial, cola de eventos y estado de agente.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import queue
 import threading
@@ -119,6 +120,19 @@ def clean_thinking_text(text: str) -> str:
             cleaned_lines.append(line_content)
 
     return "\n".join(cleaned_lines)
+
+
+def strip_rich_markup(text: str) -> str:
+    """Elimina etiquetas de formato Rich (ej: [dim cyan], [/], [italic white], etc.)
+    preservando el texto limpio para clientes no-terminales."""
+    if not isinstance(text, str) or ("[" not in text and "]" not in text):
+        return text if isinstance(text, str) else str(text)
+    try:
+        from rich.text import Text
+        return Text.from_markup(text).plain
+    except Exception:
+        import re
+        return re.sub(r"\[/?[a-zA-Z0-9_\s#]+\]", "", text)
 
 
 def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
@@ -386,6 +400,13 @@ class ServerUI(TerminalUI):
                     )
                     return
 
+            # Si el renderable es un Panel de diff, no enviar como texto de respuesta LLM para evitar secuencias ANSI
+            if hasattr(renderable, "title") and renderable.title:
+                title_lower = str(renderable.title).lower()
+                if "diff aplicado" in title_lower or "cambios aplicados" in title_lower:
+                    logger.debug(f"[{self.session_id}] ServerUI.update_live ignorando panel de diff para proteger stream de texto")
+                    return
+
             thinking, response = extract_thinking_and_response(renderable)
 
             if thinking:
@@ -415,15 +436,136 @@ class ServerUI(TerminalUI):
                     "live_update", {"thinking": "", "response": ""}, agent_id=agent_id
                 )
 
+    def show_applied_diff(
+        self,
+        tool_name: str,
+        file_path: str,
+        diff_content: str,
+        tool_call_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Emite eventos estructurados para diffs aplicados (Desktop, VSCode, TUI)."""
+        logger.info(f"[{self.session_id}] ServerUI.show_applied_diff: {tool_name} on {file_path}")
+        if not diff_content:
+            return
+
+        # 1. Evento dedicado 'applied_diff' para KogniTerm Desktop
+        self._push(
+            "applied_diff",
+            {
+                "file_path": file_path,
+                "tool_name": tool_name,
+                "tool": tool_name,
+                "diff_content": diff_content,
+                "diff": diff_content,
+                "tool_call_id": tool_call_id,
+            },
+            agent_id=agent_id,
+        )
+
+        # 2. Evento 'tool_result' estructurado que ChatMessage y useChat reconocen
+        payload_dict = {
+            "success": True,
+            "path": file_path,
+            "diff": diff_content,
+            "applied_diff": diff_content,
+            "tool": tool_name,
+        }
+        self._push(
+            "tool_result",
+            {
+                "content": json.dumps(payload_dict, ensure_ascii=False),
+                "tool": tool_name,
+                "file_path": file_path,
+                "tool_call_id": tool_call_id,
+            },
+            agent_id=agent_id,
+        )
+
+    def tool_execution_started(
+        self,
+        tool_name: str,
+        action: str,
+        tool_call_id: str,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emite evento cuando una herramienta comienza su ejecución."""
+        logger.info(f"[{self.session_id}] ServerUI.tool_execution_started: {tool_name}")
+        self._push(
+            "tool_execution",
+            {
+                "tool_name": tool_name,
+                "action": action,
+                "tool_call_id": tool_call_id,
+                "status": "running",
+            },
+            agent_id=agent_id,
+        )
+
+    def tool_execution_completed(
+        self,
+        tool_name: str,
+        tool_call_id: str,
+        success: bool = True,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emite evento cuando una herramienta termina su ejecución."""
+        logger.info(f"[{self.session_id}] ServerUI.tool_execution_completed: {tool_name}")
+        self._push(
+            "tool_execution",
+            {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "status": "completed" if success else "error",
+            },
+            agent_id=agent_id,
+        )
+
     def stop_live(self, agent_id: str = None, **kwargs) -> None:
         self._push("live_stop", {}, agent_id=agent_id)
+
+    def print_learning(self, learned_text: str, agent_id: str = None) -> None:
+        """Emite una notificación de aprendizaje consolidado a todos los clientes."""
+        clean_text = strip_rich_markup(learned_text).strip()
+        if not clean_text:
+            return
+        logger.info(f"[{self.session_id}] ServerUI.print_learning: {clean_text[:50]}...")
+        # Evento específico 'learning' para clientes de escritorio (Desktop / Tauri)
+        self._push("learning", {"text": clean_text}, agent_id=agent_id)
+        # Evento 'info' estructurado para fallback en clientes WebSocket
+        self._push(
+            "info",
+            {
+                "content": f"🤔 **Aprendizaje consolidado:** {clean_text}",
+                "learning": clean_text,
+            },
+            agent_id=agent_id,
+        )
+        # Evento 'message' para VSCode y adaptadores de canal
+        self._push(
+            "message",
+            {"text": f"🤔 Aprendizaje consolidado: {clean_text}"},
+            agent_id=agent_id,
+        )
 
     def print_message(
         self, message: str, style: str = "", agent_id: str = None, **kwargs
     ) -> None:
         logger.info(f"[{self.session_id}] ServerUI.print_message: {message[:50]}...")
-        self._push("chunk", {"content": message}, agent_id=agent_id)
-        self._push("message", {"text": message}, agent_id=agent_id)
+        # Interceptar aprendizajes consolidados enviados por error a print_message
+        if "Aprendizaje consolidado" in message:
+            import re
+            cleaned = strip_rich_markup(message)
+            match = re.search(r"Aprendizaje consolidado:\s*(.*)", cleaned, re.IGNORECASE)
+            learned = match.group(1).strip() if match else cleaned
+            self.print_learning(learned, agent_id=agent_id)
+            return
+
+        clean_text = strip_rich_markup(message)
+        # Enviar como 'info' y 'message' para que no se concatene al stream de tokens ('chunk')
+        self._push("info", {"content": clean_text}, agent_id=agent_id)
+        self._push("message", {"text": clean_text}, agent_id=agent_id)
 
     def show_agent_panel(self, agent_id: str, title: str = "") -> None:
         """Notifica a la TUI que debe mostrar/activar el panel de un subagente."""
@@ -486,10 +628,31 @@ class ServerUI(TerminalUI):
         logger.info(f"[{self.session_id}] ServerUI.set_terminal_cursor: {active}")
         self._push("set_terminal_cursor", {"active": active})
 
+    def update_task_tracker(
+        self,
+        agent_name: str,
+        tasks: list,
+        agent_id: Optional[str] = None,
+    ) -> None:
+        """Emite evento para actualizar el Task Tracker del frontend."""
+        logger.info(f"[{self.session_id}] ServerUI.update_task_tracker: {agent_name}")
+        self._push(
+            "task_tracker",
+            {
+                "plans": [
+                    {"agent_name": agent_name, "tasks": tasks}
+                ]
+            },
+            agent_id=agent_id,
+        )
+
     def update_tool_display(
         self, tool_name: str, output: str, tool_call_id: Optional[str] = None, **kwargs
     ) -> None:
         logger.info(f"[{self.session_id}] ServerUI.update_tool_display: {tool_name}")
+        from kogniterm.core.agents.super_agent import is_terminal_tool
+        if not is_terminal_tool(tool_name) and not kwargs.get("command"):
+            return
         agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
         self._push(
             "tool_result",
@@ -498,7 +661,15 @@ class ServerUI(TerminalUI):
         )
 
     def update_task_tracker(self, agent_plans: dict) -> None:
-        self._push("task_tracker", agent_plans)
+        """Emite evento para actualizar el Task Tracker del frontend."""
+        # Normalizar: {agent_name: [{task:..., status:...}]} → [{agent_name:..., tasks:...}]
+        plans = []
+        for agent_name, tasks in agent_plans.items():
+            plans.append({
+                "agent_name": agent_name,
+                "tasks": tasks
+            })
+        self._push("task_tracker", {"plans": plans})
 
     async def ask_approval_async(
         self, message: str, title: str = "Aprobación Requerida", **kwargs
@@ -592,6 +763,25 @@ class ServerUI(TerminalUI):
                 return
                 
         logger.warning(f"[{self.session_id}] Advertencia: request_id={request_id} no se encontró en las aprobaciones pendientes de esta sesión.")
+
+    def set_approval_decision(self, tool_call_id: str, action: str) -> None:
+        """Almacena la decisión de aprobación para un tool_call_id específico."""
+        logger.info(f"[{self.session_id}] set_approval_decision llamado para tool_call_id={tool_call_id}, action={action}")
+        with self._pending_lock:
+            # Marcar como aprobado o rechazado basado en la acción
+            approved = (action == 'approve')
+            # Intentar despertar aprobaciones pendientes
+            if tool_call_id in self._pending_approvals:
+                event, _ = self._pending_approvals[tool_call_id]
+                self._pending_approvals[tool_call_id] = (event, approved)
+                event.set()
+            elif tool_call_id in self._pending_approvals_async:
+                event, _ = self._pending_approvals_async[tool_call_id]
+                self._pending_approvals_async[tool_call_id] = (event, approved)
+                self._loop.call_soon_threadsafe(event.set)
+            else:
+                # Si no hay aprobación pendiente, guardar la decisión para más tarde
+                self._approval_decisions[tool_call_id] = approved
 
     def ask_question_sync(
         self,
@@ -916,7 +1106,7 @@ class AgentSession:
         async with self._agent_lock:
             self.last_activity = datetime.utcnow()
             if self.is_running:
-                self._pending_messages.append(message)
+                self._pending_messages.append({"text": message, "images": images})
                 self.interrupt()
                 return
 
@@ -1128,7 +1318,7 @@ class AgentSession:
                     ) and current.title_source != "manual"
 
                     if can_auto_title:
-                        immediate_title = ThreadManager._fallback_title(message)
+                        immediate_title = ThreadManager._fallback_title(message or ("Imagen adjunta" if images else ""))
                         if immediate_title and immediate_title not in generic_titles:
                             self.thread_manager.rename_thread(
                                 self.session_id, immediate_title, source="fallback"
@@ -1207,10 +1397,25 @@ class AgentSession:
                 while True:
                     pending = self._drain_pending_messages()
                     if pending:
-                        user_input = pending.pop(0)
-                        self.ui._push("user_message", {"text": user_input})
-                        self.agent_state.add_message(HumanMessage(content=user_input))
-                    elif is_first_iteration and not user_input:
+                        item = pending.pop(0)
+                        if isinstance(item, dict):
+                            item_text = item.get("text", "")
+                            item_images = item.get("images")
+                        else:
+                            item_text = str(item)
+                            item_images = None
+                        self.ui._push("user_message", {"text": item_text, "images": item_images})
+                        if item_images:
+                            c_blocks = []
+                            if item_text:
+                                c_blocks.append({"type": "text", "text": item_text})
+                            for img in item_images:
+                                c_blocks.append({"type": "image_url", "image_url": {"url": img}})
+                            self.agent_state.add_message(HumanMessage(content=c_blocks))
+                        else:
+                            self.agent_state.add_message(HumanMessage(content=item_text))
+                        user_input = item_text
+                    elif is_first_iteration and not user_input and not (self.agent_state.messages and isinstance(self.agent_state.messages[-1], HumanMessage)):
                         break
 
                     is_first_iteration = False
@@ -1382,6 +1587,8 @@ class SessionPool:
             max_workers=20, thread_name_prefix="kt-agent"
         )
         self._ready_event: Optional[asyncio.Event] = None
+        # Almacenamiento para sesiones de terminal interactiva
+        self.terminal_sessions: Dict[str, dict] = {}
 
     @property
     def ready_event(self) -> asyncio.Event:

@@ -1,0 +1,41 @@
+# Audio servers for Robot Assistant
+# Run: docker-compose -f docker-compose.audio.yml up -d
+
+version: '3.8'
+
+services:
+  whisper-stt:
+    image: huggingface/whisper:latest
+    container_name: whisper-stt
+    ports:
+      - "8080:8080"
+    environment:
+      - MODEL_NAME=whisper-base
+      - LANGUAGE=es
+    volumes:
+      - ./audio-data/whisper:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  kokoro-tts:
+    image: huggingface/kokoro-tts:latest
+    container_name: kokoro-tts
+    ports:
+      - "8081:8080"
+    environment:
+      - MODEL_NAME=kokoro-v1.0
+      - VOICE=af_sky
+    volumes:
+      - ./audio-data/kokoro:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

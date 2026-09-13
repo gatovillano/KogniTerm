@@ -49,7 +49,10 @@ def _langchain_to_dict_messages(messages: List[BaseMessage]) -> List[Dict[str, A
         if isinstance(msg, SystemMessage):
             dict_msgs.append({"role": "system", "content": str(msg.content)})
         elif isinstance(msg, HumanMessage):
-            dict_msgs.append({"role": "user", "content": str(msg.content)})
+            if isinstance(msg.content, list):
+                dict_msgs.append({"role": "user", "content": msg.content})
+            else:
+                dict_msgs.append({"role": "user", "content": str(msg.content)})
         elif isinstance(msg, AIMessage):
             d: Dict[str, Any] = {"role": "assistant", "content": str(msg.content or "")}
             if getattr(msg, "tool_calls", None):
@@ -386,6 +389,14 @@ class SuperAgentRunner:
         if not diff_content or not file_path:
             return
 
+        if hasattr(self.terminal_ui, "show_applied_diff"):
+            self.terminal_ui.show_applied_diff(
+                tool_name=tool_name,
+                file_path=file_path,
+                diff_content=diff_content,
+            )
+            return
+
         try:
             from kogniterm.utils.diff_renderer import DiffRenderer
             from rich.panel import Panel
@@ -406,17 +417,17 @@ class SuperAgentRunner:
             )
 
             # Renderizar en la TUI persistente
-            if hasattr(self.terminal_ui, "update_live") and hasattr(self.terminal_ui, "stop_live"):
-                self.terminal_ui.update_live(panel)
-                self.terminal_ui.stop_live()
-            elif hasattr(self.terminal_ui, "console"):
+            if hasattr(self.terminal_ui, "console"):
                 self.terminal_ui.console.print(panel)
-            else:
+            elif hasattr(self.terminal_ui, "print_message"):
                 self.terminal_ui.print_message(
                     f"### ✅ Cambios aplicados en `{file_path}`\n"
                     f"**Operación:** `{tool_name}`\n\n"
                     f"```diff\n{diff_content}\n```"
                 )
+            elif hasattr(self.terminal_ui, "update_live") and hasattr(self.terminal_ui, "stop_live"):
+                self.terminal_ui.update_live(panel)
+                self.terminal_ui.stop_live()
         except Exception as e:
             logger.warning(f"No se pudo renderizar diff en super_agent: {e}")
             try:

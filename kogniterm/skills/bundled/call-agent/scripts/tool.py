@@ -447,6 +447,24 @@ def call_agent_skill(
             sys_prompt = custom_system_prompt
             if sys_prompt is None:
                 sys_prompt = f"Eres un agente asistente especializado en {agent_name}. Tu misión es realizar con éxito la tarea descrita en el mensaje del usuario de manera autónoma y precisa."
+
+            # Inyectar fecha y hora actual en el system prompt
+            from datetime import datetime
+            _now = datetime.now()
+            _datetime_str = _now.strftime("%Y-%m-%d %H:%M:%S")
+            _date_str = _now.strftime("%Y-%m-%d")
+            _time_str = _now.strftime("%H:%M:%S")
+            _weekday = _now.strftime("%A")
+
+            _context_block = f"""
+📅 **Fecha y Hora Actual:**
+- Fecha: {_date_str} ({_weekday})
+- Hora: {_time_str}
+- Timestamp completo: {_datetime_str}
+
+Usa esta información cuando el usuario pregunte sobre la fecha/hora actual o cuando necesites referenciarla.
+"""
+            sys_prompt = sys_prompt + _context_block
                 
             agent_graph = create_dynamic_agent(llm_service, sys_prompt, agent_ui, interrupt_queue)
             initial_state = AgentState(messages=[HumanMessage(content=task)], autonomous_approvals=True)

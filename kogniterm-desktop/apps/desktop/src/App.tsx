@@ -41,7 +41,7 @@ function App() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   
   // Message queue state
-  const [messageQueue, setMessageQueue] = useState<string[]>([]);
+  const [messageQueue, setMessageQueue] = useState<{ text: string; images?: string[] }[]>([]);
   
   // Threads list state
   const [threads, setThreads] = useState<any[]>([]);
@@ -275,7 +275,7 @@ function App() {
   // Queue logic: if generating, buffer the messages
   const handleSendMessage = (text: string, images?: string[]) => {
     if (isGenerating) {
-      setMessageQueue(prev => [...prev, text]);
+      setMessageQueue(prev => [...prev, { text, images }]);
     } else {
       sendMessage(text, images);
     }
@@ -284,7 +284,7 @@ function App() {
   const handleProcessNextQueueItem = () => {
     if (messageQueue.length > 0) {
       const nextMessage = messageQueue[0];
-      sendMessage(nextMessage);
+      sendMessage(nextMessage.text, nextMessage.images);
       setMessageQueue(prev => prev.slice(1));
     }
   };
@@ -447,8 +447,12 @@ function App() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {messages.map((msg) => (
-                        <ChatMessage key={msg.id} message={msg} />
+                      {messages.map((msg, idx) => (
+                        <ChatMessage 
+                          key={msg.id} 
+                          message={msg} 
+                          isGenerating={isGenerating && idx === messages.length - 1}
+                        />
                       ))}
 
                       {/* Inline Pending Command Approval matching OpenClaw screenshot */}

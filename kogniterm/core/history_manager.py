@@ -911,10 +911,36 @@ class HistoryManager:
             filtered.append(msg)
         return filtered
 
-    def _to_litellm_message_for_len_calc(self, message: BaseMessage) -> Dict[str, Any]:
-        """Convierte un mensaje de LangChain a formato LiteLLM para cálculo de longitud."""
+    def _to_litellm_message_for_len_calc(self, message: Any) -> Dict[str, Any]:
+        """Convierte un mensaje de LangChain o diccionario a formato LiteLLM para cálculo de longitud."""
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, list):
+                sanitized_content = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "image_url":
+                        sanitized_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": "[IMAGE_PLACEHOLDER_" + ("X" * 2800) + "]"}
+                        })
+                    else:
+                        sanitized_content.append(item)
+                return {"role": message.get("role", "user"), "content": sanitized_content}
+            return message
         if isinstance(message, HumanMessage):
-            return {"role": "user", "content": message.content}
+            content = message.content
+            if isinstance(content, list):
+                sanitized_content = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "image_url":
+                        sanitized_content.append({
+                            "type": "image_url",
+                            "image_url": {"url": "[IMAGE_PLACEHOLDER_" + ("X" * 2800) + "]"}
+                        })
+                    else:
+                        sanitized_content.append(item)
+                return {"role": "user", "content": sanitized_content}
+            return {"role": "user", "content": content}
         elif isinstance(message, AIMessage):
             msg = {"role": "assistant", "content": message.content}
             if message.tool_calls:

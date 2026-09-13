@@ -147,6 +147,40 @@ class TerminalUI:
                 pass
             self._last_live_renderable = None
 
+    def show_applied_diff(
+        self,
+        tool_name: str,
+        file_path: str,
+        diff_content: str,
+        tool_call_id: str | None = None,
+        **kwargs,
+    ) -> None:
+        """Muestra un diff aplicado tras la edición de un archivo."""
+        if not diff_content:
+            return
+        try:
+            from kogniterm.utils.diff_renderer import DiffRenderer
+            from rich.panel import Panel
+            from rich.text import Text
+            from rich.console import Group
+
+            diff_renderer = DiffRenderer()
+            diff_table = diff_renderer.render_diff_from_string(diff_content, file_path)
+            title_text = f"✅ Diff aplicado: {file_path}"
+            subtitle = Text(f"Operación: {tool_name}", style="dim cyan")
+            panel = Panel(
+                Group(subtitle, Text(""), diff_table),
+                title=title_text,
+                border_style="green",
+                expand=True,
+            )
+            self.console.print(panel)
+        except Exception:
+            self.print_message(
+                f"### ✅ Cambios aplicados en `{file_path}`\n\n```diff\n{diff_content}\n```"
+            )
+
+
     def update_task_tracker(self, agent_plans: dict):
         """Actualiza el estado de las tareas para el panel visual o la CLI."""
         self._last_agent_plans = agent_plans
@@ -438,6 +472,17 @@ class TerminalUI:
                 # Aplicar el mismo margen que en el stream (sangría de 4 espacios)
                 renderable = Padding(content, (0, 4)) if not style else content
                 self.console.print(Align.center(renderable))
+
+    def print_learning(self, learned_text: str) -> None:
+        """
+        Imprime una notificación de aprendizaje consolidado con formato estilizado.
+        """
+        if not learned_text:
+            return
+        from kogniterm.terminal.themes import Icons
+        self.console.print(
+            f"\n{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]\n"
+        )
 
     def get_interrupt_queue(self) -> queue.Queue:
         return self.interrupt_queue

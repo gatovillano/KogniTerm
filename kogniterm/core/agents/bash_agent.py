@@ -567,8 +567,11 @@ APRENDIZAJE:"""
                     f.write(f"- {learned_text}\n")
                 
                 if terminal_ui:
-                    from kogniterm.terminal.themes import Icons
-                    terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]", style="cyan")
+                    if hasattr(terminal_ui, "print_learning"):
+                        terminal_ui.print_learning(learned_text)
+                    else:
+                        from kogniterm.terminal.themes import Icons
+                        terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]", style="cyan")
     except Exception as e:
         logger.warning(f"Error en el nodo de aprendizaje del agente: {e}", exc_info=True)
         pass

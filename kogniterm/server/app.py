@@ -144,6 +144,33 @@ class TelegramDetectRequest(BaseModel):
     token: str
 
 
+# ── Agent Models ───────────────────────────────────────────────────────────────
+
+
+class AgentConfig(BaseModel):
+    id: str
+    name: str
+    role: str
+    description: Optional[str] = ""
+    model: str
+    icon: str  # 'terminal', 'code', 'cpu', 'shield', 'bot'
+    is_custom: bool = False
+
+
+class CreateAgentRequest(BaseModel):
+    name: str
+    role: str
+    description: str
+    model: str
+    config: dict
+
+
+class ApprovalResponse(BaseModel):
+    tool_call_id: str
+    action: str  # 'approve' or 'reject'
+    status: str
+
+
 # ── Lifespan ───────────────────────────────────────────────────────────────────
 
 
@@ -310,7 +337,7 @@ def create_app() -> FastAPI:
         allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Session-ID"],
+        allow_headers=["*"],
     )
 
     # ── Health Check ────────────────────────────────────────────────────────────
@@ -977,7 +1004,7 @@ def create_app() -> FastAPI:
         return res
 
     @application.get("/api/skills", tags=["Skills"])
-    async def get_skills():
+    async def get_skills(procedural_only: bool = Query(default=False)):
         """Lista todas las skills registradas clasificadas por su ámbito."""
         await pool.wait_until_ready()
         if not pool._llm_service or not pool._llm_service.skill_manager:
@@ -991,6 +1018,9 @@ def create_app() -> FastAPI:
             
         result = []
         for name, skill in sm.skills.items():
+            if procedural_only and not getattr(skill, "is_procedural", False):
+                continue
+
             path_str = str(skill.path.resolve())
             
             # bundled (por defecto)
@@ -1023,6 +1053,7 @@ def create_app() -> FastAPI:
                 "category": skill.category,
                 "scope": scope,
                 "path": path_str,
+                "is_procedural": getattr(skill, "is_procedural", False),
                 "security_level": skill.security_level,
                 "tags": skill.tags,
                 "dependencies": skill.dependencies,
@@ -1031,6 +1062,112 @@ def create_app() -> FastAPI:
             })
             
         return {"skills": result}
+
+    @application.get("/api/agents", tags=["Agents"])
+    async def list_agents():
+        """Retorna la lista de agentes disponibles del sistema."""
+        await pool.wait_until_ready()
+        
+        # Agentes predefinidos (built-in)
+        builtin_agents = [
+            AgentConfig(
+                id="super_agent",
+                name="SuperAgent",
+                role="Orquestador Principal",
+                description="Gestiona tareas complejas y orquesta otros agentes",
+                model="gemini-2.5-pro",
+                icon="cpu",
+                is_custom=False
+            ),
+            AgentConfig(
+                id="code_agent",
+                name="CodeAgent",
+                role="Refactorización de Código",
+                description="Refactoriza y optimiza código fuente",
+                model="claude-3.5-sonnet",
+                icon="code",
+                is_custom=False
+            ),
+            AgentConfig(
+                id="bash_agent",
+                name="BashAgent",
+                role="Ejecución de Comandos",
+                description="Ejecuta comandos de terminal y scripts",
+                model="gemini-2.5-flash",
+                icon="terminal",
+                is_custom=False
+            ),
+            AgentConfig(
+                id="researcher_agent",
+                name="ResearcherAgent",
+                role="Investigador",
+                description="Investiga temas y recopila información",
+                model="gemini-2.5-pro",
+                icon="bot",
+                is_custom=False
+            ),
+            AgentConfig(
+                id="security_agent",
+                name="SecurityAgent",
+                role="Auditoría de Seguridad",
+                description="Realiza auditorías de seguridad con Bandit",
+                model="gpt-4o",
+                icon="shield",
+                is_custom=False
+            ),
+        ]
+        
+        # Agregar agentes personalizados
+        custom_agents = []
+        custom_dir = Path.home() / ".kogniterm" / "custom_agents"
+        if custom_dir.exists():
+            for agent_file in custom_dir.glob("*.json"):
+                try:
+                    with open(agent_file, "r") as f:
+                        data = json.load(f)
+                        custom_agents.append(AgentConfig(
+                            id=data.get("id", agent_file.stem),
+                            name=data.get("name", agent_file.stem),
+                            role=data.get("role", ""),
+                            description=data.get("description", ""),
+                            model=data.get("model", "gemini-2.5-pro"),
+                            icon=data.get("icon", "bot"),
+                            is_custom=True
+                        ))
+                except Exception as e:
+                    logger.error(f"Error cargando agente personalizado {agent_file}: {e}")
+        
+        all_agents = builtin_agents + custom_agents
+        return {"agents": [a.dict() for a in all_agents]}
+
+    @application.post("/api/agents/custom", tags=["Agents"])
+    async def create_custom_agent(req: CreateAgentRequest):
+        """Crea un agente personalizado del usuario."""
+        import uuid
+        
+        # Generar ID único
+        agent_id = f"{req.name.lower().replace(' ', '_')}_{uuid.uuid4().hex[:8]}"
+        
+        # Crear directorio si no existe
+        custom_dir = Path.home() / ".kogniterm" / "custom_agents"
+        custom_dir.mkdir(parents=True, exist_ok=True)
+        
+        config = {
+            "id": agent_id,
+            "name": req.name,
+            "role": req.role,
+            "description": req.description,
+            "model": req.model,
+            "config": req.config,
+            "is_custom": True,
+            "created_at": str(uuid.uuid4())
+        }
+        
+        agent_file = custom_dir / f"{agent_id}.json"
+        with open(agent_file, "w") as f:
+            json.dump(config, f, indent=2)
+        
+        return {"success": True, "agent_id": agent_id, "name": req.name}
 
     # ── Utilidades Desktop (Ejecución y Archivos) ─────────────────────────────
 
@@ -1462,6 +1599,99 @@ def create_app() -> FastAPI:
 
         full_text = "".join(text_content)
         return {"response": full_text}
+
+    @application.post("/api/approval/{tool_call_id}", tags=["Approval"])
+    async def approve_action(tool_call_id: str, req: ApprovalResponse):
+        """Procesa la aprobación o rechazo de una acción del agente."""
+        await pool.wait_until_ready()
+        # Store approval decision in session pool for the agent to read
+        pool.set_approval_decision(tool_call_id, req.action)
+        return {"status": "ok", "tool_call_id": tool_call_id, "action": req.action}
+
+    @application.post("/api/terminal/create", tags=["Terminal"])
+    async def create_terminal_session():
+        """Crea una nueva sesión de terminal PTY."""
+        import pty
+        import os
+        import uuid
+        
+        session_id = f"term-{uuid.uuid4().hex[:8]}"
+        # Create PTY master/slave
+        master, slave = pty.openpty()
+        slave_name = os.ttyname(slave)
+        
+        # Store session info
+        pool.terminal_sessions[session_id] = {
+            "master": master,
+            "slave": slave,
+            "status": "idle",
+            "output": ""
+        }
+        
+        return {"session_id": session_id, "pty": slave_name}
+
+    @application.post("/api/terminal/{session_id}/execute", tags=["Terminal"])
+    async def execute_terminal_command(session_id: str, command: str):
+        """Ejecuta un comando en la sesión PTY."""
+        await pool.wait_until_ready()
+        if session_id not in pool.terminal_sessions:
+            raise HTTPException(status_code=404, detail="Sesión terminal no encontrada")
+        
+        session = pool.terminal_sessions[session_id]
+        session["status"] = "running"
+        
+        try:
+            os.write(session["master"], (command + "\n").encode())
+            # Read output
+            data = os.read(session["master"], 4096).decode()
+            session["output"] += data
+            return {"output": data}
+        except Exception as e:
+            return {"error": str(e)}
+
+    @application.websocket("/ws/terminal/{session_id}")
+    async def websocket_terminal(websocket: WebSocket, session_id: str):
+        """WebSocket para terminal interactiva."""
+        await pool.wait_until_ready()
+        if session_id not in pool.terminal_sessions:
+            await websocket.close()
+            return
+        
+        session = pool.terminal_sessions[session_id]
+        
+        try:
+            await websocket.accept()
+            
+            async def read_output():
+                while True:
+                    if session["master"] and session["master"] != -1:
+                        try:
+                            data = os.read(session["master"], 1024).decode()
+                            if data:
+                                await websocket.send_json({"output": data})
+                        except Exception:
+                            break
+                    await asyncio.sleep(0.1)
+            
+            async def read_input():
+                async for message in websocket.receive_text():
+                    try:
+                        data = json.loads(message)
+                        if "input" in data:
+                            os.write(session["master"], data["input"].encode())
+                    except Exception:
+                        break
+            
+            await asyncio.gather(read_output(), read_input())
+        except Exception:
+            pass
+        finally:
+            # Cleanup
+            if session["master"] and session["master"] != -1:
+                os.close(session["master"])
+            if session["slave"] and session["slave"] != -1:
+                os.close(session["slave"])
+            session["status"] = "closed"
 
     # ── Canal REST (síncrono, para integraciones simples) ──────────────────────
 

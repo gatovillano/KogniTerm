@@ -341,7 +341,12 @@ class TUIWebSocketClient:
                 tool_name = data.get("tool", "Terminal")
             else:
                 output, tool_name = str(data), "Terminal"
-            if output:
+            
+            # En la TUI, solo las herramientas de terminal muestran su salida.
+            # El resto de herramientas solo muestran el indicador de ejecución (tool_call),
+            # y la edición de archivos muestra únicamente diffs (applied_diff).
+            from kogniterm.core.agents.super_agent import is_terminal_tool
+            if output and is_terminal_tool(tool_name):
                 if agent_id:
                     chat_log = self._get_chat_log(agent_id)
                     displayed = output
@@ -350,6 +355,22 @@ class TUIWebSocketClient:
                     self._app.call_from_thread(
                         self._app.tui_ui.update_tool_display,
                         tool_name, output,
+                    )
+
+        elif event_type == "applied_diff":
+            # Diff aplicado tras edición de archivo
+            if isinstance(data, dict):
+                tool_name = data.get("tool_name") or data.get("tool") or "file_editor"
+                file_path = data.get("file_path", "")
+                diff_content = data.get("diff_content") or data.get("diff", "")
+                agent_id = event.get("agent_id")
+                if diff_content and hasattr(self._app.tui_ui, "show_applied_diff"):
+                    self._app.call_from_thread(
+                        self._app.tui_ui.show_applied_diff,
+                        tool_name=tool_name,
+                        file_path=file_path,
+                        diff_content=diff_content,
+                        panel_id=agent_id,
                     )
 
         elif event_type == "terminal_output":

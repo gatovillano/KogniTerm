@@ -213,6 +213,14 @@ class CommandApprovalHandler:
         safe_file_path = file_path or "archivo_desconocido"
         operation_label = tool_name or "file_update"
 
+        if hasattr(self.terminal_ui, "show_applied_diff"):
+            self.terminal_ui.show_applied_diff(
+                tool_name=operation_label,
+                file_path=safe_file_path,
+                diff_content=diff_content,
+            )
+            return
+
         try:
             diff_table = self.diff_renderer.render_diff_from_string(diff_content, safe_file_path)
             title_text = f"✅ Diff aplicado: {safe_file_path}"
@@ -228,9 +236,20 @@ class CommandApprovalHandler:
                 expand=True,
             )
 
-            # update_live + stop_live asegura que el bloque quede en el historial de streaming
-            self.terminal_ui.update_live(panel)
-            self.terminal_ui.stop_live()
+            if hasattr(self.terminal_ui, "console"):
+                self.terminal_ui.console.print(panel)
+            elif hasattr(self.terminal_ui, "update_live") and hasattr(self.terminal_ui, "stop_live"):
+                self.terminal_ui.update_live(panel)
+                self.terminal_ui.stop_live()
+            else:
+                fallback_md = (
+                    f"### ✅ Cambios aplicados en `{safe_file_path}`\n"
+                    f"**Operación:** `{operation_label}`\n\n"
+                    "```diff\n"
+                    f"{diff_content}\n"
+                    "```"
+                )
+                self.terminal_ui.print_message(fallback_md)
         except Exception as e:
             logger.warning(f"No se pudo renderizar diff enriquecido en historial, usando fallback markdown: {e}")
             fallback_md = (

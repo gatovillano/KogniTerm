@@ -297,6 +297,23 @@ class TextualTerminalUI:
                     pass  # Fallback a write_agent_message si el markup falla
             self._safe_call(target_log.write_agent_message, message)
 
+    def print_learning(self, learned_text: str, panel_id: str = None) -> None:
+        """Imprime una notificación de aprendizaje consolidado en el chat log."""
+        if not learned_text:
+            return
+        from kogniterm.terminal.themes import Icons
+        from rich.text import Text
+        target_log = self._get_chat_log(panel_id)
+        msg = f"{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]"
+        try:
+            renderable = Text.from_markup(msg)
+            self._safe_call(target_log.write_message, renderable)
+        except Exception:
+            self._safe_call(
+                target_log.write_agent_message,
+                f"{Icons.THINKING} Aprendizaje consolidado: {learned_text}",
+            )
+
     def print_stream(self, text: str, **kwargs):
         """
         Imprime un fragmento de texto en la consola sin añadir nueva línea,
@@ -360,8 +377,12 @@ class TextualTerminalUI:
     def update_tool_display(
         self, tool_name: str, output: str, command: str = "", max_lines=None, **kwargs
     ):
-        """Escribe la salida final de una herramienta en el chat log de la TUI o de un panel."""
+        """Escribe la salida final de una herramienta en el chat log de la TUI o de un panel (solo comandos de terminal)."""
         if not output or not getattr(self, "app", None):
+            return
+
+        from kogniterm.core.agents.super_agent import is_terminal_tool
+        if not is_terminal_tool(tool_name) and not command:
             return
 
         panel_id = kwargs.get("panel_id")
@@ -389,6 +410,39 @@ class TextualTerminalUI:
             tool_name,
             language=command or None,
         )
+
+    def show_applied_diff(
+        self,
+        tool_name: str,
+        file_path: str,
+        diff_content: str,
+        tool_call_id: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Muestra únicamente el diff aplicado tras la edición de un archivo en el chat log."""
+        if not diff_content or not getattr(self, "app", None):
+            return
+        try:
+            from kogniterm.utils.diff_renderer import DiffRenderer
+            from rich.panel import Panel
+            from rich.text import Text
+            from rich.console import Group
+
+            diff_renderer = DiffRenderer()
+            diff_table = diff_renderer.render_diff_from_string(diff_content, file_path)
+            title_text = f"✅ Diff aplicado: {file_path}"
+            subtitle = Text(f"Operación: {tool_name}", style="dim cyan")
+            panel = Panel(
+                Group(subtitle, Text(""), diff_table),
+                title=title_text,
+                border_style="green",
+                expand=True,
+            )
+            panel_id = kwargs.get("panel_id")
+            target_log = self._get_chat_log(panel_id)
+            self._safe_call(target_log.write_message, panel)
+        except Exception:
+            pass
 
     def update_task_tracker(self, agent_plans: dict):
         """Actualiza el panel de seguimiento de tareas."""

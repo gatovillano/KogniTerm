@@ -1,0 +1,100 @@
+import React, { useEffect, useState } from 'react';
+import { Loader2, CheckCircle2, XCircle, FileCode, Terminal, Database, Globe, Webhook, FileText } from 'lucide-react';
+
+interface ToolExecution {
+  tool_name: string;
+  action: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  tool_call_id: string;
+}
+
+const iconMap: Record<string, React.ElementType> = {
+  bash: Terminal,
+  command: Terminal,
+  file: FileText,
+  edit: FileCode,
+  write: FileCode,
+  search: Globe,
+  web: Globe,
+  db: Database,
+  api: Webhook,
+  tool: FileCode
+};
+
+interface ToolIndicatorProps {
+  execution: ToolExecution;
+  onCompleted?: (tool_call_id: string) => void;
+}
+
+export function ToolIndicator({ execution, onCompleted }: ToolIndicatorProps) {
+  const [displayStatus, setDisplayStatus] = useState(execution.status);
+  const Icon = iconMap[execution.tool_name.toLowerCase().includes('bash') ? 'bash' : 
+                      execution.tool_name.toLowerCase().includes('edit') ? 'edit' : 
+                      execution.tool_name.toLowerCase().includes('search') ? 'search' : 'tool'];
+
+  useEffect(() => {
+    if (displayStatus === 'completed' && onCompleted) {
+      const timer = setTimeout(() => {
+        onCompleted(execution.tool_call_id);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [displayStatus, onCompleted]);
+
+  const getStatusStyles = () => {
+    switch (displayStatus) {
+      case 'running':
+        return 'text-indigo-400';
+      case 'completed':
+        return 'text-emerald-400';
+      case 'error':
+        return 'text-rose-400';
+      default:
+        return 'text-amber-400';
+    }
+  };
+
+  const getIcon = () => {
+    switch (displayStatus) {
+      case 'running':
+        return <Loader2 className="w-3.5 h-3.5 animate-spin" />;
+      case 'completed':
+        return <CheckCircle2 className="w-3.5 h-3.5" />;
+      case 'error':
+        return <XCircle className="w-3.5 h-3.5" />;
+      default:
+        return <Loader2 className="w-3.5 h-3.5 animate-pulse" />;
+    }
+  };
+
+  return (
+    <div 
+      className={`flex items-center gap-2 py-1 ${getStatusStyles()} transition-all duration-300 text-xs font-mono select-none`}
+    >
+      <div className="shrink-0">{getIcon()}</div>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="font-semibold">{execution.tool_name}</span>
+        {execution.action && <span className="opacity-60 text-[11px] font-normal truncate">• {execution.action}</span>}
+      </div>
+    </div>
+  );
+}
+
+interface ToolIndicatorsProps {
+  executions: ToolExecution[];
+  onCompleted?: (tool_call_id: string) => void;
+}
+
+export function ToolIndicators({ executions, onCompleted }: ToolIndicatorsProps) {
+  return (
+    <div className="flex flex-wrap gap-2 p-2">
+      {executions.map(execution => (
+        <ToolIndicator
+          key={execution.tool_call_id}
+          execution={execution}
+          onCompleted={onCompleted}
+        />
+      ))}
+    </div>
+  );
+}

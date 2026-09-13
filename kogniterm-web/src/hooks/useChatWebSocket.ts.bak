@@ -1,0 +1,507 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+
+export interface AppliedDiff {
+  id: string;
+  filePath: string;
+  toolName?: string;
+  diffContent: string;
+  additions: number;
+  deletions: number;
+  timestamp: number;
+}
+
+export function stripAnsiAndControlCodes(text: string): string {
+  if (!text) return '';
+  
+  // Si es un JSON de resultado de herramienta (ej. {"success": true, "path": ...}), omitir del stream público
+  if (text.trim().startsWith('{') && (text.includes('"success"') || text.includes('"size_bytes"') || text.includes('"path"'))) {
+    return '';
+  }
+
+  return text
+    // 1. Secuencias de control KogniTerm / OSC 3008 y marcas de sincronización
+    .replace(/\x1B\]3008;[^\n]*\n?/g, '') // OSC 3008 con ESC prefix
+    .replace(/\]3008;start=[a-f0-9\-]+;machineid=[^;]+;user=[^;]+;hostname=[^;]+;bootid=[^;]+;pid=[0-9]+;type=[^;]+;cwd=[^\n]*\n?/gi, '') // OSC 3008 start
+    .replace(/\]3008;end=[a-f0-9\-]+;exit=[^\n]*\n?/gi, '') // OSC 3008 end
+    .replace(/\]3008;[^\n]*\n?/g, '') // Cualquier OSC 3008 variante
+    .replace(/##KOGNITERM_[A-Z_]+##/g, '') // Marcas internas de finalización
+
+    // 2. Secuencias de modo de pegado entrecorchetes (Bracketed Paste Mode)
+    .replace(/\x1B\[\?2004[lh]/g, '')
+    .replace(/\[\?2004[lh]/g, '')
+
+    // 3. Códigos de escape VT100/ANSI (colores, movimiento de cursor, borrar pantalla, etc.)
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '') // ANSI Escape codes con ESC
+    .replace(/\[[0-9;]*[a-zA-Z]/g, '') // Códigos ANSI residuales sin ESC (ej: [?2004h, [0m, [1;32m)
+    .replace(/\x1B\][0-9]+;[^\x07\x1B]*[\x07\x1B\\]/g, '') // OSC genéricas
+
+    // 4. Prompts de Shell duplicados o redundantes
+    .replace(/^gato@[^:]+:[^\$]+\$\s*/gm, '')
+    .replace(/gato@gatoserv:~/g, '');
+}
+
+export function parseAppliedDiff(content: string, defaultFilePath?: string, defaultToolName?: string): AppliedDiff | null {
+  if (!content) return null;
+
+  let diffText = content;
+  let filePath = defaultFilePath || '';
+  let toolName = defaultToolName || '';
+
+  // 0. Si el contenido es un JSON codificado (Tool Result de la herramienta de edición)
+  if (content.trim().startsWith('{') && content.includes('"diff"')) {
+    try {
+      const parsedJson = JSON.parse(content);
+      if (parsedJson && (parsedJson.diff || parsedJson.applied_diff)) {
+        diffText = parsedJson.diff || parsedJson.applied_diff || '';
+        filePath = parsedJson.path || parsedJson.file_path || filePath;
+        toolName = parsedJson.tool || parsedJson.tool_name || toolName;
+      }
+    } catch (e) {}
+  }
+
+  // Standard diff codeblock: ```diff ... ```
+  const codeBlockMatch = diffText.match(/```(?:diff|patch)?\n([\s\S]*?)```/i);
+  const isExplicitDiffBlock = !!codeBlockMatch;
+
+  if (codeBlockMatch) {
+    diffText = codeBlockMatch[1];
+  }
+
+  const opLineMatch = diffText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?\s*/i);
+  if (opLineMatch) {
+    if (!toolName) toolName = opLineMatch[1];
+    diffText = diffText.replace(/Operación:\s*`?[a-zA-Z0-9_\-]+`?\s*/i, '');
+  }
+
+  const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n]+)/i) || diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n]+)`?/i);
+  if (titleMatch && !filePath) {
+    filePath = titleMatch[1].replace(/[`─│┃\s]+$/g, '').trim();
+  }
+
+  const hasHeaderLines = /--- (a\/|\/|[^\s]+)[\s\S]*?\+\+\+ (b\/|\/|[^\s]+)/.test(diffText) || /diff --git\//.test(diffText) || /Index:\s+/.test(diffText);
+  const hasHunkHeader = /(?:^|\n)\s*@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@/.test(diffText);
+
+  if (!hasHeaderLines && !hasHunkHeader && !isExplicitDiffBlock) {
+    return null;
+  }
+
+  if (!filePath) {
+    const pathMatch = diffText.match(/\+\+\+\s+(?:b\/)?([^\s\n]+)/) || diffText.match(/---\s+(?:a\/)?([^\s\n]+)/);
+    if (pathMatch && pathMatch[1] !== '/dev/null' && pathMatch[1] !== 'a' && pathMatch[1] !== 'b') {
+      filePath = pathMatch[1];
+    }
+  }
+
+  const lines = diffText.split('\n');
+  let additions = 0;
+  let deletions = 0;
+  let inHunk = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('@@') || /(?:^|\s)@@\s+-\d+/.test(trimmed)) {
+      inHunk = true;
+      continue;
+    }
+
+    if (line.includes('--- ') || line.includes('+++ ') || line.includes('Index:') || line.includes('diff --git')) {
+      inHunk = true;
+      continue;
+    }
+
+    if (inHunk || isExplicitDiffBlock) {
+      if (trimmed.startsWith('+') && !trimmed.startsWith('+++')) {
+        additions++;
+      } else if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
+        deletions++;
+      } else if (/^\d+(\s+\d+)?\s*\+/.test(trimmed)) {
+        additions++;
+      } else if (/^\d+(\s+\d+)?\s*-/.test(trimmed)) {
+        deletions++;
+      }
+    }
+  }
+
+  if (additions === 0 && deletions === 0) {
+    return null;
+  }
+
+  let cleanPath = filePath.replace(/^a\/+/, '').replace(/^b\/+/, '').trim();
+  if (!cleanPath || cleanPath === 'archivo_modificado') {
+    const fallbackMatch = diffText.match(/(?:[a-zA-Z0-9_\-\.]+\/)+[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9]+/);
+    if (fallbackMatch) {
+      cleanPath = fallbackMatch[0];
+    }
+  }
+
+  return {
+    id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 7),
+    filePath: cleanPath || 'archivo_modificado',
+    toolName: toolName || 'edición',
+    diffContent: diffText.trim(),
+    additions,
+    deletions,
+    timestamp: Date.now(),
+  };
+}
+
+export function useChatWebSocket(threadId: string | null, onMessageUpdate: (updater: (prev: any[]) => any[]) => void) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [activeToolExecutions, setActiveToolExecutions] = useState<Record<string, any>>({});
+  const wsRef = useRef<WebSocket | null>(null);
+  const lastStreamEventRef = useRef<{ type: string; text: string; time: number } | null>(null);
+  const onMessageUpdateRef = useRef(onMessageUpdate);
+
+  useEffect(() => {
+    onMessageUpdateRef.current = onMessageUpdate;
+  }, [onMessageUpdate]);
+
+  useEffect(() => {
+    if (!threadId) return;
+
+    lastStreamEventRef.current = null;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/${threadId}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => setIsConnected(true);
+    ws.onclose = () => setIsConnected(false);
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // 1. CHUNK / STREAM
+        if (data.type === 'chunk' || data.type === 'stream') {
+          setIsGenerating(true);
+          let rawContent = typeof data.data === 'string' ? data.data : (data.data?.content || data.content || '');
+          
+          // Ignorar chunks que provengan de ejecuciones de terminal o código ruidoso
+          if (rawContent.includes(']3008;start=') || rawContent.includes('export PS1=') || rawContent.includes('##KOGNITERM_')) {
+            return;
+          }
+
+          const chunkContent = stripAnsiAndControlCodes(rawContent);
+          if (!chunkContent) return;
+
+          // Deduplicación contra la emisión dual de ServerUI:
+          // ServerUI.print_stream emite simultáneamente 'chunk' (payload {content: text})
+          // y 'stream' (payload text) para mantener compatibilidad con Desktop y TUI.
+          // Si ambos eventos llegan consecutivamente con el mismo contenido, ignoramos el segundo.
+          const now = Date.now();
+          const last = lastStreamEventRef.current;
+          if (
+            last &&
+            last.type !== data.type &&
+            last.text === chunkContent &&
+            now - last.time < 1000
+          ) {
+            return;
+          }
+          lastStreamEventRef.current = { type: data.type, text: chunkContent, time: now };
+
+          onMessageUpdateRef.current((prev) => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage && lastMessage.sender === 'assistant' && lastMessage.message_type === 'text') {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...lastMessage,
+                text: lastMessage.text + chunkContent,
+              };
+              return updated;
+            } else {
+              return [
+                ...prev,
+                {
+                  id: Date.now().toString(),
+                  sender: 'assistant',
+                  message_type: 'text',
+                  text: chunkContent,
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+              ];
+            }
+          });
+        }
+
+        // 2. LIVE UPDATE
+        else if (data.type === 'live_update') {
+          setIsGenerating(true);
+          const payload = data.data || data;
+          
+          // Ignorar live_updates especiales de terminal (van al panel de terminal, no al chat)
+          if (payload.special_type === 'terminal' || payload.special_type) {
+            return;
+          }
+
+          const thinking = stripAnsiAndControlCodes(payload.thinking || '');
+          const rawResponse = payload.response || '';
+
+          // Si hay pensamiento en el live_update, adjuntarlo al último mensaje del asistente
+          if (thinking) {
+            onMessageUpdateRef.current((prev) => {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage && lastMessage.sender === 'assistant') {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...lastMessage,
+                  thinking: thinking,
+                };
+                return updated;
+              } else {
+                return [
+                  ...prev,
+                  {
+                    id: Date.now().toString(),
+                    sender: 'assistant',
+                    message_type: 'text',
+                    text: '',
+                    thinking: thinking,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  },
+                ];
+              }
+            });
+          }
+
+          // Si el response contiene ruido de terminal, filtrarlo
+          if (rawResponse.includes(']3008;start=') || rawResponse.includes('export PS1=') || rawResponse.includes('##KOGNITERM_')) {
+            return;
+          }
+
+          const response = stripAnsiAndControlCodes(rawResponse);
+
+          const isDiffResponse = response && (
+            response.includes('Diff aplicado:') ||
+            response.includes('Cambios aplicados en') ||
+            parseAppliedDiff(response) !== null
+          );
+
+          if (isDiffResponse) {
+            const parsed = parseAppliedDiff(response);
+            if (parsed) {
+              onMessageUpdateRef.current((prev) => [
+                ...prev,
+                {
+                  id: Date.now().toString(),
+                  sender: 'assistant',
+                  message_type: 'diff',
+                  diff: parsed,
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                }
+              ]);
+            }
+            return;
+          }
+
+          // Ignorar response de texto si ya hay un mensaje tipo 'text' siendo acumulado
+          // (evita duplicación: el backend puede enviar el mismo texto por chunk Y live_update)
+          if (response && !response.includes('Diff aplicado:') && !response.includes('Cambios aplicados en')) {
+            onMessageUpdateRef.current((prev) => {
+              const lastMessage = prev[prev.length - 1];
+              // Si ya hay un mensaje de texto siendo acumulado, ignorar live_update de texto
+              if (lastMessage && lastMessage.sender === 'assistant' && lastMessage.message_type === 'text' && lastMessage.text.length > 0) {
+                return prev;
+              }
+              // Si no hay mensaje de texto previo, procesar como nuevo
+              return [
+                ...prev,
+                {
+                  id: Date.now().toString(),
+                  sender: 'assistant',
+                  message_type: 'text',
+                  text: response,
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+              ];
+            });
+          }
+        }
+
+        // 3. TOOL CALL & NOTIFICATION
+        else if (data.type === 'tool_call' || data.type === 'tool_start') {
+          const payload = data.data || data;
+          const toolCallId = payload.tool_call_id || payload.id || `tool-${Date.now()}`;
+          const toolName = payload.name || payload.tool_name || payload.tool || 'Herramienta';
+          const actionDesc = payload.description || payload.action || payload.bajada || '';
+
+          const newToolExec = {
+            tool_name: toolName,
+            action: actionDesc,
+            status: 'running' as const,
+            tool_call_id: toolCallId,
+          };
+
+          setActiveToolExecutions((prev) => ({
+            ...prev,
+            [toolCallId]: newToolExec
+          }));
+
+          // Insertar en la lista de mensajes en tiempo real para que sea un elemento persistente del hilo
+          onMessageUpdateRef.current((prev) => [
+            ...prev,
+            {
+              id: `msg-tool-${toolCallId}`,
+              sender: 'assistant',
+              text: '',
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              message_type: 'tool_execution',
+              tool_execution: newToolExec
+            }
+          ]);
+        }
+
+        // 3.5 TERMINAL OUTPUT / TOOL RESULT / LIVE_UPDATE (Marcar herramienta como completada)
+        else if (data.type === 'terminal_output' || data.type === 'tool_result' || data.type === 'tool' || data.type === 'live_update') {
+          const payload = data.data || data;
+          const toolCallId = payload.tool_call_id || payload.id;
+          
+          if (toolCallId) {
+            setActiveToolExecutions((prev) => {
+              const updated = { ...prev };
+              if (updated[toolCallId]) {
+                updated[toolCallId] = {
+                  ...updated[toolCallId],
+                  status: 'completed',
+                };
+              }
+              return updated;
+            });
+
+            onMessageUpdateRef.current((prev) => prev.map(m => {
+              if (m.message_type === 'tool_execution' && m.tool_execution?.tool_call_id === toolCallId) {
+                return {
+                  ...m,
+                  tool_execution: {
+                    ...m.tool_execution,
+                    status: 'completed'
+                  }
+                };
+              }
+              return m;
+            }));
+          } else {
+            // Si no viene ID explícito, completar la primera herramienta corriendo
+            setActiveToolExecutions((prev) => {
+              const updated = { ...prev };
+              const runningKey = Object.keys(updated).find(k => updated[k].status === 'running');
+              if (runningKey) {
+                updated[runningKey] = {
+                  ...updated[runningKey],
+                  status: 'completed',
+                };
+              }
+              return updated;
+            });
+
+            onMessageUpdateRef.current((prev) => prev.map(m => {
+              if (m.message_type === 'tool_execution' && m.tool_execution?.status === 'running') {
+                return {
+                  ...m,
+                  tool_execution: {
+                    ...m.tool_execution,
+                    status: 'completed'
+                  }
+                };
+              }
+              return m;
+            }));
+          }
+        }
+
+        // 4. APPLIED DIFF
+        else if (data.type === 'applied_diff') {
+          const payload = data.data || data;
+          const parsed = parseAppliedDiff(payload.diff_content || payload.diff || '', payload.file_path, payload.tool_name);
+          if (parsed) {
+            onMessageUpdateRef.current((prev) => [
+              ...prev,
+              {
+                id: Date.now().toString(),
+                sender: 'assistant',
+                message_type: 'diff',
+                diff: parsed,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              }
+            ]);
+          }
+        }
+
+        // 5. DONE o LIVE_STOP (Asegurar que todas las herramientas queden en estado 'completed')
+        else if (data.type === 'done' || data.type === 'live_stop') {
+          setIsGenerating(false);
+          setActiveToolExecutions({});
+          lastStreamEventRef.current = null;
+
+          // Marcar cualquier indicador de herramienta en el historial como 'completed' si el agente terminó su ciclo
+          onMessageUpdateRef.current((prev) => prev.map(m => {
+            if (m.message_type === 'tool_execution' && m.tool_execution?.status === 'running') {
+              return {
+                ...m,
+                tool_execution: {
+                  ...m.tool_execution,
+                  status: 'completed'
+                }
+              };
+            }
+            return m;
+          }));
+        }
+
+        // 6. ERROR
+        else if (data.type === 'error') {
+          setIsGenerating(false);
+          setActiveToolExecutions({});
+          lastStreamEventRef.current = null;
+          const payload = data.data || data;
+          const errorMsg = typeof payload === 'string' ? payload : (payload.message || 'Error desconocido');
+          onMessageUpdateRef.current((prev) => [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              sender: 'assistant',
+              message_type: 'text',
+              text: `⚠️ **Error:** ${errorMsg}`,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            },
+          ]);
+        }
+
+        // Broadcast a window event para widgets externos (TaskTracker, etc.)
+        window.dispatchEvent(new CustomEvent('kogniterm_event', { detail: data }));
+
+      } catch (err) {
+        console.error('Error procesando evento WS:', err);
+      }
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      wsRef.current = null;
+    };
+  }, [threadId]);
+
+  const sendMessage = useCallback((text: string, agent: string, model: string) => {
+    lastStreamEventRef.current = null;
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'message',
+        text,
+        agent,
+        model
+      }));
+    }
+  }, []);
+
+  return {
+    sendMessage,
+    isGenerating,
+    isConnected,
+    activeToolExecutions
+  };
+}

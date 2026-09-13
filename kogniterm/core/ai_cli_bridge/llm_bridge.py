@@ -113,7 +113,7 @@ class LLMBridge:
             kwargs["custom_llm_provider"] = "ollama"
         elif provider.name == "ollama_cloud":
             kwargs["custom_llm_provider"] = "openai"
-        elif provider.name == "kilocode":
+        elif provider.name in ("kilocode", "inception"):
             kwargs["custom_llm_provider"] = "openai"
         elif provider.name == "antigravity":
             kwargs["custom_llm_provider"] = "antigravity"

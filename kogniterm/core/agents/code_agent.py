@@ -70,6 +70,14 @@ def _render_applied_diff_if_needed(terminal_ui, tool_name: str, tool_args: dict,
     if not diff_content or not file_path:
         return
 
+    if hasattr(terminal_ui, "show_applied_diff"):
+        terminal_ui.show_applied_diff(
+            tool_name=tool_name,
+            file_path=file_path,
+            diff_content=diff_content,
+        )
+        return
+
     try:
         from kogniterm.utils.diff_renderer import DiffRenderer
 
@@ -86,10 +94,7 @@ def _render_applied_diff_if_needed(terminal_ui, tool_name: str, tool_args: dict,
             expand=True,
         )
 
-        if hasattr(terminal_ui, "update_live") and hasattr(terminal_ui, "stop_live"):
-            terminal_ui.update_live(panel)
-            terminal_ui.stop_live()
-        elif hasattr(terminal_ui, "console"):
+        if hasattr(terminal_ui, "console"):
             terminal_ui.console.print(panel)
         elif hasattr(terminal_ui, "print_message"):
             terminal_ui.print_message(
@@ -97,6 +102,9 @@ def _render_applied_diff_if_needed(terminal_ui, tool_name: str, tool_args: dict,
                 f"**Operación:** `{tool_name}`\n\n"
                 f"```diff\n{diff_content}\n```"
             )
+        elif hasattr(terminal_ui, "update_live") and hasattr(terminal_ui, "stop_live"):
+            terminal_ui.update_live(panel)
+            terminal_ui.stop_live()
     except Exception as e:
         logger.warning(f"No se pudo renderizar diff post-edición en code_agent: {e}")
 

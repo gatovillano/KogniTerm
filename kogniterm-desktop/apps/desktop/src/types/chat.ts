@@ -2,6 +2,9 @@ export interface ToolCall {
     id: string;
     name: string;
     args: any;
+    status?: 'running' | 'completed' | 'error';
+    execution_time?: string;
+    started_at?: number;
 }
 
 export interface ToolResult {
@@ -12,7 +15,7 @@ export interface ToolResult {
 
 export interface Message {
     id: string;
-    role: 'user' | 'assistant' | 'system' | 'tool';
+    role: 'user' | 'assistant' | 'system' | 'tool' | 'learning';
     content: string;
     images?: string[];
     reasoning?: string;

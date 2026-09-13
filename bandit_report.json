@@ -1,17 +1,17 @@
 {
   "errors": [],
-  "generated_at": "2026-09-08T22:08:27Z",
+  "generated_at": "2026-09-11T16:10:51Z",
   "metrics": {
     "_totals": {
-      "CONFIDENCE.HIGH": 295,
+      "CONFIDENCE.HIGH": 309,
       "CONFIDENCE.LOW": 3,
       "CONFIDENCE.MEDIUM": 16,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 4,
-      "SEVERITY.LOW": 294,
+      "SEVERITY.LOW": 308,
       "SEVERITY.MEDIUM": 16,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 42453,
+      "loc": 43816,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -180,20 +180,20 @@
       "SEVERITY.LOW": 4,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 747,
+      "loc": 518,
       "nosec": 0,
       "skipped_tests": 0
     },
     "kogniterm/core/agents/code_agent.py": {
-      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.HIGH": 1,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 0,
+      "SEVERITY.LOW": 1,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 799,
+      "loc": 872,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -245,20 +245,20 @@
       "SEVERITY.LOW": 2,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 337,
+      "loc": 389,
       "nosec": 0,
       "skipped_tests": 0
     },
     "kogniterm/core/agents/deep_researcher.py": {
-      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.HIGH": 1,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 0,
+      "SEVERITY.LOW": 1,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 660,
+      "loc": 702,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -271,7 +271,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 68,
+      "loc": 105,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -310,7 +310,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 258,
+      "loc": 276,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -354,28 +354,28 @@
       "skipped_tests": 0
     },
     "kogniterm/core/agents/super_agent.py": {
-      "CONFIDENCE.HIGH": 14,
+      "CONFIDENCE.HIGH": 17,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 14,
+      "SEVERITY.LOW": 17,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 550,
+      "loc": 697,
       "nosec": 0,
       "skipped_tests": 0
     },
     "kogniterm/core/agents/tool_executor.py": {
-      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.HIGH": 1,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 0,
+      "SEVERITY.LOW": 1,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 455,
+      "loc": 529,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -453,7 +453,7 @@
       "SEVERITY.LOW": 3,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 1043,
+      "loc": 1068,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -505,7 +505,7 @@
       "SEVERITY.LOW": 10,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 349,
+      "loc": 354,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -739,7 +739,7 @@
       "SEVERITY.LOW": 4,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 777,
+      "loc": 803,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -804,7 +804,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 151,
+      "loc": 195,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -869,7 +869,7 @@
       "SEVERITY.LOW": 8,
       "SEVERITY.MEDIUM": 2,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 2068,
+      "loc": 2161,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -934,7 +934,7 @@
       "SEVERITY.LOW": 2,
       "SEVERITY.MEDIUM": 1,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 799,
+      "loc": 828,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1038,7 +1038,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 505,
+      "loc": 558,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1147,15 +1147,15 @@
       "skipped_tests": 0
     },
     "kogniterm/server/app.py": {
-      "CONFIDENCE.HIGH": 13,
+      "CONFIDENCE.HIGH": 15,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 1,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 13,
+      "SEVERITY.LOW": 15,
       "SEVERITY.MEDIUM": 1,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 1440,
+      "loc": 1670,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1207,7 +1207,7 @@
       "SEVERITY.LOW": 3,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 1194,
+      "loc": 1377,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1311,7 +1311,7 @@
       "SEVERITY.LOW": 1,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 448,
+      "loc": 462,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1329,15 +1329,15 @@
       "skipped_tests": 0
     },
     "kogniterm/skills/bundled/code-tools/scripts/code_analysis.py": {
-      "CONFIDENCE.HIGH": 3,
+      "CONFIDENCE.HIGH": 4,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 3,
+      "SEVERITY.LOW": 4,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 233,
+      "loc": 426,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1446,15 +1446,15 @@
       "skipped_tests": 0
     },
     "kogniterm/skills/bundled/file-operations/scripts/file_write.py": {
-      "CONFIDENCE.HIGH": 0,
+      "CONFIDENCE.HIGH": 2,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 0,
+      "SEVERITY.LOW": 2,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 92,
+      "loc": 118,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1857,7 +1857,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 158,
+      "loc": 169,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1901,15 +1901,15 @@
       "skipped_tests": 0
     },
     "kogniterm/terminal/command_approval_handler.py": {
-      "CONFIDENCE.HIGH": 2,
+      "CONFIDENCE.HIGH": 3,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 1,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 3,
+      "SEVERITY.LOW": 4,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 697,
+      "loc": 733,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -1974,7 +1974,7 @@
       "SEVERITY.LOW": 9,
       "SEVERITY.MEDIUM": 2,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 1796,
+      "loc": 1846,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -2065,7 +2065,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 151,
+      "loc": 153,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -2104,7 +2104,7 @@
       "SEVERITY.LOW": 8,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 406,
+      "loc": 409,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -2213,15 +2213,15 @@
       "skipped_tests": 0
     },
     "kogniterm/terminal/tui/tui_app.py": {
-      "CONFIDENCE.HIGH": 48,
+      "CONFIDENCE.HIGH": 50,
       "CONFIDENCE.LOW": 0,
       "CONFIDENCE.MEDIUM": 0,
       "CONFIDENCE.UNDEFINED": 0,
       "SEVERITY.HIGH": 0,
-      "SEVERITY.LOW": 48,
+      "SEVERITY.LOW": 50,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 2622,
+      "loc": 2692,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -2234,7 +2234,7 @@
       "SEVERITY.LOW": 8,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 611,
+      "loc": 626,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -2286,7 +2286,7 @@
       "SEVERITY.LOW": 5,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 448,
+      "loc": 489,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -2748,6 +2748,27 @@
       "test_name": "try_except_pass"
     },
     {
+      "code": "63             file_path = parsed.get(\"path\") or \"\"\n64     except Exception:\n65         pass\n66 \n",
+      "col_offset": 4,
+      "end_col_offset": 12,
+      "filename": "kogniterm/core/agents/code_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 64,
+      "line_range": [
+        64,
+        65
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
       "code": "26                 console.print(create_tool_output_panel(tool_name, str(result)))\n27         except Exception:\n28             pass\n29 \n",
       "col_offset": 8,
       "end_col_offset": 16,
@@ -2769,7 +2790,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "289             kh.start()\n290         except Exception:\n291             pass\n292 \n",
+      "code": "290             kh.start()\n291         except Exception:\n292             pass\n293 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/core/agents/deep_coder.py",
@@ -2780,17 +2801,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 290,
+      "line_number": 291,
       "line_range": [
-        290,
-        291
+        291,
+        292
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "400             state.save_history(llm_service)\n401         except Exception:\n402             pass\n403 \n",
+      "code": "401             state.save_history(llm_service)\n402         except Exception:\n403             pass\n404 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/core/agents/deep_coder.py",
@@ -2801,10 +2822,31 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 401,
+      "line_number": 402,
       "line_range": [
-        401,
-        402
+        402,
+        403
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "754                 self.terminal_ui.print_status(\"\ud83d\udd2c DeepResearcher: Investigando a fondo...\", spinner_style=\"dots\")\n755             except Exception:\n756                 pass\n757 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/core/agents/deep_researcher.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 755,
+      "line_range": [
+        755,
+        756
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -2832,7 +2874,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "298             bind_task_tracker_context(terminal_ui=self.terminal_ui, llm_service=self.llm_service)\n299         except Exception:\n300             pass\n301 \n",
+      "code": "306             bind_task_tracker_context(terminal_ui=self.terminal_ui, llm_service=self.llm_service)\n307         except Exception:\n308             pass\n309 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/core/agents/super_agent.py",
@@ -2843,59 +2885,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 299,
+      "line_number": 307,
       "line_range": [
-        299,
-        300
+        307,
+        308
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "340                         return True\n341                 except Exception:\n342                     pass\n343             if self.llm_service is not None:\n",
-      "col_offset": 16,
-      "end_col_offset": 24,
-      "filename": "kogniterm/core/agents/super_agent.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 341,
-      "line_range": [
-        341,
-        342
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "363             bind_task_tracker_context(terminal_ui=self.terminal_ui, llm_service=self.llm_service)\n364         except Exception:\n365             pass\n366 \n",
-      "col_offset": 8,
-      "end_col_offset": 16,
-      "filename": "kogniterm/core/agents/super_agent.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 364,
-      "line_range": [
-        364,
-        365
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "384                 self.terminal_ui.print_status(\"\u26a1 SuperAgent procesando...\", spinner_style=\"dots\")\n385             except Exception:\n386                 pass\n387 \n",
+      "code": "356                     file_path = parsed.get(\"path\") or \"\"\n357             except Exception:\n358                 pass\n359 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/agents/super_agent.py",
@@ -2906,19 +2906,19 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 385,
+      "line_number": 357,
       "line_range": [
-        385,
-        386
+        357,
+        358
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "427                             self.terminal_ui.stop_live()\n428                         except Exception:\n429                             pass\n430 \n",
-      "col_offset": 24,
-      "end_col_offset": 32,
+      "code": "385                         diff_content = unified\n386                 except Exception:\n387                     pass\n388 \n",
+      "col_offset": 16,
+      "end_col_offset": 24,
       "filename": "kogniterm/core/agents/super_agent.py",
       "issue_confidence": "HIGH",
       "issue_cwe": {
@@ -2927,19 +2927,19 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 428,
+      "line_number": 386,
       "line_range": [
-        428,
-        429
+        386,
+        387
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "433                             self.terminal_ui.print_message(\"\\n\u26a0\ufe0f Generaci\u00f3n cancelada por el usuario.\", style=\"yellow\")\n434                         except Exception:\n435                             pass\n436 \n",
-      "col_offset": 24,
-      "end_col_offset": 32,
+      "code": "436                 )\n437             except Exception:\n438                 pass\n439 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
       "filename": "kogniterm/core/agents/super_agent.py",
       "issue_confidence": "HIGH",
       "issue_cwe": {
@@ -2948,61 +2948,19 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 434,
+      "line_number": 437,
       "line_range": [
-        434,
-        435
+        437,
+        438
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "460                             self.terminal_ui.update_live(thinking_panel)\n461                         except Exception:\n462                             pass\n463 \n",
-      "col_offset": 24,
-      "end_col_offset": 32,
-      "filename": "kogniterm/core/agents/super_agent.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 461,
-      "line_range": [
-        461,
-        462
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "470                                     self.terminal_ui.stop_live()\n471                                 except Exception:\n472                                     pass\n473                         accumulated_chunks.append(c_text)\n",
-      "col_offset": 32,
-      "end_col_offset": 40,
-      "filename": "kogniterm/core/agents/super_agent.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 471,
-      "line_range": [
-        471,
-        472
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "477                                 self.terminal_ui.print_stream(c_text)\n478                             except Exception:\n479                                 pass\n480 \n",
-      "col_offset": 28,
-      "end_col_offset": 36,
+      "code": "477                         return True\n478                 except Exception:\n479                     pass\n480             if self.llm_service is not None:\n",
+      "col_offset": 16,
+      "end_col_offset": 24,
       "filename": "kogniterm/core/agents/super_agent.py",
       "issue_confidence": "HIGH",
       "issue_cwe": {
@@ -3021,7 +2979,49 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "519                             self.terminal_ui.print_tool_notification(t_name, action_desc)\n520                         except Exception:\n521                             pass\n522 \n",
+      "code": "500             bind_task_tracker_context(terminal_ui=self.terminal_ui, llm_service=self.llm_service)\n501         except Exception:\n502             pass\n503 \n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": "kogniterm/core/agents/super_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 501,
+      "line_range": [
+        501,
+        502
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "524                 self.terminal_ui.print_status(\"\u26a1 SuperAgent procesando...\", spinner_style=\"dots\")\n525             except Exception:\n526                 pass\n527 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/core/agents/super_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 525,
+      "line_range": [
+        525,
+        526
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "571                             self.terminal_ui.stop_live()\n572                         except Exception:\n573                             pass\n574 \n",
       "col_offset": 24,
       "end_col_offset": 32,
       "filename": "kogniterm/core/agents/super_agent.py",
@@ -3032,17 +3032,80 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 520,
+      "line_number": 572,
       "line_range": [
-        520,
-        521
+        572,
+        573
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "567                                 self.terminal_ui.update_tool_display(t_name, res_str)\n568                             except Exception:\n569                                 pass\n570 \n",
+      "code": "577                             self.terminal_ui.print_message(\"\\n\u26a0\ufe0f Generaci\u00f3n cancelada por el usuario.\", style=\"yellow\")\n578                         except Exception:\n579                             pass\n580 \n",
+      "col_offset": 24,
+      "end_col_offset": 32,
+      "filename": "kogniterm/core/agents/super_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 578,
+      "line_range": [
+        578,
+        579
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "604                             self.terminal_ui.update_live(thinking_panel)\n605                         except Exception:\n606                             pass\n607 \n",
+      "col_offset": 24,
+      "end_col_offset": 32,
+      "filename": "kogniterm/core/agents/super_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 605,
+      "line_range": [
+        605,
+        606
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "614                                     self.terminal_ui.stop_live()\n615                                 except Exception:\n616                                     pass\n617                         accumulated_chunks.append(c_text)\n",
+      "col_offset": 32,
+      "end_col_offset": 40,
+      "filename": "kogniterm/core/agents/super_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 615,
+      "line_range": [
+        615,
+        616
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "621                                 self.terminal_ui.print_stream(c_text)\n622                             except Exception:\n623                                 pass\n624 \n",
       "col_offset": 28,
       "end_col_offset": 36,
       "filename": "kogniterm/core/agents/super_agent.py",
@@ -3053,17 +3116,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 568,
+      "line_number": 622,
       "line_range": [
-        568,
-        569
+        622,
+        623
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "574                             self.terminal_ui.stop_live()\n575                         except Exception:\n576                             pass\n577 \n",
+      "code": "666                             self.terminal_ui.print_tool_notification(t_name, action_desc)\n667                         except Exception:\n668                             pass\n669 \n",
       "col_offset": 24,
       "end_col_offset": 32,
       "filename": "kogniterm/core/agents/super_agent.py",
@@ -3074,17 +3137,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 575,
+      "line_number": 667,
       "line_range": [
-        575,
-        576
+        667,
+        668
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "582                                 self.terminal_ui.print_stream(final_text)\n583                             except Exception:\n584                                 pass\n585                         text_streamed = True\n",
+      "code": "734                                 self.terminal_ui.update_tool_display(t_name, res_str)\n735                             except Exception:\n736                                 pass\n737                     else:\n",
       "col_offset": 28,
       "end_col_offset": 36,
       "filename": "kogniterm/core/agents/super_agent.py",
@@ -3095,17 +3158,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 583,
+      "line_number": 735,
       "line_range": [
-        583,
-        584
+        735,
+        736
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "589                             self.terminal_ui.console.print()\n590                         except Exception:\n591                             pass\n592 \n",
+      "code": "744                             self.terminal_ui.stop_live()\n745                         except Exception:\n746                             pass\n747 \n",
       "col_offset": 24,
       "end_col_offset": 32,
       "filename": "kogniterm/core/agents/super_agent.py",
@@ -3116,10 +3179,73 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 590,
+      "line_number": 745,
       "line_range": [
-        590,
-        591
+        745,
+        746
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "756                                 self.terminal_ui.print_stream(final_text)\n757                             except Exception:\n758                                 pass\n759                         text_streamed = True\n",
+      "col_offset": 28,
+      "end_col_offset": 36,
+      "filename": "kogniterm/core/agents/super_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 757,
+      "line_range": [
+        757,
+        758
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "763                             self.terminal_ui.console.print()\n764                         except Exception:\n765                             pass\n766 \n",
+      "col_offset": 24,
+      "end_col_offset": 32,
+      "filename": "kogniterm/core/agents/super_agent.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 764,
+      "line_range": [
+        764,
+        765
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "313                     file_path = parsed.get(\"path\") or \"\"\n314             except Exception:\n315                 pass\n316 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/core/agents/tool_executor.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 314,
+      "line_range": [
+        314,
+        315
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -3147,7 +3273,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "507         if len(sanitized) > 64:\n508             name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:6]\n509             sanitized = f\"{sanitized[:57]}_{name_hash}\"\n",
+      "code": "525         if len(sanitized) > 64:\n526             name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:6]\n527             sanitized = f\"{sanitized[:57]}_{name_hash}\"\n",
       "col_offset": 24,
       "end_col_offset": 57,
       "filename": "kogniterm/core/antigravity_client.py",
@@ -3158,16 +3284,16 @@
       },
       "issue_severity": "HIGH",
       "issue_text": "Use of weak MD5 hash for security. Consider usedforsecurity=False",
-      "line_number": 508,
+      "line_number": 526,
       "line_range": [
-        508
+        526
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html",
       "test_id": "B324",
       "test_name": "hashlib"
     },
     {
-      "code": "793                                 wait_s = float(retry_after) if \"ms\" not in str(retry_after) else float(retry_after.replace(\"ms\", \"\")) / 1000.0\n794                             except Exception:\n795                                 pass\n796                         logger.warning(\n",
+      "code": "818                                 wait_s = float(retry_after) if \"ms\" not in str(retry_after) else float(retry_after.replace(\"ms\", \"\")) / 1000.0\n819                             except Exception:\n820                                 pass\n821                         logger.warning(\n",
       "col_offset": 28,
       "end_col_offset": 36,
       "filename": "kogniterm/core/antigravity_client.py",
@@ -3178,17 +3304,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 794,
+      "line_number": 819,
       "line_range": [
-        794,
-        795
+        819,
+        820
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "825                     error_detail = err_json.get(\"error\", {}).get(\"message\", resp.text)\n826             except Exception:\n827                 pass\n828             try:\n",
+      "code": "850                     error_detail = err_json.get(\"error\", {}).get(\"message\", resp.text)\n851             except Exception:\n852                 pass\n853             try:\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/antigravity_client.py",
@@ -3199,17 +3325,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 826,
+      "line_number": 851,
       "line_range": [
-        826,
-        827
+        851,
+        852
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "832                     df.write(f\"Response Error Body: {error_detail}\\n\")\n833             except Exception:\n834                 pass\n835             logger.error(f\"Error en API de Antigravity ({status_code}): {error_detail}\")\n",
+      "code": "857                     df.write(f\"Response Error Body: {error_detail}\\n\")\n858             except Exception:\n859                 pass\n860             logger.error(f\"Error en API de Antigravity ({status_code}): {error_detail}\")\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/antigravity_client.py",
@@ -3220,10 +3346,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 833,
+      "line_number": 858,
       "line_range": [
-        833,
-        834
+        858,
+        859
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -3424,7 +3550,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "415         # Usar 'bash' como shell persistente\n416         self._persistent_shell_process = subprocess.Popen(\n417             [\"bash\", \"--login\"],\n418             stdin=self._persistent_slave_fd,\n419             stdout=self._persistent_slave_fd,\n420             stderr=self._persistent_slave_fd,\n421             close_fds=True,\n422             preexec_fn=os.setsid,\n423             cwd=target_cwd,\n424             env=os.environ.copy()\n425         )\n426         # Consumir el banner inicial del shell y configurar variables sin demoras est\u00e1ticas\n",
+      "code": "424         # Usar 'bash' como shell persistente\n425         self._persistent_shell_process = subprocess.Popen(\n426             [\"bash\", \"--login\"],\n427             stdin=self._persistent_slave_fd,\n428             stdout=self._persistent_slave_fd,\n429             stderr=self._persistent_slave_fd,\n430             close_fds=True,\n431             preexec_fn=os.setsid,\n432             cwd=target_cwd,\n433             env=env\n434         )\n435         # Consumir el banner inicial del shell y configurar variables sin demoras est\u00e1ticas\n",
       "col_offset": 41,
       "end_col_offset": 9,
       "filename": "kogniterm/core/command_executor.py",
@@ -3435,25 +3561,25 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Starting a process with a partial executable path",
-      "line_number": 416,
+      "line_number": 425,
       "line_range": [
-        416,
-        417,
-        418,
-        419,
-        420,
-        421,
-        422,
-        423,
-        424,
-        425
+        425,
+        426,
+        427,
+        428,
+        429,
+        430,
+        431,
+        432,
+        433,
+        434
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html",
       "test_id": "B607",
       "test_name": "start_process_with_partial_path"
     },
     {
-      "code": "415         # Usar 'bash' como shell persistente\n416         self._persistent_shell_process = subprocess.Popen(\n417             [\"bash\", \"--login\"],\n418             stdin=self._persistent_slave_fd,\n419             stdout=self._persistent_slave_fd,\n420             stderr=self._persistent_slave_fd,\n421             close_fds=True,\n422             preexec_fn=os.setsid,\n423             cwd=target_cwd,\n424             env=os.environ.copy()\n425         )\n426         # Consumir el banner inicial del shell y configurar variables sin demoras est\u00e1ticas\n",
+      "code": "424         # Usar 'bash' como shell persistente\n425         self._persistent_shell_process = subprocess.Popen(\n426             [\"bash\", \"--login\"],\n427             stdin=self._persistent_slave_fd,\n428             stdout=self._persistent_slave_fd,\n429             stderr=self._persistent_slave_fd,\n430             close_fds=True,\n431             preexec_fn=os.setsid,\n432             cwd=target_cwd,\n433             env=env\n434         )\n435         # Consumir el banner inicial del shell y configurar variables sin demoras est\u00e1ticas\n",
       "col_offset": 41,
       "end_col_offset": 9,
       "filename": "kogniterm/core/command_executor.py",
@@ -3464,48 +3590,27 @@
       },
       "issue_severity": "LOW",
       "issue_text": "subprocess call - check for execution of untrusted input.",
-      "line_number": 416,
+      "line_number": 425,
       "line_range": [
-        416,
-        417,
-        418,
-        419,
-        420,
-        421,
-        422,
-        423,
-        424,
-        425
+        425,
+        426,
+        427,
+        428,
+        429,
+        430,
+        431,
+        432,
+        433,
+        434
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
       "test_id": "B603",
       "test_name": "subprocess_without_shell_equals_true"
     },
     {
-      "code": "438                     break\n439         except:\n440             pass\n441 \n",
+      "code": "447                     break\n448         except:\n449             pass\n450 \n",
       "col_offset": 8,
       "end_col_offset": 16,
-      "filename": "kogniterm/core/command_executor.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 439,
-      "line_range": [
-        439,
-        440
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "447                 os.killpg(os.getpgid(self._persistent_shell_process.pid), signal.SIGINT)\n448             except:\n449                 pass\n450 \n",
-      "col_offset": 12,
-      "end_col_offset": 20,
       "filename": "kogniterm/core/command_executor.py",
       "issue_confidence": "HIGH",
       "issue_cwe": {
@@ -3524,9 +3629,9 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "456             os.write(self._input_pipe_write, data)\n457         except Exception:\n458             pass\n",
-      "col_offset": 8,
-      "end_col_offset": 16,
+      "code": "456                 os.killpg(os.getpgid(self._persistent_shell_process.pid), signal.SIGINT)\n457             except:\n458                 pass\n459 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
       "filename": "kogniterm/core/command_executor.py",
       "issue_confidence": "HIGH",
       "issue_cwe": {
@@ -3539,6 +3644,27 @@
       "line_range": [
         457,
         458
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "465             os.write(self._input_pipe_write, data)\n466         except Exception:\n467             pass\n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": "kogniterm/core/command_executor.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 466,
+      "line_range": [
+        466,
+        467
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -3794,7 +3920,7 @@
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "295                 self.history_manager.stop_auto_save()\n296             except Exception:\n297                 pass\n298 \n",
+      "code": "305                 self.history_manager.stop_auto_save()\n306             except Exception:\n307                 pass\n308 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/llm_service.py",
@@ -3805,17 +3931,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 296,
+      "line_number": 306,
       "line_range": [
-        296,
-        297
+        306,
+        307
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "577             mcp_tools = MCPManager.get_instance().active_tools\n578         except Exception:\n579             pass\n580         return self.skill_manager.get_tools() + mcp_tools\n",
+      "code": "598             mcp_tools = MCPManager.get_instance().active_tools\n599         except Exception:\n600             pass\n601         return self.skill_manager.get_tools() + mcp_tools\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/core/llm_service.py",
@@ -3826,17 +3952,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 578,
+      "line_number": 599,
       "line_range": [
-        578,
-        579
+        599,
+        600
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "620                             logger.debug(f\"No se pudo cargar skill 'task_tracker': {e}\")\n621             except Exception:\n622                 pass\n623 \n",
+      "code": "641                             logger.debug(f\"No se pudo cargar skill 'task_tracker': {e}\")\n642             except Exception:\n643                 pass\n644 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/llm_service.py",
@@ -3847,17 +3973,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 621,
+      "line_number": 642,
       "line_range": [
-        621,
-        622
+        642,
+        643
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "671                 self.tool_map = new_map\n672             except Exception:\n673                 pass\n674 \n",
+      "code": "692                 self.tool_map = new_map\n693             except Exception:\n694                 pass\n695 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/llm_service.py",
@@ -3868,17 +3994,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 672,
+      "line_number": 693,
       "line_range": [
-        672,
-        673
+        693,
+        694
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "704                     return max_input\n705         except Exception:\n706             pass\n707 \n",
+      "code": "725                     return max_input\n726         except Exception:\n727             pass\n728 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/core/llm_service.py",
@@ -3889,17 +4015,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 705,
+      "line_number": 726,
       "line_range": [
-        705,
-        706
+        726,
+        727
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "845                 use_cloud = False\n846             elif api_base_local and any(h in api_base_local for h in [\"localhost\", \"127.0.0.1\", \"0.0.0.0\", \"::1\"]):\n847                 use_cloud = False\n",
+      "code": "886                 use_cloud = False\n887             elif api_base_local and any(h in api_base_local for h in [\"localhost\", \"127.0.0.1\", \"0.0.0.0\", \"::1\"]):\n888                 use_cloud = False\n",
       "col_offset": 96,
       "end_col_offset": 105,
       "filename": "kogniterm/core/llm_service.py",
@@ -3910,16 +4036,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 846,
+      "line_number": 887,
       "line_range": [
-        846
+        887
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "908                     memory_init_tool.invoke({\"history_file_path\": self.history_file_path})\n909             except Exception as e:\n910                 # print(f\"Advertencia: Error al inicializar la memoria: {e}\", file=sys.stderr)\n911                 pass # No es cr\u00edtico si falla la inicializaci\u00f3n de memoria\n912 \n",
+      "code": "949                     memory_init_tool.invoke({\"history_file_path\": self.history_file_path})\n950             except Exception as e:\n951                 # print(f\"Advertencia: Error al inicializar la memoria: {e}\", file=sys.stderr)\n952                 pass # No es cr\u00edtico si falla la inicializaci\u00f3n de memoria\n953 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/llm_service.py",
@@ -3930,18 +4056,18 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 909,
+      "line_number": 950,
       "line_range": [
-        909,
-        910,
-        911
+        950,
+        951,
+        952
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2413                                     return str(content)\n2414             except Exception:\n2415                 pass\n2416             return \"Error: No se pudo generar el resumen de la conversaci\u00f3n.\"\n",
+      "code": "2520                                     return str(content)\n2521             except Exception:\n2522                 pass\n2523             return \"Error: No se pudo generar el resumen de la conversaci\u00f3n.\"\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/core/llm_service.py",
@@ -3952,10 +4078,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2414,
+      "line_number": 2521,
       "line_range": [
-        2414,
-        2415
+        2521,
+        2522
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -3983,7 +4109,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "153                 return cm_key\n154         except Exception:\n155             pass\n156             \n",
+      "code": "159                 return cm_key\n160         except Exception:\n161             pass\n162             \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/core/multi_provider_manager.py",
@@ -3994,17 +4120,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 154,
+      "line_number": 160,
       "line_range": [
-        154,
-        155
+        160,
+        161
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "209             if api_base:\n210                 if any(x in api_base for x in [\"localhost\", \"127.0.0.1\", \"0.0.0.0\", \"::1\"]):\n211                     return True\n",
+      "code": "215             if api_base:\n216                 if any(x in api_base for x in [\"localhost\", \"127.0.0.1\", \"0.0.0.0\", \"::1\"]):\n217                     return True\n",
       "col_offset": 73,
       "end_col_offset": 82,
       "filename": "kogniterm/core/multi_provider_manager.py",
@@ -4015,9 +4141,9 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 210,
+      "line_number": 216,
       "line_range": [
-        210
+        216
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
@@ -4499,7 +4625,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "226                 return content\n227         except Exception:\n228             pass\n229 \n",
+      "code": "253                 return content\n254         except Exception:\n255             pass\n256 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/server/app.py",
@@ -4510,17 +4636,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 227,
+      "line_number": 254,
       "line_range": [
-        227,
-        228
+        254,
+        255
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "234             os.chmod(token_dir, 0o700)\n235         except Exception:\n236             pass\n237         token_file.write_text(new_token)\n",
+      "code": "261             os.chmod(token_dir, 0o700)\n262         except Exception:\n263             pass\n264         token_file.write_text(new_token)\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/server/app.py",
@@ -4531,17 +4657,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 235,
+      "line_number": 262,
       "line_range": [
-        235,
-        236
+        262,
+        263
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "239             os.chmod(token_file, 0o600)\n240         except Exception:\n241             pass\n242     except Exception as e:\n",
+      "code": "266             os.chmod(token_file, 0o600)\n267         except Exception:\n268             pass\n269     except Exception as e:\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/server/app.py",
@@ -4552,17 +4678,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 240,
+      "line_number": 267,
       "line_range": [
-        240,
-        241
+        267,
+        268
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "470                             google_models = fetched\n471             except Exception:\n472                 pass\n473 \n",
+      "code": "498                             google_models = fetched\n499             except Exception:\n500                 pass\n501 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4573,17 +4699,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 471,
+      "line_number": 499,
       "line_range": [
-        471,
-        472
+        499,
+        500
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "489                             openrouter_models = fetched\n490             except Exception:\n491                 pass\n492 \n",
+      "code": "517                             openrouter_models = fetched\n518             except Exception:\n519                 pass\n520 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4594,17 +4720,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 490,
+      "line_number": 518,
       "line_range": [
-        490,
-        491
+        518,
+        519
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "511                             openai_models = sorted(fetched)\n512             except Exception:\n513                 pass\n514 \n",
+      "code": "539                             openai_models = sorted(fetched)\n540             except Exception:\n541                 pass\n542 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4615,17 +4741,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 512,
+      "line_number": 540,
       "line_range": [
-        512,
-        513
+        540,
+        541
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "538                             anthropic_models = fetched\n539             except Exception:\n540                 pass\n541 \n",
+      "code": "566                             anthropic_models = fetched\n567             except Exception:\n568                 pass\n569 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4636,17 +4762,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 539,
+      "line_number": 567,
       "line_range": [
-        539,
-        540
+        567,
+        568
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "564                             ollama_models = fetched\n565             except Exception:\n566                 pass\n567 \n",
+      "code": "592                             ollama_models = fetched\n593             except Exception:\n594                 pass\n595 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4657,17 +4783,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 565,
+      "line_number": 593,
       "line_range": [
-        565,
-        566
+        593,
+        594
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "597                             kilocode_models = fetched\n598             except Exception:\n599                 pass\n600 \n",
+      "code": "625                             kilocode_models = fetched\n626             except Exception:\n627                 pass\n628 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4678,17 +4804,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 598,
+      "line_number": 626,
       "line_range": [
-        598,
-        599
+        626,
+        627
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "622                             ollama_cloud_models = fetched\n623             except Exception:\n624                 pass\n625 \n",
+      "code": "650                             ollama_cloud_models = fetched\n651             except Exception:\n652                 pass\n653 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4699,17 +4825,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 623,
+      "line_number": 651,
       "line_range": [
-        623,
-        624
+        651,
+        652
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "641                         antigravity_models = fetched\n642             except Exception:\n643                 pass\n644 \n",
+      "code": "669                         antigravity_models = fetched\n670             except Exception:\n671                 pass\n672 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4720,17 +4846,38 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 642,
+      "line_number": 670,
       "line_range": [
-        642,
-        643
+        670,
+        671
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1008                         vdb.close()\n1009                     except Exception:\n1010                         pass\n1011             else:\n",
+      "code": "704                             inception_models = fetched\n705             except Exception:\n706                 pass\n707 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/server/app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 705,
+      "line_range": [
+        705,
+        706
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1188                         vdb.close()\n1189                     except Exception:\n1190                         pass\n1191             else:\n",
       "col_offset": 20,
       "end_col_offset": 28,
       "filename": "kogniterm/server/app.py",
@@ -4741,17 +4888,38 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1009,
+      "line_number": 1189,
       "line_range": [
-        1009,
-        1010
+        1189,
+        1190
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1690 \n1691 def run_server(host: str = \"0.0.0.0\", port: int = 8765, reload: bool = False, workspace: Optional[str] = None):\n1692     \"\"\"Lanza el servidor KogniTerm.\"\"\"\n",
+      "code": "1681             await asyncio.gather(read_output(), read_input())\n1682         except Exception:\n1683             pass\n1684         finally:\n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": "kogniterm/server/app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 1682,
+      "line_range": [
+        1682,
+        1683
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1963 \n1964 def run_server(host: str = \"0.0.0.0\", port: int = 8765, reload: bool = False, workspace: Optional[str] = None):\n1965     \"\"\"Lanza el servidor KogniTerm.\"\"\"\n",
       "col_offset": 27,
       "end_col_offset": 36,
       "filename": "kogniterm/server/app.py",
@@ -4762,16 +4930,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 1691,
+      "line_number": 1964,
       "line_range": [
-        1691
+        1964
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "1710                     pid_file.unlink()\n1711             except Exception:\n1712                 pass\n1713         atexit.register(remove_pid_file)\n",
+      "code": "1983                     pid_file.unlink()\n1984             except Exception:\n1985                 pass\n1986         atexit.register(remove_pid_file)\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/server/app.py",
@@ -4782,10 +4950,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1711,
+      "line_number": 1984,
       "line_range": [
-        1711,
-        1712
+        1984,
+        1985
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -4832,7 +5000,7 @@
       "test_name": "hardcoded_password_string"
     },
     {
-      "code": "49         _original_chdir(abs_path)\n50     except Exception:\n51         pass\n52 \n",
+      "code": "50         _original_chdir(abs_path)\n51     except Exception:\n52         pass\n53 \n",
       "col_offset": 4,
       "end_col_offset": 12,
       "filename": "kogniterm/server/session_pool.py",
@@ -4843,17 +5011,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 50,
+      "line_number": 51,
       "line_range": [
-        50,
-        51
+        51,
+        52
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "62         _original_chdir(cwd)\n63     except Exception:\n64         pass\n65     tokens = []\n",
+      "code": "63         _original_chdir(cwd)\n64     except Exception:\n65         pass\n66     tokens = []\n",
       "col_offset": 4,
       "end_col_offset": 12,
       "filename": "kogniterm/server/session_pool.py",
@@ -4864,17 +5032,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 63,
+      "line_number": 64,
       "line_range": [
-        63,
-        64
+        64,
+        65
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1322                     os.chdir(old_cwd)\n1323                 except Exception:\n1324                     pass\n1325 \n",
+      "code": "1524                     os.chdir(old_cwd)\n1525                 except Exception:\n1526                     pass\n1527 \n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/server/session_pool.py",
@@ -4885,10 +5053,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1323,
+      "line_number": 1525,
       "line_range": [
-        1323,
-        1324
+        1525,
+        1526
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -5173,7 +5341,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "8 import logging\n9 import subprocess\n10 import shutil\n",
+      "code": "10 import logging\n11 import subprocess\n12 import shutil\n",
       "col_offset": 0,
       "end_col_offset": 17,
       "filename": "kogniterm/skills/bundled/code-tools/scripts/code_analysis.py",
@@ -5184,18 +5352,18 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Consider possible security implications associated with the subprocess module.",
-      "line_number": 9,
+      "line_number": 11,
       "line_range": [
-        9
+        11
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess",
       "test_id": "B404",
       "test_name": "blacklist"
     },
     {
-      "code": "209                     cmd = ['pylint', f, '--output-format=text', '--score=n', '--reports=n']\n210                     result = subprocess.run(cmd, capture_output=True, text=True)\n211                     output = result.stdout.strip()\n",
-      "col_offset": 29,
-      "end_col_offset": 80,
+      "code": "331                         cmd = [pylint_bin, f, '--output-format=text', '--score=n', '--reports=n']\n332                         result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)\n333                         output = result.stdout.strip()\n",
+      "col_offset": 33,
+      "end_col_offset": 96,
       "filename": "kogniterm/skills/bundled/code-tools/scripts/code_analysis.py",
       "issue_confidence": "HIGH",
       "issue_cwe": {
@@ -5204,18 +5372,18 @@
       },
       "issue_severity": "LOW",
       "issue_text": "subprocess call - check for execution of untrusted input.",
-      "line_number": 210,
+      "line_number": 332,
       "line_range": [
-        210
+        332
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
       "test_id": "B603",
       "test_name": "subprocess_without_shell_equals_true"
     },
     {
-      "code": "226                     cmd = ['eslint', f, '--format', 'stylish']\n227                     result = subprocess.run(cmd, capture_output=True, text=True)\n228                     output = result.stdout.strip()\n",
-      "col_offset": 29,
-      "end_col_offset": 80,
+      "code": "342                         cmd = [flake8_bin, f]\n343                         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)\n344                         output = result.stdout.strip()\n",
+      "col_offset": 33,
+      "end_col_offset": 96,
       "filename": "kogniterm/skills/bundled/code-tools/scripts/code_analysis.py",
       "issue_confidence": "HIGH",
       "issue_cwe": {
@@ -5224,9 +5392,29 @@
       },
       "issue_severity": "LOW",
       "issue_text": "subprocess call - check for execution of untrusted input.",
-      "line_number": 227,
+      "line_number": 343,
       "line_range": [
-        227
+        343
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
+      "test_id": "B603",
+      "test_name": "subprocess_without_shell_equals_true"
+    },
+    {
+      "code": "367                     cmd = [eslint_bin, f, '--format', 'stylish']\n368                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)\n369                     output = result.stdout.strip()\n",
+      "col_offset": 29,
+      "end_col_offset": 92,
+      "filename": "kogniterm/skills/bundled/code-tools/scripts/code_analysis.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 78,
+        "link": "https://cwe.mitre.org/data/definitions/78.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "subprocess call - check for execution of untrusted input.",
+      "line_number": 368,
+      "line_range": [
+        368
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
       "test_id": "B603",
@@ -5341,6 +5529,48 @@
       "line_range": [
         289,
         290
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "66                     original_content = f.read()\n67             except Exception:\n68                 pass\n69 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/skills/bundled/file-operations/scripts/file_write.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 67,
+      "line_range": [
+        67,
+        68
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "112                     original_content = f.read()\n113             except Exception:\n114                 pass\n115 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/skills/bundled/file-operations/scripts/file_write.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 113,
+      "line_range": [
+        113,
+        114
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -6553,7 +6783,7 @@
       "test_name": "subprocess_without_shell_equals_true"
     },
     {
-      "code": "257                     return parsed\n258             except Exception:\n259                 pass\n260             return {\"message\": result}\n",
+      "code": "284                     return parsed\n285             except Exception:\n286                 pass\n287             return {\"message\": result}\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/command_approval_handler.py",
@@ -6564,17 +6794,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 258,
+      "line_number": 285,
       "line_range": [
-        258,
-        259
+        285,
+        286
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "600                  diff_to_pass = command_to_execute\n601                  file_path_to_pass = \"bash\"\n602 \n",
+      "code": "627                  diff_to_pass = command_to_execute\n628                  file_path_to_pass = \"bash\"\n629 \n",
       "col_offset": 37,
       "end_col_offset": 43,
       "filename": "kogniterm/terminal/command_approval_handler.py",
@@ -6585,16 +6815,37 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Possible hardcoded password: 'bash'",
-      "line_number": 601,
+      "line_number": 628,
       "line_range": [
-        601
+        628
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html",
       "test_id": "B105",
       "test_name": "hardcoded_password_string"
     },
     {
-      "code": "754                             execute_kwargs[\"rows\"] = rows\n755                         except Exception:\n756                             pass\n757 \n",
+      "code": "659                             original_file_content = f.read()\n660                     except Exception:\n661                         pass\n662 \n",
+      "col_offset": 20,
+      "end_col_offset": 28,
+      "filename": "kogniterm/terminal/command_approval_handler.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 660,
+      "line_range": [
+        660,
+        661
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "794                             execute_kwargs[\"rows\"] = rows\n795                         except Exception:\n796                             pass\n797 \n",
       "col_offset": 24,
       "end_col_offset": 32,
       "filename": "kogniterm/terminal/command_approval_handler.py",
@@ -6605,10 +6856,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 755,
+      "line_number": 795,
       "line_range": [
-        755,
-        756
+        795,
+        796
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -6869,7 +7120,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "1081                     current_model = server_conf.get(\"model\")\n1082                 except Exception:\n1083                     pass\n1084             if not current_model and self.llm_service:\n",
+      "code": "1120                     current_model = server_conf.get(\"model\")\n1121                 except Exception:\n1122                     pass\n1123             if not current_model and self.llm_service:\n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/terminal/meta_command_processor.py",
@@ -6880,17 +7131,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1082,
+      "line_number": 1121,
       "line_range": [
-        1082,
-        1083
+        1121,
+        1122
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1110                         # Si la base apunta a localhost, es local\n1111                         if any(h in api_base for h in (\"localhost\", \"127.0.0.1\", \"0.0.0.0\", \"::1\")):\n1112                             current_provider = \"ollama\"\n",
+      "code": "1149                         # Si la base apunta a localhost, es local\n1150                         if any(h in api_base for h in (\"localhost\", \"127.0.0.1\", \"0.0.0.0\", \"::1\")):\n1151                             current_provider = \"ollama\"\n",
       "col_offset": 81,
       "end_col_offset": 90,
       "filename": "kogniterm/terminal/meta_command_processor.py",
@@ -6901,16 +7152,16 @@
       },
       "issue_severity": "MEDIUM",
       "issue_text": "Possible binding to all interfaces.",
-      "line_number": 1111,
+      "line_number": 1150,
       "line_range": [
-        1111
+        1150
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
       "test_id": "B104",
       "test_name": "hardcoded_bind_all_interfaces"
     },
     {
-      "code": "1585                 model_override = getattr(self.llm_service, 'model_name', None) or os.environ.get('LITELLM_MODEL')\n1586             except Exception:\n1587                 pass\n1588             agent = SuperAgent(model=model_override)\n",
+      "code": "1635                 model_override = getattr(self.llm_service, 'model_name', None) or os.environ.get('LITELLM_MODEL')\n1636             except Exception:\n1637                 pass\n1638             agent = SuperAgent(model=model_override)\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/meta_command_processor.py",
@@ -6921,17 +7172,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1586,
+      "line_number": 1636,
       "line_range": [
-        1586,
-        1587
+        1636,
+        1637
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1790                                     current_env_keys.append(k)\n1791                 except Exception:\n1792                     pass\n1793             \n",
+      "code": "1842                                     current_env_keys.append(k)\n1843                 except Exception:\n1844                     pass\n1845             \n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/terminal/meta_command_processor.py",
@@ -6942,17 +7193,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1791,
+      "line_number": 1843,
       "line_range": [
-        1791,
-        1792
+        1843,
+        1844
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1925             chat_log = self.terminal_ui.app.chat_log\n1926         except Exception:\n1927             pass\n1928 \n",
+      "code": "1980             chat_log = self.terminal_ui.app.chat_log\n1981         except Exception:\n1982             pass\n1983 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/meta_command_processor.py",
@@ -6963,10 +7214,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1926,
+      "line_number": 1981,
       "line_range": [
-        1926,
-        1927
+        1981,
+        1982
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -7141,7 +7392,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "458                 return None\n459         except Exception:\n460             pass\n461 \n",
+      "code": "461                 return None\n462         except Exception:\n463             pass\n464 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/components/chat_log.py",
@@ -7152,10 +7403,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 459,
+      "line_number": 462,
       "line_range": [
-        459,
-        460
+        462,
+        463
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -7600,7 +7851,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "329                             panel.update(accumulated)\n330                     except Exception:\n331                         pass\n332 \n",
+      "code": "346                             panel.update(accumulated)\n347                     except Exception:\n348                         pass\n349 \n",
       "col_offset": 20,
       "end_col_offset": 28,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7611,38 +7862,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 330,
+      "line_number": 347,
       "line_range": [
-        330,
-        331
+        347,
+        348
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "409                         panel.stop_stream()\n410                 except Exception:\n411                     pass\n412 \n",
-      "col_offset": 16,
-      "end_col_offset": 24,
-      "filename": "kogniterm/terminal/tui/tui_app.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 410,
-      "line_range": [
-        410,
-        411
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "494                 return cols, rows\n495         except Exception:\n496             pass\n497         # Fallback a shutil si no est\u00e1 disponible\n",
+      "code": "443             self._safe_call(target_log.write_message, panel)\n444         except Exception:\n445             pass\n446 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7653,17 +7883,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 495,
+      "line_number": 444,
       "line_range": [
-        495,
-        496
+        444,
+        445
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "579                     splash_input.focus()\n580                 except Exception:\n581                     pass\n582                 try:\n",
+      "code": "463                         panel.stop_stream()\n464                 except Exception:\n465                     pass\n466 \n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7674,80 +7904,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 580,
+      "line_number": 464,
       "line_range": [
-        580,
-        581
+        464,
+        465
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "584                     bottom_container.display = False\n585                 except Exception:\n586                     pass\n587             except Exception:\n",
-      "col_offset": 16,
-      "end_col_offset": 24,
-      "filename": "kogniterm/terminal/tui/tui_app.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 585,
-      "line_range": [
-        585,
-        586
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "1057                 self.llm_service.set_thread_manager(self.thread_manager)\n1058             except Exception:\n1059                 pass\n1060 \n",
-      "col_offset": 12,
-      "end_col_offset": 20,
-      "filename": "kogniterm/terminal/tui/tui_app.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1058,
-      "line_range": [
-        1058,
-        1059
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "1066                 self.thread_manager.create_thread(title=\"Nueva conversaci\u00f3n\")\n1067             except Exception:\n1068                 pass\n1069 \n",
-      "col_offset": 12,
-      "end_col_offset": 20,
-      "filename": "kogniterm/terminal/tui/tui_app.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1067,
-      "line_range": [
-        1067,
-        1068
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "1243             )\n1244         except Exception:\n1245             pass\n1246 \n",
+      "code": "548                 return cols, rows\n549         except Exception:\n550             pass\n551         # Fallback a shutil si no est\u00e1 disponible\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7758,17 +7925,59 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1244,
+      "line_number": 549,
       "line_range": [
-        1244,
-        1245
+        549,
+        550
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1384                 self.query_one(\"#chat_input\", ChatInput).focus()\n1385             except Exception:\n1386                 pass\n1387 \n",
+      "code": "633                     splash_input.focus()\n634                 except Exception:\n635                     pass\n636                 try:\n",
+      "col_offset": 16,
+      "end_col_offset": 24,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 634,
+      "line_range": [
+        634,
+        635
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "638                     bottom_container.display = False\n639                 except Exception:\n640                     pass\n641             except Exception:\n",
+      "col_offset": 16,
+      "end_col_offset": 24,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 639,
+      "line_range": [
+        639,
+        640
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1111                 self.llm_service.set_thread_manager(self.thread_manager)\n1112             except Exception:\n1113                 pass\n1114 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7779,17 +7988,80 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1385,
+      "line_number": 1112,
       "line_range": [
-        1385,
-        1386
+        1112,
+        1113
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1511                     self.query_one(\"#indexing_progress_container\").display = False\n1512                 except Exception:\n1513                     pass\n1514 \n",
+      "code": "1120                 self.thread_manager.create_thread(title=\"Nueva conversaci\u00f3n\")\n1121             except Exception:\n1122                 pass\n1123 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 1121,
+      "line_range": [
+        1121,
+        1122
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1297             )\n1298         except Exception:\n1299             pass\n1300 \n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 1298,
+      "line_range": [
+        1298,
+        1299
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1438                 self.query_one(\"#chat_input\", ChatInput).focus()\n1439             except Exception:\n1440                 pass\n1441 \n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 1439,
+      "line_range": [
+        1439,
+        1440
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "1565                     self.query_one(\"#indexing_progress_container\").display = False\n1566                 except Exception:\n1567                     pass\n1568 \n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7800,17 +8072,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1512,
+      "line_number": 1566,
       "line_range": [
-        1512,
-        1513
+        1566,
+        1567
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1539                     self.query_one(\"#indexing_progress_container\").display = False\n1540                 except Exception:\n1541                     pass\n1542 \n",
+      "code": "1593                     self.query_one(\"#indexing_progress_container\").display = False\n1594                 except Exception:\n1595                     pass\n1596 \n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7821,17 +8093,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1540,
+      "line_number": 1594,
       "line_range": [
-        1540,
-        1541
+        1594,
+        1595
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1560                             self.llm_service.skill_manager.load_skill(skill)\n1561                     except Exception:\n1562                         pass\n1563 \n",
+      "code": "1614                             self.llm_service.skill_manager.load_skill(skill)\n1615                     except Exception:\n1616                         pass\n1617 \n",
       "col_offset": 20,
       "end_col_offset": 28,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7842,17 +8114,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1561,
+      "line_number": 1615,
       "line_range": [
-        1561,
-        1562
+        1615,
+        1616
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1688                 )\n1689         except Exception:\n1690             pass\n1691 \n",
+      "code": "1742                 )\n1743         except Exception:\n1744             pass\n1745 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7863,17 +8135,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1689,
+      "line_number": 1743,
       "line_range": [
-        1689,
-        1690
+        1743,
+        1744
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1702             title_widget.update(self._build_splash_title())\n1703         except Exception:\n1704             pass\n1705 \n",
+      "code": "1756             title_widget.update(self._build_splash_title())\n1757         except Exception:\n1758             pass\n1759 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7884,17 +8156,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1703,
+      "line_number": 1757,
       "line_range": [
-        1703,
-        1704
+        1757,
+        1758
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1709             input_row.styles.background = p.GRAY_800\n1710         except Exception:\n1711             pass\n1712 \n",
+      "code": "1763             input_row.styles.background = p.GRAY_800\n1764         except Exception:\n1765             pass\n1766 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7905,17 +8177,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1710,
+      "line_number": 1764,
       "line_range": [
-        1710,
-        1711
+        1764,
+        1765
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1718             model_info.update(f\"[{p.TEXT_PRIMARY}]{display_model}[/{p.TEXT_PRIMARY}]\")\n1719         except Exception:\n1720             pass\n1721 \n",
+      "code": "1772             model_info.update(f\"[{p.TEXT_PRIMARY}]{display_model}[/{p.TEXT_PRIMARY}]\")\n1773         except Exception:\n1774             pass\n1775 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7926,17 +8198,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1719,
+      "line_number": 1773,
       "line_range": [
-        1719,
-        1720
+        1773,
+        1774
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1724             shortcuts.styles.color = p.TEXT_MUTED\n1725         except Exception:\n1726             pass\n1727 \n",
+      "code": "1778             shortcuts.styles.color = p.TEXT_MUTED\n1779         except Exception:\n1780             pass\n1781 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7947,17 +8219,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1725,
+      "line_number": 1779,
       "line_range": [
-        1725,
-        1726
+        1779,
+        1780
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1730             splash_overlay.styles.background = p.GRAY_900\n1731         except Exception:\n1732             pass\n1733 \n",
+      "code": "1784             splash_overlay.styles.background = p.GRAY_900\n1785         except Exception:\n1786             pass\n1787 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7968,17 +8240,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1731,
+      "line_number": 1785,
       "line_range": [
-        1731,
-        1732
+        1785,
+        1786
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "1739             splash_input.focus()\n1740         except Exception:\n1741             pass\n1742 \n",
+      "code": "1793             splash_input.focus()\n1794         except Exception:\n1795             pass\n1796 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -7989,17 +8261,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 1740,
+      "line_number": 1794,
       "line_range": [
-        1740,
-        1741
+        1794,
+        1795
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2082                     target_region = container.region\n2083             except Exception:\n2084                 pass\n2085 \n",
+      "code": "2136                     target_region = container.region\n2137             except Exception:\n2138                 pass\n2139 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8010,17 +8282,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2083,
+      "line_number": 2137,
       "line_range": [
-        2083,
-        2084
+        2137,
+        2138
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2100             self.command_popup.styles.offset = (popup_x, popup_y)\n2101         except Exception:\n2102             pass\n2103 \n",
+      "code": "2154             self.command_popup.styles.offset = (popup_x, popup_y)\n2155         except Exception:\n2156             pass\n2157 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8031,17 +8303,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2101,
+      "line_number": 2155,
       "line_range": [
-        2101,
-        2102
+        2155,
+        2156
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2174                     self.query_one(\"#chat_input\").focus()\n2175                 except:\n2176                     pass\n2177                 if not self.is_processing:\n",
+      "code": "2228                     self.query_one(\"#chat_input\").focus()\n2229                 except:\n2230                     pass\n2231                 if not self.is_processing:\n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8052,17 +8324,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2175,
+      "line_number": 2229,
       "line_range": [
-        2175,
-        2176
+        2229,
+        2230
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2247                         self.tui_ui.get_interrupt_queue().put_nowait(True)\n2248                     except Exception:\n2249                         pass\n2250                 else:\n",
+      "code": "2301                         self.tui_ui.get_interrupt_queue().put_nowait(True)\n2302                     except Exception:\n2303                         pass\n2304                 else:\n",
       "col_offset": 20,
       "end_col_offset": 28,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8073,17 +8345,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2248,
+      "line_number": 2302,
       "line_range": [
-        2248,
-        2249
+        2302,
+        2303
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2307                 main_input.refresh_history()\n2308             except:\n2309                 pass\n2310 \n",
+      "code": "2361                 main_input.refresh_history()\n2362             except:\n2363                 pass\n2364 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8094,17 +8366,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2308,
+      "line_number": 2362,
       "line_range": [
-        2308,
-        2309
+        2362,
+        2363
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2344             event.input.focus()\n2345         except Exception:\n2346             pass\n2347 \n",
+      "code": "2398             event.input.focus()\n2399         except Exception:\n2400             pass\n2401 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8115,17 +8387,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2345,
+      "line_number": 2399,
       "line_range": [
-        2345,
-        2346
+        2399,
+        2400
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2359                 rw(self._handle_input_async(user_input))\n2360             except Exception:\n2361                 pass\n2362 \n",
+      "code": "2413                 rw(self._handle_input_async(user_input))\n2414             except Exception:\n2415                 pass\n2416 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8136,17 +8408,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2360,
+      "line_number": 2414,
       "line_range": [
-        2360,
-        2361
+        2414,
+        2415
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2375                             rw(None)\n2376                         except Exception:\n2377                             pass\n2378                     return\n",
+      "code": "2429                             rw(None)\n2430                         except Exception:\n2431                             pass\n2432                     return\n",
       "col_offset": 24,
       "end_col_offset": 32,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8157,17 +8429,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2376,
+      "line_number": 2430,
       "line_range": [
-        2376,
-        2377
+        2430,
+        2431
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2378                     return\n2379             except Exception:\n2380                 pass\n2381         res = self.on_input_submitted(event)\n",
+      "code": "2432                     return\n2433             except Exception:\n2434                 pass\n2435         res = self.on_input_submitted(event)\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8178,17 +8450,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2379,
+      "line_number": 2433,
       "line_range": [
-        2379,
-        2380
+        2433,
+        2434
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2394             self.query_one(\"#bottom_container\").display = True\n2395         except:\n2396             pass\n2397         # Enfocar el ChatInput del chat (buscar por tipo, no por id)\n",
+      "code": "2448             self.query_one(\"#bottom_container\").display = True\n2449         except:\n2450             pass\n2451         # Enfocar el ChatInput del chat (buscar por tipo, no por id)\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8199,17 +8471,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2395,
+      "line_number": 2449,
       "line_range": [
-        2395,
-        2396
+        2449,
+        2450
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2400             chat_input.focus()\n2401         except Exception:\n2402             pass\n2403         # Procesar el primer mensaje\n",
+      "code": "2454             chat_input.focus()\n2455         except Exception:\n2456             pass\n2457         # Procesar el primer mensaje\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8220,17 +8492,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2401,
+      "line_number": 2455,
       "line_range": [
-        2401,
-        2402
+        2455,
+        2456
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2445             chat_container.styles.background = bg_color\n2446         except Exception:\n2447             pass\n2448 \n",
+      "code": "2499             chat_container.styles.background = bg_color\n2500         except Exception:\n2501             pass\n2502 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8241,17 +8513,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2446,
+      "line_number": 2500,
       "line_range": [
-        2446,
-        2447
+        2500,
+        2501
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2472             input_container.styles.border_left = (\"tall\", p.PRIMARY)\n2473         except Exception:\n2474             pass\n2475 \n",
+      "code": "2526             input_container.styles.border_left = (\"tall\", p.PRIMARY)\n2527         except Exception:\n2528             pass\n2529 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8262,17 +8534,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2473,
+      "line_number": 2527,
       "line_range": [
-        2473,
-        2474
+        2527,
+        2528
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2504                 self.query_one(\"#splash_title\").update(self._build_splash_title())\n2505             except Exception:\n2506                 pass\n2507 \n",
+      "code": "2558                 self.query_one(\"#splash_title\").update(self._build_splash_title())\n2559             except Exception:\n2560                 pass\n2561 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8283,17 +8555,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2505,
+      "line_number": 2559,
       "line_range": [
-        2505,
-        2506
+        2559,
+        2560
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2530                 self.call_from_thread(self._stop_spinner)\n2531             except Exception:\n2532                 pass\n2533         self.chat_log.write_stream(content)\n",
+      "code": "2584                 self.call_from_thread(self._stop_spinner)\n2585             except Exception:\n2586                 pass\n2587         self.chat_log.write_stream(content)\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8304,17 +8576,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2531,
+      "line_number": 2585,
       "line_range": [
-        2531,
-        2532
+        2585,
+        2586
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2596                 self.query_one(\"#chat_input\", ChatInput).focus()\n2597             except Exception:\n2598                 pass\n2599 \n",
+      "code": "2650                 self.query_one(\"#chat_input\", ChatInput).focus()\n2651             except Exception:\n2652                 pass\n2653 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8325,17 +8597,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2597,
+      "line_number": 2651,
       "line_range": [
-        2597,
-        2598
+        2651,
+        2652
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2628                 self.live_display.remove_class(\"interactive\")\n2629         except:\n2630             pass\n2631 \n",
+      "code": "2682                 self.live_display.remove_class(\"interactive\")\n2683         except:\n2684             pass\n2685 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8346,80 +8618,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2629,
+      "line_number": 2683,
       "line_range": [
-        2629,
-        2630
+        2683,
+        2684
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "2866             ConfigManager().set_project_config(\"auto_approve\", active)\n2867         except Exception:\n2868             pass\n2869         if hasattr(self, \"command_approval_handler\") and self.command_approval_handler:\n",
-      "col_offset": 8,
-      "end_col_offset": 16,
-      "filename": "kogniterm/terminal/tui/tui_app.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2867,
-      "line_range": [
-        2867,
-        2868
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "2874             footer.set_auto_approve(active)\n2875         except Exception:\n2876             pass\n2877 \n",
-      "col_offset": 8,
-      "end_col_offset": 16,
-      "filename": "kogniterm/terminal/tui/tui_app.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 2875,
-      "line_range": [
-        2875,
-        2876
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "3072             return widget\n3073         except Exception:\n3074             pass\n3075 \n",
-      "col_offset": 8,
-      "end_col_offset": 16,
-      "filename": "kogniterm/terminal/tui/tui_app.py",
-      "issue_confidence": "HIGH",
-      "issue_cwe": {
-        "id": 703,
-        "link": "https://cwe.mitre.org/data/definitions/703.html"
-      },
-      "issue_severity": "LOW",
-      "issue_text": "Try, Except, Pass detected.",
-      "line_number": 3073,
-      "line_range": [
-        3073,
-        3074
-      ],
-      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
-      "test_id": "B110",
-      "test_name": "try_except_pass"
-    },
-    {
-      "code": "3094                 tabbed_content.remove_pane(pane_id)\n3095             except Exception:\n3096                 pass\n3097 \n",
+      "code": "2741                             self.thread_manager.rename_thread(active_id, immediate_title, source=\"fallback\")\n2742             except Exception:\n2743                 pass\n2744 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8430,17 +8639,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 3095,
+      "line_number": 2742,
       "line_range": [
-        3095,
-        3096
+        2742,
+        2743
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "3129             self.query_one(\"#bottom_container\").display = True\n3130         except Exception:\n3131             pass\n3132         try:\n",
+      "code": "2943             ConfigManager().set_project_config(\"auto_approve\", active)\n2944         except Exception:\n2945             pass\n2946         if hasattr(self, \"command_approval_handler\") and self.command_approval_handler:\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8451,17 +8660,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 3130,
+      "line_number": 2944,
       "line_range": [
-        3130,
-        3131
+        2944,
+        2945
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "3133             self.query_one(\"#parallel_agents_container\").display = True\n3134         except Exception:\n3135             pass\n3136         self.refresh(layout=True)\n",
+      "code": "2951             footer.set_auto_approve(active)\n2952         except Exception:\n2953             pass\n2954 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8472,17 +8681,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 3134,
+      "line_number": 2952,
       "line_range": [
-        3134,
-        3135
+        2952,
+        2953
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "3141             self.query_one(\"#parallel_agents_container\").display = False\n3142         except Exception:\n3143             pass\n3144         self.refresh(layout=True)\n",
+      "code": "3149             return widget\n3150         except Exception:\n3151             pass\n3152 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8493,17 +8702,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 3142,
+      "line_number": 3150,
       "line_range": [
-        3142,
-        3143
+        3150,
+        3151
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "3171                 return\n3172             except Exception:\n3173                 pass\n3174         # Detener spinner INMEDIATAMENTE cuando llega contenido real.\n",
+      "code": "3171                 tabbed_content.remove_pane(pane_id)\n3172             except Exception:\n3173                 pass\n3174 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8524,7 +8733,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "3184                 log.scroll_end(animate=False)\n3185         except Exception:\n3186             pass\n3187 \n",
+      "code": "3206             self.query_one(\"#bottom_container\").display = True\n3207         except Exception:\n3208             pass\n3209         try:\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8535,17 +8744,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 3185,
+      "line_number": 3207,
       "line_range": [
-        3185,
-        3186
+        3207,
+        3208
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "3308             self.live_display.display = False\n3309         except Exception:\n3310             pass\n3311 \n",
+      "code": "3210             self.query_one(\"#parallel_agents_container\").display = True\n3211         except Exception:\n3212             pass\n3213         self.refresh(layout=True)\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/tui_app.py",
@@ -8556,10 +8765,94 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 3309,
+      "line_number": 3211,
       "line_range": [
-        3309,
-        3310
+        3211,
+        3212
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "3218             self.query_one(\"#parallel_agents_container\").display = False\n3219         except Exception:\n3220             pass\n3221         self.refresh(layout=True)\n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 3219,
+      "line_range": [
+        3219,
+        3220
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "3248                 return\n3249             except Exception:\n3250                 pass\n3251         # Detener spinner INMEDIATAMENTE cuando llega contenido real.\n",
+      "col_offset": 12,
+      "end_col_offset": 20,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 3249,
+      "line_range": [
+        3249,
+        3250
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "3261                 log.scroll_end(animate=False)\n3262         except Exception:\n3263             pass\n3264 \n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 3262,
+      "line_range": [
+        3262,
+        3263
+      ],
+      "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+      "test_id": "B110",
+      "test_name": "try_except_pass"
+    },
+    {
+      "code": "3385             self.live_display.display = False\n3386         except Exception:\n3387             pass\n3388 \n",
+      "col_offset": 8,
+      "end_col_offset": 16,
+      "filename": "kogniterm/terminal/tui/tui_app.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": {
+        "id": 703,
+        "link": "https://cwe.mitre.org/data/definitions/703.html"
+      },
+      "issue_severity": "LOW",
+      "issue_text": "Try, Except, Pass detected.",
+      "line_number": 3386,
+      "line_range": [
+        3386,
+        3387
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -8629,7 +8922,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "550                 return self._app.query_one(f\"#live_display_{agent_id}\", ChatLogWidget)\n551         except Exception:\n552             pass\n553 \n",
+      "code": "571                 return self._app.query_one(f\"#live_display_{agent_id}\", ChatLogWidget)\n572         except Exception:\n573             pass\n574 \n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/terminal/tui/ws_client.py",
@@ -8640,17 +8933,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 551,
+      "line_number": 572,
       "line_range": [
-        551,
-        552
+        572,
+        573
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "582                         container.display = True\n583                 except Exception:\n584                     pass\n585 \n",
+      "code": "603                         container.display = True\n604                 except Exception:\n605                     pass\n606 \n",
       "col_offset": 16,
       "end_col_offset": 24,
       "filename": "kogniterm/terminal/tui/ws_client.py",
@@ -8661,17 +8954,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 583,
+      "line_number": 604,
       "line_range": [
-        583,
-        584
+        604,
+        605
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "596                 container.active = pane_id\n597             except Exception:\n598                 pass\n599 \n",
+      "code": "617                 container.active = pane_id\n618             except Exception:\n619                 pass\n620 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/ws_client.py",
@@ -8682,17 +8975,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 597,
+      "line_number": 618,
       "line_range": [
-        597,
-        598
+        618,
+        619
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "610                 self._app.query_one(\"#live_display\").display = True\n611             except Exception:\n612                 pass\n613         except Exception as e:\n",
+      "code": "631                 self._app.query_one(\"#live_display\").display = True\n632             except Exception:\n633                 pass\n634         except Exception as e:\n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/ws_client.py",
@@ -8703,17 +8996,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 611,
+      "line_number": 632,
       "line_range": [
-        611,
-        612
+        632,
+        633
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "733                 asyncio.run_coroutine_threadsafe(self._ws.close(), asyncio.get_event_loop())\n734             except Exception:\n735                 pass\n736 \n",
+      "code": "754                 asyncio.run_coroutine_threadsafe(self._ws.close(), asyncio.get_event_loop())\n755             except Exception:\n756                 pass\n757 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/terminal/tui/ws_client.py",
@@ -8724,10 +9017,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 734,
+      "line_number": 755,
       "line_range": [
-        734,
-        735
+        755,
+        756
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
@@ -8776,7 +9069,7 @@
       "test_name": "try_except_pass"
     },
     {
-      "code": "202                 self.console.print(panel)\n203             except Exception:\n204                 pass\n205 \n",
+      "code": "236                 self.console.print(panel)\n237             except Exception:\n238                 pass\n239 \n",
       "col_offset": 12,
       "end_col_offset": 20,
       "filename": "kogniterm/ui/terminal_ui.py",
@@ -8787,17 +9080,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 203,
+      "line_number": 237,
       "line_range": [
-        203,
-        204
+        237,
+        238
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "547             self.console.clear()\n548         except Exception:\n549             pass\n550         try:\n",
+      "code": "592             self.console.clear()\n593         except Exception:\n594             pass\n595         try:\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/ui/terminal_ui.py",
@@ -8808,17 +9101,17 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 548,
+      "line_number": 593,
       "line_range": [
-        548,
-        549
+        593,
+        594
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",
       "test_name": "try_except_pass"
     },
     {
-      "code": "551             self.refresh_theme()\n552         except Exception:\n553             pass\n554         self.print_welcome_banner()\n",
+      "code": "596             self.refresh_theme()\n597         except Exception:\n598             pass\n599         self.print_welcome_banner()\n",
       "col_offset": 8,
       "end_col_offset": 16,
       "filename": "kogniterm/ui/terminal_ui.py",
@@ -8829,10 +9122,10 @@
       },
       "issue_severity": "LOW",
       "issue_text": "Try, Except, Pass detected.",
-      "line_number": 552,
+      "line_number": 597,
       "line_range": [
-        552,
-        553
+        597,
+        598
       ],
       "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
       "test_id": "B110",

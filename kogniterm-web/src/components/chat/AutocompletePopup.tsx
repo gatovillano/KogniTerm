@@ -1,0 +1,176 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Sparkles, Folder, Wrench } from 'lucide-react';
+
+interface CompletionItem {
+  text: string;
+  display: string;
+  description: string;
+  category: 'slash' | 'file' | 'skill';
+  icon: React.ElementType;
+}
+
+interface AutocompletePopupProps {
+  inputValue: string;
+  onSelect: (completionText: string) => void;
+  onClose: () => void;
+  workspaceFiles?: string[];
+  skillsList?: Array<{ name: string; description?: string; scope?: string }>;
+  isDark?: boolean;
+}
+
+const SLASH_COMMANDS: Omit<CompletionItem, 'icon'>[] = [
+  { text: '/help', display: '/help', description: 'Mostrar ayuda y comandos disponibles', category: 'slash' },
+  { text: '/reset', display: '/reset', description: 'Reiniciar la sesión de conversación', category: 'slash' },
+  { text: '/clear', display: '/clear', description: 'Limpiar el historial visible del chat', category: 'slash' },
+  { text: '/agent', display: '/agent', description: 'Cambiar o consultar agente activo', category: 'slash' },
+  { text: '/model', display: '/model', description: 'Cambiar el modelo LLM por defecto', category: 'slash' },
+  { text: '/skills', display: '/skills', description: 'Listar skills cargadas en el sistema', category: 'slash' },
+  { text: '/compact', display: '/compact', description: 'Comprimir el contexto del historial', category: 'slash' }
+];
+
+export const AutocompletePopup = React.memo(function AutocompletePopup({
+  inputValue,
+  onSelect,
+  onClose,
+  workspaceFiles = [],
+  skillsList = [],
+  isDark = true
+}: AutocompletePopupProps) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Determinar coincidencias usando useMemo para EVITAR recalcular en cada renderizado y no trabar la escritura
+  const items = useMemo(() => {
+    if (!inputValue) return [];
+
+    const words = inputValue.split(/\\s+/);
+    const lastWord = words[words.length - 1] || '';
+
+    let matches: CompletionItem[] = [];
+
+    // 1. Slash commands (/...)
+    if (inputValue.startsWith('/')) {
+      const term = inputValue.toLowerCase();
+      matches = SLASH_COMMANDS.filter(cmd => cmd.display.toLowerCase().includes(term))
+        .map(cmd => ({ ...cmd, icon: Sparkles }));
+    } 
+    // 2. File autocomplete (@...)
+    else if (lastWord.includes('@')) {
+      const parts = lastWord.split('@');
+      const term = parts[parts.length - 1].toLowerCase();
+      matches = workspaceFiles
+        .filter(f => typeof f === 'string' && (!term || f.toLowerCase().includes(term)))
+        .slice(0, 15)
+        .map(f => ({
+          text: `@${f}`,
+          display: f,
+          description: 'Archivo del workspace',
+          category: 'file',
+          icon: Folder
+        }));
+    }
+    // 3. Skill autocomplete (#...) — Filtra skills procedimentales
+    else if (lastWord.includes('#')) {
+      const parts = lastWord.split('#');
+      const term = parts[parts.length - 1].toLowerCase();
+      matches = skillsList
+        .filter(s => !term || s.name.toLowerCase().includes(term))
+        .slice(0, 15)
+        .map(s => ({
+          text: `#${s.name}`,
+          display: `#${s.name}`,
+          description: `${s.scope ? `[${s.scope}] ` : ''}${s.description || 'Skill procedimental'}`,
+          category: 'skill',
+          icon: Wrench
+        }));
+    }
+
+    return matches;
+  }, [inputValue, workspaceFiles, skillsList]);
+
+  // Resetear selección cuando cambia la lista
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [items]);
+
+  // Manejar teclado
+  useEffect(() => {
+    if (items.length === 0) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(prev => (prev + 1) % items.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(prev => (prev - 1 + items.length) % items.length);
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        if (items[selectedIndex]) {
+          onSelect(items[selectedIndex].text);
+        }
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [items, selectedIndex, onSelect, onClose]);
+
+  if (items.length === 0) return null;
+
+  const bgColor = isDark ? 'bg-slate-900/90' : 'bg-white/95';
+  const borderColor = isDark ? 'border-indigo-500/30' : 'border-indigo-500/50';
+  const headerTextColor = isDark ? 'text-indigo-400' : 'text-indigo-700';
+  const headerBorderColor = isDark ? 'border-white/5' : 'border-slate-200';
+  const headerDescColor = isDark ? 'text-indigo-400' : 'text-indigo-600';
+  const itemBgSelected = isDark ? 'bg-indigo-600/30' : 'bg-indigo-50';
+  const itemTextSelected = isDark ? 'text-white' : 'text-indigo-900';
+  const itemBorderSelected = isDark ? 'border-indigo-500/40' : 'border-indigo-500';
+  const itemTextNormal = isDark ? 'text-slate-300' : 'text-slate-800';
+  const itemBgHover = isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50';
+  const iconBgSelected = isDark ? 'bg-indigo-500/30' : 'bg-indigo-100';
+  const iconColorSelected = isDark ? 'text-indigo-300' : 'text-indigo-700';
+  const iconBgNormal = isDark ? 'bg-slate-800' : 'bg-slate-100';
+  const iconColorNormal = isDark ? 'text-slate-400' : 'text-slate-600';
+  const descColorNormal = isDark ? 'opacity-60' : 'opacity-65';
+  const itemTextNormalFull = isDark ? 'text-slate-300' : 'text-slate-700';
+  const descColor = isDark ? 'text-slate-400' : 'text-slate-500';
+
+  return (
+    <div 
+      className={`absolute bottom-full mb-2 left-0 right-0 max-h-60 overflow-y-auto chat-card rounded-xl border ${borderColor} shadow-2xl z-50 p-1.5 custom-scrollbar backdrop-blur-md ${bgColor}`}
+    >
+      <div className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider border-b ${headerBorderColor} mb-1 flex justify-between ${headerTextColor}`}>
+        <span>Sugerencias ({items.length})</span>
+        <span className={headerDescColor}>Tab / ↵ para autocompletar</span>
+      </div>
+      <div className="space-y-0.5">
+        {items.map((item, idx) => {
+          const Icon = item.icon;
+          const isSelected = idx === selectedIndex;
+          return (
+            <div
+              key={item.text + idx}
+              onClick={() => onSelect(item.text)}
+              onMouseEnter={() => setSelectedIndex(idx)}
+              className={`flex items-center justify-between px-3 py-1.5 rounded-lg cursor-pointer text-xs transition-colors ${
+                isSelected 
+                  ? `${itemBgSelected} ${itemTextSelected} border ${itemBorderSelected}` 
+                  : `${itemTextNormalFull} ${itemBgHover}`
+              }`}
+            >
+              <div className="flex items-center space-x-2.5 min-w-0">
+                <div className={`p-1 rounded ${isSelected ? `${iconBgSelected} ${iconColorSelected}` : `${iconBgNormal} ${iconColorNormal}`}`}>
+                  <Icon className="w-3.5 h-3.5" />
+                </div>
+                <span className="font-mono font-medium truncate">{item.display}</span>
+              </div>
+              <span className={`text-[10px] ${descColor} ml-2 truncate font-sans ${descColorNormal}`}>{item.description}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});

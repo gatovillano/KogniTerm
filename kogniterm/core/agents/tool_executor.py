@@ -208,7 +208,7 @@ class ToolExecutor:
                     tool_name, full_tool_output, command=command_hint
                 )
             elif terminal_ui:
-                # Para herramientas de edición de archivos, mostrar el diff aplicado
+                # Para herramientas de edición de archivos, mostrar únicamente el diff aplicado
                 # Se pasa full_tool_output (normalizado) para extraer el diff del resultado
                 ToolExecutor._render_file_edit_diff(
                     terminal_ui, tool_name, tool_args, full_tool_output
@@ -321,6 +321,14 @@ class ToolExecutor:
         if not diff_content or not file_path:
             return
 
+        if hasattr(terminal_ui, "show_applied_diff"):
+            terminal_ui.show_applied_diff(
+                tool_name=tool_name,
+                file_path=file_path,
+                diff_content=diff_content,
+            )
+            return
+
         try:
             from kogniterm.utils.diff_renderer import DiffRenderer
             from rich.panel import Panel
@@ -340,10 +348,7 @@ class ToolExecutor:
                 expand=True,
             )
 
-            if hasattr(terminal_ui, "update_live") and hasattr(terminal_ui, "stop_live"):
-                terminal_ui.update_live(panel)
-                terminal_ui.stop_live()
-            elif hasattr(terminal_ui, "console"):
+            if hasattr(terminal_ui, "console"):
                 terminal_ui.console.print(panel)
             elif hasattr(terminal_ui, "print_message"):
                 terminal_ui.print_message(
@@ -351,6 +356,9 @@ class ToolExecutor:
                     f"**Operación:** `{tool_name}`\n\n"
                     f"```diff\n{diff_content}\n```"
                 )
+            elif hasattr(terminal_ui, "update_live") and hasattr(terminal_ui, "stop_live"):
+                terminal_ui.update_live(panel)
+                terminal_ui.stop_live()
         except Exception as e:
             logger.warning(f"No se pudo renderizar diff post-edición: {e}")
 

@@ -10,17 +10,25 @@ export function parseAppliedDiff(
 ): AppliedDiff | null {
     if (!rawContent || typeof rawContent !== 'string') return null;
 
-    let diffText = rawContent;
+    // 0. Remove ANSI escape sequences (e.g. \x1b[32m, \x1b[0m) and bracket color codes (e.g. [32m, [0m, [2;36m)
+    let cleaned = rawContent
+        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+        .replace(/\[(?:\d+;)*\d+m/g, '')
+        .replace(/\[\/?(?:dim|italic|bold|cyan|white|yellow|green|red|blue|magenta|black|strike|underline|#\w+)(?:\s+[a-zA-Z0-9_#]+)*\]/gi, '')
+        .replace(/\[\/\]/g, '');
+
+    let diffText = cleaned;
     let filePath = fallbackFilePath || '';
     let extractedTool = toolName || '';
 
     // 1. JSON Payload format
-    if (rawContent.trim().startsWith('{') && rawContent.trim().endsWith('}')) {
+    if (cleaned.trim().startsWith('{') && cleaned.trim().endsWith('}')) {
         try {
-            const parsed = JSON.parse(rawContent);
+            const parsed = JSON.parse(cleaned);
             if (parsed.diff_content) diffText = parsed.diff_content;
             else if (parsed.diff) diffText = parsed.diff;
-            if (parsed.file_path || parsed.filePath) filePath = parsed.file_path || parsed.filePath;
+            else if (parsed.applied_diff) diffText = parsed.applied_diff;
+            if (parsed.file_path || parsed.filePath || parsed.path) filePath = parsed.file_path || parsed.filePath || parsed.path;
             if (parsed.tool || parsed.tool_name || parsed.operation) {
                 extractedTool = parsed.tool || parsed.tool_name || parsed.operation;
             }
@@ -29,7 +37,24 @@ export function parseAppliedDiff(
         }
     }
 
-    // 2. Explicit ```diff ... ``` code block format
+    // 2. If it contains table box border lines (e.g. Rich Table / Console panel), extract metadata and inner diff lines
+    if (diffText.includes('│') || diffText.includes('┃')) {
+        const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n│┃]+)/i) || diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n│┃]+)`?/i);
+        if (titleMatch && !filePath) {
+            filePath = titleMatch[1].replace(/[`─│┃\s]+$/g, '').trim();
+        }
+        const opMatch = diffText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?/i);
+        if (opMatch && !extractedTool) extractedTool = opMatch[1];
+
+        // Strip border characters from each line
+        const strippedLines = diffText.split('\n')
+            .filter(l => !l.includes('╭') && !l.includes('╰') && !l.includes('─') && !l.includes('┌') && !l.includes('└'))
+            .map(l => l.replace(/^[\s│┃]+/, '').replace(/[\s│┃]+$/, ''));
+        
+        diffText = strippedLines.join('\n');
+    }
+
+    // 3. Explicit ```diff ... ``` code block format
     const explicitDiffBlockMatch = diffText.match(/```diff\n([\s\S]*?)\n```/i);
     let isExplicitDiffBlock = false;
     if (explicitDiffBlockMatch) {
@@ -37,7 +62,7 @@ export function parseAppliedDiff(
         const headerText = diffText.substring(0, diffText.indexOf('```'));
         const opMatch = headerText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?/i);
         if (opMatch && !extractedTool) extractedTool = opMatch[1];
-        const pathMatch = headerText.match(/Cambios aplicados en\s*`?([^`\n]+)`?/i);
+        const pathMatch = headerText.match(/Cambios aplicados en\s*`?([^`\n]+)`?/i) || headerText.match(/Diff aplicado:\s*`?([^`\n]+)`?/i);
         if (pathMatch && !filePath) filePath = pathMatch[1];
 
         diffText = explicitDiffBlockMatch[1];
@@ -51,13 +76,13 @@ export function parseAppliedDiff(
 
         const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n]+)/i) || diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n]+)`?/i);
         if (titleMatch && !filePath) {
-            filePath = titleMatch[1].trim();
+            filePath = titleMatch[1].replace(/[`─│┃\s]+$/g, '').trim();
         }
     }
 
-    // STRICT VALIDATION: MUST have valid unified diff header markers or explicit ```diff block
-    const hasHeaderLines = /--- (a\/|\/|[^\s]+)[\s\S]*?\+\+\+ (b\/|\/|[^\s]+)/.test(diffText) || /diff --git a\//.test(diffText) || /Index:\s+/.test(diffText);
-    const hasHunkHeader = /^@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@/m.test(diffText);
+    // STRICT VALIDATION: MUST have valid unified diff header markers, hunk header, or explicit ```diff block
+    const hasHeaderLines = /--- (a\/|\/|[^\s]+)[\s\S]*?\+\+\+ (b\/|\/|[^\s]+)/.test(diffText) || /diff --git\//.test(diffText) || /Index:\s+/.test(diffText);
+    const hasHunkHeader = /(?:^|\n)\s*@@\s+-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s+@@/.test(diffText);
 
     // If no header lines, no hunk header (@@ -X,Y +A,B @@), and not explicit ```diff, reject as NOT a diff
     if (!hasHeaderLines && !hasHunkHeader && !isExplicitDiffBlock) {
@@ -81,7 +106,7 @@ export function parseAppliedDiff(
     for (const line of lines) {
         const trimmed = line.trim();
 
-        if (trimmed.startsWith('@@')) {
+        if (trimmed.startsWith('@@') || /(?:^|\s)@@\s+-\d+/.test(trimmed)) {
             inHunk = true;
             continue;
         }
@@ -93,9 +118,9 @@ export function parseAppliedDiff(
 
         if (inHunk || isExplicitDiffBlock) {
             // Standard diff additions and deletions
-            if (line.startsWith('+') && !line.startsWith('+++')) {
+            if (trimmed.startsWith('+') && !trimmed.startsWith('+++')) {
                 additions++;
-            } else if (line.startsWith('-') && !line.startsWith('---')) {
+            } else if (trimmed.startsWith('-') && !trimmed.startsWith('---')) {
                 deletions++;
             }
             // Rich Console line numbers format: e.g. "188+" or "185 185 - ..." or "195+ - ..."
@@ -448,8 +473,21 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                             };
                             return newMessages;
                         } else {
+                            const updatedPrev = prev.map((msg) => {
+                                if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.some(tc => tc.status === 'running')) {
+                                    return {
+                                        ...msg,
+                                        tool_calls: msg.tool_calls.map(tc => tc.status === 'running' ? {
+                                            ...tc,
+                                            status: 'completed' as const,
+                                            execution_time: tc.started_at ? `${Math.max(1, Date.now() - tc.started_at)}ms` : tc.execution_time,
+                                        } : tc)
+                                    };
+                                }
+                                return msg;
+                            });
                             return [
-                                ...prev,
+                                ...updatedPrev,
                                 {
                                     id: Date.now().toString(),
                                     role: 'assistant',
@@ -510,6 +548,18 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
 
                     const thinking = payload.thinking || '';
                     const response = payload.response || '';
+
+                    // Si response contiene un diff aplicado, registrarlo y no volcarlo como texto al cuerpo del mensaje del asistente
+                    const isDiffResponse = response && (
+                        response.includes('Diff aplicado:') ||
+                        response.includes('Cambios aplicados en') ||
+                        parseAppliedDiff(response) !== null
+                    );
+                    if (isDiffResponse) {
+                        recordDiffIfAny(response);
+                        return;
+                    }
+
                     if (response) recordDiffIfAny(response);
 
                     setMessages((prev) => {
@@ -566,6 +616,28 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                         }
                     });
                     setIsTerminalVisible(true);
+
+                    // Mark running tool call as completed immediately when output is received
+                    setMessages((prev) => {
+                        return prev.map((msg) => {
+                            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.some(tc => tc.status === 'running')) {
+                                return {
+                                    ...msg,
+                                    tool_calls: msg.tool_calls.map(tc => {
+                                        if (tc.status === 'running' && (!payload.tool_call_id || tc.id === payload.tool_call_id)) {
+                                            return {
+                                                ...tc,
+                                                status: 'completed' as const,
+                                                execution_time: tc.started_at ? `${Math.max(1, Date.now() - tc.started_at)}ms` : tc.execution_time,
+                                            };
+                                        }
+                                        return tc;
+                                    })
+                                };
+                            }
+                            return msg;
+                        });
+                    });
                 } else if (data.type === 'tool_call') {
                     const payload = data.data || data;
                     setMessages((prev) => {
@@ -573,12 +645,20 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                         const toolCall = {
                             id: payload.id || data.id || Date.now().toString(),
                             name: payload.name || 'Unknown Tool',
-                            args: payload.args || payload.description || ''
+                            args: payload.args || payload.description || '',
+                            status: 'running' as const,
+                            started_at: Date.now(),
                         };
 
                         if (lastMessage && lastMessage.role === 'assistant') {
                             const newMessages = [...prev];
-                            const tool_calls = [...(lastMessage.tool_calls || []), toolCall];
+                            // Mark previous running tools in this message as completed
+                            const tool_calls = (lastMessage.tool_calls || []).map(tc => tc.status === 'running' ? {
+                                ...tc,
+                                status: 'completed' as const,
+                                execution_time: tc.started_at ? `${Math.max(1, Date.now() - tc.started_at)}ms` : tc.execution_time,
+                            } : tc);
+                            tool_calls.push(toolCall);
                             newMessages[newMessages.length - 1] = {
                                 ...lastMessage,
                                 tool_calls,
@@ -600,19 +680,47 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                 } else if (data.type === 'tool_result') {
                     const payload = data.data || data;
                     const contentStr = typeof payload.content === 'string' ? payload.content : JSON.stringify(payload.content || '');
+                    const targetToolId = payload.tool_call_id || data.tool_call_id;
                     
                     recordDiffIfAny(contentStr, payload.file_path || payload.filePath, payload.tool || payload.tool_name);
 
-                    setMessages((prev) => [
-                        ...prev,
-                        {
-                            id: Date.now().toString(),
-                            role: 'tool',
-                            content: contentStr,
-                            tool_call_id: payload.tool_call_id || data.tool_call_id,
-                            timestamp: Date.now(),
-                        },
-                    ]);
+                    setMessages((prev) => {
+                        const updatedPrev = prev.map((msg) => {
+                            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+                                let updated = false;
+                                const updatedCalls = msg.tool_calls.map((tc) => {
+                                    if (!updated && (tc.status === 'running' || !tc.status) && (!targetToolId || tc.id === targetToolId)) {
+                                        updated = true;
+                                        const duration = tc.started_at ? `${Math.max(1, Date.now() - tc.started_at)}ms` : undefined;
+                                        return {
+                                            ...tc,
+                                            status: 'completed' as const,
+                                            execution_time: duration || tc.execution_time,
+                                        };
+                                    }
+                                    return tc;
+                                });
+                                if (updated) {
+                                    return {
+                                        ...msg,
+                                        tool_calls: updatedCalls,
+                                    };
+                                }
+                            }
+                            return msg;
+                        });
+
+                        return [
+                            ...updatedPrev,
+                            {
+                                id: Date.now().toString(),
+                                role: 'tool',
+                                content: contentStr,
+                                tool_call_id: targetToolId,
+                                timestamp: Date.now(),
+                            },
+                        ];
+                    });
                 } else if (data.type === 'clear_chat') {
                     setMessages([]);
                     setTerminalEntries([]);
@@ -620,27 +728,97 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                     setTaskPlans({});
                     setIsGenerating(false);
                 } else if (data.type === 'done') {
+                    setMessages((prev) => {
+                        return prev.map((msg) => {
+                            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.some(tc => tc.status === 'running')) {
+                                return {
+                                    ...msg,
+                                    tool_calls: msg.tool_calls.map(tc => tc.status === 'running' ? {
+                                        ...tc,
+                                        status: 'completed' as const,
+                                        execution_time: tc.started_at ? `${Math.max(1, Date.now() - tc.started_at)}ms` : tc.execution_time,
+                                    } : tc)
+                                };
+                            }
+                            return msg;
+                        });
+                    });
                     setIsGenerating(false);
                 } else if (data.type === 'error') {
                     const payload = data.data || data;
+                    setMessages((prev) => {
+                        return prev.map((msg) => {
+                            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.some(tc => tc.status === 'running')) {
+                                return {
+                                    ...msg,
+                                    tool_calls: msg.tool_calls.map(tc => tc.status === 'running' ? {
+                                        ...tc,
+                                        status: 'error' as const,
+                                        execution_time: tc.started_at ? `${Math.max(1, Date.now() - tc.started_at)}ms` : tc.execution_time,
+                                    } : tc)
+                                };
+                            }
+                            return msg;
+                        });
+                    });
                     setError(payload.content || payload.message || 'Unknown error');
                     setIsGenerating(false);
                 } else if (data.type === 'thread_title_updated') {
                     window.dispatchEvent(new CustomEvent('thread_update'));
+                } else if (data.type === 'applied_diff') {
+                    const payload = data.data || data;
+                    const diffText = payload.diff_content || payload.diff || payload.content || '';
+                    const filePath = payload.file_path || payload.filePath || '';
+                    const toolName = payload.tool_name || payload.tool || '';
+                    recordDiffIfAny(diffText, filePath, toolName);
                 } else if (data.type === 'info') {
                     const payload = data.data || data;
                     const infoText = payload.content || payload.text || '';
                     if (infoText) recordDiffIfAny(infoText);
 
+                    // Si infoText contiene aprendizaje consolidado, lo marcamos con rol 'learning'
+                    const isLearningInfo = Boolean(
+                        payload.learning ||
+                        (typeof infoText === 'string' && infoText.toLowerCase().includes('aprendizaje consolidado'))
+                    );
+
                     setMessages((prev) => [
                         ...prev,
                         {
                             id: Date.now().toString(),
-                            role: 'system',
-                            content: infoText,
+                            role: isLearningInfo ? 'learning' : 'system',
+                            content: payload.learning || infoText,
                             timestamp: Date.now(),
                         },
                     ]);
+                } else if (data.type === 'learning') {
+                    const payload = data.data || data;
+                    const text = typeof payload === 'string' ? payload : (payload.text || payload.content || '');
+                    if (text) {
+                        setMessages((prev) => [
+                            ...prev,
+                            {
+                                id: Date.now().toString(),
+                                role: 'learning',
+                                content: text,
+                                timestamp: Date.now(),
+                            },
+                        ]);
+                    }
+                } else if (data.type === 'message') {
+                    const payload = data.data || data;
+                    const text = typeof payload === 'string' ? payload : (payload.text || payload.content || '');
+                    if (text) {
+                        setMessages((prev) => [
+                            ...prev,
+                            {
+                                id: Date.now().toString(),
+                                role: (payload.role || 'system') as any,
+                                content: text,
+                                timestamp: Date.now(),
+                            },
+                        ]);
+                    }
                 } else if (data.type === 'approval_required') {
                     // Show approval dialog to the user instead of auto-approving
                     const payload = data.data || data;
@@ -666,6 +844,26 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                 } else if (data.type === 'task_tracker') {
                     const payload = data.data || data;
                     setTaskPlans(payload);
+                    setMessages((prev) => {
+                        return prev.map((msg) => {
+                            if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.some(tc => tc.status === 'running' && tc.name === 'task_tracker')) {
+                                return {
+                                    ...msg,
+                                    tool_calls: msg.tool_calls.map(tc => {
+                                        if (tc.status === 'running' && tc.name === 'task_tracker') {
+                                            return {
+                                                ...tc,
+                                                status: 'completed' as const,
+                                                execution_time: tc.started_at ? `${Math.max(1, Date.now() - tc.started_at)}ms` : tc.execution_time,
+                                            };
+                                        }
+                                        return tc;
+                                    })
+                                };
+                            }
+                            return msg;
+                        });
+                    });
                 } else if (data.type === 'set_terminal_cursor') {
                     const payload = data.data || data;
                     if (payload.active) {
@@ -765,6 +963,17 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ type: 'interrupt' }));
         }
+        setMessages((prev) => {
+            return prev.map((msg) => {
+                if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.some(tc => tc.status === 'running')) {
+                    return {
+                        ...msg,
+                        tool_calls: msg.tool_calls.map(tc => tc.status === 'running' ? { ...tc, status: 'completed' as const } : tc)
+                    };
+                }
+                return msg;
+            });
+        });
         setIsGenerating(false);
     }, []);
 

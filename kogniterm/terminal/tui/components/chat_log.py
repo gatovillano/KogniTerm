@@ -440,12 +440,15 @@ class ChatLogWidget(VerticalScroll):
         _mount_tool_notify(Group(*lines))
 
     def write_tool_output(self, content: str, tool_name: str, language: str = None):
-        """Escribe la salida de una herramienta usando el ToolOutputWidget."""
+        """Escribe la salida de una herramienta usando el ToolOutputWidget (solo comandos de terminal)."""
+        from kogniterm.core.agents.super_agent import is_terminal_tool
+        if not is_terminal_tool(tool_name) and not (language and any(kw in language.lower() for kw in ("bash", "sh", "terminal", "python", "cmd"))):
+            return None
         self._active_thinking_widget = None
         self._active_message_widget = None
         def _mount_tool_output(c, tname, lang):
             try:
-                widget = ToolOutputWidget(c, tname, language=lang)
+                widget = ToolOutputWidget(c, tname, language=lang, command=lang or "")
                 self.mount(widget)
                 self.scroll_end(animate=False)
                 return widget

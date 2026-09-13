@@ -585,6 +585,8 @@ class ThreadManager:
                         kwargs["api_base"] = api_base
                     if "kilocode" in llm_service.model_name.lower() or (api_base and "kilo.ai" in api_base):
                         kwargs["custom_llm_provider"] = "openai"
+                    elif "inception" in llm_service.model_name.lower() or "mercury" in llm_service.model_name.lower() or (api_base and "inceptionlabs.ai" in api_base):
+                        kwargs["custom_llm_provider"] = "openai"
 
                     response = completion(**kwargs)
 

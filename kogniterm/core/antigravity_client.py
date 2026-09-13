@@ -225,6 +225,24 @@ class AntigravityClient:
                                     except Exception as e:
                                         logger.warning(f"Error parseando data URL de imagen en AntigravityClient: {e}")
                                         user_parts.append({"text": f"[Imagen: {url[:30]}...]"})
+                                elif url.startswith("file://") or (isinstance(url, str) and os.path.exists(url) and os.path.isfile(url)):
+                                    try:
+                                        import base64
+                                        import mimetypes
+                                        f_path = url[7:] if url.startswith("file://") else url
+                                        mime_type, _ = mimetypes.guess_type(f_path)
+                                        mime_type = mime_type or "image/png"
+                                        with open(f_path, "rb") as f_img:
+                                            b64 = base64.b64encode(f_img.read()).decode("utf-8")
+                                        user_parts.append({
+                                            "inlineData": {
+                                                "mimeType": mime_type,
+                                                "data": b64
+                                            }
+                                        })
+                                    except Exception as e:
+                                        logger.warning(f"Error cargando archivo de imagen local en AntigravityClient: {e}")
+                                        user_parts.append({"text": f"[Imagen archivo: {url}]"})
                                 else:
                                     user_parts.append({"text": f"[Imagen URL: {url}]"})
                         elif isinstance(item, str):
@@ -737,7 +755,14 @@ class AntigravityClient:
         first_user_text = ""
         for msg in messages:
             if msg.get("role") == "user":
-                first_user_text = str(msg.get("content") or "")
+                c = msg.get("content")
+                if isinstance(c, str):
+                    first_user_text = c
+                elif isinstance(c, list):
+                    first_user_text = " ".join(
+                        part.get("text", "") for part in c
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
                 break
 
         session_id, request_id, labels = cls.get_session_envelope(first_user_text)
