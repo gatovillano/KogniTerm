@@ -430,17 +430,13 @@ body {
   }
 }
 
-/* OpenClaw / Claude Inspired Minimalist Theme Styles */
+/* Minimalist Clean Canvas Background */
 .bg-topo-pattern {
-  background-color: #fbfbfb;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'%3E%3Cg fill='none' stroke='%23e4e4e7' stroke-width='1.1' opacity='0.65'%3E%3Cpath d='M-100,180 C150,80 300,280 500,160 C700,40 850,220 950,140'/%3E%3Cpath d='M-50,320 C200,200 350,380 550,260 C750,140 900,320 1000,220'/%3E%3Cpath d='M-120,460 C120,340 320,500 520,380 C720,260 880,440 980,340'/%3E%3Cpath d='M-80,600 C180,480 380,620 580,500 C780,380 920,560 1020,480'/%3E%3Cpath d='M-40,80 C220,10 400,120 600,40 C800,-40 940,100 1040,20'/%3E%3C/g%3E%3C/svg%3E");
-  background-attachment: fixed;
-  background-size: cover;
+  background-color: #fafafa;
 }
 
 .dark .bg-topo-pattern {
   background-color: #09090b;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='800' viewBox='0 0 800 800'%3E%3Cg fill='none' stroke='%2327272a' stroke-width='1.1' opacity='0.4'%3E%3Cpath d='M-100,180 C150,80 300,280 500,160 C700,40 850,220 950,140'/%3E%3Cpath d='M-50,320 C200,200 350,380 550,260 C750,140 900,320 1000,220'/%3E%3Cpath d='M-120,460 C120,340 320,500 520,380 C720,260 880,440 980,340'/%3E%3Cpath d='M-80,600 C180,480 380,620 580,500 C780,380 920,560 1020,480'/%3E%3Cpath d='M-40,80 C220,10 400,120 600,40 C800,-40 940,100 1040,20'/%3E%3C/g%3E%3C/svg%3E");
 }
 
 /* User Message Top Box */

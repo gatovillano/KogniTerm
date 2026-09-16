@@ -93,6 +93,15 @@ class SessionCreateRequest(BaseModel):
     )
 
 
+class WorkspaceCreateRequest(BaseModel):
+    path: str = Field(..., description="Ruta absoluta o relativa del workspace")
+    name: Optional[str] = Field(default=None, description="Nombre descriptivo del workspace")
+
+
+class WorkspaceDeleteRequest(BaseModel):
+    path: str = Field(..., description="Ruta del workspace a eliminar")
+
+
 class ThreadRenameRequest(BaseModel):
     title: str = Field(..., description="Nuevo título para el hilo")
 
@@ -1312,10 +1321,58 @@ def create_app() -> FastAPI:
             return {"status": "closed", "session_id": session_id}
         return {"status": "not_found", "session_id": session_id}
 
+    # ── Gestión de Workspaces ─────────────────────────────────────────────────
+
+    @application.get("/api/workspaces", tags=["Workspaces"])
+    async def list_workspaces():
+        """Lista todos los workspaces conocidos registrados en el backend."""
+        await pool.wait_until_ready()
+        if pool._thread_manager:
+            workspaces = pool._thread_manager.get_known_workspaces()
+            return {"workspaces": workspaces}
+        return {"workspaces": []}
+
+    @application.post("/api/workspaces", tags=["Workspaces"], status_code=201)
+    async def add_workspace(req: WorkspaceCreateRequest):
+        """Registra un nuevo workspace conocido."""
+        await pool.wait_until_ready()
+        if not pool._thread_manager:
+            raise HTTPException(status_code=500, detail="ThreadManager no disponible")
+
+        target_path = safe_abs_path(req.path)
+        if not os.path.exists(target_path) or not os.path.isdir(target_path):
+            raise HTTPException(status_code=400, detail=f"El directorio no existe: {req.path}")
+
+        success = pool._thread_manager.register_workspace(target_path)
+        if not success:
+            raise HTTPException(status_code=400, detail="Ruta de workspace no permitida o inválida")
+
+        name = req.name or os.path.basename(target_path.rstrip("/")) or target_path
+        ws_obj = {
+            "id": f"ws-{abs(hash(target_path))}",
+            "name": name,
+            "path": target_path
+        }
+        return {"status": "ok", "workspace": ws_obj}
+
+    @application.delete("/api/workspaces", tags=["Workspaces"])
+    async def remove_workspace(path: Optional[str] = None, req: Optional[WorkspaceDeleteRequest] = None):
+        """Elimina un workspace de la lista de conocidos."""
+        await pool.wait_until_ready()
+        target_path = path or (req.path if req else None)
+        if not target_path:
+            raise HTTPException(status_code=400, detail="Se requiere el parámetro 'path'")
+
+        if pool._thread_manager:
+            clean = safe_abs_path(target_path)
+            removed = pool._thread_manager.unregister_workspace(clean)
+            return {"status": "ok", "deleted": target_path, "success": removed}
+        raise HTTPException(status_code=500, detail="ThreadManager no disponible")
+
     # ── Gestión de Hilos de Chat (Threads) ─────────────────────────────────────
 
     @application.get("/api/threads", tags=["Threads"])
-    async def list_threads(workspace_dirs: Optional[str] = None):
+    async def list_threads(workspace_dirs: Optional[str] = None, filter_only: bool = False):
         """Lista todos los hilos guardados escaneando los workspaces especificados o conocidos."""
         await pool.wait_until_ready()
         if pool._thread_manager:
@@ -1327,7 +1384,11 @@ def create_app() -> FastAPI:
                     if sess.workspace_dir:
                         dirs.append(sess.workspace_dir)
                         pool._thread_manager.register_workspace(sess.workspace_dir)
-            return {"threads": pool._thread_manager.list_threads(additional_dirs=dirs)}
+            all_threads = pool._thread_manager.list_threads(additional_dirs=dirs)
+            if filter_only and dirs:
+                dir_set = set(dirs)
+                all_threads = [t for t in all_threads if safe_abs_path(t.get("workspace_dir")) in dir_set]
+            return {"threads": all_threads}
         return {"threads": []}
 
     @application.post("/api/threads", tags=["Threads"], status_code=201)

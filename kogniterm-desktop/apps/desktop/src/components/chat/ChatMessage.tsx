@@ -3,9 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Terminal, Copy, Check } from 'lucide-react';
 import { Message } from '../../types/chat';
-import { ThinkingSpinner } from './ThinkingSpinner';
 import { AppliedDiffCard } from './AppliedDiffCard';
 import { parseAppliedDiff } from '../../hooks/useChat';
 
@@ -13,37 +12,59 @@ interface ChatMessageProps {
     message: Message;
 }
 
+const CodeBlock: React.FC<{ language?: string; codeString: string }> = ({ language, codeString }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(codeString);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div className="my-3 rounded-lg overflow-hidden border border-slate-200/80 dark:border-zinc-800 bg-[#121214] text-left shadow-2xs">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100/90 dark:bg-[#18181b] border-b border-slate-200/60 dark:border-zinc-800/80 text-[11px] font-mono text-slate-500 dark:text-zinc-400 select-none">
+                <span className="uppercase text-[10px] tracking-wider font-semibold">{language || 'code'}</span>
+                <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-slate-200/60 dark:hover:bg-zinc-800"
+                    title="Copiar código"
+                >
+                    {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                    <span className="text-[10px]">{copied ? 'Copiado' : 'Copiar'}</span>
+                </button>
+            </div>
+            <SyntaxHighlighter
+                style={vscDarkPlus}
+                language={language || 'text'}
+                PreTag="div"
+                customStyle={{
+                    margin: 0,
+                    padding: '0.85rem 1rem',
+                    background: '#121214',
+                    fontSize: '0.8125rem',
+                    lineHeight: '1.6',
+                    fontFamily: 'var(--font-mono)',
+                }}
+            >
+                {codeString}
+            </SyntaxHighlighter>
+        </div>
+    );
+};
+
 const renderCodeBlock = (children: any, className?: string, props?: any) => {
     const match = /language-(\w+)/.exec(className || '');
     const codeString = String(children).replace(/\n$/, '');
     const isMultiLine = codeString.includes('\n');
 
     if (match || isMultiLine) {
-        return (
-            <div className="my-3 rounded-xl overflow-hidden border border-slate-700/80 bg-[#0f172a] shadow-md text-left">
-                <SyntaxHighlighter
-                    style={vscDarkPlus}
-                    language={match ? match[1] : 'text'}
-                    PreTag="div"
-                    customStyle={{
-                        margin: 0,
-                        padding: '1rem',
-                        background: '#0f172a',
-                        fontSize: '0.85rem',
-                        lineHeight: '1.6',
-                        fontFamily: 'var(--font-mono)',
-                    }}
-                    {...props}
-                >
-                    {codeString}
-                </SyntaxHighlighter>
-            </div>
-        );
+        return <CodeBlock language={match ? match[1] : undefined} codeString={codeString} />;
     }
 
     return (
         <code
-            className={`${className || ''} bg-indigo-50/80 border border-indigo-200/60 px-1.5 py-0.5 rounded text-indigo-700 font-mono text-[12.5px] font-medium`}
+            className="font-mono text-[12px] bg-slate-100 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-700/60 px-1.5 py-0.5 rounded text-slate-800 dark:text-zinc-200 font-normal"
             {...props}
         >
             {children}
@@ -70,28 +91,27 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
         if (parsedDiff) {
             return (
-                <div className="flex w-full mb-4 justify-start pl-12 pr-4 animate-fade-in max-w-[95%]">
-                    <AppliedDiffCard diff={parsedDiff} defaultExpanded={true} />
+                <div className="w-full my-2 animate-fade-in">
+                    <AppliedDiffCard diff={parsedDiff} defaultExpanded={false} />
                 </div>
             );
         }
 
         return (
-            <div className="flex w-full mb-4 justify-start pl-12 animate-fade-in">
-                <div className="flex flex-col gap-1 w-full max-w-[90%]">
-                    <button 
-                        onClick={() => setIsToolOpen(!isToolOpen)}
-                        className="flex items-center gap-2 text-[11px] font-bold text-zinc-500 uppercase tracking-widest ml-1 hover:text-zinc-700 transition-colors w-fit cursor-pointer"
-                    >
-                        <ChevronRight size={12} className={`text-emerald-600 transition-transform duration-300 ${isToolOpen ? 'rotate-90' : ''}`} />
-                        <span>Resultado de Herramienta</span>
-                    </button>
-                    {isToolOpen && (
-                        <div className="output-code-card mt-1 whitespace-pre-wrap max-h-96 overflow-y-auto custom-scrollbar">
-                            {rawText}
-                        </div>
-                    )}
-                </div>
+            <div className="w-full my-1.5 animate-fade-in">
+                <button 
+                    onClick={() => setIsToolOpen(!isToolOpen)}
+                    className="flex items-center gap-1.5 text-[11px] font-mono text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors cursor-pointer py-1"
+                >
+                    <ChevronRight size={12} className={`text-slate-400 dark:text-zinc-500 transition-transform duration-200 ${isToolOpen ? 'rotate-90' : ''}`} />
+                    <Terminal size={12} className="text-emerald-500" />
+                    <span>Salida de comando ({rawText.split('\n').length} líneas)</span>
+                </button>
+                {isToolOpen && (
+                    <div className="mt-1.5 p-3 rounded-lg bg-[#121214] border border-slate-200/80 dark:border-zinc-800 font-mono text-[11.5px] text-zinc-300 whitespace-pre-wrap max-h-80 overflow-y-auto custom-scrollbar">
+                        {rawText}
+                    </div>
+                )}
             </div>
         );
     }
@@ -109,8 +129,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         }
 
         return (
-            <div className="flex w-full mb-4 justify-center px-4 animate-fade-in">
-                <div className="text-xs text-zinc-600 bg-zinc-100 border border-zinc-200 rounded-full px-4 py-1.5 font-medium tracking-wide">
+            <div className="flex w-full my-2 justify-center px-4 animate-fade-in">
+                <div className="text-[11px] text-slate-500 dark:text-zinc-400 bg-slate-100/60 dark:bg-zinc-800/40 border border-slate-200/50 dark:border-zinc-800/50 rounded-full px-3 py-1 font-mono tracking-wide">
                     {message.content}
                 </div>
             </div>
@@ -121,41 +141,35 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     const reasoningSingleLine = reasoningRaw.replace(/[*#`_\n\r]/g, ' ').replace(/\s+/g, ' ').trim();
 
     return (
-        <div className="flex w-full mb-4 justify-start animate-fade-in">
-            <div className="flex flex-col items-start w-full min-w-0">
+        <div className={`flex w-full mb-5 ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+            <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} w-full min-w-0`}>
                 
                 {/* Reasoning Block */}
                 {!isUser && message.reasoning && (
-                    <div className="w-full mb-1 max-w-full">
+                    <div className="w-full mb-2 max-w-full">
                         <button
                             onClick={() => setIsReasoningOpen(!isReasoningOpen)}
-                            className="flex items-center gap-2 mb-1 text-xs font-normal text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors cursor-pointer select-none max-w-full truncate"
+                            className="flex items-center gap-1.5 py-1 text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 transition-colors cursor-pointer select-none max-w-full truncate"
                         >
                             <ChevronRight
                                 size={12}
-                                className={`transition-transform duration-300 text-zinc-400 shrink-0 ${isReasoningOpen ? 'rotate-90' : ''}`}
+                                className={`transition-transform duration-200 text-slate-400 dark:text-zinc-500 shrink-0 ${isReasoningOpen ? 'rotate-90' : ''}`}
                             />
-                            <ThinkingSpinner compact text="Thinking" />
+                            <span className="font-medium text-[11.5px]">Pensamiento</span>
                             {!isReasoningOpen && reasoningSingleLine && (
-                                <span className="truncate text-zinc-400 dark:text-zinc-500 italic text-[12px] font-normal min-w-0">
-                                    {reasoningSingleLine}
+                                <span className="truncate text-slate-400 dark:text-zinc-500 text-[11px] font-normal min-w-0">
+                                    — {reasoningSingleLine}
                                 </span>
                             )}
                         </button>
 
                         {isReasoningOpen && (
-                            <div className="text-[12.5px] text-zinc-600 dark:text-zinc-400 leading-relaxed pl-3 border-l border-zinc-200 dark:border-zinc-800 my-1 markdown-content reasoning-text">
+                            <div className="text-[12.5px] text-slate-600 dark:text-zinc-400 leading-relaxed pl-3.5 border-l-2 border-slate-200 dark:border-zinc-800 my-1.5">
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{
-                                        pre: ({ children }) => <>{children}</>,
-                                        code({ node, inline, className, children, ...props }: any) {
-                                            return renderCodeBlock(children, className, props);
-                                        },
-                                        p: ({ children }) => <p className="mb-1 last:mb-0 leading-relaxed text-zinc-500">{children}</p>,
-                                        ul: ({ children }) => <ul className="list-disc ml-5 mb-1 marker:text-zinc-400">{children}</ul>,
-                                        ol: ({ children }) => <ol className="list-decimal ml-5 mb-1 marker:text-zinc-400">{children}</ol>,
-                                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                                        p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
+                                        code: ({ children }) => <code className="font-mono text-[11.5px] bg-slate-100 dark:bg-zinc-800 px-1 py-0.5 rounded">{children}</code>,
                                     }}
                                 >
                                     {typeof message.reasoning === 'string' ? message.reasoning : JSON.stringify(message.reasoning, null, 2)}
@@ -165,9 +179,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                     </div>
                 )}
 
-                {/* Tool Calls - OpenClaw Style "Ran · <cmd> <duration>" */}
+                {/* Tool Calls */}
                 {!isUser && message.tool_calls && message.tool_calls.length > 0 && (
-                    <div className="flex flex-col gap-1 w-full my-2">
+                    <div className="flex flex-col gap-1 w-full my-1.5">
                         {message.tool_calls.map((tool, idx) => {
                             const argStr = typeof tool.args === 'string' ? tool.args : JSON.stringify(tool.args || {});
                             const displayArgs = argStr
@@ -178,16 +192,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                             const sampleTime = (tool as any).execution_time || `${Math.floor(Math.random() * 700 + 80)}ms`;
 
                             return (
-                                <div key={tool.id || idx} className="tool-run-row select-none">
-                                    <div className="tool-run-badge truncate max-w-[82%]">
-                                        <span className="tool-run-icon">&gt;_</span>
-                                        <span className="truncate">
-                                            <span className="text-zinc-600 dark:text-zinc-400 font-medium">Ran</span>
-                                            <span className="text-zinc-400 dark:text-zinc-500 mx-1">·</span>
-                                            <span className="font-mono text-zinc-700 dark:text-zinc-300">{shortCmd}</span>
-                                        </span>
+                                <div key={tool.id || idx} className="flex items-center justify-between gap-2 py-1 px-2.5 rounded-md bg-slate-100/60 dark:bg-zinc-800/40 border border-slate-200/50 dark:border-zinc-800/60 text-xs my-0.5 select-none font-mono">
+                                    <div className="flex items-center gap-2 truncate min-w-0">
+                                        <Terminal size={12} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                        <span className="text-slate-500 dark:text-zinc-400 font-sans text-[11px] font-medium">Ejecutado</span>
+                                        <span className="text-slate-300 dark:text-zinc-600">·</span>
+                                        <span className="truncate text-slate-700 dark:text-zinc-300 text-[11.5px]">{shortCmd}</span>
                                     </div>
-                                    <span className="text-zinc-400 dark:text-zinc-500 text-xs font-mono shrink-0">
+                                    <span className="text-slate-400 dark:text-zinc-500 text-[10px] shrink-0 font-mono">
                                         {sampleTime}
                                     </span>
                                 </div>
@@ -200,7 +212,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 {message.images && message.images.length > 0 && (
                     <div className="flex flex-wrap gap-2 my-2 justify-start">
                         {message.images.map((imgUrl, index) => (
-                            <div key={index} className="relative group max-w-xs rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-900 shadow-sm">
+                            <div key={index} className="relative group max-w-xs rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 bg-zinc-900 shadow-2xs">
                                 <img
                                     src={imgUrl}
                                     alt={`Imagen adjunta ${index + 1}`}
@@ -215,7 +227,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 {/* Response Body */}
                 {message.content && (
                     isUser ? (
-                        <div className="user-msg-box my-1">
+                        <div className="max-w-[85%] bg-slate-100/90 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-700/60 rounded-2xl px-4 py-2.5 my-1 text-slate-800 dark:text-zinc-100 text-[13.5px] leading-relaxed shadow-2xs">
                             <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
                                 components={{
@@ -223,7 +235,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                     code({ node, inline, className, children, ...props }: any) {
                                         return renderCodeBlock(children, className, props);
                                     },
-                                    p: ({ children }) => <p className="mb-0 leading-relaxed text-zinc-800 dark:text-zinc-100">{children}</p>,
+                                    p: ({ children }) => <p className="mb-0 leading-relaxed text-slate-800 dark:text-zinc-100">{children}</p>,
                                     ul: ({ children }) => <ul className="list-disc ml-5 mb-2">{children}</ul>,
                                     ol: ({ children }) => <ol className="list-decimal ml-5 mb-2">{children}</ol>,
                                 }}
@@ -236,43 +248,51 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                         const parsedDiff = parseAppliedDiff(rawText);
                         if (parsedDiff) {
                             return (
-                                <div className="w-full my-1">
+                                <div className="w-full my-2">
                                     <AppliedDiffCard diff={parsedDiff} defaultExpanded={true} />
                                 </div>
                             );
                         }
                         return (
-                            <div className="assistant-msg-text markdown-content w-full py-1">
+                            <div className="assistant-msg-text w-full py-1 text-slate-800 dark:text-zinc-200 text-[14px] leading-relaxed select-text">
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
-                                        components={{
-                                            pre: ({ children }) => <>{children}</>,
-                                            code({ node, inline, className, children, ...props }: any) {
-                                                return renderCodeBlock(children, className, props);
-                                            },
-                                            p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed text-zinc-800">{children}</p>,
-                                            ul: ({ children }) => <ul className="list-disc ml-5 mb-3 marker:text-indigo-600">{children}</ul>,
-                                            ol: ({ children }) => <ol className="list-decimal ml-5 mb-3 marker:text-indigo-600">{children}</ol>,
-                                            hr: () => <hr className="border-t border-zinc-200 my-6" />,
-                                        }}
-                                    >
-                                        {rawText}
-                                    </ReactMarkdown>
-                                </div>
-                            );
-                        })()
-                    )}
+                                    components={{
+                                        pre: ({ children }) => <>{children}</>,
+                                        code({ node, inline, className, children, ...props }: any) {
+                                            return renderCodeBlock(children, className, props);
+                                        },
+                                        p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>,
+                                        ul: ({ children }) => <ul className="list-disc ml-5 mb-3 marker:text-slate-400 dark:marker:text-zinc-500 space-y-1">{children}</ul>,
+                                        ol: ({ children }) => <ol className="list-decimal ml-5 mb-3 marker:text-slate-400 dark:marker:text-zinc-500 space-y-1">{children}</ol>,
+                                        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                                        h1: ({ children }) => <h1 className="text-lg font-semibold text-slate-900 dark:text-zinc-100 mt-4 mb-2 first:mt-0">{children}</h1>,
+                                        h2: ({ children }) => <h2 className="text-base font-semibold text-slate-900 dark:text-zinc-100 mt-3 mb-1.5 first:mt-0">{children}</h2>,
+                                        h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 mt-2 mb-1 first:mt-0">{children}</h3>,
+                                        blockquote: ({ children }) => <blockquote className="border-l-2 border-slate-300 dark:border-zinc-700 pl-3 my-2 text-slate-600 dark:text-zinc-400 italic">{children}</blockquote>,
+                                        hr: () => <hr className="border-t border-slate-200 dark:border-zinc-800 my-4" />,
+                                        a: ({ href, children }) => (
+                                            <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 underline underline-offset-2 hover:opacity-80">
+                                                {children}
+                                            </a>
+                                        ),
+                                    }}
+                                >
+                                    {rawText}
+                                </ReactMarkdown>
+                            </div>
+                        );
+                    })()
+                )}
 
-                    {/* Timestamp */}
-                    {message.timestamp && (
-                        <span className="text-[10px] text-zinc-600 mt-1 px-1 select-none">
-                            {formatTime(message.timestamp)}
-                        </span>
-                    )}
+                {/* Timestamp */}
+                {message.timestamp && (
+                    <span className={`text-[10px] text-slate-400 dark:text-zinc-500 mt-1 select-none font-mono ${isUser ? 'mr-1' : 'ml-0.5'}`}>
+                        {formatTime(message.timestamp)}
+                    </span>
+                )}
 
             </div>
         </div>
     );
 };
-
-

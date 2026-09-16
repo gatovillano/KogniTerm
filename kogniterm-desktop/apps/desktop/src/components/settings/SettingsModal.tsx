@@ -753,7 +753,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     Tema de la Aplicación
                   </h3>
                   <p className="text-xs text-slate-500 dark:text-zinc-400 mb-4">
-                    Selecciona tu preferencia de tema para KogniTerm Desktop.
+                    Selecciona tu preferencia de tema para la interfaz.
                   </p>
 
                   <div className="grid grid-cols-3 gap-3">

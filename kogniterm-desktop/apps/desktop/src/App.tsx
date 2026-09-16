@@ -1,14 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
-import {
-  ChatMessage,
-  ThinkingSpinner,
-  CommandApproval,
-  FileExplorer,
-  SkillsPanel,
-  HeartbeatsPanel,
-  SessionHistoryPanel,
-  QuestionModal,
-} from '@kogniterm/ui';
+import { ChatMessage } from './components/chat/ChatMessage';
+import { ThinkingSpinner } from './components/chat/ThinkingSpinner';
+import { CommandApproval } from './components/chat/CommandApproval';
+import { FileExplorer } from './components/files/FileExplorer';
+import { SkillsPanel } from './components/skills/SkillsPanel';
+import { HeartbeatsPanel } from './components/heartbeats/HeartbeatsPanel';
+import { SessionHistoryPanel } from './components/session/SessionHistoryPanel';
+import { QuestionModal } from './components/modals/QuestionModal';
 import { ChatInput } from './components/chat/ChatInput';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { RightSidebar } from './components/chat/RightSidebar';
@@ -16,10 +14,9 @@ import { ProjectsSidebar } from './components/sidebar/ProjectsSidebar';
 import { AddProjectModal } from './components/modals/AddProjectModal';
 import { useProjects } from './hooks/useProjects';
 import { useChat } from './hooks/useChat';
-import { useTheme } from './hooks/useTheme';
-import { API_BASE_URL } from './config/api';
+import { API_BASE_URL, isTauriApp } from './config/api';
 import { 
-  ShieldCheck, Zap, PanelRightOpen, Sun, Moon, Monitor
+  ShieldCheck, Zap, PanelRightOpen, Folder
 } from 'lucide-react';
 import './App.css';
 
@@ -78,17 +75,11 @@ function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLElement>(null);
 
-  // Live Clock & Greeting State (Goose UI)
-  const { theme, setTheme } = useTheme();
-  const [currentTime, setCurrentTime] = useState<string>('');
-  const [greeting, setGreeting] = useState<string>('Buenas tardes');
   const [autoApprove, setAutoApprove] = useState<boolean>(false);
 
-  const toggleThemeQuick = () => {
-    if (theme === 'light') setTheme('dark');
-    else if (theme === 'dark') setTheme('system');
-    else setTheme('light');
-  };
+  useEffect(() => {
+    document.title = isTauriApp() ? 'KogniTerm Desktop' : 'KogniTerm Web';
+  }, []);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/config/all`)
@@ -114,27 +105,6 @@ function App() {
       console.error('Error toggling auto_approve:', err);
     }
   };
-
-  useEffect(() => {
-    const updateClock = () => {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-      setCurrentTime(timeStr);
-
-      const hour = now.getHours();
-      if (hour < 12) {
-        setGreeting('Buenos días');
-      } else if (hour < 20) {
-        setGreeting('Buenas tardes');
-      } else {
-        setGreeting('Buenas noches');
-      }
-    };
-
-    updateClock();
-    const interval = setInterval(updateClock, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const handleChatScroll = () => {
     if (!chatContainerRef.current) return;
@@ -329,123 +299,80 @@ function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 relative bg-topo-pattern">
         
-        {/* Minimal Header */}
-        <header className="h-14 flex items-center justify-between px-6 border-b border-slate-200/60 dark:border-zinc-800 bg-white/70 dark:bg-[#0f0f12]/80 backdrop-blur-md z-20">
-          <div className="flex items-center gap-3 select-none">
-            {isSidebarCollapsed && (
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-xs text-slate-800 dark:text-zinc-100 tracking-tight">KogniTerm</span>
-              </div>
-            )}
-            {!isSidebarCollapsed && (
-              <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 truncate max-w-[180px]" title={activeTitle}>
-                {activeTitle}
-              </span>
-            )}
-          </div>
-
-          {/* Central Directory Pill */}
-          <button
-            onClick={handleChangeDir}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100/80 dark:bg-zinc-800/80 hover:bg-slate-200/80 dark:hover:bg-zinc-700/80 border border-slate-200/60 dark:border-zinc-700/60 transition-all text-xs font-medium text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white select-none"
-            title="Cambiar directorio de trabajo"
-          >
-            <span>Ubicación actual</span>
-            <span className="text-slate-400 dark:text-zinc-500 font-mono text-[11px]">({currentDir})</span>
-          </button>
-
-          {/* Right Status Indicator & Theme Toggle */}
-          <div className="flex items-center gap-2 select-none">
-            <button
-              onClick={toggleThemeQuick}
-              title={`Tema actual: ${theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Sistema'} (Clic para cambiar)`}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 transition-all cursor-pointer text-[11px] font-medium"
-            >
-              {theme === 'light' && <Sun className="w-3.5 h-3.5 text-amber-500" />}
-              {theme === 'dark' && <Moon className="w-3.5 h-3.5 text-indigo-400" />}
-              {theme === 'system' && <Monitor className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />}
-              <span>{theme === 'light' ? 'Claro' : theme === 'dark' ? 'Oscuro' : 'Sistema'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={toggleAutoApprove}
-              title={autoApprove ? "Auto-aprobación activa (Clic para desactivar)" : "Auto-aprobación inactiva (Clic para activar)"}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer ${
-                autoApprove 
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100' 
-                  : 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700 hover:bg-slate-200 hover:text-slate-800'
-              }`}
-            >
-              {autoApprove ? <Zap size={13} className="text-emerald-600 dark:text-emerald-400 fill-emerald-600/20" /> : <ShieldCheck size={13} />}
-              <span>{autoApprove ? "Auto-aprobación ON" : "Auto-aprobación OFF"}</span>
-            </button>
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>kogniterm</span>
-            </div>
-          </div>
-        </header>
-
         {/* Content Area */}
         {activeView === 'chat' && (
           <div className="flex flex-1 overflow-hidden relative">
             <div className="flex-1 flex flex-col relative min-w-0">
+
+              {/* Top-Right Floating Micro-HUD (Cursor / Zed style) */}
+              <div className="absolute top-3 right-4 z-30 flex items-center gap-1.5 opacity-40 hover:opacity-100 transition-opacity duration-150 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-200/50 dark:border-zinc-800/60 select-none shadow-xs">
+                {/* Workspace Directory Switcher */}
+                <button
+                  onClick={handleChangeDir}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/50 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                  title={`Directorio actual: ${currentDir}. Clic para cambiar.`}
+                >
+                  <Folder size={12} className="text-slate-400 dark:text-zinc-500" />
+                  <span className="max-w-[150px] truncate">{currentDir.split('/').pop() || currentDir}</span>
+                </button>
+
+                <div className="w-[1px] h-3 bg-slate-200 dark:bg-zinc-800" />
+
+                {/* Auto-Approve Quick Toggle */}
+                <button
+                  type="button"
+                  onClick={toggleAutoApprove}
+                  title={autoApprove ? "Auto-aprobación activa (Clic para desactivar)" : "Auto-aprobación inactiva (Clic para activar)"}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                    autoApprove
+                      ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10'
+                      : 'text-slate-500 dark:text-zinc-500 hover:text-slate-800 dark:hover:text-zinc-200 hover:bg-slate-200/50 dark:hover:bg-zinc-800/60'
+                  }`}
+                >
+                  {autoApprove ? <Zap size={12} className="fill-emerald-500/20" /> : <ShieldCheck size={12} />}
+                  <span>{autoApprove ? "Auto ON" : "Manual"}</span>
+                </button>
+
+                <div className="w-[1px] h-3 bg-slate-200 dark:bg-zinc-800" />
+
+                {/* Right Panel Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsRightSidebarOpen(prev => !prev)}
+                  title={isRightSidebarOpen ? "Ocultar panel lateral (Terminal/Tareas)" : "Mostrar panel lateral (Terminal/Tareas)"}
+                  className={`p-1 rounded text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-200/50 dark:hover:bg-zinc-800/60 transition-colors cursor-pointer ${
+                    isRightSidebarOpen ? 'text-slate-800 dark:text-zinc-200' : ''
+                  }`}
+                >
+                  <PanelRightOpen size={13} />
+                </button>
+              </div>
               
               <section 
                 ref={chatContainerRef}
                 onScroll={handleChatScroll}
-                className="flex-1 overflow-y-auto goose-scrollbar px-4 lg:px-0 scroll-smooth pb-32"
+                className="flex-1 overflow-y-auto goose-scrollbar scroll-smooth pb-32"
               >
-                <div className="max-w-3xl mx-auto py-8">
+                <div className="max-w-3xl mx-auto pt-14 pb-8 px-6 sm:px-8 md:px-10">
                   {messages.length === 0 ? (
                     <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
-                      {/* Ultra-Light Large Digital Clock */}
-                      <div className="flex items-baseline mb-2">
-                        <span className="text-7xl font-extralight tracking-tight text-slate-800 dark:text-zinc-100 font-sans">
-                          {currentTime.replace(/ AM| PM/i, '') || '4:51'}
-                        </span>
-                        <span className="text-xl font-normal text-slate-400 ml-2.5 uppercase tracking-wide">
-                          {currentTime.includes('AM') ? 'AM' : 'PM'}
-                        </span>
-                      </div>
-                      
-                      {/* Dynamic Greeting */}
-                      <p className="text-lg font-normal text-slate-500 dark:text-zinc-400 mb-8 tracking-normal">
-                        {greeting}, ¿en qué te puedo ayudar hoy?
-                      </p>
-
-                      {/* Centered Floating ChatInput Capsule */}
-                      <ChatInput 
-                        onSendMessage={handleSendMessage} 
-                        isGenerating={isGenerating} 
-                        onStopGeneration={stopGeneration}
-                        currentDir={currentDir}
-                        onChangeDir={handleChangeDir}
-                        messageQueue={messageQueue}
-                        onRemoveFromQueue={handleRemoveFromQueue}
-                        onProcessNext={handleProcessNextQueueItem}
-                        isFloating={true}
-                      />
-
-                      {/* Quick Suggestion Action Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-8 w-full max-w-xl">
-                        {[
-                          { title: "Analizar código", desc: "Explora la estructura y componentes del proyecto.", prompt: "Analiza la estructura de este código" },
-                          { title: "Guía de despliegue", desc: "Instrucciones de compilación y deployment.", prompt: "Genera una guía de deployment" }
-                        ].map((card, i) => (
-                          <button
-                            key={i}
-                            onClick={() => handleSendMessage(card.prompt)}
-                            className="group p-3.5 rounded-2xl bg-white/80 dark:bg-zinc-900/80 border border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 hover:shadow-card-light text-left transition-all hover:-translate-y-0.5"
-                          >
-                            <div className="flex justify-between items-start mb-1">
-                              <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{card.title}</p>
-                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600 dark:text-indigo-400 text-xs">→</span>
-                            </div>
-                            <p className="text-[11px] text-slate-400 dark:text-zinc-500 leading-normal">{card.desc}</p>
-                          </button>
-                        ))}
+                      <div className="w-full max-w-2xl flex flex-col items-center">
+                        <ChatInput 
+                          onSendMessage={handleSendMessage} 
+                          isGenerating={isGenerating} 
+                          onStopGeneration={stopGeneration}
+                          currentDir={currentDir}
+                          onChangeDir={handleChangeDir}
+                          messageQueue={messageQueue}
+                          onRemoveFromQueue={handleRemoveFromQueue}
+                          onProcessNext={handleProcessNextQueueItem}
+                          isFloating={true}
+                        />
+                        <div className="mt-4 flex items-center gap-3 text-[11px] text-slate-400 dark:text-zinc-600 font-mono select-none">
+                          <span>↵ enviar</span>
+                          <span>·</span>
+                          <span>⇧↵ nueva línea</span>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -496,17 +423,13 @@ function App() {
                     isFloating={false}
                   />
 
-                  {/* Bottom Footer Status Bar matching OpenClaw design */}
-                  <div className="flex items-center justify-between px-6 py-1.5 text-[11px] text-zinc-400 dark:text-zinc-500 font-mono border-t border-zinc-200/50 dark:border-zinc-800/50 bg-white/40 dark:bg-zinc-950/40 backdrop-blur-xs select-none">
+                  {/* Bottom Footer Status Bar */}
+                  <div className="flex items-center justify-between px-6 sm:px-8 md:px-10 py-1.5 text-[11px] text-zinc-400 dark:text-zinc-500 font-mono border-t border-slate-200/40 dark:border-zinc-800/40 bg-transparent select-none">
                     <div className="flex items-center gap-3">
-                      <span>27s</span>
-                      <span>·</span>
-                      <span>0.43% · 0 / 524.3k</span>
+                      <span className="truncate max-w-[280px]">{activeTitle}</span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-sans font-medium text-zinc-500 dark:text-zinc-400">M2 Claude Medium</span>
-                      <span>·</span>
-                      <span>Gemini 3.6 Flash (11653)</span>
+                    <div className="flex items-center gap-3 text-[10px]">
+                      <span>KogniTerm Engine</span>
                     </div>
                   </div>
                 </div>

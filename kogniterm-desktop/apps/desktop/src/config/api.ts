@@ -4,6 +4,15 @@
  * localhost, 127.0.0.1, IP de red local o el contenedor de Tauri.
  */
 
+export const isTauriApp = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return Boolean(
+    (window as any).__TAURI_INTERNALS__ ||
+    (window as any).__TAURI__ ||
+    window.location?.hostname === 'tauri.localhost'
+  );
+};
+
 export const getBackendHost = (): string => {
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const host = window.location.hostname;

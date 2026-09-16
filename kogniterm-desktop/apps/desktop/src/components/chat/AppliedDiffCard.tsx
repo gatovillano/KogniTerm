@@ -26,30 +26,30 @@ export const AppliedDiffCard: React.FC<AppliedDiffCardProps> = ({
     };
 
     return (
-        <div className="w-full my-2 overflow-hidden rounded-xl border border-zinc-800/80 bg-zinc-900/50 shadow-sm transition-all duration-200 hover:border-zinc-700/80">
+        <div className="w-full my-2 overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/50 shadow-2xs transition-all duration-200 hover:border-slate-300 dark:hover:border-zinc-700/80">
             {/* Header */}
             <div
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="flex items-center justify-between gap-3 border-b border-zinc-800/60 bg-zinc-900/80 px-3.5 py-2.5 cursor-pointer select-none hover:bg-zinc-900/90"
+                className="flex items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50/80 dark:bg-zinc-900/80 px-3.5 py-2 cursor-pointer select-none hover:bg-slate-100/80 dark:hover:bg-zinc-900/90"
             >
                 <div className="flex min-w-0 items-center gap-2.5">
                     <button
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-zinc-200"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200"
                         title={isExpanded ? "Colapsar diff" : "Expandir diff"}
                     >
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </button>
 
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
                         <FileCheck size={14} />
                     </div>
 
                     <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-mono text-[12px] font-medium text-zinc-200" title={diff.filePath}>
+                        <span className="truncate font-mono text-[12px] font-medium text-slate-800 dark:text-zinc-200" title={diff.filePath}>
                             {diff.filePath || 'archivo_modificado'}
                         </span>
                         {diff.toolName && (
-                            <span className="shrink-0 rounded-md bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 border border-zinc-700/50">
+                            <span className="shrink-0 rounded-md bg-slate-200/60 dark:bg-zinc-800/80 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:text-zinc-400 border border-slate-300/50 dark:border-zinc-700/50">
                                 {diff.toolName}
                             </span>
                         )}

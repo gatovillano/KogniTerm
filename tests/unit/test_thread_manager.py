@@ -113,3 +113,32 @@ def test_thread_manager_known_workspaces_persistence(tmp_path, monkeypatch):
     assert t1.id in thread_ids
     assert t2.id in thread_ids
 
+
+def test_thread_manager_workspace_management(tmp_path, monkeypatch):
+    global_kogni = tmp_path / "global_kogniterm"
+    global_kogni.mkdir()
+    monkeypatch.setenv("HOME", str(global_kogni))
+
+    ws1 = tmp_path / "ws1"
+    ws1.mkdir()
+    ws2 = tmp_path / "ws2"
+    ws2.mkdir()
+
+    tm = ThreadManager(workspace_dir=str(ws1))
+    workspaces = tm.get_known_workspaces()
+    paths = [w["path"] for w in workspaces]
+    assert str(ws1) in paths
+
+    # Registrar ws2
+    tm.register_workspace(str(ws2))
+    workspaces_after = tm.get_known_workspaces()
+    paths_after = [w["path"] for w in workspaces_after]
+    assert str(ws2) in paths_after
+
+    # Desregistrar ws2
+    assert tm.unregister_workspace(str(ws2)) is True
+    workspaces_final = tm.get_known_workspaces()
+    paths_final = [w["path"] for w in workspaces_final]
+    assert str(ws2) not in paths_final
+
+

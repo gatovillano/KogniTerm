@@ -84,8 +84,9 @@ fi
 
 # Sincronizar hacia kogniterm-web/dist para compatibilidad hacia atrás
 if [ -d "${FRONTEND_DIST}" ] && [ "${FRONTEND_DIST}" != "${SCRIPT_DIR}/kogniterm-web/dist" ]; then
-  mkdir -p "${SCRIPT_DIR}/kogniterm-web/dist"
-  cp -ru "${FRONTEND_DIST}/." "${SCRIPT_DIR}/kogniterm-web/dist/" 2>/dev/null || true
+  mkdir -p "${SCRIPT_DIR}/kogniterm-web"
+  rm -rf "${SCRIPT_DIR}/kogniterm-web/dist"
+  cp -r "${FRONTEND_DIST}" "${SCRIPT_DIR}/kogniterm-web/dist"
 fi
 
 if [ ! -d "${BACKEND_DIR}" ]; then

@@ -43,7 +43,7 @@ class ThreadManager:
         self._global_kogniterm_dir = safe_abs_path("~/.kogniterm")
         os.makedirs(self._global_kogniterm_dir, exist_ok=True)
         self._workspaces_file = os.path.join(self._global_kogniterm_dir, "known_workspaces.json")
-        self._known_workspaces = set([self.workspace_dir, safe_abs_path("~")])
+        self._known_workspaces = set([self.workspace_dir]) if self.workspace_dir and os.path.isdir(self.workspace_dir) else set()
 
         os.makedirs(self.threads_dir, exist_ok=True)
         self._load_known_workspaces()
@@ -57,9 +57,14 @@ class ThreadManager:
                 with open(self._workspaces_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
+                        home_path = safe_abs_path("~")
                         for ws in data:
                             if ws and isinstance(ws, str):
                                 clean = safe_abs_path(ws)
+                                if clean.endswith("/.kogniterm") or "/.kogniterm/" in clean or clean.endswith("/.git"):
+                                    continue
+                                if clean == home_path and clean != self.workspace_dir:
+                                    continue
                                 if os.path.isdir(clean):
                                     self._known_workspaces.add(clean)
             except Exception as exc:
@@ -76,13 +81,49 @@ class ThreadManager:
         except Exception as exc:
             logger.error("Error al guardar workspaces conocidos en %s: %s", self._workspaces_file, exc)
 
-    def register_workspace(self, workspace_dir: str) -> None:
+    def get_known_workspaces(self) -> List[Dict[str, str]]:
+        """Devuelve la lista de workspaces conocidos estructurados."""
+        with self._lock:
+            res = []
+            valid_dirs = sorted([ws for ws in self._known_workspaces if ws and os.path.isdir(ws)])
+            for ws in valid_dirs:
+                name = os.path.basename(ws.rstrip("/")) or ws
+                res.append({
+                    "id": f"ws-{abs(hash(ws))}",
+                    "name": name,
+                    "path": ws
+                })
+            return res
+
+    def register_workspace(self, workspace_dir: str) -> bool:
         """Registra un nuevo directorio de trabajo para escaneo de hilos y persiste la lista."""
-        if workspace_dir:
-            clean = safe_abs_path(workspace_dir)
+        if not workspace_dir:
+            return False
+        clean = safe_abs_path(workspace_dir)
+        if not os.path.isdir(clean):
+            return False
+        if clean.endswith("/.kogniterm") or "/.kogniterm/" in clean or clean.endswith("/.git"):
+            return False
+        with self._lock:
             if clean not in self._known_workspaces:
                 self._known_workspaces.add(clean)
                 self._save_known_workspaces()
+                return True
+        return True
+
+    def unregister_workspace(self, workspace_dir: str) -> bool:
+        """Elimina un directorio de trabajo de la lista de conocidos."""
+        if not workspace_dir:
+            return False
+        clean = safe_abs_path(workspace_dir)
+        with self._lock:
+            to_remove = [ws for ws in self._known_workspaces if safe_abs_path(ws) == clean]
+            if to_remove:
+                for ws in to_remove:
+                    self._known_workspaces.discard(ws)
+                self._save_known_workspaces()
+                return True
+        return False
 
     def _find_thread_dir(self, thread_id: str) -> str:
         """Busca el directorio físico del hilo en todos los workspaces conocidos."""
@@ -216,7 +257,7 @@ class ThreadManager:
                             metadata = json.load(f)
                             if metadata:
                                 ws_clean = safe_abs_path(metadata.get("workspace_dir") or ws)
-                                metadata["workspace_dir"] = ws_clean if ws_clean != safe_abs_path("~") else self.workspace_dir
+                                metadata["workspace_dir"] = ws_clean
                                 tid = metadata.get("id", entry)
                                 if tid not in threads_map or metadata.get("updated_at", "") > threads_map[tid].get("updated_at", ""):
                                     threads_map[tid] = metadata

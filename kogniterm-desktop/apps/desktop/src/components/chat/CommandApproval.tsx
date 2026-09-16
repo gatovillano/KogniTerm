@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
 
 export interface ApprovalRequest {
@@ -62,71 +61,46 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
     if (isInline) {
         return (
             <div className="w-full my-4 flex flex-col gap-2 font-sans select-none animate-fade-in">
-                {/* Header Row: Running · <cmd>  27s */}
-                <div className="flex items-center justify-between text-xs text-zinc-600 dark:text-zinc-400">
+                <div className="flex items-center justify-between text-xs text-slate-600 dark:text-zinc-400">
                     <div className="flex items-center gap-2 truncate max-w-[85%]">
-                        {/* Matrix / Running Icon */}
-                        <div className="grid grid-cols-2 gap-0.5 w-3.5 h-3.5 opacity-60">
-                            <div className="bg-zinc-500 rounded-2xs animate-pulse" />
-                            <div className="bg-zinc-400 rounded-2xs" />
-                            <div className="bg-zinc-400 rounded-2xs" />
-                            <div className="bg-zinc-500 rounded-2xs animate-pulse" />
-                        </div>
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
                         <span className="truncate">
-                            <span className="font-normal text-zinc-500 dark:text-zinc-400">Running</span>
-                            <span className="mx-1.5 text-zinc-300 dark:text-zinc-600">·</span>
-                            <span className="font-mono text-zinc-700 dark:text-zinc-300">{displayTitle}</span>
+                            <span className="font-medium text-slate-700 dark:text-zinc-300">Aprobación requerida</span>
+                            <span className="mx-1.5 text-slate-300 dark:text-zinc-600">·</span>
+                            <span className="font-mono text-slate-600 dark:text-zinc-400">{displayTitle}</span>
                         </span>
                     </div>
-                    <span className="text-zinc-400 dark:text-zinc-500 font-mono text-xs shrink-0">
-                        27s
-                    </span>
                 </div>
 
-                {/* Inline Action Buttons matching OpenClaw screenshot */}
-                <div className="flex items-center gap-2 pl-5 mt-1">
-                    {/* Run Ctrl ↵ v */}
-                    <div className="inline-flex items-center rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
+                {/* Inline Action Buttons */}
+                <div className="flex items-center gap-2 pl-4 mt-1">
+                    {/* Run Ctrl ↵ */}
+                    <div className="inline-flex items-center rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xs overflow-hidden">
                         <button
                             ref={approveRef}
                             onClick={() => onApprove(request.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                         >
-                            <span>Run</span>
+                            <span>Ejecutar</span>
                             <span className="kbd-badge">Ctrl ↵</span>
                         </button>
                         <button
                             onClick={handleApproveAlways}
-                            title="Aceptar siempre (A)"
-                            className="px-1.5 py-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 border-l border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                            title="Aceptar siempre para esta sesión (A)"
+                            className="px-2 py-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200 border-l border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer text-xs"
                         >
-                            <ChevronDown size={13} />
+                            <span>Siempre</span>
                         </button>
                     </div>
 
                     {/* Reject Esc */}
                     <button
                         onClick={() => onReject(request.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 shadow-2xs transition-colors cursor-pointer"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 shadow-2xs transition-colors cursor-pointer"
                     >
-                        <span>Reject</span>
+                        <span>Rechazar</span>
                         <span className="kbd-badge">Esc</span>
                     </button>
-
-                    {/* Command v */}
-                    <button
-                        onClick={() => {}}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 shadow-2xs transition-colors cursor-pointer"
-                    >
-                        <span>Command</span>
-                        <ChevronDown size={13} className="text-zinc-400" />
-                    </button>
-                </div>
-
-                {/* Sub status row */}
-                <div className="flex items-center gap-2 pl-5 mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500 font-mono">
-                    <span className="w-2.5 h-2.5 rounded-xs bg-zinc-300 dark:bg-zinc-700 inline-block" />
-                    <span>37s</span>
                 </div>
             </div>
         );

@@ -6,6 +6,7 @@ import {
   Filter, Sun, Moon, Monitor
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import { isTauriApp } from '../../config/api';
 
 interface ProjectsSidebarProps {
   isSidebarCollapsed: boolean;
@@ -53,7 +54,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
   };
 
   // Helper to normalize path comparison
-  const normalizePath = (p?: string) => p ? p.replace(/\\/g, '/').replace(/\/$/, '') : '';
+  const normalizePath = (p?: string) => (p ? p.replace(/\\/g, '/').replace(/\/+$/, '') : '');
 
   // Group threads by project path with accurate path matching
   const threadsByProject = React.useMemo(() => {
@@ -63,6 +64,9 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
     });
     const unmapped: any[] = [];
 
+    // Sort project paths by length descending so more specific/nested paths match first
+    const sortedProjectPaths = Object.keys(map).sort((a, b) => b.length - a.length);
+
     threads.forEach(t => {
       const threadWorkspace = normalizePath(t.workspaceDir || t.workspace_dir);
       
@@ -70,32 +74,28 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
       
       if (threadWorkspace) {
         const normTW = threadWorkspace.toLowerCase();
-        matchedKey = Object.keys(map).find(pPath => {
+
+        // 1. Coincidencia exacta de ruta (prioridad máxima)
+        matchedKey = sortedProjectPaths.find(pPath => {
           if (!pPath) return false;
-          const normPP = pPath.toLowerCase();
-          // 1. Coincidencia exacta de ruta
-          if (normPP === normTW) return true;
-          // 2. Coincidencia de subdirectorio (el hilo está dentro del proyecto)
-          if (normTW.startsWith(normPP + '/')) return true;
-          // 3. Coincidencia de nombre de carpeta de último nivel
-          const pName = pPath.split('/').filter(Boolean).pop();
-          const tName = threadWorkspace.split('/').filter(Boolean).pop();
-          return Boolean(pName && tName && pName.toLowerCase() === tName.toLowerCase());
+          return pPath.toLowerCase() === normTW;
         });
+
+        // 2. Coincidencia de subdirectorio (el hilo está dentro de una subcarpeta del proyecto)
+        if (!matchedKey) {
+          matchedKey = sortedProjectPaths.find(pPath => {
+            if (!pPath) return false;
+            const normPP = pPath.toLowerCase();
+            return normTW.startsWith(normPP + '/');
+          });
+        }
       }
 
-      // Si coincide, añadir a la carpeta del proyecto.
+      // Si coincide con un proyecto abierto, añadir a su carpeta
       if (matchedKey && map[matchedKey]) {
         map[matchedKey].push(t);
-      } else if (projects.length > 0) {
-        // Fallback para hilos sin coincidencia estricta: asociar al primer proyecto abierto
-        const firstKey = normalizePath(projects[0].path);
-        if (map[firstKey]) {
-          map[firstKey].push(t);
-        } else {
-          unmapped.push(t);
-        }
       } else {
+        // Hilo sin proyecto anclado: clasificar limpiamente como 'unmapped'
         unmapped.push(t);
       }
     });
@@ -117,7 +117,9 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
               <Sparkles size={11} className="text-white" />
             </div>
             <span className="font-semibold text-[13px] text-slate-800 dark:text-zinc-100 tracking-tight">KogniTerm</span>
-            <span className="px-1.5 py-0.2 rounded bg-slate-200/50 dark:bg-zinc-800 text-[9px] text-slate-500 dark:text-zinc-400 font-medium">Desktop</span>
+            <span className="px-1.5 py-0.2 rounded bg-slate-200/50 dark:bg-zinc-800 text-[9px] text-slate-500 dark:text-zinc-400 font-medium">
+              {isTauriApp() ? 'Desktop' : 'Web'}
+            </span>
           </div>
         )}
         <button
@@ -312,11 +314,13 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                 {threadsByProject.unmapped.map(thread => {
                   const isCurrent = currentThreadId === thread.id;
                   const isExecuting = executingThreadIds[thread.id];
+                  const wsDir = normalizePath(thread.workspaceDir || thread.workspace_dir);
+                  const wsName = wsDir ? wsDir.split('/').filter(Boolean).pop() : '';
                   return (
                     <div
                       key={thread.id}
                       onClick={() => {
-                        onSelectThread(thread.id);
+                        onSelectThread(thread.id, wsDir);
                         setActiveView('chat');
                       }}
                       className={`group flex items-center justify-between px-2 py-1 rounded-md cursor-pointer text-xs transition-colors ${
@@ -332,6 +336,14 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                         <span className="text-[12px] truncate" title={thread.title}>
                           {thread.title || 'Conversación'}
                         </span>
+                        {wsName && (
+                          <span
+                            className="px-1 py-0.2 rounded bg-slate-200/60 dark:bg-zinc-800 text-[9px] text-slate-500 dark:text-zinc-400 font-mono truncate max-w-[70px] shrink-0"
+                            title={wsDir}
+                          >
+                            {wsName}
+                          </span>
+                        )}
                       </div>
                       <button
                         onClick={(e) => onDeleteThread(e, thread.id)}

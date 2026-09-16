@@ -83,3 +83,49 @@ def test_set_key_endpoint(monkeypatch, tmp_path):
     cm = ConfigManager()
     assert cm.get_api_key("inception") == "test-secret-key-123"
 
+
+def test_workspaces_endpoints(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    ws1 = tmp_path / "project1"
+    ws1.mkdir()
+
+    app = create_app()
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {API_TOKEN}"}
+
+        # 1. List workspaces
+        resp = client.get("/api/workspaces", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "workspaces" in data
+
+        # 2. Add workspace
+        add_resp = client.post(
+            "/api/workspaces",
+            headers=headers,
+            json={"path": str(ws1), "name": "Project 1"}
+        )
+        assert add_resp.status_code == 201
+        add_data = add_resp.json()
+        assert add_data["status"] == "ok"
+        assert add_data["workspace"]["path"] == str(ws1)
+
+        # 3. Verify in list
+        list_resp = client.get("/api/workspaces", headers=headers)
+        paths = [w["path"] for w in list_resp.json()["workspaces"]]
+        assert str(ws1) in paths
+
+        # 4. Remove workspace
+        del_resp = client.delete(
+            f"/api/workspaces?path={str(ws1)}",
+            headers=headers
+        )
+        assert del_resp.status_code == 200
+        assert del_resp.json()["status"] == "ok"
+
+        # 5. Verify removed
+        final_resp = client.get("/api/workspaces", headers=headers)
+        final_paths = [w["path"] for w in final_resp.json()["workspaces"]]
+        assert str(ws1) not in final_paths
+
+

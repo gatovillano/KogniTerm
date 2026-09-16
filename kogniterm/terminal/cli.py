@@ -589,24 +589,28 @@ class CLIHandler:
         original_cwd = os.getcwd()
         
         # Determinar la ruta de kogniterm-desktop
-        kogniterm_dir = os.path.expanduser("~/.kogniterm")
-        repo_dir = os.path.join(kogniterm_dir, "repo")
+        # 1. Prioridad: Paquete kogniterm instalado / raíz del repositorio en desarrollo
+        package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        package_desktop = os.path.join(package_root, "kogniterm-desktop")
         
-        if os.path.exists("pyproject.toml") and os.path.isdir("kogniterm"):
-            repo_dir = os.getcwd()
-            
-        desktop_dir = os.path.join(repo_dir, "kogniterm-desktop")
+        # 2. Prioridad: Directorio actual si contiene kogniterm-desktop
+        cwd_desktop = os.path.join(original_cwd, "kogniterm-desktop")
         
-        if not os.path.exists(desktop_dir):
-            # Buscar en el path alternativo si no está en repo_dir
-            alt_desktop_dir = os.path.expanduser("~/.kogniterm/repo/kogniterm-desktop")
-            if os.path.exists(alt_desktop_dir):
-                desktop_dir = alt_desktop_dir
-            else:
-                print(f"❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
-                print(f"   Se buscó en: {desktop_dir}")
-                print(f"   Y en: {alt_desktop_dir}")
-                return
+        # 3. Prioridad: Directorio de repo alternativo global (~/.kogniterm/repo)
+        alt_desktop = os.path.expanduser("~/.kogniterm/repo/kogniterm-desktop")
+        
+        if os.path.isdir(package_desktop):
+            desktop_dir = package_desktop
+        elif os.path.isdir(cwd_desktop):
+            desktop_dir = cwd_desktop
+        elif os.path.isdir(alt_desktop):
+            desktop_dir = alt_desktop
+        else:
+            print(f"❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
+            print(f"   Se buscó en: {package_desktop}")
+            print(f"   Y en: {cwd_desktop}")
+            print(f"   Y en: {alt_desktop}")
+            return
                 
         script_path = os.path.join(desktop_dir, "start-dev.sh")
         if not os.path.exists(script_path):
