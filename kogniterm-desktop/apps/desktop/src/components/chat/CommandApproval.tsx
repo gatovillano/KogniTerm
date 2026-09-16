@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 export interface ApprovalRequest {
     id: string;
@@ -27,7 +28,7 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
 
     const handleApproveAlways = async () => {
         try {
-            await fetch('http://127.0.0.1:8765/api/config/set', {
+            await fetch(`${API_BASE_URL}/api/config/set`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key: 'auto_approve', value: true, scope: 'project' }),

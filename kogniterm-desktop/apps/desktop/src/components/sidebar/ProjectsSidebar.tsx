@@ -211,21 +211,22 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
               .map(project => {
                 const normPath = normalizePath(project.path);
                 const projectThreads = threadsByProject.map[normPath] || [];
+                const isExpanded = project.isExpanded !== false;
                 return (
                   <div key={project.id} className="space-y-0.5">
                     {/* Folder Header */}
                     <div
                       onClick={() => onToggleProjectExpand(project.id)}
-                      className="group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer text-xs text-slate-700 hover:bg-slate-200/40 transition-colors"
+                      className="group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer text-xs text-slate-700 dark:text-zinc-200 hover:bg-slate-200/40 dark:hover:bg-zinc-800/40 transition-colors"
                     >
                       <div className="flex items-center gap-1.5 truncate flex-1 min-w-0 pr-1">
-                        {project.isExpanded ? (
-                          <ChevronDown size={14} className="text-slate-400 shrink-0" />
+                        {isExpanded ? (
+                          <ChevronDown size={14} className="text-slate-400 dark:text-zinc-400 shrink-0" />
                         ) : (
-                          <ChevronRight size={14} className="text-slate-400 shrink-0" />
+                          <ChevronRight size={14} className="text-slate-400 dark:text-zinc-400 shrink-0" />
                         )}
-                        <Folder size={14} className="text-slate-500 shrink-0" />
-                        <span className="font-medium text-slate-800 text-[12px] truncate" title={project.path}>
+                        <Folder size={14} className="text-slate-500 dark:text-zinc-400 shrink-0" />
+                        <span className="font-medium text-slate-800 dark:text-zinc-100 text-[12px] truncate" title={project.path}>
                           {project.name}
                         </span>
                       </div>
@@ -237,7 +238,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                             e.stopPropagation();
                             onCreateThread(project.path);
                           }}
-                          className="p-0.5 hover:bg-slate-200/60 rounded text-slate-400 hover:text-slate-700 cursor-pointer"
+                          className="p-0.5 hover:bg-slate-200/60 dark:hover:bg-zinc-700 rounded text-slate-400 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 cursor-pointer"
                           title="Nuevo chat en este proyecto"
                         >
                           <Plus size={12} />
@@ -247,7 +248,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                             e.stopPropagation();
                             onDeleteProject(project.id);
                           }}
-                          className="p-0.5 hover:bg-slate-200/60 rounded text-slate-400 hover:text-rose-600 cursor-pointer"
+                          className="p-0.5 hover:bg-slate-200/60 dark:hover:bg-zinc-700 rounded text-slate-400 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
                           title="Quitar proyecto"
                         >
                           <Trash2 size={12} />
@@ -256,8 +257,8 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                     </div>
 
                     {/* Nested Threads */}
-                    {project.isExpanded && (
-                      <div className="pl-4 space-y-0.5 border-l border-slate-200/50 ml-3">
+                    {isExpanded && (
+                      <div className="pl-4 space-y-0.5 border-l border-slate-200/50 dark:border-zinc-800 ml-3">
                         {projectThreads.map(thread => {
                           const isCurrent = currentThreadId === thread.id;
                           const isExecuting = executingThreadIds[thread.id];
@@ -270,8 +271,8 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                               }}
                               className={`group flex items-center justify-between px-2 py-1 rounded-md cursor-pointer text-xs transition-colors ${
                                 isCurrent
-                                  ? 'text-slate-900 font-semibold bg-slate-200/60'
-                                  : 'text-slate-600 hover:bg-slate-200/40 hover:text-slate-900'
+                                  ? 'text-slate-900 dark:text-zinc-100 font-semibold bg-slate-200/60 dark:bg-zinc-800'
+                                  : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-200/40 dark:hover:bg-zinc-800/40 hover:text-slate-900 dark:hover:text-zinc-100'
                               }`}
                             >
                               <div className="flex items-center gap-1.5 truncate flex-1 min-w-0 pr-1">
@@ -284,7 +285,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                               </div>
                               <button
                                 onClick={(e) => onDeleteThread(e, thread.id)}
-                                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 transition-all rounded hover:bg-slate-200/60 cursor-pointer"
+                                className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 transition-all rounded hover:bg-slate-200/60 dark:hover:bg-zinc-700 cursor-pointer"
                               >
                                 <Trash2 size={11} />
                               </button>
@@ -292,7 +293,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                           );
                         })}
                         {projectThreads.length === 0 && (
-                          <div className="px-2 py-1 text-[11px] text-slate-400 italic">
+                          <div className="px-2 py-1 text-[11px] text-slate-400 dark:text-zinc-500 italic">
                             Sin hilos en esta carpeta
                           </div>
                         )}
@@ -304,8 +305,8 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
 
             {/* Unmapped / General Threads Section */}
             {threadsByProject.unmapped.length > 0 && (
-              <div className="pt-2 border-t border-slate-200/40 space-y-0.5">
-                <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              <div className="pt-2 border-t border-slate-200/40 dark:border-zinc-800 space-y-0.5">
+                <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
                   Otros Hilos
                 </div>
                 {threadsByProject.unmapped.map(thread => {
@@ -320,8 +321,8 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                       }}
                       className={`group flex items-center justify-between px-2 py-1 rounded-md cursor-pointer text-xs transition-colors ${
                         isCurrent
-                          ? 'text-slate-900 font-semibold bg-slate-200/60'
-                          : 'text-slate-600 hover:bg-slate-200/40 hover:text-slate-900'
+                          ? 'text-slate-900 dark:text-zinc-100 font-semibold bg-slate-200/60 dark:bg-zinc-800'
+                          : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-200/40 dark:hover:bg-zinc-800/40 hover:text-slate-900 dark:hover:text-zinc-100'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 truncate flex-1 min-w-0 pr-1">
@@ -334,7 +335,7 @@ export const ProjectsSidebar: React.FC<ProjectsSidebarProps> = ({
                       </div>
                       <button
                         onClick={(e) => onDeleteThread(e, thread.id)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-600 transition-all rounded hover:bg-slate-200/60 cursor-pointer"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 dark:text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 transition-all rounded hover:bg-slate-200/60 dark:hover:bg-zinc-700 cursor-pointer"
                       >
                         <Trash2 size={11} />
                       </button>

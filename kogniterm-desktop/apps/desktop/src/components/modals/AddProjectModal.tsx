@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FolderPlus, X, Check, HardDrive, Folder, ChevronRight, ArrowUp } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 interface AddProjectModalProps {
   isOpen: boolean;
@@ -41,7 +42,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   const loadDirectory = async (path: string) => {
     setLoadingBrowser(true);
     try {
-      const res = await fetch('http://127.0.0.1:8765/api/files/list', {
+      const res = await fetch(`${API_BASE_URL}/api/files/list`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: path || '.' }),
@@ -121,7 +122,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
     setError('');
 
     try {
-      const res = await fetch('http://127.0.0.1:8765/api/files/list', {
+      const res = await fetch(`${API_BASE_URL}/api/files/list`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folderPath.trim() }),

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import { McpTab } from './McpTab';
+import { API_BASE_URL } from '../../config/api';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -80,7 +81,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const fetchConfig = async () => {
     try {
-      const res = await fetch('http://localhost:8765/api/config/all');
+      const res = await fetch(`${API_BASE_URL}/api/config/all`);
       if (res.ok) {
         const data: ConfigScopeData = await res.json();
         setOriginalConfig(data);
@@ -108,7 +109,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const fetchAvailableModels = async () => {
     try {
-      const res = await fetch('http://localhost:8765/api/models/available');
+      const res = await fetch(`${API_BASE_URL}/api/models/available`);
       if (res.ok) {
         const data = await res.json();
         if (data.providers) {
@@ -122,7 +123,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const fetchTelegramConfig = async () => {
     try {
-      const res = await fetch('http://localhost:8765/config/channels');
+      const res = await fetch(`${API_BASE_URL}/config/channels`);
       if (res.ok) {
         const data = await res.json();
         const channels = data.channels || [];
@@ -185,7 +186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setDetectionStatus('Buscando mensajes privados... Envía cualquier mensaje a tu bot en Telegram.');
 
     try {
-      const res = await fetch('http://localhost:8765/api/config/telegram/detect-chat-id', {
+      const res = await fetch(`${API_BASE_URL}/api/config/telegram/detect-chat-id`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: telegramToken })
@@ -221,7 +222,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         for (const key in editableGlobal) {
           if (JSON.stringify(editableGlobal[key]) !== JSON.stringify(originalConfig.global[key])) {
             savePromises.push(
-              fetch('http://localhost:8765/api/config/set', {
+              fetch(`${API_BASE_URL}/api/config/set`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key, value: editableGlobal[key], scope: 'global' })
@@ -234,7 +235,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         for (const key in editableProject) {
           if (JSON.stringify(editableProject[key]) !== JSON.stringify(originalConfig.project[key])) {
             savePromises.push(
-              fetch('http://localhost:8765/api/config/set', {
+              fetch(`${API_BASE_URL}/api/config/set`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key, value: editableProject[key], scope: 'project' })
@@ -251,7 +252,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         const inputKey = apiKeys[provider];
         if (inputKey && inputKey.trim() !== '') {
           savePromises.push(
-            fetch('http://localhost:8765/api/config/set_key', {
+            fetch(`${API_BASE_URL}/api/config/set_key`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ 
@@ -277,7 +278,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         };
 
         savePromises.push(
-          fetch('http://localhost:8765/config/channels', {
+          fetch(`${API_BASE_URL}/config/channels`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(tgPayload)

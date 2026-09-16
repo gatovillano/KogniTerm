@@ -3,6 +3,7 @@ import {
   Server, Plus, Trash2, CheckCircle, AlertCircle, 
   Terminal, Globe, Loader2, Play, RefreshCw, Power
 } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 export interface MCPServerConfig {
   transport: 'stdio' | 'sse';
@@ -42,7 +43,7 @@ export const McpTab: React.FC = () => {
   const fetchServers = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:8765/api/mcp/servers');
+      const res = await fetch(`${API_BASE_URL}/api/mcp/servers`);
       if (res.ok) {
         const data = await res.json();
         setServers(data);
@@ -56,7 +57,7 @@ export const McpTab: React.FC = () => {
 
   const handleToggle = async (name: string) => {
     try {
-      const res = await fetch(`http://localhost:8765/api/mcp/servers/${encodeURIComponent(name)}/toggle?scope=${activeScope}`, {
+      const res = await fetch(`${API_BASE_URL}/api/mcp/servers/${encodeURIComponent(name)}/toggle?scope=${activeScope}`, {
         method: 'POST'
       });
       if (res.ok) {
@@ -70,7 +71,7 @@ export const McpTab: React.FC = () => {
   const handleDelete = async (name: string) => {
     if (!confirm(`¿Eliminar la configuración del servidor MCP '${name}'?`)) return;
     try {
-      const res = await fetch(`http://localhost:8765/api/mcp/servers/${encodeURIComponent(name)}?scope=${activeScope}`, {
+      const res = await fetch(`${API_BASE_URL}/api/mcp/servers/${encodeURIComponent(name)}?scope=${activeScope}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -109,7 +110,7 @@ export const McpTab: React.FC = () => {
         url: transport === 'sse' ? url.trim() : undefined
       };
 
-      const res = await fetch('http://localhost:8765/api/mcp/test-connection', {
+      const res = await fetch(`${API_BASE_URL}/api/mcp/test-connection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -160,7 +161,7 @@ export const McpTab: React.FC = () => {
     };
 
     try {
-      const res = await fetch('http://localhost:8765/api/mcp/servers', {
+      const res = await fetch(`${API_BASE_URL}/api/mcp/servers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

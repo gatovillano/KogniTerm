@@ -16,6 +16,7 @@ import {
   Terminal,
   ShieldAlert,
 } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 export interface Heartbeat {
   id: string;
@@ -34,7 +35,7 @@ interface HeartbeatsTabProps {
 }
 
 export const HeartbeatsTab: React.FC<HeartbeatsTabProps> = ({
-  serverUrl = 'http://localhost:8765',
+  serverUrl = API_BASE_URL,
 }) => {
   const [heartbeats, setHeartbeats] = useState<Heartbeat[]>([]);
   const [loading, setLoading] = useState(true);

@@ -17,6 +17,7 @@ import { AddProjectModal } from './components/modals/AddProjectModal';
 import { useProjects } from './hooks/useProjects';
 import { useChat } from './hooks/useChat';
 import { useTheme } from './hooks/useTheme';
+import { API_BASE_URL } from './config/api';
 import { 
   ShieldCheck, Zap, PanelRightOpen, Sun, Moon, Monitor
 } from 'lucide-react';
@@ -90,7 +91,7 @@ function App() {
   };
 
   useEffect(() => {
-    fetch('http://127.0.0.1:8765/api/config/all')
+    fetch(`${API_BASE_URL}/api/config/all`)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.merged?.auto_approve !== undefined) {
@@ -104,7 +105,7 @@ function App() {
     const nextVal = !autoApprove;
     setAutoApprove(nextVal);
     try {
-      await fetch('http://127.0.0.1:8765/api/config/set', {
+      await fetch(`${API_BASE_URL}/api/config/set`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'auto_approve', value: nextVal, scope: 'project' }),
@@ -165,8 +166,8 @@ function App() {
     try {
       const projectPaths = projects.map(p => p.path).filter(Boolean).join(',');
       const url = projectPaths 
-        ? `http://127.0.0.1:8765/api/threads?workspace_dirs=${encodeURIComponent(projectPaths)}`
-        : 'http://127.0.0.1:8765/api/threads';
+        ? `${API_BASE_URL}/api/threads?workspace_dirs=${encodeURIComponent(projectPaths)}`
+        : `${API_BASE_URL}/api/threads`;
       const res = await fetch(url);
       const data = await res.json();
       const list = data.threads || [];
@@ -204,7 +205,7 @@ function App() {
       }
 
       // Fetch initial working directory from backend using resolved path
-      fetch('http://127.0.0.1:8765/api/files/list', {
+      fetch(`${API_BASE_URL}/api/files/list`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path })
@@ -225,7 +226,7 @@ function App() {
   const createThread = async (workspaceDir?: string) => {
     try {
       const targetDir = workspaceDir || currentDir;
-      const res = await fetch('http://127.0.0.1:8765/api/threads', { 
+      const res = await fetch(`${API_BASE_URL}/api/threads`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_dir: targetDir })
@@ -255,7 +256,7 @@ function App() {
   const deleteThread = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     try {
-      await fetch(`http://127.0.0.1:8765/api/threads/${id}`, { method: 'DELETE' });
+      await fetch(`${API_BASE_URL}/api/threads/${id}`, { method: 'DELETE' });
       await fetchThreads();
       if (currentThreadId === id) {
         const remaining = threads.find(t => t.id !== id);

@@ -3,6 +3,7 @@ import {
   Search, Zap, Shield, ShieldAlert, ShieldCheck, 
   Copy, Code, Terminal, User, FileCode, Check, RefreshCw 
 } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 interface ToolInfo {
   name: string;
@@ -38,7 +39,7 @@ export const SkillsPanel: React.FC = () => {
   const fetchSkills = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:8765/api/skills');
+      const res = await fetch(`${API_BASE_URL}/api/skills`);
       if (res.ok) {
         const data = await res.json();
         const skillList = data.skills || [];

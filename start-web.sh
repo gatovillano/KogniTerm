@@ -38,13 +38,22 @@ NC='\033[0m'
 # Directorios base del proyecto
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="${SCRIPT_DIR}/kogniterm"
-FRONTEND_DIR="${SCRIPT_DIR}/kogniterm-web"
-FRONTEND_DIST="${FRONTEND_DIR}/dist"
+
+# Priorizar la aplicación moderna en kogniterm-desktop/apps/desktop
+if [ -d "${SCRIPT_DIR}/kogniterm-desktop/apps/desktop" ]; then
+  FRONTEND_SRC_DIR="${SCRIPT_DIR}/kogniterm-desktop/apps/desktop"
+  FRONTEND_DIST="${FRONTEND_SRC_DIR}/dist"
+else
+  FRONTEND_SRC_DIR="${SCRIPT_DIR}/kogniterm-web"
+  FRONTEND_DIST="${FRONTEND_SRC_DIR}/dist"
+fi
+
 LOGS_DIR="${HOME}/.kogniterm/logs"
 SERVER_LOG="${LOGS_DIR}/web-server.log"
 BACKEND_LOG="${LOGS_DIR}/web-backend.log"
 
 echo "🧭 Directorio del proyecto: ${SCRIPT_DIR}"
+echo "🎨 Directorio del frontend: ${FRONTEND_SRC_DIR}"
 echo ""
 
 # Verificar dependencias básicas
@@ -61,11 +70,22 @@ if ! command_exists npm && ! command_exists npx; then
   echo "⚠️  npm/npx no encontrado, usaré solo servidor Python como fallback"
 fi
 
-# Verificar estructura
+# Verificar estructura y compilar si es necesario
 if [ ! -d "${FRONTEND_DIST}" ]; then
-  echo "❌ No se encontró el build del frontend en: ${FRONTEND_DIST}"
-  echo "   Primero ejecuta el build de kogniterm-web."
-  exit 1
+  if command_exists npm && [ -f "${FRONTEND_SRC_DIR}/package.json" ]; then
+    echo "${BLUE}📦 Build no encontrado. Compilando frontend en ${FRONTEND_SRC_DIR}...${NC}"
+    (cd "${FRONTEND_SRC_DIR}" && npm run build)
+  else
+    echo "❌ No se encontró el build del frontend en: ${FRONTEND_DIST}"
+    echo "   Primero ejecuta el build en ${FRONTEND_SRC_DIR}."
+    exit 1
+  fi
+fi
+
+# Sincronizar hacia kogniterm-web/dist para compatibilidad hacia atrás
+if [ -d "${FRONTEND_DIST}" ] && [ "${FRONTEND_DIST}" != "${SCRIPT_DIR}/kogniterm-web/dist" ]; then
+  mkdir -p "${SCRIPT_DIR}/kogniterm-web/dist"
+  cp -ru "${FRONTEND_DIST}/." "${SCRIPT_DIR}/kogniterm-web/dist/" 2>/dev/null || true
 fi
 
 if [ ! -d "${BACKEND_DIR}" ]; then

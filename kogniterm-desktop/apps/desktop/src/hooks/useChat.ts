@@ -7,6 +7,7 @@ import {
     TerminalEntry,
     parseAppliedDiff,
 } from '@kogniterm/types';
+import { API_BASE_URL, WS_BASE_URL } from '../config/api';
 
 export { parseAppliedDiff };
 export type { QuestionRequest };
@@ -172,7 +173,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
         }
 
         // Fetch thread messages from API
-        fetch(`http://127.0.0.1:8765/api/threads/${threadId}/messages`)
+        fetch(`${API_BASE_URL}/api/threads/${threadId}/messages`)
             .then(res => {
                 if (res.ok) return res.json();
                 return { messages: [] };
@@ -235,7 +236,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             if (workspaceDir) params.set('workspace_dir', workspaceDir);
             if (token) params.set('token', token);
             const queryParams = params.toString() ? `?${params.toString()}` : '';
-            const wsUrl = `ws://127.0.0.1:8765/ws/${threadId}${queryParams}`;
+            const wsUrl = `${WS_BASE_URL}/ws/${threadId}${queryParams}`;
             ws = new WebSocket(wsUrl);
             socketRef.current = ws;
 

@@ -16,6 +16,7 @@ import {
   Terminal,
   ShieldAlert,
 } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 export interface Heartbeat {
   id: string;
@@ -58,7 +59,7 @@ const getAuthHeaders = async (includeContentType = true): Promise<Record<string,
 };
 
 export const HeartbeatsPanel: React.FC<HeartbeatsPanelProps> = ({
-  serverUrl = 'http://127.0.0.1:8765',
+  serverUrl = API_BASE_URL,
 }) => {
   const [heartbeats, setHeartbeats] = useState<Heartbeat[]>([]);
   const [loading, setLoading] = useState(true);

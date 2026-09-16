@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 interface Thread {
     id: string;
@@ -17,7 +18,7 @@ export function ThreadList({ currentThread, onSelectThread }: ThreadListProps) {
 
     const fetchThreads = async () => {
         try {
-            const res = await fetch('http://127.0.0.1:8765/api/threads');
+            const res = await fetch(`${API_BASE_URL}/api/threads`);
             const data = await res.json();
             setThreads(data.threads || []);
         } catch (error) {
@@ -36,7 +37,7 @@ export function ThreadList({ currentThread, onSelectThread }: ThreadListProps) {
 
     const createThread = async () => {
         try {
-            const res = await fetch('http://127.0.0.1:8765/api/threads', { method: 'POST' });
+            const res = await fetch(`${API_BASE_URL}/api/threads`, { method: 'POST' });
             const data = await res.json();
             if (data.thread_id) {
                 await fetchThreads();
@@ -50,7 +51,7 @@ export function ThreadList({ currentThread, onSelectThread }: ThreadListProps) {
     const deleteThread = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         try {
-            await fetch(`http://127.0.0.1:8765/api/threads/${id}`, { method: 'DELETE' });
+            await fetch(`${API_BASE_URL}/api/threads/${id}`, { method: 'DELETE' });
             await fetchThreads();
             if (currentThread === id) {
                 onSelectThread(threads.find(t => t.id !== id)?.id || '');
