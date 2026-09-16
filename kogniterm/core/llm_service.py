@@ -1296,6 +1296,10 @@ class LLMService:
             completion_kwargs["custom_llm_provider"] = "gemini"
             if self.api_key:
                 os.environ["GEMINI_API_KEY"] = self.api_key
+        elif "kilocode" in self.model_name.lower() or (hasattr(self, 'api_base') and self.api_base and "kilo.ai" in self.api_base):
+            completion_kwargs["custom_llm_provider"] = "openai"
+        elif "inception" in self.model_name.lower() or "mercury" in self.model_name.lower() or (hasattr(self, 'api_base') and self.api_base and "inceptionlabs.ai" in self.api_base):
+            completion_kwargs["custom_llm_provider"] = "openai"
 
         # Configuración específica para OpenRouter/SiliconFlow con campos adicionales
         if "openrouter" in self.model_name.lower():

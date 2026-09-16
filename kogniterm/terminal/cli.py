@@ -393,7 +393,7 @@ class CLIHandler:
             return
             
         command = args[0]
-        valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm", "ollama_cloud", "kilocode", "antigravity"]
+        valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm", "ollama_cloud", "kilocode", "inception", "antigravity"]
         # Permitir modo de Ollama: local o cloud
         valid_ollama_modes = ["local", "cloud"]
         
