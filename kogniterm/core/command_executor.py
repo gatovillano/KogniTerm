@@ -412,6 +412,15 @@ class CommandExecutor:
         target_cwd = os.path.abspath(target_cwd)
         self._current_shell_cwd = target_cwd
 
+        # Preparar variables de entorno para el shell persistente
+        env = os.environ.copy()
+        # CRÍTICO: Desactivar variables de paginador para evitar que comandos como
+        # git, man, etc. invoquen a 'less' y bloqueen la terminal esperando entrada.
+        env["PAGER"] = "cat"
+        env["MANPAGER"] = "cat"
+        env["LESS"] = "-F"
+        env["GIT_PAGER"] = "cat"
+
         # Usar 'bash' como shell persistente
         self._persistent_shell_process = subprocess.Popen(
             ["bash", "--login"],
@@ -421,14 +430,8 @@ class CommandExecutor:
             close_fds=True,
             preexec_fn=os.setsid,
             cwd=target_cwd,
-            env=os.environ.copy()
+            env=env
         )
-        # CRÍTICO: Desactivar variables de paginador para evitar que comandos como
-        # git, man, etc. invoquen a 'less' y bloqueen la terminal esperando entrada.
-        env["PAGER"] = "cat"
-        env["MANPAGER"] = "cat"
-        env["LESS"] = "-F"
-        env["GIT_PAGER"] = "cat"
         # Consumir el banner inicial del shell y configurar variables sin demoras estáticas
         try:
             # Desactivar el PROMPT para que no se filtre en la TUI

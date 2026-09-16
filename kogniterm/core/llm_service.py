@@ -4,6 +4,7 @@ import time
 import json
 import queue
 import secrets
+import asyncio
 from typing import List, Any, Generator, Optional, Union, Dict
 from collections import deque
 from langchain_core.tools import BaseTool
@@ -230,7 +231,6 @@ class LLMService:
             mcp_mgr = MCPManager.get_instance()
             mcp_mgr.register_on_reload_callback(self.sync_tools)
             if mcp_mgr.config_manager.get_mcp_servers():
-                import threading
                 def _init_mcp_bg():
                     try:
                         loop = asyncio.new_event_loop()

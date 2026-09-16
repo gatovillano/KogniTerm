@@ -6,6 +6,12 @@ from concurrent.futures import ThreadPoolExecutor
 from kogniterm.core.mcp.mcp_manager import MCPManager
 from kogniterm.core.llm_service import LLMService
 
+try:
+    import mcp.server.fastmcp
+    _HAS_FASTMCP = True
+except ImportError:
+    _HAS_FASTMCP = False
+
 _FASTMCP_SERVER_SCRIPT = """
 from mcp.server.fastmcp import FastMCP
 mcp = FastMCP('test_calc')
@@ -34,6 +40,7 @@ async def test_mcp_manager_singleton_and_test_connection():
     assert isinstance(statuses, dict)
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(not _HAS_FASTMCP, reason="mcp.server.fastmcp not installed")
 async def test_mcp_manager_fastmcp_lifecycle_and_execution(tmp_path, monkeypatch):
     monkeypatch.setattr(MCPManager, "_instance", None)
     manager = MCPManager.get_instance()

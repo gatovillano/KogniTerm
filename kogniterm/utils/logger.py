@@ -34,28 +34,50 @@ class StderrRedirector:
             self._buffer = []
 
 
+_original_stderr = sys.__stderr__ or sys.stderr
+_original_print = builtins.print
+_tui_redirects_active = False
+
+
 def setup_tui_redirects():
     """Redirects stderr and standard print() calls to the logging system.
     This prevents third-party libraries or accidental prints from corrupting
     the Textual TUI display, routing them to the log file instead.
     """
+    global _original_stderr, _original_print, _tui_redirects_active
+    if _tui_redirects_active:
+        return
+    _original_stderr = sys.stderr
+    _original_print = builtins.print
+    _tui_redirects_active = True
+
     # 1. Redirect sys.stderr to our StderrRedirector
     sys.stderr = StderrRedirector("kogniterm.stderr")
 
     # 2. Redirect builtins.print to route stdout-directed prints to logging
-    _original_print = builtins.print
+    orig_p = _original_print
     def tui_print(*args, **kwargs):
         # If print is directed to a specific file that is NOT stdout or stderr,
         # let it proceed normally (e.g., writing to a file on disk).
         file = kwargs.get("file", sys.stdout)
         if file is not sys.stdout and file is not sys.stderr:
-            _original_print(*args, **kwargs)
+            orig_p(*args, **kwargs)
             return
 
         message = " ".join(str(arg) for arg in args)
         logging.getLogger("kogniterm.print").info(message)
 
     builtins.print = tui_print
+
+
+def restore_tui_redirects():
+    """Restores sys.stderr and builtins.print to their original state."""
+    global _original_stderr, _original_print, _tui_redirects_active
+    if not _tui_redirects_active:
+        return
+    sys.stderr = _original_stderr
+    builtins.print = _original_print
+    _tui_redirects_active = False
 
 
 def _build_file_handler(log_dir: str | None = None) -> RotatingFileHandler:

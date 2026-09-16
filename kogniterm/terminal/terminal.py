@@ -1,7 +1,5 @@
 import logging
-from kogniterm.utils.logger import enable_file_logging_only, setup_tui_redirects
-enable_file_logging_only() # Initialize root logger for TUI mode (file only, no console)
-setup_tui_redirects()      # Redirect stderr and print() to logging to prevent TUI pollution
+from kogniterm.utils.logger import enable_file_logging_only, setup_tui_redirects, restore_tui_redirects
 
 import sys
 import os
@@ -107,6 +105,8 @@ import signal
 
 async def _main_async():
     """Función principal asíncrona para iniciar la terminal de KogniTerm."""
+    enable_file_logging_only()
+    setup_tui_redirects()
     import sys
     from kogniterm.terminal.config_manager import ConfigManager
     from kogniterm.terminal.themes import set_kogniterm_theme
@@ -195,6 +195,7 @@ async def _main_async():
         if hasattr(app, 'prompt_session') and app.prompt_session and app.prompt_session.completer and hasattr(app.prompt_session.completer, 'dispose'):
             app.prompt_session.completer.dispose()
 
+        restore_tui_redirects()
         _print_exit_banner()
 
 def main():
@@ -213,6 +214,7 @@ def main():
         return
 
     # Iniciar la aplicación TUI
+    exit_code = 0
     try:
         asyncio.run(_main_async())
     except KeyboardInterrupt:
@@ -222,15 +224,17 @@ def main():
         if "loop" in str(e).lower() or "event loop" in str(e).lower():
             pass
         else:
+            restore_tui_redirects()
             print(f"❌ Error al iniciar KogniTerm: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc()
-            sys.exit(1)
+            exit_code = 1
     except Exception as e:
+        restore_tui_redirects()
         print(f"❌ Error fatal al iniciar KogniTerm: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
-        sys.exit(1)
+        exit_code = 1
     finally:
         # Notificar al servidor que la sesión TUI cerró
         try:
@@ -258,7 +262,7 @@ def main():
             sys.stderr.flush()
         except:
             pass
-        os._exit(0)
+        os._exit(exit_code)
 
 if __name__ == "__main__":
     main()
