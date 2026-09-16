@@ -119,3 +119,29 @@ class MCPManager:
             st = self.server_statuses.get(name, {"status": "disconnected", "tools": []})
             result[name] = {**conf, **st}
         return result
+
+    def get_prompt_instructions(self) -> str:
+        """Devuelve un bloque de directivas para el system prompt cuando hay herramientas MCP activas."""
+        if not self.active_tools:
+            return ""
+        
+        servers_info = []
+        for name, info in self.server_statuses.items():
+            if info.get("status") == "connected":
+                tools = info.get("tools", [])
+                tools_preview = ", ".join(f"`{t}`" for t in tools[:8])
+                if len(tools) > 8:
+                    tools_preview += f" y {len(tools) - 8} más"
+                servers_info.append(f"  • Servidor **{name}** ({len(tools)} herramientas): {tools_preview}")
+
+        lines = [
+            "### 🔌 HERRAMIENTAS MCP (MODEL CONTEXT PROTOCOL) DISPONIBLES:",
+            "Tienes servidores MCP conectados que te proveen herramientas nativas especializadas:",
+            *servers_info,
+            "",
+            "⚠️ **DIRECTIVA OBLIGATORIA DE PRIORIDAD MCP**:",
+            "- Cuando una tarea o consulta del usuario pueda resolverse usando cualquiera de tus herramientas MCP disponibles (por ejemplo: gestionar WordPress/Elementor, consultar tracks de Bitwig, bases de datos o servicios externos), **DEBES usar directamente la herramienta MCP nativa (`tool_call`)**.",
+            "- **ESTÁ ESTRICTAMENTE PROHIBIDO usar `execute_command`, curl o escribir scripts de terminal ad-hoc** para simular acciones que ya están cubiertas por una herramienta MCP conectada."
+        ]
+        return "\n".join(lines) + "\n"
+

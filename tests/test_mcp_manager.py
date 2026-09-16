@@ -57,8 +57,8 @@ async def test_mcp_manager_fastmcp_lifecycle_and_execution(tmp_path, monkeypatch
     assert test_res["status"] == "ok"
     assert "multiply" in test_res["tools"]
 
-    # Guardar en config_manager y recargar
-    manager.config_manager.set_mcp_server("calc_srv", server_conf, scope="project")
+    # Guardar en config_manager y recargar (aislado para evitar llamadas de red a otros servidores)
+    monkeypatch.setattr(manager.config_manager, "get_mcp_servers", lambda: {"calc_srv": server_conf})
 
     callback_called = []
     manager.register_on_reload_callback(lambda: callback_called.append(True))
@@ -67,8 +67,14 @@ async def test_mcp_manager_fastmcp_lifecycle_and_execution(tmp_path, monkeypatch
     assert len(callback_called) == 1
     assert len(manager.active_tools) > 0
     
-    tool = manager.active_tools[0]
+    tool = next((t for t in manager.active_tools if getattr(t, "name", "") == "multiply"), None)
+    assert tool is not None
     assert tool.name == "multiply"
+
+    # Verificar get_prompt_instructions
+    prompt_instr = manager.get_prompt_instructions()
+    assert "calc_srv" in prompt_instr
+    assert "multiply" in prompt_instr
 
     # Verificar que LLMService.get_tool resuelve la herramienta
     mock_llm = MagicMock(spec=LLMService)

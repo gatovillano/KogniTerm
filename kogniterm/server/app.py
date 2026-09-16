@@ -140,6 +140,13 @@ class SetConfigRequest(BaseModel):
     scope: str = "project"  # "project" o "global"
 
 
+class SetKeyRequest(BaseModel):
+    provider: str
+    key_value: Optional[str] = None
+    key: Optional[str] = None
+    scope: str = "project"  # "project" o "global"
+
+
 class TelegramDetectRequest(BaseModel):
     token: str
 
@@ -429,7 +436,7 @@ def create_app() -> FastAPI:
         anthropic_models = ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229"]
         ollama_models = ["ollama/llama3", "ollama/mistral"]
         kilocode_models = ["kilocode/kilo/auto", "kilocode/openai/gpt-4o"]
-        inception_models = ["inception/mercury", "inception/mercury-coder"]
+        inception_models = ["inception/mercury-2", "inception/mercury-2.5"]
         ollama_cloud_models = [
             "ollama_cloud/llama3:70b",
             "ollama_cloud/llama3:8b",
@@ -657,7 +664,7 @@ def create_app() -> FastAPI:
                     resp = await client.get(
                         "https://api.inceptionlabs.ai/v1/models",
                         headers={"Authorization": f"Bearer {inception_key}"},
-                        timeout=3.0,
+                        timeout=5.0,
                     )
                     if resp.status_code == 200:
                         data = resp.json()
@@ -782,7 +789,7 @@ def create_app() -> FastAPI:
                 "ollama": "ollama/llama3",
                 "ollama_cloud": "ollama_cloud/llama3:70b",
                 "kilocode": "kilocode/kilo/auto",
-                "inception": "inception/mercury",
+                "inception": "inception/mercury-2",
                 "antigravity": "antigravity/gemini-3-flash",
                 "litellm": "google/gemini-1.5-flash",
             }
@@ -905,6 +912,19 @@ def create_app() -> FastAPI:
                         session.command_approval_handler.auto_approve = bool(req.value)
 
         return {"status": "ok", "key": req.key, "scope": req.scope}
+
+    @application.post("/api/config/set_key", tags=["Configuración"])
+    async def set_key_endpoint(req: SetKeyRequest = Body(...)):
+        """Establece una API Key para un proveedor en ámbito global o proyecto."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        val = req.key_value if req.key_value is not None else req.key
+        if val is None:
+            raise HTTPException(status_code=400, detail="Must provide 'key_value' or 'key'")
+        cm = ConfigManager()
+        cm.set_api_key(req.provider, val, scope=req.scope)
+        if pool._llm_service:
+            pool._llm_service.reload_config()
+        return {"status": "ok", "provider": req.provider, "scope": req.scope}
 
     @application.post("/api/config/telegram/detect-chat-id", tags=["Configuración"])
     async def detect_telegram_chat_id(req: TelegramDetectRequest):

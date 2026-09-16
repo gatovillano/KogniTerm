@@ -280,6 +280,13 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
             base_content += "\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO:\nActualmente no existe el archivo `.kogniterm/llm_context.md`. Debes sugerir al usuario ejecutar `/init` al inicio de la interacción para realizar la investigación y construirla automáticamente.\n"
     except Exception:
         pass
+    try:
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+        mcp_prompt = MCPManager.get_instance().get_prompt_instructions()
+        if mcp_prompt:
+            base_content += f"\n\n{mcp_prompt}\n"
+    except Exception as e:
+        logger.debug(f"Error inyectando instrucciones MCP: {e}")
     
     if not llm_service.is_thinking_model():
         base_content += """

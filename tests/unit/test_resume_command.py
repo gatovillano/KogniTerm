@@ -81,3 +81,28 @@ async def test_resume_command_partial_title_match(mock_llm_service, mock_agent_s
     mock_app.thread_manager.find_threads.assert_called_with("Test")
     mock_app.thread_manager.set_current_thread_id.assert_called_with("thread-123")
     mock_terminal_ui.print_message.assert_any_call("Thread 'Mi Hilo de Test' resumed with 2 messages.", style="green")
+
+@pytest.mark.anyio
+async def test_resume_command_with_tool_calls(mock_llm_service, mock_agent_state, mock_terminal_ui, mock_app):
+    from langchain_core.messages import ToolMessage
+    thread_mock = MagicMock()
+    thread_mock.id = "thread-tool"
+    thread_mock.title = "Thread with Tools"
+    thread_mock.messages = [
+        HumanMessage(content="ejecuta ls"),
+        AIMessage(
+            content="Ejecutando comando...",
+            tool_calls=[{"name": "bash", "args": {"command": "ls -la"}, "id": "call_1"}]
+        ),
+        ToolMessage(content="archivo1.txt\narchivo2.txt", tool_call_id="call_1"),
+        AIMessage(content="Los archivos son archivo1.txt y archivo2.txt")
+    ]
+
+    mock_app.thread_manager.get_thread.return_value = thread_mock
+    processor = MetaCommandProcessor(mock_llm_service, mock_agent_state, mock_terminal_ui, mock_app)
+
+    # Process resume
+    result = await processor.process_meta_command("/resume thread-tool")
+    assert result is True
+    assert mock_llm_service.conversation_history == thread_mock.messages
+

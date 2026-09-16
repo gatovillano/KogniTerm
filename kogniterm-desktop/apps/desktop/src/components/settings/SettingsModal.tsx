@@ -98,6 +98,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         else if (modelLower.includes('ollama')) inferredProvider = 'ollama';
         else if (modelLower.includes('antigravity')) inferredProvider = 'antigravity';
         else if (modelLower.includes('kilocode')) inferredProvider = 'kilocode';
+        else if (modelLower.includes('inception') || modelLower.includes('mercury')) inferredProvider = 'inception';
         setSelectedProvider(inferredProvider);
       }
     } catch (error) {
@@ -245,7 +246,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
       // 3. Save modified API Keys
       const activeKeysScope = activeScope; 
-      const providersKeys = ['google', 'openai', 'anthropic', 'openrouter', 'kilocode', 'ollama_cloud'];
+      const providersKeys = ['google', 'openai', 'anthropic', 'openrouter', 'kilocode', 'inception', 'ollama_cloud'];
       for (const provider of providersKeys) {
         const inputKey = apiKeys[provider];
         if (inputKey && inputKey.trim() !== '') {
@@ -428,6 +429,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         { id: 'ollama_cloud', name: 'Ollama Cloud' },
                         { id: 'antigravity', name: 'Antigravity' },
                         { id: 'kilocode', name: 'KiloCode' },
+                        { id: 'inception', name: 'Inception Labs' },
                       ].map(prov => (
                         <button
                           key={prov.id}
@@ -435,7 +437,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           onClick={() => {
                             setSelectedProvider(prov.id);
                             const p = providers.find(pr => pr.id === prov.id);
-                            const defaultM = p?.models[0] || (prov.id === 'google' ? 'gemini/gemini-1.5-flash' : '');
+                            const defaultM = p?.models[0] || (prov.id === 'google' ? 'gemini/gemini-1.5-flash' : prov.id === 'inception' ? 'inception/mercury-2' : '');
                             if (defaultM) {
                               setScopeValue('default_model', defaultM, activeScope);
                             }

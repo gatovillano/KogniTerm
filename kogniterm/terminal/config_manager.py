@@ -116,8 +116,9 @@ class ConfigManager:
 
     def get_mcp_servers(self) -> Dict[str, Any]:
         """Obtiene la configuración de servidores MCP combinando global y proyecto."""
-        merged = self.get_all_config()
-        return merged.get("mcpServers", {})
+        global_servers = self.load_global_config().get("mcpServers", {}) or {}
+        project_servers = self.load_project_config().get("mcpServers", {}) or {}
+        return {**global_servers, **project_servers}
 
     def set_mcp_server(self, name: str, server_config: Dict[str, Any], scope: str = "project"):
         """Guarda o actualiza la configuración de un servidor MCP."""

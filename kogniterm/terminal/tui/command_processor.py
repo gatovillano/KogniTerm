@@ -105,19 +105,39 @@ class TUICommandProcessor:
         )
         
         if selected:
-            await set_llm_config(provider=selected)
+            default_models = {
+                "google": "gemini/gemini-1.5-flash",
+                "openai": "gpt-4o-mini",
+                "anthropic": "claude-3-5-sonnet-20240620",
+                "openrouter": "openrouter/google/gemini-2.0-flash-exp:free",
+                "ollama": "ollama/llama3",
+                "ollama_cloud": "ollama/llama3",
+                "kilocode": "kilocode/kilo/auto",
+                "inception": "inception/mercury-2",
+                "antigravity": "antigravity/gemini-3-flash",
+            }
+            fallback_model = default_models.get(selected)
+            new_model = fallback_model
             try:
+                await set_llm_config(provider=selected)
                 config = await get_llm_config()
-                new_model = config.get("model")
-                if new_model:
-                    if self.app.llm_service:
-                        self.app.llm_service.set_model(new_model)
-                    if hasattr(self.app, "agent_interaction_manager") and self.app.agent_interaction_manager:
-                        self.app.agent_interaction_manager.set_model(new_model)
-                    self.app.update_status_footer(new_model)
+                if config.get("model"):
+                    new_model = config.get("model")
             except Exception as ex:
-                logger.warning(f"Error al sincronizar modelo local tras cambio de proveedor: {ex}")
-            self.terminal_ui.print_message(f"✅ Proveedor actualizado en el servidor: {selected}", style="green")
+                logger.warning(f"Error conectando con servidor para actualizar proveedor: {ex}")
+
+            if new_model:
+                if self.app.llm_service:
+                    self.app.llm_service.set_model(new_model)
+                if hasattr(self.app, "agent_interaction_manager") and self.app.agent_interaction_manager:
+                    self.app.agent_interaction_manager.set_model(new_model)
+                self.app.update_status_footer(new_model)
+                try:
+                    from kogniterm.terminal.config_manager import ConfigManager
+                    ConfigManager().set_global_config("default_model", new_model)
+                except Exception:
+                    pass
+            self.terminal_ui.print_message(f"✅ Proveedor actualizado: {selected}", style="green")
 
     async def _handle_keys(self):
         """Muestra modal para configurar API Keys en el servidor."""

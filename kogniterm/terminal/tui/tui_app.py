@@ -2455,8 +2455,17 @@ class KogniTermTUI(App):
 
         self.chat_log.write_user_message(user_input)
 
-        if await self.meta_command_processor.process_meta_command(user_input):
-            return
+        if self.meta_command_processor:
+            try:
+                if await self.meta_command_processor.process_meta_command(user_input):
+                    return
+            except Exception as e:
+                logger.error(f"Error procesando meta-comando: {e}", exc_info=True)
+                if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "print_message"):
+                    self.tui_ui.print_message(f"Error ejecutando comando: {e}", style="red")
+                elif hasattr(self, "chat_log"):
+                    self.chat_log.write_agent_message(f"❌ Error ejecutando comando: {e}")
+                return
 
         # ── Decisión híbrida: servidor vs local ────────────────────────────────
         if self._server_mode and self._ws_client:

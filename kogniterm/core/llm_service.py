@@ -339,20 +339,8 @@ class LLMService:
                 self.skill_manager.discover_all_skills()
                 for skill_name in self.skill_manager.skills:
                     self.skill_manager.load_skill(skill_name)
-                # Actualizar schemas y tool_map
-                self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in self.skill_manager.get_tools()]
-                self.tool_schemas = []
-                for tool in self.skill_manager.get_tools():
-                    schema = {}
-                    if hasattr(tool, 'args_schema') and tool.args_schema is not None:
-                        if hasattr(tool.args_schema, 'schema'):
-                            schema = tool.args_schema.schema()
-                        elif hasattr(tool.args_schema, 'model_json_schema'):
-                            schema = tool.args_schema.model_json_schema()
-                    elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
-                        schema = tool.parameters_schema
-                    self.tool_schemas.append(schema)
-                self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.skill_manager.get_tools()}
+                # Actualizar schemas y tool_map con skills y MCP
+                self.sync_tools()
             except Exception as e:
                 logger.error(f"⚠️ Error re-descubriendo skills en {workspace_dir}: {e}")
         

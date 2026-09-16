@@ -448,6 +448,10 @@ class MetaCommandProcessor:
                         pass
 
                 self._render_history_in_ui(history)
+                tui_app = getattr(self.terminal_ui, "app", None) or self.kogniterm_app
+                if tui_app and hasattr(tui_app, "_transition_to_chat"):
+                    tui_app._transition_to_chat("")
+
                 self.terminal_ui.print_message(f"Thread '{thread.title}' resumed with {len([m for m in history if hasattr(m, 'type') and m.type in ('human', 'ai')])} messages.", style="green")
                 
                 # Intentar autonombrado asíncrono si el título no es definitivo
@@ -1242,8 +1246,8 @@ Example: /autosave restore autosave_20250515_141530
                 target_list = await _fetch_inception_models()
                 if not target_list:
                     target_list = [
-                        ("inception/mercury", "Mercury (Inception Labs)"),
-                        ("inception/mercury-coder", "Mercury Coder (Inception Labs)"),
+                        ("inception/mercury-2", "Inception: Mercury 2"),
+                        ("inception/mercury-2.5", "Inception: Mercury 2.5"),
                     ]
             else:
                 target_list = await _fetch_openrouter_models()
@@ -1519,7 +1523,7 @@ Example: /autosave restore autosave_20250515_141530
                     "ollama": "ollama/llama3",
                     "ollama_cloud": "ollama/llama3",
                     "kilocode": "kilocode/kilo/auto",
-                    "inception": "inception/mercury",
+                    "inception": "inception/mercury-2",
                     "antigravity": "antigravity/gemini-3-flash",
                 }
                 new_model = default_models.get(selected_provider)
@@ -2124,72 +2128,90 @@ Example: /autosave restore autosave_20250515_141530
             pass
 
         for msg in history:
-            msg_type = getattr(msg, "type", None)
-            content = getattr(msg, "content", "")
-            
-            # 1. Manejar HumanMessage
-            if msg_type == "human" or isinstance(msg, HumanMessage):
-                if not content: continue
-                if chat_log is not None:
-                    chat_log.write_user_message(content)
-                else:
-                    self.terminal_ui.print_message(content, is_user_message=True)
-            
-            # 2. Manejar AIMessage (puede tener pensamientos y tool_calls)
-            elif msg_type == "ai" or isinstance(msg, AIMessage):
-                # a) Renderizar Pensamiento (si existe en additional_kwargs)
-                reasoning = ""
-                if hasattr(msg, "additional_kwargs"):
-                    reasoning = msg.additional_kwargs.get("reasoning_content", "")
+            try:
+                msg_type = getattr(msg, "type", None)
+                content = getattr(msg, "content", "")
                 
-                if reasoning:
+                # 1. Manejar HumanMessage
+                if msg_type == "human" or isinstance(msg, HumanMessage):
+                    if not content: continue
                     if chat_log is not None:
-                        # ChatLogWidget.write acepta renderizables
-                        chat_log.write(create_thought_bubble(reasoning))
+                        chat_log.write_user_message(content)
                     else:
-                        self.terminal_ui.console.print(create_thought_bubble(reasoning))
+                        self.terminal_ui.print_message(content, is_user_message=True)
                 
-                # b) Renderizar Tool Calls (si existen)
-                tool_calls = getattr(msg, "tool_calls", [])
-                if tool_calls:
-                    for tc in tool_calls:
-                        tool_name = tc.get("name", "unknown")
-                        from kogniterm.core.utils.tool_utils import get_tool_action_description
-                        action_desc = (
-                            get_tool_action_description(tool_name, args, tool_name=tool_name)
-                            or f"Llamando a {tool_name} con {json.dumps(args)}"
-                        )
-                        
+                # 2. Manejar AIMessage (puede tener pensamientos y tool_calls)
+                elif msg_type == "ai" or isinstance(msg, AIMessage):
+                    # a) Renderizar Pensamiento (si existe en additional_kwargs)
+                    reasoning = ""
+                    if hasattr(msg, "additional_kwargs") and isinstance(msg.additional_kwargs, dict):
+                        reasoning = msg.additional_kwargs.get("reasoning_content", "")
+                    
+                    if reasoning:
                         if chat_log is not None:
-                            chat_log.write_tool_notification(tool_name, action_desc)
+                            # ChatLogWidget.write acepta renderizables
+                            chat_log.write(create_thought_bubble(reasoning))
                         else:
-                            from kogniterm.terminal.themes import ColorPalette, Icons
-                            from rich.text import Text
-                            notify = Text.from_markup(f"{Icons.TOOL} [bold {ColorPalette.SECONDARY}]Acción:[/] {action_desc}")
-                            self.terminal_ui.console.print(Padding(notify, (0, 4)))
+                            self.terminal_ui.console.print(create_thought_bubble(reasoning))
+                    
+                    # b) Renderizar Tool Calls (si existen)
+                    tool_calls = getattr(msg, "tool_calls", [])
+                    if tool_calls:
+                        for tc in tool_calls:
+                            if not isinstance(tc, dict):
+                                continue
+                            tool_name = tc.get("name", "unknown")
+                            raw_args = tc.get("args", {})
+                            if isinstance(raw_args, str):
+                                try:
+                                    args = json.loads(raw_args)
+                                except Exception:
+                                    args = {}
+                            elif isinstance(raw_args, dict):
+                                args = raw_args
+                            else:
+                                args = {}
 
-                # c) Renderizar Contenido de Texto
-                if content and isinstance(content, str):
-                    if chat_log is not None:
-                        chat_log.write_agent_message(content)
-                    else:
-                        self.terminal_ui.print_message(content)
-            
-            # 3. Manejar ToolMessage (resultado de ejecución)
-            elif msg_type == "tool" or isinstance(msg, ToolMessage):
-                if not content: continue
-                tool_name = getattr(msg, "name", "tool")
+                            from kogniterm.core.utils.tool_utils import get_tool_action_description
+                            action_desc = (
+                                get_tool_action_description(tool_name, args, tool_name=tool_name)
+                                or f"Llamando a {tool_name} con {json.dumps(args)}"
+                            )
+                            
+                            if chat_log is not None:
+                                chat_log.write_tool_notification(tool_name, action_desc)
+                            else:
+                                from kogniterm.terminal.themes import ColorPalette, Icons
+                                from rich.text import Text
+                                notify = Text.from_markup(f"{Icons.TOOL} [bold {ColorPalette.SECONDARY}]Acción:[/] {action_desc}")
+                                self.terminal_ui.console.print(Padding(notify, (0, 4)))
+
+                    # c) Renderizar Contenido de Texto
+                    if content and isinstance(content, str):
+                        if chat_log is not None:
+                            chat_log.write_agent_message(content)
+                        else:
+                            self.terminal_ui.print_message(content)
                 
-                if chat_log is not None:
-                    chat_log.write_tool_output(content, tool_name)
-                else:
-                    # En CLI, usar el panel de visual_components
-                    # Detectar si es salida de terminal (bash)
-                    if tool_name == "bash" or "comando" in tool_name.lower():
-                        panel = create_terminal_output_panel(tool_name, content)
+                # 3. Manejar ToolMessage (resultado de ejecución)
+                elif msg_type == "tool" or isinstance(msg, ToolMessage):
+                    if not content: continue
+                    tool_name = getattr(msg, "name", "tool") or "tool"
+                    content_str = str(content)
+                    
+                    if chat_log is not None:
+                        chat_log.write_tool_output(content_str, tool_name)
                     else:
-                        panel = create_tool_output_panel(tool_name, content)
-                    self.terminal_ui.console.print(panel)
+                        # En CLI, usar el panel de visual_components
+                        # Detectar si es salida de terminal (bash)
+                        if tool_name == "bash" or "comando" in tool_name.lower():
+                            panel = create_terminal_output_panel(tool_name, content_str)
+                        else:
+                            panel = create_tool_output_panel(tool_name, content_str)
+                        self.terminal_ui.console.print(panel)
+            except Exception as e:
+                import logging
+                logging.getLogger("kogniterm.terminal").warning(f"Error al renderizar mensaje del historial: {e}")
 
     def _show_themes_table(self):
         """Muestra una tabla con los temas disponibles y sus colores."""

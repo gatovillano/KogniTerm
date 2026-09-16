@@ -6,7 +6,8 @@ from kogniterm.terminal.config_manager import ConfigManager
 from kogniterm.core.mcp.mcp_manager import MCPManager
 
 @pytest.mark.asyncio
-async def test_tui_command_processor_mcp():
+async def test_tui_command_processor_mcp(monkeypatch):
+    monkeypatch.setattr(MCPManager.get_instance(), "reload", AsyncMock())
     mock_app = MagicMock()
     mock_ui = MagicMock()
     mock_ui.print_message = MagicMock()
@@ -44,7 +45,8 @@ async def test_tui_command_processor_mcp():
     assert "test_add" not in cm.get_mcp_servers()
 
 @pytest.mark.asyncio
-async def test_meta_command_processor_mcp():
+async def test_meta_command_processor_mcp(monkeypatch):
+    monkeypatch.setattr(MCPManager.get_instance(), "reload", AsyncMock())
     mock_llm = MagicMock()
     mock_state = MagicMock()
     mock_ui = MagicMock()

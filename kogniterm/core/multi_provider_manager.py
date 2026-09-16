@@ -538,7 +538,7 @@ class MultiProviderManager:
             "ollama": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
             "ollama_cloud": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
             "kilocode": "kilo/auto",
-            "inception": "mercury"
+            "inception": "mercury-2"
         }
 
         default_model = provider_defaults.get(provider.name, "gpt-4o-mini")
