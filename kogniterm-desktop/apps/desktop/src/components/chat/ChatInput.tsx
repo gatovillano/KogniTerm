@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Square, Plus, Mic, ArrowUp } from 'lucide-react';
+import { Square, Plus, Mic, ArrowUp, Loader2, X, Check, AlertCircle } from 'lucide-react';
+import { useAudioTranscription } from '../../hooks/useAudioTranscription';
 
 interface ChatInputProps {
     onSendMessage: (message: string, images?: string[]) => void;
@@ -25,6 +26,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [isFocused, setIsFocused] = useState(false);
 
+    const {
+        isRecording,
+        isTranscribing,
+        recordingDuration,
+        audioError,
+        startRecording,
+        stopRecording,
+        cancelRecording,
+        clearError,
+    } = useAudioTranscription();
+
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const value = e.target.value;
@@ -75,8 +92,48 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         }
     };
 
+    const handleMicClick = async () => {
+        if (isTranscribing) return;
+        if (isRecording) {
+            const transcribed = await stopRecording();
+            if (transcribed) {
+                setInput((prev) => {
+                    const nextVal = prev.trim() ? `${prev.trim()} ${transcribed}` : transcribed;
+                    setTimeout(() => {
+                        if (textareaRef.current) {
+                            textareaRef.current.style.height = 'auto';
+                            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+                            textareaRef.current.focus();
+                        }
+                    }, 50);
+                    return nextVal;
+                });
+            }
+        } else {
+            await startRecording();
+        }
+    };
+
     return (
         <div className="w-full max-w-3xl mx-auto px-6 sm:px-8 md:px-10 pb-4">
+            {/* Error banner si falló la grabación o transcripción */}
+            {audioError && (
+                <div className="mb-2 flex items-center justify-between text-xs px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400">
+                    <div className="flex items-center gap-1.5">
+                        <AlertCircle size={14} className="shrink-0" />
+                        <span>{audioError}</span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={clearError}
+                        className="p-0.5 hover:opacity-75 cursor-pointer ml-2"
+                        title="Descartar error"
+                    >
+                        <X size={13} />
+                    </button>
+                </div>
+            )}
+
             {/* Main Floating Input Form matching OpenClaw design */}
             <div 
                 onDrop={handleDrop}
@@ -95,7 +152,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 <form
                     onSubmit={handleSubmit}
                     className={`relative flex items-center gap-2.5 bg-white/80 dark:bg-zinc-900/80 border border-zinc-200/90 dark:border-zinc-800 rounded-xl px-3 py-2 backdrop-blur-md transition-all ${
-                        isFocused ? 'border-zinc-400 dark:border-zinc-600 ring-1 ring-zinc-400/20 dark:ring-zinc-600/20' : ''
+                        isRecording 
+                            ? 'border-red-400/80 dark:border-red-500/60 ring-1 ring-red-400/20 shadow-sm'
+                            : isFocused 
+                            ? 'border-zinc-400 dark:border-zinc-600 ring-1 ring-zinc-400/20 dark:ring-zinc-600/20' 
+                            : ''
                     }`}
                 >
                     {/* Left Plus Attachment Icon */}
@@ -108,28 +169,77 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         <Plus size={16} />
                     </button>
 
-                    {/* Text Area */}
-                    <textarea
-                        ref={textareaRef}
-                        value={input}
-                        onChange={handleInputChange}
-                        onKeyDown={handleKeyDown}
-                        onFocus={() => setIsFocused(true)}
-                        onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-                        placeholder="¿Qué deseas resolver o construir?"
-                        rows={1}
-                        className="flex-1 bg-transparent text-zinc-800 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none resize-none text-sm leading-6 max-h-[120px]"
-                    />
+                    {/* Text Area or Recording HUD */}
+                    {isRecording ? (
+                        <div className="flex-1 flex items-center gap-3 py-1 px-1">
+                            <div className="flex items-center gap-2 text-red-500 dark:text-red-400">
+                                <span className="relative flex h-2.5 w-2.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                                </span>
+                                <span className="text-xs font-mono font-medium tracking-wide">
+                                    Grabando audio ({formatTime(recordingDuration)})
+                                </span>
+                            </div>
+                            <span className="text-xs text-zinc-400 dark:text-zinc-500 truncate">
+                                Habla claramente para transcribir con Whisper...
+                            </span>
+                        </div>
+                    ) : (
+                        <textarea
+                            ref={textareaRef}
+                            value={input}
+                            onChange={handleInputChange}
+                            onKeyDown={handleKeyDown}
+                            onFocus={() => setIsFocused(true)}
+                            onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+                            placeholder={isTranscribing ? "Transcribiendo audio con Whisper..." : "¿Qué deseas resolver o construir?"}
+                            disabled={isTranscribing}
+                            rows={1}
+                            className="flex-1 bg-transparent text-zinc-800 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none resize-none text-sm leading-6 max-h-[120px] disabled:opacity-60"
+                        />
+                    )}
 
                     {/* Right Icon Actions */}
                     <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                            type="button"
-                            className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 rounded-lg transition-colors cursor-pointer"
-                            title="Entrada de voz"
-                        >
-                            <Mic size={16} />
-                        </button>
+                        {isRecording ? (
+                            <>
+                                {/* Cancelar grabación */}
+                                <button
+                                    type="button"
+                                    onClick={cancelRecording}
+                                    className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 rounded-lg transition-colors cursor-pointer"
+                                    title="Cancelar grabación"
+                                >
+                                    <X size={16} />
+                                </button>
+
+                                {/* Finalizar grabación y transcribir */}
+                                <button
+                                    type="button"
+                                    onClick={handleMicClick}
+                                    className="px-2.5 py-1 text-xs font-medium bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                    title="Finalizar y transcribir"
+                                >
+                                    <Check size={13} strokeWidth={2.5} />
+                                    <span>Transcribir</span>
+                                </button>
+                            </>
+                        ) : isTranscribing ? (
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-lg text-xs text-zinc-600 dark:text-zinc-300">
+                                <Loader2 size={14} className="animate-spin text-zinc-500 dark:text-zinc-400" />
+                                <span className="font-mono text-[11px]">Whisper...</span>
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={handleMicClick}
+                                className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 rounded-lg transition-colors cursor-pointer"
+                                title="Dictar por voz (Whisper)"
+                            >
+                                <Mic size={16} />
+                            </button>
+                        )}
 
                         {/* Send / Stop Generation Button */}
                         {isGenerating ? (
@@ -144,9 +254,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         ) : (
                             <button
                                 type="submit"
-                                disabled={!input.trim() && attachedImages.length === 0}
+                                disabled={(!input.trim() && attachedImages.length === 0) || isRecording || isTranscribing}
                                 className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all shrink-0 ${
-                                    input.trim() || attachedImages.length > 0
+                                    (input.trim() || attachedImages.length > 0) && !isRecording && !isTranscribing
                                         ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 cursor-pointer hover:opacity-90 shadow-2xs'
                                         : 'bg-zinc-100 text-zinc-300 dark:bg-zinc-800/60 dark:text-zinc-600 cursor-not-allowed'
                                 }`}
@@ -161,5 +271,3 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
     );
 };
-
-

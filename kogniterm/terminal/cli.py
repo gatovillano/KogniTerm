@@ -639,6 +639,70 @@ class CLIHandler:
         except Exception as e:
             print(f"❌ Error al iniciar KogniTerm Desktop: {e}")
 
+    def handle_web(self, args: List[str]):
+        """Abre la versión web de KogniTerm."""
+        if "--help" in args or "-h" in args:
+            print("Uso: kogniterm web [opciones]")
+            print("\nOpciones:")
+            print("  --logs             Muestra logs en tiempo real en la terminal")
+            print("  --no-browser       No abre el navegador automáticamente")
+            print("  -d, --detach       Ejecuta en segundo plano y retorna a la terminal")
+            print("  --frontend-port=N  Puerto del frontend (default: 3000)")
+            print("  --backend-port=N   Puerto del backend (default: 8765)")
+            print("  -h, --help         Muestra este mensaje de ayuda")
+            return
+
+        import subprocess
+        
+        original_cwd = os.getcwd()
+        
+        # Determinar la ruta de start-web.sh
+        # 1. Prioridad: Paquete kogniterm instalado / raíz del repositorio en desarrollo
+        package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        package_script = os.path.join(package_root, "start-web.sh")
+        
+        # 2. Prioridad: Directorio actual si contiene start-web.sh
+        cwd_script = os.path.join(original_cwd, "start-web.sh")
+        
+        # 3. Prioridad: Directorio de repo alternativo global (~/.kogniterm/repo)
+        alt_script = os.path.expanduser("~/.kogniterm/repo/start-web.sh")
+        
+        if os.path.isfile(package_script):
+            script_path = package_script
+        elif os.path.isfile(cwd_script):
+            script_path = cwd_script
+        elif os.path.isfile(alt_script):
+            script_path = alt_script
+        else:
+            print("❌ Error: No se pudo encontrar el script start-web.sh.")
+            print(f"   Se buscó en: {package_script}")
+            print(f"   Y en: {cwd_script}")
+            print(f"   Y en: {alt_script}")
+            return
+            
+        print("🚀 Iniciando KogniTerm Web...")
+        try:
+            os.chmod(script_path, 0o755)
+        except Exception:
+            pass
+            
+        try:
+            env = os.environ.copy()
+            env["KOGNITERM_WORKSPACE"] = original_cwd
+            
+            cmd = [script_path] + args
+            
+            is_detached = "--detach" in args or "-d" in args
+            if is_detached:
+                subprocess.Popen(cmd, cwd=os.path.dirname(script_path), env=env)
+                print("✨ KogniTerm Web lanzado en segundo plano.")
+            else:
+                subprocess.run(cmd, cwd=os.path.dirname(script_path), env=env)
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            print(f"❌ Error al iniciar KogniTerm Web: {e}")
+
     def handle_skills(self, args: List[str]):
         """Handles 'skills' commands for installing/managing external skills."""
         if len(args) < 1:
@@ -1011,6 +1075,9 @@ def run_cli() -> bool:
         return True
     elif command == 'desktop':
         handler.handle_desktop(args)
+        return True
+    elif command == 'web':
+        handler.handle_web(args)
         return True
     elif command == 'cli':
         handler.handle_cli(args)

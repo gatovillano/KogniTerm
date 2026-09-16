@@ -8,11 +8,13 @@ SHOW_LOGS=false
 FRONTEND_PORT=3000
 BACKEND_PORT=8765
 OPEN_BROWSER=true
+DETACH=false
 
 for arg in "$@"; do
   case "$arg" in
     --logs) SHOW_LOGS=true ;;
     --no-browser) OPEN_BROWSER=false ;;
+    --detach|-d) DETACH=true ;;
     --frontend-port=*) FRONTEND_PORT="${arg#*=}" ;;
     --backend-port=*) BACKEND_PORT="${arg#*=}" ;;
     --help|-h)
@@ -21,6 +23,7 @@ for arg in "$@"; do
       echo "Opciones:"
       echo "  --logs           Muestra logs en terminal"
       echo "  --no-browser     No abre el navegador automáticamente"
+      echo "  -d, --detach     Ejecuta en segundo plano y retorna a la terminal"
       echo "  --frontend-port=N Puerto del frontend (default: 3000)"
       echo "  --backend-port=N  Puerto del backend (default: 8765)"
       echo "  --help           Muestra esta ayuda"
@@ -116,6 +119,8 @@ if [ "${BACKEND_RUNNING}" = false ]; then
 
   if [ -f "${SCRIPT_DIR}/.venv/bin/activate" ]; then
     VENV_ACTIVATE="${SCRIPT_DIR}/.venv/bin/activate"
+  elif [ -f "${SCRIPT_DIR}/venv/bin/activate" ]; then
+    VENV_ACTIVATE="${SCRIPT_DIR}/venv/bin/activate"
   elif [ -f "${HOME}/.kogniterm/venv/bin/activate" ]; then
     VENV_ACTIVATE="${HOME}/.kogniterm/venv/bin/activate"
   else
@@ -126,7 +131,11 @@ if [ "${BACKEND_RUNNING}" = false ]; then
   if [ -n "${VENV_ACTIVATE}" ]; then
     BACKEND_CMD="source ${VENV_ACTIVATE} && "
   fi
-  BACKEND_CMD="${BACKEND_CMD}python3 -m kogniterm.server --port ${BACKEND_PORT}"
+  WORKSPACE_ARG=""
+  if [ -n "${KOGNITERM_WORKSPACE:-}" ]; then
+    WORKSPACE_ARG="--workspace \"${KOGNITERM_WORKSPACE}\""
+  fi
+  BACKEND_CMD="${BACKEND_CMD}python3 -m kogniterm.server --port ${BACKEND_PORT} ${WORKSPACE_ARG}"
 
   if [ "${SHOW_LOGS}" = true ]; then
     echo "🧾 Mostrando logs del backend..."
@@ -155,30 +164,55 @@ else
   echo ""
 fi
 
-# Elegir servidor frontend
+# Comprobar si el frontend ya está corriendo en el puerto
+FRONTEND_RUNNING=false
+if curl -sf "http://localhost:${FRONTEND_PORT}" >/dev/null 2>&1; then
+  FRONTEND_RUNNING=true
+  echo "✅ Frontend ya está corriendo en http://localhost:${FRONTEND_PORT}"
+fi
+
 FRONTEND_CMD=""
 FRONTEND_PID=""
 
-if command_exists npx; then
-  echo "${BLUE}🌐 Sirviendo cliente web con npx serve en puerto ${FRONTEND_PORT}...${NC}"
-  FRONTEND_CMD="npx -y serve -s ${FRONTEND_DIST} -l ${FRONTEND_PORT}"
-elif command_exists python3; then
-  echo "${BLUE}🐍 Sirviendo cliente web con Python HTTP server en puerto ${FRONTEND_PORT}...${NC}"
-  FRONTEND_CMD="python3 -m http.server ${FRONTEND_PORT} --directory ${FRONTEND_DIST}"
-else
-  echo "❌ No se encontró ni npx ni python3 para servir el frontend"
-  exit 1
+if [ "${FRONTEND_RUNNING}" = false ]; then
+  # Elegir servidor frontend
+  if command_exists npx; then
+    echo "${BLUE}🌐 Sirviendo cliente web con npx serve en puerto ${FRONTEND_PORT}...${NC}"
+    FRONTEND_CMD="npx -y serve -s ${FRONTEND_DIST} -l ${FRONTEND_PORT}"
+  elif command_exists python3; then
+    echo "${BLUE}🐍 Sirviendo cliente web con Python HTTP server en puerto ${FRONTEND_PORT}...${NC}"
+    FRONTEND_CMD="python3 -m http.server ${FRONTEND_PORT} --directory ${FRONTEND_DIST}"
+  else
+    echo "❌ No se encontró ni npx ni python3 para servir el frontend"
+    exit 1
+  fi
+
+  if [ "${SHOW_LOGS}" = true ]; then
+    echo "🧾 Mostrando logs del frontend..."
+    bash -lc "${FRONTEND_CMD}" > >(tee "${SERVER_LOG}") 2> >(tee "${SERVER_LOG}" >&2) &
+  else
+    bash -lc "${FRONTEND_CMD}" > "${SERVER_LOG}" 2>&1 &
+  fi
+
+  FRONTEND_PID=$!
+  echo "🆔 Frontend PID: ${FRONTEND_PID}"
 fi
 
-if [ "${SHOW_LOGS}" = true ]; then
-  echo "🧾 Mostrando logs del frontend..."
-  bash -lc "${FRONTEND_CMD}" > >(tee "${SERVER_LOG}") 2> >(tee "${SERVER_LOG}" >&2) &
-else
-  bash -lc "${FRONTEND_CMD}" > "${SERVER_LOG}" 2>&1 &
-fi
+# Definir limpieza si se ejecuta en primer plano
+cleanup() {
+  echo -e "\n${YELLOW}🛑 Deteniendo KogniTerm Web...${NC}"
+  if [ -n "${BACKEND_PID:-}" ]; then
+    kill "${BACKEND_PID}" 2>/dev/null || true
+  fi
+  if [ -n "${FRONTEND_PID:-}" ]; then
+    kill "${FRONTEND_PID}" 2>/dev/null || true
+  fi
+  exit 0
+}
 
-FRONTEND_PID=$!
-echo "🆔 Frontend PID: ${FRONTEND_PID}"
+if [ "${DETACH}" = false ]; then
+  trap cleanup SIGINT SIGTERM
+fi
 
 # Abrir navegador
 FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
@@ -208,9 +242,19 @@ echo "📝 Logs:"
 echo "  - Backend  : ${BACKEND_LOG}"
 echo "  - Frontend : ${SERVER_LOG}"
 echo ""
-echo "🛑 Para detener:"
-echo "  kill ${BACKEND_PID} ${FRONTEND_PID}"
+
+if [ "${DETACH}" = true ]; then
+  echo "✨ Ejecutándose en segundo plano."
+  if [ -n "${BACKEND_PID:-}" ] || [ -n "${FRONTEND_PID:-}" ]; then
+    echo "🛑 Para detener:"
+    echo "  kill ${BACKEND_PID:-} ${FRONTEND_PID:-}"
+  fi
+  echo ""
+  exit 0
+fi
+
+echo "🛑 Presiona Ctrl+C para detener (o usa -d / --detach para segundo plano)"
 echo ""
 
-# Esperar procesos y re-exitar si alguno cae
+# Esperar procesos
 wait

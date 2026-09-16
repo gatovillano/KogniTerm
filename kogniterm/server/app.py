@@ -41,6 +41,9 @@ from fastapi import (
     Query,
     Request,
     status,
+    File,
+    UploadFile,
+    Form,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -158,6 +161,13 @@ class SetKeyRequest(BaseModel):
 
 class TelegramDetectRequest(BaseModel):
     token: str
+
+
+class AudioTranscriptionResponse(BaseModel):
+    text: str = Field(..., description="Texto transcrito a partir del audio")
+    language: Optional[str] = Field(default=None, description="Código de idioma detectado o especificado")
+    language_probability: Optional[float] = Field(default=None, description="Probabilidad del idioma detectado")
+    duration: Optional[float] = Field(default=None, description="Duración del audio en segundos")
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
@@ -1543,6 +1553,57 @@ def create_app() -> FastAPI:
 
         full_text = "".join(text_content)
         return {"response": full_text}
+
+    # ── Transcripción de Audio con Whisper Ligero ─────────────────────────────
+
+    @application.post(
+        "/api/audio/transcribe",
+        response_model=AudioTranscriptionResponse,
+        tags=["Audio"],
+        summary="Transcribe audio utilizando Whisper ligero"
+    )
+    async def transcribe_audio(
+        file: UploadFile = File(..., description="Archivo de audio (webm, wav, ogg, mp3, m4a)"),
+        language: Optional[str] = Form(default=None, description="Código de idioma opcional (ej: 'es', 'en')")
+    ):
+        """Transcribe un archivo de audio para el input de usuario con Whisper ligero."""
+        try:
+            content = await file.read()
+            if not content:
+                raise HTTPException(status_code=400, detail="El archivo de audio está vacío.")
+
+            # Limitar a 25MB para dictado de voz
+            if len(content) > 25 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="El archivo de audio excede el límite de 25MB.")
+
+            from kogniterm.core.audio_service import audio_service
+            clean_lang = language.strip() if language and language.strip() else None
+            result = await audio_service.transcribe_audio(
+                file_bytes=content,
+                filename=file.filename or "audio.webm",
+                language=clean_lang
+            )
+            return AudioTranscriptionResponse(
+                text=result.get("text", ""),
+                language=result.get("language"),
+                language_probability=result.get("language_probability"),
+                duration=result.get("duration")
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error en transcripción de audio: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error al transcribir audio: {str(e)}")
+
+    @application.get(
+        "/api/audio/status",
+        tags=["Audio"],
+        summary="Estado del servicio Whisper de transcripción"
+    )
+    async def audio_transcription_status():
+        """Retorna información sobre el modelo Whisper activo."""
+        from kogniterm.core.audio_service import audio_service
+        return audio_service.get_status()
 
     # ── Canal REST (síncrono, para integraciones simples) ──────────────────────
 

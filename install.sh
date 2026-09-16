@@ -22,6 +22,8 @@ REPO_DIR="$KOGNITERM_DIR/repo"
 VENV_DIR="$KOGNITERM_DIR/venv"
 LOCAL_BIN="$HOME/.local/bin"
 WRAPPER_PATH="$LOCAL_BIN/kogniterm"
+SERVER_WRAPPER_PATH="$LOCAL_BIN/kogniterm-server"
+WEB_WRAPPER_PATH="$LOCAL_BIN/kogniterm-web"
 GITHUB_REPO_URL="https://github.com/gatovillano/KogniTerm.git"
 
 # Limpiar pantalla y asegurar interactividad desde pipes (ej. curl | bash)
@@ -204,9 +206,59 @@ update_kogniterm() {
         return 1
     fi
 
+    create_launchers
+
     echo -e "\n${BOLD}${GREEN}========================================================================${RESET}"
     echo -e "${BOLD}${GREEN}    🎉 ¡KogniTerm ha sido actualizado a la última versión con éxito!${RESET}"
     echo -e "${BOLD}${GREEN}========================================================================${RESET}\n"
+}
+
+# Creación de lanzadores y accesos directos globales
+create_launchers() {
+    echo -e "\n${BOLD}${BLUE}Creando lanzadores y accesos directos globales...${RESET}"
+    mkdir -p "$LOCAL_BIN"
+
+    # Lanzador para kogniterm
+    cat << EOF > "$WRAPPER_PATH"
+#!/usr/bin/env bash
+source "$VENV_DIR/bin/activate"
+exec kogniterm "\$@"
+EOF
+    chmod +x "$WRAPPER_PATH"
+    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm creado en: ${BOLD}${WRAPPER_PATH}${RESET}"
+
+    # Lanzador para kogniterm-server
+    cat << EOF > "$SERVER_WRAPPER_PATH"
+#!/usr/bin/env bash
+source "$VENV_DIR/bin/activate"
+exec kogniterm-server "\$@"
+EOF
+    chmod +x "$SERVER_WRAPPER_PATH"
+    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Server creado en: ${BOLD}${SERVER_WRAPPER_PATH}${RESET}"
+
+    # Lanzador para kogniterm-web
+    cat << EOF > "$WEB_WRAPPER_PATH"
+#!/usr/bin/env bash
+source "$VENV_DIR/bin/activate"
+exec kogniterm web "\$@"
+EOF
+    chmod +x "$WEB_WRAPPER_PATH"
+    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Web creado en: ${BOLD}${WEB_WRAPPER_PATH}${RESET}"
+
+    # Asegurar permisos ejecutables para scripts auxiliares
+    if [ -f "$REPO_DIR/start-web.sh" ]; then
+        chmod +x "$REPO_DIR/start-web.sh"
+    fi
+    if [ -f "start-web.sh" ]; then
+        chmod +x "start-web.sh"
+    fi
+
+    # Verificar si ~/.local/bin está en el PATH
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        echo -e "  ${YELLOW}⚠️ Advertencia: ${BOLD}~/.local/bin${RESET} no está en tu variable \$PATH.${RESET}"
+        echo -e "  Para ejecutar 'kogniterm' directamente, añade esto a tu ~/.bashrc o ~/.zshrc:"
+        echo -e "  ${CYAN}  export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}"
+    fi
 }
 
 # Instalación limpia desde cero
@@ -260,33 +312,7 @@ install_from_scratch() {
     fi
 
     echo -e "\n${BOLD}${BLUE}[4/4] Creando lanzadores globales...${RESET}"
-    mkdir -p "$LOCAL_BIN"
-    
-    # Lanzador para kogniterm
-    cat << EOF > "$WRAPPER_PATH"
-#!/usr/bin/env bash
-source "$VENV_DIR/bin/activate"
-exec kogniterm "\$@"
-EOF
-    chmod +x "$WRAPPER_PATH"
-    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm creado en: ${BOLD}${WRAPPER_PATH}${RESET}"
-
-    # Lanzador para kogniterm-server
-    SERVER_WRAPPER_PATH="$LOCAL_BIN/kogniterm-server"
-    cat << EOF > "$SERVER_WRAPPER_PATH"
-#!/usr/bin/env bash
-source "$VENV_DIR/bin/activate"
-exec kogniterm-server "\$@"
-EOF
-    chmod +x "$SERVER_WRAPPER_PATH"
-    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Server creado en: ${BOLD}${SERVER_WRAPPER_PATH}${RESET}"
-
-    # Verificar si ~/.local/bin está en el PATH
-    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-        echo -e "  ${YELLOW}⚠️ Advertencia: ${BOLD}~/.local/bin${RESET} no está en tu variable \$PATH.${RESET}"
-        echo -e "  Para ejecutar 'kogniterm' directamente, añade esto a tu ~/.bashrc o ~/.zshrc:"
-        echo -e "  ${CYAN}  export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}"
-    fi
+    create_launchers
 
     # Configuración de servicios
     read -p "¿Deseas configurar un proveedor de LLM ahora? (Y/n): " llm_conf
