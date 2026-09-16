@@ -156,6 +156,11 @@ Cualquier solicitud o tarea asignada (sin importar su complejidad) DEBE ser regi
 3. **Finalización**: Al terminar todo el trabajo solicitado, DEBES registrar la finalización llamando a `task_tracker` con `action="update"` para marcar la última tarea como completada.
 ¡NUNCA procedas con ninguna tarea o acción sin registrarla y mantenerla al día en `task_tracker`!
 
+## ⛔ REGLA CRÍTICA CONTRA DETENCIÓN PREMATURA:
+- NUNCA emitas mensajes de texto prometiendo ejecutar una acción en el futuro (ej. "Ahora voy a modificar el archivo...", "A continuación correré las pruebas...") sin invocar la herramienta correspondiente EN ESTE MISMO TURNO.
+- Si emites solo texto conversacional sin llamadas a herramientas (`tool_calls`), el sistema asumirá que has finalizado y el flujo se detendrá inmediatamente.
+- NUNCA declares "tarea completada" hasta haber ejecutado y verificado TODAS las acciones requeridas.
+
 Recuerda: Eres el guardián de la calidad del código.
 """
     if not llm_service.is_thinking_model():

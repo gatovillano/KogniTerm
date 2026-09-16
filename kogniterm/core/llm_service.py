@@ -209,9 +209,9 @@ class LLMService:
             self.skill_manager.load_skill(skill_name)
             
         # print("DEBUG: Generando esquemas de herramientas...")
-        self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in self.skill_manager.get_tools()]
+        self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in self.get_tools()]
         self.tool_schemas = []
-        for tool in self.skill_manager.get_tools():
+        for tool in self.get_tools():
             schema = {}
             if hasattr(tool, 'args_schema') and tool.args_schema is not None:
                 if hasattr(tool.args_schema, 'schema'):
@@ -221,9 +221,27 @@ class LLMService:
             elif hasattr(tool, 'parameters_schema') and tool.parameters_schema is not None:
                 schema = tool.parameters_schema
             self.tool_schemas.append(schema)
-        self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.skill_manager.get_tools()}
+        self.tool_map = {getattr(tool, 'name', tool.__class__.__name__): tool for tool in self.get_tools()}
         # Tools will be converted at runtime based on the actual model being used
         self.litellm_tools = None
+
+        try:
+            from .mcp.mcp_manager import MCPManager
+            mcp_mgr = MCPManager.get_instance()
+            mcp_mgr.register_on_reload_callback(self.sync_tools)
+            if mcp_mgr.config_manager.get_mcp_servers():
+                import threading
+                def _init_mcp_bg():
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(mcp_mgr.reload())
+                        loop.close()
+                    except Exception as e:
+                        logger.debug(f"Error al inicializar servidores MCP en background: {e}")
+                threading.Thread(target=_init_mcp_bg, daemon=True).start()
+        except Exception as e:
+            logger.debug(f"No se pudo registrar callback de MCPManager: {e}")
         self.max_conversation_tokens = 250000 # Límite seguro por debajo de Gemini 2.5 Flash (262144)
         self.max_tool_output_tokens = 60000 # Reserva para salida de herramientas
         self.max_history_tokens = self.max_conversation_tokens - self.max_tool_output_tokens # Remaining for history
@@ -588,10 +606,10 @@ class LLMService:
         # Tools will be converted at runtime, so no need to update litellm_tools here
 
     def sync_tools(self):
-        """Sincroniza el caché interno de herramientas con el estado actual de SkillManager."""
+        """Sincroniza el caché interno de herramientas con el estado actual de SkillManager y MCPManager."""
         logger.info("Sincronizando herramientas en LLMService...")
         self.litellm_tools = None  # Invalidar caché
-        tools = self.skill_manager.get_tools()
+        tools = self.get_tools()
         self.tool_names = [getattr(tool, 'name', tool.__class__.__name__) for tool in tools]
         self.tool_schemas = []
         for tool in tools:
@@ -638,8 +656,8 @@ class LLMService:
             except Exception as e:
                 logger.debug(f"Capabilities no cargadas en _get_litellm_tools: {e}")
 
-            # 2. Cargar herramientas procedimentales/adicionales de skills que no choquen
-            for tool in self.skill_manager.get_tools():
+            # 2. Cargar herramientas procedimentales/adicionales de skills y MCP que no choquen
+            for tool in self.get_tools():
                 tool_name = getattr(tool, 'name', None) or getattr(tool, '__name__', str(tool))
                 clean_name = sanitize_tool_name(tool_name)
                 if clean_name in seen_names:
@@ -661,7 +679,7 @@ class LLMService:
                     new_map[t_name] = t_def.handler
                     new_map[sanitize_tool_name(t_name)] = t_def.handler
 
-                for tool in self.skill_manager.get_tools():
+                for tool in self.get_tools():
                     raw_n = getattr(tool, 'name', getattr(tool, '__name__', tool.__class__.__name__))
                     clean_n = sanitize_tool_name(raw_n)
                     if raw_n not in new_map:
@@ -2471,7 +2489,19 @@ Limita el resumen a 5000 caracteres."""
 
     def get_tool(self, tool_name: str) -> Optional[Any]:
         """Encuentra y devuelve una herramienta por su nombre (soporta BaseTool y Callables)."""
-        return self.skill_manager.get_tool(tool_name)
+        tool = self.skill_manager.get_tool(tool_name)
+        if tool:
+            return tool
+        try:
+            from .mcp.mcp_manager import MCPManager
+            from .utils.tool_utils import sanitize_tool_name
+            for t in MCPManager.get_instance().active_tools:
+                t_name = getattr(t, 'name', None) or getattr(t, '__name__', None)
+                if t_name == tool_name or sanitize_tool_name(t_name) == sanitize_tool_name(tool_name):
+                    return t
+        except Exception:
+            pass
+        return None
 
     def close(self):
         """Libera recursos y cierra conexiones de servicios internos."""
@@ -2558,7 +2588,24 @@ Limita el resumen a 5000 caracteres."""
                             injected_args['delegation_context'] = delegation_context
 
                 # Soporte para diferentes tipos de ejecución de herramientas
-                if hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
+                if hasattr(tool, 'ainvoke') and getattr(tool, 'coroutine', None) is not None and getattr(tool, 'func', None) is None:
+                    # Herramientas asíncronas puras (ej. herramientas MCP de LangChain)
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    if loop.is_running():
+                        import nest_asyncio
+                        nest_asyncio.apply()
+                        result = loop.run_until_complete(tool.ainvoke(injected_args))
+                    else:
+                        result = loop.run_until_complete(tool.ainvoke(injected_args))
+                    # Si el resultado es lista de bloques de contenido [{'type': 'text', 'text': ...}], extraer texto
+                    if isinstance(result, list) and len(result) > 0 and all(isinstance(x, dict) and 'text' in x for x in result):
+                        result = "\n".join(str(x['text']) for x in result)
+                elif hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
                     # Método estándar e idóneo para LangChain BaseTool / StructuredTool
                     result = tool.invoke(injected_args)
                 elif hasattr(tool, 'run') and callable(getattr(tool, 'run')):

@@ -1086,6 +1086,13 @@ class KogniTermTUI(App):
         except Exception:
             self.meta_command_processor = None
 
+        try:
+            from kogniterm.terminal.tui.command_processor import TUICommandProcessor
+
+            self.command_processor = TUICommandProcessor(self)
+        except Exception:
+            self.command_processor = None
+
         # Inicializar CommandApprovalHandler solo si el componente está disponible
         try:
             if CommandApprovalHandler is not None:

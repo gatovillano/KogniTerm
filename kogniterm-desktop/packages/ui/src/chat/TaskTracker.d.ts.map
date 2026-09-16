@@ -1,0 +1,1 @@
+{"version":3,"file":"TaskTracker.d.ts","sourceRoot":"","sources":["TaskTracker.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,MAAM,OAAO,CAAC;AAE1B,OAAO,EAAE,SAAS,EAAE,MAAM,kBAAkB,CAAC;AAE7C,MAAM,WAAW,gBAAgB;IAC/B,SAAS,EAAE,SAAS,CAAC;CACtB;AAED,eAAO,MAAM,WAAW,EAAE,KAAK,CAAC,EAAE,CAAC,gBAAgB,CAiFlD,CAAC"}

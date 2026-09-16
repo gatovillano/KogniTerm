@@ -4,14 +4,9 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { Terminal, X, Minimize2, Maximize2 } from 'lucide-react';
+import { TerminalEntry } from '@kogniterm/types';
 
-export interface TerminalEntry {
-    id: string;
-    tool: string;
-    command?: string;
-    output: string;
-    timestamp: number;
-}
+export type { TerminalEntry };
 
 interface TerminalPanelProps {
     entries: TerminalEntry[];

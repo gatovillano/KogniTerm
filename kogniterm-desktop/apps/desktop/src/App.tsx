@@ -1,17 +1,19 @@
 import { useRef, useEffect, useState } from 'react';
-import { ChatMessage } from './components/chat/ChatMessage';
+import {
+  ChatMessage,
+  ThinkingSpinner,
+  CommandApproval,
+  FileExplorer,
+  SkillsPanel,
+  HeartbeatsPanel,
+  SessionHistoryPanel,
+  QuestionModal,
+} from '@kogniterm/ui';
 import { ChatInput } from './components/chat/ChatInput';
-import { ThinkingSpinner } from './components/chat/ThinkingSpinner';
-import { CommandApproval } from './components/chat/CommandApproval';
-import { FileExplorer } from './components/files/FileExplorer';
-import { SkillsPanel } from './components/skills/SkillsPanel';
 import { SettingsModal } from './components/settings/SettingsModal';
-import { HeartbeatsPanel } from './components/heartbeats/HeartbeatsPanel';
 import { RightSidebar } from './components/chat/RightSidebar';
-import { SessionHistoryPanel } from './components/session/SessionHistoryPanel';
 import { ProjectsSidebar } from './components/sidebar/ProjectsSidebar';
 import { AddProjectModal } from './components/modals/AddProjectModal';
-import { QuestionModal } from './components/modals/QuestionModal';
 import { useProjects } from './hooks/useProjects';
 import { useChat } from './hooks/useChat';
 import { useTheme } from './hooks/useTheme';

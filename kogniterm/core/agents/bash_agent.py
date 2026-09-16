@@ -239,6 +239,10 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
 13. **Ejecución Secuencial Multi-Herramienta (ESTRATEGIA EFICIENTE)**:
     - El sistema ejecuta TODAS las llamadas a herramientas que emitas en un mismo turno **de forma concurrentemente optimizada**.
     - Si tienes un plan o estrategia con múltiples pasos (ej. leer varios archivos, editar código o ejecutar comandos), **DEBES emitir TODAS las llamadas a herramientas requeridas en un solo turno**. El sistema las ejecutará en ese mismo turno antes de devolverte los resultados consolidados.
+14. **⛔ REGLA CRÍTICA CONTRA DETENCIÓN PREMATURA (EJECUCIÓN COMPLETA)**:
+    - NUNCA emitas un mensaje de texto prometiendo ejecutar una acción en el futuro (ej. "Ahora procederé a crear...", "A continuación voy a ejecutar...") sin invocar la herramienta correspondiente EN ESTE MISMO TURNO.
+    - Si emites solo texto explicativo sin llamadas a herramientas (`tool_calls`), el orquestador asumirá que has finalizado y el flujo se detendrá inmediatamente.
+    - NUNCA declares "tarea completada" ni des por terminado el trabajo hasta haber ejecutado y verificado TODAS las acciones requeridas.
 """
 
     try:

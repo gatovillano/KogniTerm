@@ -46,67 +46,27 @@ class TerminalUI:
 
     def handle_resize(self):
         """Maneja el redimensionamiento de la terminal refrescando la consola."""
-        # Obtener dimensiones actuales de forma explícita usando shutil
         size = shutil.get_terminal_size()
-        
-        # Actualizar la consola existente si es posible para mantener el estado
-        # Rich detecta automáticamente el ancho si no se especifica, pero aquí lo forzamos
-        # para asegurar consistencia tras la señal SIGWINCH.
         self.console.width = size.columns
         self.console.height = size.lines
         
-        # Opcionalmente, recreamos con el nuevo tamaño si hay problemas de buffers
-        # Pero mantenemos el tema original.
         self.console = Console(
             theme=get_kogniterm_theme(),
             width=size.columns,
             height=size.lines,
             force_terminal=True,
-            soft_wrap=True # Habilitar soft_wrap global para evitar desestructurar paneles
+            soft_wrap=True
         )
         
-        # Notificar a la aplicación principal (callback)
         if self.resize_callback:
             try:
                 self.resize_callback(size.columns, size.lines)
             except Exception:
-                pass # No propagar errores del callback
-        
-        # Si hay procesos de streaming activos, esto asegurará que el próximo chunk use el nuevo ancho.    def refresh_theme(self):
-        """Recarga el tema de la consola."""
-        # Creamos una nueva consola con el tema actualizado
-        self.console = Console(theme=get_kogniterm_theme())
-        # Actualizamos también los estilos de texto que dependen de ColorPalette
-        from .themes import TextStyles
-        # Nota: TextStyles en Python no se actualiza automáticamente si sus atributos
-        # fueron asignados por valor. Pero en themes.py, TextStyles usa ColorPalette.ATRIBUTO.
-        # Al ser una clase con atributos de clase, deberíamos asegurar que se refresquen
-        # si es necesario, aunque en la implementación actual de themes.py, 
-        # TextStyles se define una sola vez al importar. 
-        pass
+                pass
 
-    def handle_resize(self):
-        """Maneja el redimensionamiento de la terminal refrescando la consola."""
-        # Obtener dimensiones actuales de forma explícita usando shutil
-        size = shutil.get_terminal_size()
-        
-        # Actualizar la consola existente si es posible para mantener el estado
-        # Rich detecta automáticamente el ancho si no se especifica, pero aquí lo forzamos
-        # para asegurar consistencia tras la señal SIGWINCH.
-        self.console.width = size.columns
-        self.console.height = size.lines
-        
-        # Opcionalmente, recreamos con el nuevo tamaño si hay problemas de buffers
-        # Pero mantenemos el tema original.
-        self.console = Console(
-            theme=get_kogniterm_theme(),
-            width=size.columns,
-            height=size.lines,
-            force_terminal=True,
-            soft_wrap=True # Habilitar soft_wrap global para evitar desestructurar paneles
-        )
-        
-        # Si hay procesos de streaming activos, esto asegurará que el próximo chunk use el nuevo ancho.
+    def refresh_theme(self):
+        """Recarga el tema de la consola."""
+        self.console = Console(theme=get_kogniterm_theme())
 
     def get_terminal_dimensions(self) -> tuple[int, int]:
         """Retorna dimensiones actuales de terminal para ejecutar comandos PTY."""

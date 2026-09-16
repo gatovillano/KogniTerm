@@ -82,6 +82,31 @@ def _parse_text_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], str]:
     return tool_calls, clean_text.strip()
 
 
+_CONTINUATION_PATTERNS = [
+    re.compile(r"\b(ahora|a continuación|seguidamente|paso siguiente|próximo paso)\s+(voy a|vamos a|procedo a|procederé a|ejecutaré|crearé|modificaré|revisaré|leeré|instalaré|probaré)", re.IGNORECASE),
+    re.compile(r"\b(procedo a|procederé a)\s+(ejecutar|crear|modificar|revisar|leer|instalar|verificar|analizar|probar|hacer)", re.IGNORECASE),
+    re.compile(r"\b(voy a|vamos a)\s+(ejecutar|crear|modificar|revisar|leer|instalar|verificar|analizar|probar|hacer)", re.IGNORECASE),
+    re.compile(r"\b(paso \d+|step \d+)\b", re.IGNORECASE),
+    re.compile(r"\b(let me (now|proceed)|i will now|next,?\s*i will|i am going to|proceeding to)\b", re.IGNORECASE),
+]
+
+
+def _detect_continuation_intent(text: str) -> bool:
+    """Detecta si el texto del asistente promete una acción o siguiente paso sin haber adjuntado herramientas."""
+    if not text:
+        return False
+    completion_markers = [
+        "tarea completada", "tarea finalizada", "he completado", "hemos completado",
+        "concluido con éxito", "finalizado con éxito", "todo listo", "proceso completado",
+        "task completed", "successfully finished", "all done"
+    ]
+    text_lower = text.lower()
+    if any(marker in text_lower for marker in completion_markers):
+        return False
+
+    return any(p.search(text) for p in _CONTINUATION_PATTERNS)
+
+
 class LLMBridge:
     """Puente delgado sobre LiteLLM para el fast path KAI-CLI-like."""
 
@@ -170,6 +195,8 @@ class LLMBridge:
         resolved_model, provider_kwargs = self._resolve_model_provider(target_model)
 
         step_count = 0
+        nudge_count = 0
+        max_nudges = 2
         final_accumulated_content = ""
 
         while step_count < max_steps:
@@ -351,6 +378,25 @@ class LLMBridge:
                             "arguments": json.dumps(tc["arguments"], ensure_ascii=False) if isinstance(tc["arguments"], dict) else str(tc["arguments"]),
                         }
                     accumulated_content = clean_text
+                elif nudge_count < max_nudges and _detect_continuation_intent(accumulated_content):
+                    nudge_count += 1
+                    logger.info(
+                        f"LLMBridge: Detectada intención de continuación sin herramientas en paso {step_count} "
+                        f"('{accumulated_content[:80]}...'). Enviando auto-nudge ({nudge_count}/{max_nudges})."
+                    )
+                    messages.append({"role": "assistant", "content": accumulated_content})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[SISTEMA ANTI-DETENCIÓN PREMATURA]: Has indicado que vas a continuar o ejecutar una acción, "
+                            "pero NO has emitido ninguna llamada a herramienta (`tool_call`) en este turno. "
+                            "El flujo de KogniTerm se detendrá si no llamas a una herramienta. "
+                            "DEBES invocar INMEDIATAMENTE en este turno la herramienta correspondiente (`execute_command`, "
+                            "`advanced_file_editor`, etc.) para realizar la acción. "
+                            "Si la tarea ya está 100% terminada y verificada, presenta la respuesta final al usuario sin prometer acciones futuras."
+                        ),
+                    })
+                    continue
                 else:
                     messages.append({"role": "assistant", "content": accumulated_content})
                     yield {"type": "done", "content": final_accumulated_content}

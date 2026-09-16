@@ -224,9 +224,15 @@ class SuperAgent:
                 else f"[Error: {error_msg}]"
             )
 
+        if not output_text:
+            if tools_used:
+                output_text = f"Acciones completadas ({', '.join(tools_used)})."
+            else:
+                output_text = "Respuesta finalizada."
+
         yield {
             "type": "done",
-            "output": output_text or "Tarea completada.",
+            "output": output_text,
             "tools_used": tools_used,
             "success": success,
             "error": error_msg,

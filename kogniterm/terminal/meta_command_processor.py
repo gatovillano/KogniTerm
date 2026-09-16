@@ -1612,7 +1612,12 @@ Example: /autosave restore autosave_20250515_141530
             await self._process_insights_command(user_input)
             return True
 
-        # ─────────────────────── SKILL COMMANDS ───────────────────────
+        # ─────────────────────── SKILL & MCP COMMANDS ───────────────────────
+        # /mcp → gestionar servidores MCP
+        if user_input.lower().strip().startswith('/mcp'):
+            await self._handle_mcp_command(user_input)
+            return True
+
         # /skills → listar todas las skills disponibles
         if user_input.lower().strip() in ('/skills', '/skill'):
             await self._list_skills_command()
@@ -1692,7 +1697,141 @@ Example: /autosave restore autosave_20250515_141530
                         )
                         return True
 
-        return is_meta
+    async def _handle_mcp_command(self, user_input: str):
+        """Maneja el comando /mcp para listar, alternar o recargar servidores MCP en la terminal."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        cm = ConfigManager()
+        manager = MCPManager.get_instance()
+
+        parts = user_input.strip().split()
+        subcmd = parts[1].lower() if len(parts) > 1 else None
+
+        if subcmd in (None, "list"):
+            statuses = manager.get_all_servers_status()
+            if not statuses:
+                self.terminal_ui.print_message("⚠️ No hay servidores MCP configurados. Usa `/mcp add <nombre> <comando> [args...]` o configúralos en `config.json`.", style="yellow")
+                return
+
+            table = Table(title="🔌 Servidores MCP Configurados")
+            table.add_column("Servidor", style="cyan", no_wrap=True)
+            table.add_column("Transporte", style="magenta", justify="center")
+            table.add_column("Estado", justify="center")
+            table.add_column("Herramientas", justify="right")
+            table.add_column("Detalle / Comando")
+
+            for name, info in sorted(statuses.items()):
+                transport = info.get("transport", "stdio")
+                st = info.get("status", "disconnected")
+                tools = info.get("tools", [])
+                if st == "connected":
+                    status_fmt = "[green]🟢 Conectado[/green]"
+                elif st == "disabled":
+                    status_fmt = "[yellow]⏸ Deshabilitado[/yellow]"
+                else:
+                    status_fmt = f"[red]🔴 {st}[/red]"
+
+                detail = info.get("command") or info.get("url") or ""
+                if info.get("args"):
+                    detail += " " + " ".join(info["args"])
+                if info.get("error"):
+                    detail = f"[red]{info['error']}[/red]"
+
+                table.add_row(
+                    name,
+                    transport,
+                    status_fmt,
+                    str(len(tools)),
+                    detail[:60] + ("…" if len(detail) > 60 else "")
+                )
+
+            self.terminal_ui.console.print(Padding(table, (1, 2)))
+            self.terminal_ui.print_message(
+                "💡 Comandos: [bold cyan]/mcp toggle <nombre>[/bold cyan] | [bold cyan]/mcp reload[/bold cyan] | [bold cyan]/mcp add <nombre> <cmd> [args][/bold cyan] | [bold cyan]/mcp test <nombre>[/bold cyan]",
+                style="dim"
+            )
+            return
+
+        elif subcmd == "toggle":
+            if len(parts) < 3:
+                self.terminal_ui.print_message("Uso: /mcp toggle <nombre_servidor>", style="yellow")
+                return
+            name = parts[2]
+            servers = cm.get_mcp_servers()
+            if name not in servers:
+                self.terminal_ui.print_message(f"❌ Servidor '{name}' no encontrado.", style="red")
+                return
+            conf = servers[name]
+            conf["disabled"] = not conf.get("disabled", False)
+            cm.set_mcp_server(name, conf)
+            await manager.reload()
+            if self.llm_service:
+                self.llm_service.sync_tools()
+            state_str = "deshabilitado" if conf["disabled"] else "habilitado"
+            self.terminal_ui.print_message(f"✅ Servidor '{name}' {state_str}.", style="green")
+            return
+
+        elif subcmd == "reload":
+            self.terminal_ui.print_message("🔄 Recargando servidores MCP...", style="cyan")
+            await manager.reload()
+            if self.llm_service:
+                self.llm_service.sync_tools()
+            self.terminal_ui.print_message(f"✅ MCP recargado. Herramientas activas: {len(manager.active_tools)}", style="green")
+            return
+
+        elif subcmd in ("remove", "delete"):
+            if len(parts) < 3:
+                self.terminal_ui.print_message("Uso: /mcp remove <nombre_servidor>", style="yellow")
+                return
+            name = parts[2]
+            cm.delete_mcp_server(name)
+            await manager.reload()
+            if self.llm_service:
+                self.llm_service.sync_tools()
+            self.terminal_ui.print_message(f"🗑️ Servidor '{name}' eliminado.", style="green")
+            return
+
+        elif subcmd == "add":
+            if len(parts) < 4:
+                self.terminal_ui.print_message("Uso: /mcp add <nombre> <comando> [args...]", style="yellow")
+                return
+            name = parts[2]
+            command = parts[3]
+            server_args = parts[4:]
+            conf = {
+                "transport": "stdio",
+                "command": command,
+                "args": server_args,
+                "disabled": False
+            }
+            cm.set_mcp_server(name, conf)
+            await manager.reload()
+            if self.llm_service:
+                self.llm_service.sync_tools()
+            self.terminal_ui.print_message(f"✅ Servidor stdio '{name}' agregado y recargado.", style="green")
+            return
+
+        elif subcmd == "test":
+            if len(parts) < 3:
+                self.terminal_ui.print_message("Uso: /mcp test <nombre_servidor>", style="yellow")
+                return
+            name = parts[2]
+            servers = cm.get_mcp_servers()
+            if name not in servers:
+                self.terminal_ui.print_message(f"❌ Servidor '{name}' no encontrado.", style="red")
+                return
+            self.terminal_ui.print_message(f"🧪 Probando conexión con '{name}'...", style="cyan")
+            res = await manager.test_connection(servers[name])
+            if res.get("status") == "ok":
+                tools = res.get("tools", [])
+                self.terminal_ui.print_message(f"✅ Conexión exitosa. Herramientas ({len(tools)}): {', '.join(tools)}", style="green")
+            else:
+                self.terminal_ui.print_message(f"❌ Error al conectar: {res.get('message', 'Desconocido')}", style="red")
+            return
+
+        else:
+            self.terminal_ui.print_message(f"⚠️ Subcomando desconocido: '{subcmd}'. Usa `/mcp list`, `/mcp add`, `/mcp toggle`, `/mcp reload`, `/mcp test` o `/mcp remove`.", style="yellow")
 
     async def _list_skills_command(self):
         """Muestra una tabla con todas las skills disponibles en el sistema."""

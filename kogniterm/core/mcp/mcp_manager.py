@@ -14,12 +14,18 @@ class MCPManager:
         self.config_manager = ConfigManager()
         self.active_tools: List[Any] = []
         self.server_statuses: Dict[str, Dict[str, Any]] = {}
+        self._on_reload_callbacks: List[Any] = []
 
     @classmethod
     def get_instance(cls) -> "MCPManager":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def register_on_reload_callback(self, callback: Any):
+        """Registra una función a ejecutar cuando los servidores MCP se recarguen."""
+        if callback not in self._on_reload_callbacks:
+            self._on_reload_callbacks.append(callback)
 
     async def reload(self):
         """Sincroniza los servidores activos y carga sus herramientas."""
@@ -43,37 +49,44 @@ class MCPManager:
                 logger.error(f"Error al conectar con servidor MCP {name}: {e}")
                 self.server_statuses[name] = {"status": "error", "error": str(e), "tools": []}
 
+        import inspect
+        for cb in self._on_reload_callbacks:
+            try:
+                if inspect.iscoroutinefunction(cb):
+                    await cb()
+                elif callable(cb):
+                    cb()
+            except Exception as ex:
+                logger.error(f"Error en callback de recarga de MCPManager: {ex}")
+
     async def _load_server_tools(self, name: str, config_dict: Dict[str, Any]) -> List[Any]:
-        """Carga las herramientas de un servidor MCP por stdio o sse."""
+        """Carga las herramientas de un servidor MCP por stdio o sse sin cerrar la sesión."""
         from langchain_mcp_adapters.tools import load_mcp_tools
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
         
         transport = config_dict.get("transport", "stdio")
         if transport == "stdio":
             cmd = config_dict.get("command")
             if not cmd:
                 raise ValueError("Comando principal no especificado")
-            server_params = StdioServerParameters(
-                command=cmd,
-                args=config_dict.get("args", []),
-                env=config_dict.get("env", None)
-            )
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    tools = await load_mcp_tools(session)
-                    return tools
+            conn = {
+                "transport": "stdio",
+                "command": cmd,
+                "args": config_dict.get("args", []),
+            }
+            if config_dict.get("env"):
+                conn["env"] = config_dict.get("env")
+            return await load_mcp_tools(session=None, connection=conn, server_name=name)
         elif transport == "sse":
             url = config_dict.get("url")
             if not url:
                 raise ValueError("URL de SSE no especificada")
-            from mcp.client.sse import sse_client
-            async with sse_client(url) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    tools = await load_mcp_tools(session)
-                    return tools
+            conn = {
+                "transport": "sse",
+                "url": url,
+            }
+            if config_dict.get("headers"):
+                conn["headers"] = config_dict.get("headers")
+            return await load_mcp_tools(session=None, connection=conn, server_name=name)
         return []
 
     async def test_connection(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -84,7 +97,6 @@ class MCPManager:
                 cmd = config_dict.get("command")
                 if not cmd:
                     return {"status": "error", "message": "Comando no especificado"}
-                # Intenta ejecutar o validar el comando
                 tools = await self._load_server_tools("test", config_dict)
                 tool_names = [getattr(t, "name", str(t)) for t in tools]
                 return {"status": "ok", "tools": tool_names}
@@ -92,7 +104,9 @@ class MCPManager:
                 url = config_dict.get("url")
                 if not url:
                     return {"status": "error", "message": "URL de SSE no especificada"}
-                return {"status": "ok", "tools": []}
+                tools = await self._load_server_tools("test", config_dict)
+                tool_names = [getattr(t, "name", str(t)) for t in tools]
+                return {"status": "ok", "tools": tool_names}
             return {"status": "error", "message": f"Transporte desconocido: {transport}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
