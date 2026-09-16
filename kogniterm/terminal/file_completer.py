@@ -44,6 +44,8 @@ class FileCompleter(Completer):
         ("/help", "Mostrar menú de ayuda interactivo"),
         ("/models", "Cambiar modelo de IA"),
         ("/provider", "Cambiar proveedor de LLM"),
+        ("/mcp", "Gestionar servidores y herramientas MCP"),
+        ("%mcp", "Gestionar servidores y herramientas MCP (alias)"),
         ("/agy-login", "Iniciar/Cerrar sesión de Google Antigravity"),
         ("/reset", "Reiniciar conversación"),
         ("/undo", "Deshacer última acción"),

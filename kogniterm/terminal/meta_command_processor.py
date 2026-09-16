@@ -580,6 +580,7 @@ Example: /autosave restore autosave_20250515_141530
                 ("/session", "🧵 Manage chat threads (list, save, load, new, delete)"),
                 ("/resume", "▶️ Resume a saved thread"),
                 ("/instructions", "🧾 Agent Instructions (Global / Workspace)"),
+                ("/mcp", "🔌 Manage MCP Servers (List, add, toggle, reload, test)"),
                 ("/autosave", "💾 Manage autosave versions (list, restore)"),
                 ("/clear", "🧹 Clear current conversation history"),
                 ("/exit", "🚪 Exit KogniTerm"),
@@ -602,6 +603,8 @@ Example: /autosave restore autosave_20250515_141530
                     "/provider": "Change the LLM provider.\nUsage: /provider\nProviders: OpenRouter, Google, OpenAI, Anthropic, Ollama Cloud, Antigravity",
                     
                     "/theme": "Change the color theme of the interface.\nUsage: /theme [name]\nIf no name is provided, opens a selection dialog.",
+
+                    "/mcp": "Manage Model Context Protocol (MCP) servers and tools.\n\nSubcommands:\n  • list                : Show all configured servers and status\n  • add <name> <cmd>    : Add a local stdio server\n  • toggle <name>       : Enable / disable a server\n  • test <name>         : Test connection to server\n  • reload              : Reload servers and sync tools with LLM\n  • remove <name>       : Delete a server",
                     
                     "/session": "Manage chat threads (persistent conversations with titles).\n\nSubcommands:\n  • list              : Show all saved threads\n  • save <id>         : Save current conversation as a thread\n  • load <id>         : Load a saved thread\n  • new [title]       : Start a new thread\n  • delete <id>       : Delete a saved thread",
                     

@@ -1033,6 +1033,33 @@ class AgentSession:
                 else:
                     self.ui.print_message("Gestor de hilos no disponible.", style="yellow")
                 processed = True
+            elif msg_lower.startswith(("/mcp", "%mcp")):
+                from kogniterm.core.mcp.mcp_manager import MCPManager
+                manager = MCPManager.get_instance()
+                parts = message.strip().split()
+                subcmd = parts[1].lower() if len(parts) > 1 else None
+
+                if subcmd in (None, "list"):
+                    statuses = manager.get_all_servers_status()
+                    if not statuses:
+                        self.ui.print_message("⚠️ No hay servidores MCP configurados.", style="yellow")
+                    else:
+                        lines = ["🔌 **Servidores MCP Configurados:**"]
+                        for name, info in statuses.items():
+                            st = info.get("status", "disconnected")
+                            trans = info.get("transport", "stdio")
+                            tools = info.get("tools", [])
+                            icon = "🟢" if st == "connected" else ("⏸️" if st == "disabled" else "🔴")
+                            lines.append(f"• {icon} **{name}** (`{trans}`) - *{st}*")
+                            if tools:
+                                lines.append(f"  *Herramientas ({len(tools)}):* {', '.join(tools)}")
+                        self.ui.print_message("\n".join(lines), style="cyan")
+                elif subcmd == "reload":
+                    await manager.reload()
+                    if hasattr(self.llm_service, "sync_tools"):
+                        self.llm_service.sync_tools()
+                    self.ui.print_message(f"✅ MCP recargado. Herramientas activas: {len(manager.active_tools)}", style="green")
+                processed = True
             elif msg_lower.startswith(("/resume", "%resume")):
                 parts = message.split()
                 if len(parts) > 1:

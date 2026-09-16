@@ -1229,7 +1229,7 @@ class KogniTermTUI(App):
                 yield Static("", id="splash_model_info", markup=True)
                 # Hints de teclado
                 yield Static(
-                    "[dim]/models[/dim] modelo  [dim]/provider[/dim] proveedor  [dim]/theme[/dim] tema  [dim]esc[/dim] interrumpir",
+                    "[dim]/models[/dim] modelo  [dim]/provider[/dim] proveedor  [dim]/mcp[/dim] mcp  [dim]/theme[/dim] tema  [dim]esc[/dim] interrumpir",
                     id="splash_shortcuts",
                     markup=True,
                 )
@@ -1800,6 +1800,7 @@ class KogniTermTUI(App):
                         "%help",
                         "%models",
                         "%provider",
+                        "%mcp",
                         "%agy-login",
                         "%reset",
                         "%undo",
@@ -1827,6 +1828,7 @@ class KogniTermTUI(App):
                         "/help",
                         "/models",
                         "/provider",
+                        "/mcp",
                         "/agy-login",
                         "/reset",
                         "/undo",
@@ -1959,6 +1961,7 @@ class KogniTermTUI(App):
                         "%help",
                         "%models",
                         "%provider",
+                        "%mcp",
                         "%agy-login",
                         "%reset",
                         "%undo",
@@ -1986,6 +1989,7 @@ class KogniTermTUI(App):
                         "/help",
                         "/models",
                         "/provider",
+                        "/mcp",
                         "/agy-login",
                         "/reset",
                         "/undo",
@@ -2367,28 +2371,56 @@ class KogniTermTUI(App):
             except Exception:
                 pass
 
-    async def on_chat_input_submitted(self, event):
-        import inspect
+    def on_chat_input_submitted(self, event):
         user_input = getattr(event, "value", "")
-        cmd_proc = getattr(self, "command_processor", None)
-        if cmd_proc and hasattr(cmd_proc, "process_command"):
-            try:
-                if await cmd_proc.process_command(user_input):
-                    if hasattr(event, "input") and hasattr(event.input, "value"):
-                        event.input.value = ""
-                    rw = getattr(self, "run_worker", None)
-                    if rw is not None:
-                        try:
-                            rw(None)
-                        except Exception:
-                            pass
-                    return
-            except Exception:
-                pass
-        res = self.on_input_submitted(event)
-        if inspect.isawaitable(res):
-            await res
-        return res
+        if not user_input.strip():
+            return
+
+        # Limpiar el input inmediatamente
+        if hasattr(event, "input"):
+            if hasattr(event.input, "clear"):
+                event.input.clear()
+            elif hasattr(event.input, "text"):
+                event.input.text = ""
+            elif hasattr(event.input, "value"):
+                event.input.value = ""
+
+        # Si el submit viene del splash, transición al modo chat
+        if getattr(self, "_splash_visible", False) is True:
+            self._transition_to_chat(user_input)
+            return
+
+        # Para chat normal, añadir al historial
+        if hasattr(event.input, "add_to_history"):
+            event.input.add_to_history(user_input.strip())
+
+        # Redirigir si hay terminal interactiva activa
+        is_interact_mode = getattr(self, "_cursor_active", False) is True
+        try:
+            from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+            is_terminal_focused = isinstance(
+                getattr(self, "focused", None), (TerminalPanel, ToolOutputWidget)
+            )
+        except Exception:
+            is_terminal_focused = False
+
+        cmd_exec = getattr(self, "command_executor", None)
+        proc = getattr(cmd_exec, "process", None) if cmd_exec else None
+        is_proc_running = proc is not None and getattr(proc, "poll", lambda: None)() is None
+
+        if (is_interact_mode or is_terminal_focused or is_proc_running) and cmd_exec and proc:
+            cmd_exec.write_input(user_input + "\n")
+            return
+
+        # Bloquear nuevo input si ya hay una petición en curso
+        if getattr(self, "is_processing", False) is True:
+            self._input_queue.append(user_input)
+            if hasattr(self, "queue_display"):
+                self.queue_display.update_queue(self._input_queue)
+            return
+
+        # Despachar al worker asíncrono
+        self.run_worker(self._handle_input_async(user_input))
 
     def _transition_to_chat(self, first_message: str):
         """Oculta el splash y activa el modo chat con el primer mensaje."""
@@ -2407,11 +2439,20 @@ class KogniTermTUI(App):
             chat_input.focus()
         except Exception:
             pass
-        # Procesar el primer mensaje
+        # Procesar el primer mensaje en worker
         self.run_worker(self._handle_input_async(first_message))
 
     async def _handle_input_async(self, user_input: str):
         """Procesa la entrada del usuario de forma asíncrona en un worker."""
+        # 1. Intentar procesar comando desde TUICommandProcessor (modales interactivos en worker)
+        cmd_proc = getattr(self, "command_processor", None)
+        if cmd_proc and hasattr(cmd_proc, "process_command"):
+            try:
+                if await cmd_proc.process_command(user_input):
+                    return
+            except Exception as e:
+                logger.error(f"Error procesando comando TUI: {e}", exc_info=True)
+
         self.chat_log.write_user_message(user_input)
 
         if await self.meta_command_processor.process_meta_command(user_input):
@@ -2862,7 +2903,10 @@ class KogniTermTUI(App):
             if not future.done():
                 future.set_result(result)
 
-        self.call_after_refresh(lambda: self.push_screen(screen, callback))
+        try:
+            self.push_screen(screen, callback)
+        except Exception:
+            self.call_after_refresh(lambda: self.push_screen(screen, callback))
         return await future
 
     def set_auto_approve_all(self, active: bool = True) -> None:
