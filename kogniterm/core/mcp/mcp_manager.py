@@ -145,3 +145,14 @@ class MCPManager:
         ]
         return "\n".join(lines) + "\n"
 
+    def get_tool(self, name: str) -> Optional[Any]:
+        """Busca una herramienta MCP activa por su nombre original o sanitizado."""
+        from kogniterm.core.utils.tool_utils import sanitize_tool_name
+        clean_target = sanitize_tool_name(name)
+        for t in self.active_tools:
+            t_name = getattr(t, "name", None) or getattr(t, "__name__", str(t))
+            if t_name == name or sanitize_tool_name(t_name) == clean_target:
+                return t
+        return None
+
+

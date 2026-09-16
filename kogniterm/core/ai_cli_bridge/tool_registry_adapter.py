@@ -89,6 +89,25 @@ class ToolRegistryAdapter:
         for name, schema in self._custom_schemas.items():
             if not any(s.get("function", {}).get("name") == name for s in base_schemas):
                 base_schemas.append(schema)
+
+        # Integrar esquemas de herramientas de servidores MCP activos
+        try:
+            from kogniterm.core.mcp.mcp_manager import MCPManager
+            from kogniterm.core.utils.tool_utils import convert_langchain_tool_to_litellm, sanitize_tool_name
+            mcp_mgr = MCPManager.get_instance()
+            for tool in mcp_mgr.active_tools:
+                raw_name = getattr(tool, "name", None) or getattr(tool, "__name__", str(tool))
+                clean_name = sanitize_tool_name(raw_name)
+                # Evitar duplicados si ya está registrado
+                if not any(s.get("function", {}).get("name") in (raw_name, clean_name) for s in base_schemas):
+                    try:
+                        schema = convert_langchain_tool_to_litellm(tool)
+                        base_schemas.append(schema)
+                    except Exception as e:
+                        logger.debug(f"Error convirtiendo esquema para herramienta MCP {raw_name}: {e}")
+        except Exception as exc:
+            logger.debug(f"No se pudieron cargar herramientas MCP en get_schemas_for_litellm: {exc}")
+
         return base_schemas
 
     def get_handler(self, name: str) -> Optional[Callable[..., Any]]:
@@ -105,6 +124,15 @@ class ToolRegistryAdapter:
             if tt_fn:
                 self.register_handler("task_tracker", tt_fn, schema=tt_schema)
                 return tt_fn
+
+        # Búsqueda en herramientas de servidores MCP activos
+        try:
+            from kogniterm.core.mcp.mcp_manager import MCPManager
+            mcp_tool = MCPManager.get_instance().get_tool(name)
+            if mcp_tool is not None:
+                return mcp_tool
+        except Exception:
+            pass
 
         return None
 
@@ -123,6 +151,21 @@ class ToolRegistryAdapter:
             if inspect.iscoroutinefunction(handler):
                 return await handler(**filtered_args)
             return await asyncio.to_thread(handler, **filtered_args)
+
+        # Si es una herramienta LangChain (BaseTool / StructuredTool de MCP)
+        if hasattr(handler, "ainvoke"):
+            try:
+                raw_res = await handler.ainvoke(args)
+            except Exception:
+                raw_res = await asyncio.to_thread(handler.invoke, args)
+            if hasattr(raw_res, "content"):
+                return raw_res.content
+            return raw_res
+        elif hasattr(handler, "invoke"):
+            raw_res = await asyncio.to_thread(handler.invoke, args)
+            if hasattr(raw_res, "content"):
+                return raw_res.content
+            return raw_res
 
         if inspect.iscoroutinefunction(handler):
             return await handler(**args)
