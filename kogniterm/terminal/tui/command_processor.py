@@ -44,24 +44,130 @@ class TUICommandProcessor:
         return False
 
     async def _handle_models(self):
-        """Muestra modal para cambiar el modelo en el servidor."""
+        """Muestra modal para cambiar el modelo (soporta modo servidor y fallback a modo local)."""
         try:
             # 1. Obtener la configuración actual para saber el proveedor activo
-            config = await get_llm_config()
-            active_provider = config.get("provider", "google")
-            
-            # 2. Obtener todos los modelos disponibles
-            models_data = await get_available_models()
+            active_provider = "google"
+            server_connected = False
+            try:
+                config = await get_llm_config()
+                active_provider = config.get("provider", "google")
+                server_connected = True
+            except Exception as e:
+                logger.debug(f"Servidor no disponible para get_llm_config ({e}), usando modo local.")
+                if self.app.llm_service:
+                    model_cur = getattr(self.app.llm_service, "model_name", "")
+                    if model_cur.startswith("openrouter/"):
+                        active_provider = "openrouter"
+                    elif model_cur.startswith("antigravity/"):
+                        active_provider = "antigravity"
+                    elif model_cur.startswith("gemini/"):
+                        active_provider = "google"
+                    elif model_cur.startswith("ollama/"):
+                        active_provider = "ollama"
+                    elif "gpt" in model_cur:
+                        active_provider = "openai"
+                    elif "claude" in model_cur:
+                        active_provider = "anthropic"
+                    elif "kilocode" in model_cur:
+                        active_provider = "kilocode"
+                    elif "inception" in model_cur or "mercury" in model_cur:
+                        active_provider = "inception"
+
             options = []
-            providers = models_data.get("providers", [])
-            for p in providers:
-                p_id = p.get("id", "unknown")
-                p_name = p.get("name", p_id)
-                # MOSTRAR SOLO LOS MODELOS DEL PROVEEDOR CONFIGURADO
-                if p_id == active_provider:
-                    models = p.get("models", [])
-                    for m in models:
-                        options.append((m, f"[{p_name}] {m}"))
+
+            # 2. Intentar obtener modelos del servidor si está disponible
+            if server_connected:
+                try:
+                    models_data = await get_available_models()
+                    providers = models_data.get("providers", [])
+                    for p in providers:
+                        p_id = p.get("id", "unknown")
+                        p_name = p.get("name", p_id)
+                        if p_id == active_provider:
+                            models = p.get("models", [])
+                            for m in models:
+                                options.append((m, f"[{p_name}] {m}"))
+                except Exception as e:
+                    logger.debug(f"Fallo al consultar modelos desde el servidor: {e}")
+                    options = []
+
+            # 3. Fallback a resolución local si no hay opciones desde el servidor
+            if not options:
+                local_models = []
+                p_display_name = active_provider.capitalize()
+
+                if active_provider == "antigravity":
+                    p_display_name = "Google Antigravity"
+                    try:
+                        from kogniterm.core.antigravity_client import AntigravityClient
+                        tuples = AntigravityClient.fetch_available_models()
+                        for m_id, label in tuples:
+                            full_id = m_id if m_id.startswith("antigravity/") else f"antigravity/{m_id}"
+                            local_models.append((full_id, label))
+                    except Exception as e:
+                        logger.warning(f"Error resolviendo modelos locales de Antigravity: {e}")
+                        local_models = [
+                            ("antigravity/gemini-3-flash", "Gemini 3 Flash (High / Preview)"),
+                            ("antigravity/gemini-3-pro", "Gemini 3 Pro (High / Reasoning)"),
+                            ("antigravity/gemini-2.5-flash", "Gemini 2.5 Flash"),
+                            ("antigravity/gemini-2.5-pro", "Gemini 2.5 Pro"),
+                            ("antigravity/gemini-1.5-pro", "Gemini 1.5 Pro"),
+                            ("antigravity/gemini-1.5-flash", "Gemini 1.5 Flash"),
+                        ]
+                elif active_provider == "google":
+                    p_display_name = "Google AI (Gemini)"
+                    local_models = [
+                        ("gemini/gemini-2.0-flash-exp", "Gemini 2.0 Flash Exp"),
+                        ("gemini/gemini-1.5-pro", "Gemini 1.5 Pro"),
+                        ("gemini/gemini-1.5-flash", "Gemini 1.5 Flash"),
+                        ("gemini/gemini-1.5-flash-8b", "Gemini 1.5 Flash 8B"),
+                    ]
+                elif active_provider == "openai":
+                    p_display_name = "OpenAI (GPT)"
+                    local_models = [
+                        ("gpt-4o", "GPT-4o"),
+                        ("gpt-4o-mini", "GPT-4o Mini"),
+                        ("gpt-4-turbo", "GPT-4 Turbo"),
+                        ("gpt-3.5-turbo", "GPT-3.5 Turbo"),
+                    ]
+                elif active_provider == "anthropic":
+                    p_display_name = "Anthropic (Claude)"
+                    local_models = [
+                        ("claude-3-5-sonnet-20240620", "Claude 3.5 Sonnet"),
+                        ("claude-3-opus-20240229", "Claude 3 Opus"),
+                        ("claude-3-haiku-20240307", "Claude 3 Haiku"),
+                    ]
+                elif active_provider == "openrouter":
+                    p_display_name = "OpenRouter"
+                    local_models = [
+                        ("openrouter/google/gemini-2.0-flash-exp:free", "Gemini 2.0 Flash Exp (Free)"),
+                        ("openrouter/anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet"),
+                        ("openrouter/openai/gpt-4o", "GPT-4o"),
+                    ]
+                elif active_provider in ("ollama", "ollama_cloud"):
+                    p_display_name = "Ollama"
+                    local_models = [
+                        ("ollama/llama3", "Llama 3"),
+                        ("ollama/mistral", "Mistral"),
+                        ("ollama/codellama", "CodeLlama"),
+                    ]
+                elif active_provider == "kilocode":
+                    p_display_name = "KiloCode Gateway"
+                    local_models = [
+                        ("kilocode/kilo/auto", "Kilo Auto (Smart Routing)"),
+                        ("kilocode/anthropic/claude-sonnet-4", "Claude Sonnet 4"),
+                        ("kilocode/openai/gpt-4o", "GPT-4o"),
+                    ]
+                elif active_provider == "inception":
+                    p_display_name = "Inception Labs"
+                    local_models = [
+                        ("inception/mercury-2", "Mercury 2"),
+                        ("inception/mercury-2.5", "Mercury 2.5"),
+                    ]
+
+                for m_id, label in local_models:
+                    options.append((m_id, f"[{p_display_name}] {label}"))
             
             if not options:
                 self.terminal_ui.print_message(f"⚠️ No hay modelos disponibles para el proveedor actual: '{active_provider}'", style="yellow")
@@ -74,13 +180,34 @@ class TUICommandProcessor:
             )
             
             if selected:
-                await set_llm_config(model_name=selected)
+                # Intentar sincronizar con el servidor si está activo
+                try:
+                    await set_llm_config(model_name=selected)
+                except Exception as ex:
+                    logger.debug(f"Servidor no disponible para actualizar modelo: {ex}")
+
+                # Actualizar localmente siempre
                 if self.app.llm_service:
                     self.app.llm_service.set_model(selected)
                 if hasattr(self.app, "agent_interaction_manager") and self.app.agent_interaction_manager:
                     self.app.agent_interaction_manager.set_model(selected)
                 self.app.update_status_footer(selected)
-                self.terminal_ui.print_message(f"✅ Modelo actualizado en el servidor: {selected}", style="green")
+
+                try:
+                    from kogniterm.terminal.config_manager import ConfigManager
+                    ConfigManager().set_global_config("default_model", selected)
+                except Exception:
+                    pass
+
+                from kogniterm.core.multi_provider_manager import set_preferred_provider
+                model_prefix = selected.split('/')[0] if '/' in selected else None
+                if model_prefix:
+                    try:
+                        set_preferred_provider(model_prefix)
+                    except Exception:
+                        pass
+
+                self.terminal_ui.print_message(f"✅ Modelo actualizado: {selected}", style="green")
         except Exception as e:
             self.terminal_ui.print_message(f"❌ Error al obtener modelos: {e}", style="red")
 
@@ -124,7 +251,7 @@ class TUICommandProcessor:
                 if config.get("model"):
                     new_model = config.get("model")
             except Exception as ex:
-                logger.warning(f"Error conectando con servidor para actualizar proveedor: {ex}")
+                logger.debug(f"Servidor no disponible para actualizar proveedor: {ex}")
 
             if new_model:
                 if self.app.llm_service:
@@ -137,10 +264,15 @@ class TUICommandProcessor:
                     ConfigManager().set_global_config("default_model", new_model)
                 except Exception:
                     pass
+                from kogniterm.core.multi_provider_manager import set_preferred_provider
+                try:
+                    set_preferred_provider(selected)
+                except Exception:
+                    pass
             self.terminal_ui.print_message(f"✅ Proveedor actualizado: {selected}", style="green")
 
     async def _handle_keys(self):
-        """Muestra modal para configurar API Keys en el servidor."""
+        """Muestra modal para configurar API Keys (soporta servidor y guardado local)."""
         keys = [
             ("google", "GOOGLE_API_KEY"),
             ("openai", "OPENAI_API_KEY"),
@@ -152,20 +284,41 @@ class TUICommandProcessor:
         
         selected_provider = await self.terminal_ui.ask_radiolist_async(
             title="Configurar API Keys",
-            text="Selecciona el proveedor para configurar su llave en el servidor:",
+            text="Selecciona el proveedor para configurar su llave:",
             values=keys
         )
         
         if selected_provider:
             key_val = await self.terminal_ui.ask_input_async(
                 title=f"API Key para {selected_provider}",
-                text="Introduce la llave (se guardará en el servidor):",
+                text="Introduce la llave:",
                 password=True
             )
             
             if key_val:
-                await set_llm_config(provider=selected_provider, api_key=key_val)
-                self.terminal_ui.print_message(f"✅ Llave para {selected_provider} enviada al servidor.", style="green")
+                saved_server = False
+                try:
+                    await set_llm_config(provider=selected_provider, api_key=key_val)
+                    saved_server = True
+                except Exception as ex:
+                    logger.debug(f"Servidor no disponible para guardar key: {ex}")
+
+                # Guardar siempre en ConfigManager local
+                try:
+                    from kogniterm.terminal.config_manager import ConfigManager
+                    ConfigManager().set_api_key(selected_provider, key_val)
+                    # Y en os.environ para la sesión actual
+                    env_name = dict(keys).get(selected_provider)
+                    if env_name:
+                        import os
+                        os.environ[env_name] = key_val
+                except Exception as ex:
+                    logger.warning(f"Error guardando key localmente: {ex}")
+
+                if saved_server:
+                    self.terminal_ui.print_message(f"✅ Llave para {selected_provider} guardada (servidor y local).", style="green")
+                else:
+                    self.terminal_ui.print_message(f"✅ Llave para {selected_provider} guardada localmente.", style="green")
 
     async def _handle_theme(self):
         """Muestra modal para cambiar el tema visual."""
