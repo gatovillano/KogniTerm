@@ -40,9 +40,6 @@ function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   
-  // Message queue state
-  const [messageQueue, setMessageQueue] = useState<string[]>([]);
-  
   // Threads list state
   const [threads, setThreads] = useState<any[]>([]);
 
@@ -69,6 +66,10 @@ function App() {
     scrollPosition,
     isUserNearBottom,
     setThreadScrollPosition,
+    messageQueue,
+    removeFromQueue,
+    clearQueue,
+    processNextQueueItem,
   } = useChat(currentThreadId, activeWorkspace);
 
   const hasActiveTasks = Object.values(taskPlans).some((plan) => plan.length > 0);
@@ -245,27 +246,6 @@ function App() {
     }
   };
 
-  // Queue logic: if generating, buffer the messages
-  const handleSendMessage = (text: string, images?: string[]) => {
-    if (isGenerating) {
-      setMessageQueue(prev => [...prev, text]);
-    } else {
-      sendMessage(text, images);
-    }
-  };
-
-  const handleProcessNextQueueItem = () => {
-    if (messageQueue.length > 0) {
-      const nextMessage = messageQueue[0];
-      sendMessage(nextMessage);
-      setMessageQueue(prev => prev.slice(1));
-    }
-  };
-
-  const handleRemoveFromQueue = (index: number) => {
-    setMessageQueue(prev => prev.filter((_, i) => i !== index));
-  };
-
 
   return (
     <div className="flex h-screen bg-[#fafafa] dark:bg-[#09090b] text-slate-800 dark:text-zinc-100 font-sans overflow-hidden selection:bg-indigo-100 dark:selection:bg-indigo-900">
@@ -358,14 +338,15 @@ function App() {
                     <div className="h-[75vh] flex flex-col items-center justify-center text-center px-4 animate-fade-in">
                       <div className="w-full max-w-2xl flex flex-col items-center">
                         <ChatInput 
-                          onSendMessage={handleSendMessage} 
+                          onSendMessage={sendMessage} 
                           isGenerating={isGenerating} 
                           onStopGeneration={stopGeneration}
                           currentDir={currentDir}
                           onChangeDir={handleChangeDir}
                           messageQueue={messageQueue}
-                          onRemoveFromQueue={handleRemoveFromQueue}
-                          onProcessNext={handleProcessNextQueueItem}
+                          onRemoveFromQueue={removeFromQueue}
+                          onClearQueue={clearQueue}
+                          onProcessNext={processNextQueueItem}
                           isFloating={true}
                         />
                         <div className="mt-4 flex items-center gap-3 text-[11px] text-slate-400 dark:text-zinc-600 font-mono select-none">
@@ -412,14 +393,15 @@ function App() {
               {messages.length > 0 && (
                 <div className="relative">
                   <ChatInput 
-                    onSendMessage={handleSendMessage} 
+                    onSendMessage={sendMessage} 
                     isGenerating={isGenerating} 
                     onStopGeneration={stopGeneration}
                     currentDir={currentDir}
                     onChangeDir={handleChangeDir}
                     messageQueue={messageQueue}
-                    onRemoveFromQueue={handleRemoveFromQueue}
-                    onProcessNext={handleProcessNextQueueItem}
+                    onRemoveFromQueue={removeFromQueue}
+                    onClearQueue={clearQueue}
+                    onProcessNext={processNextQueueItem}
                     isFloating={false}
                   />
 

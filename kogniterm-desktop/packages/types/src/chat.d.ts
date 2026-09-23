@@ -71,4 +71,10 @@ export interface TerminalEntry {
     content?: string;
     exitCode?: number;
 }
+export interface QueuedMessage {
+    id: string;
+    text: string;
+    images?: string[];
+    timestamp: number;
+}
 //# sourceMappingURL=chat.d.ts.map

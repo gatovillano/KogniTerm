@@ -903,6 +903,12 @@ class AgentSession:
         self._pending_messages.clear()
         return messages
 
+    def _pop_pending_message(self) -> Optional[Any]:
+        """Extrae y retorna el siguiente mensaje pendiente en cola."""
+        if self._pending_messages:
+            return self._pending_messages.pop(0)
+        return None
+
     def write_terminal_input(self, text: str) -> None:
         """Escribe la entrada del usuario en la PTY del CommandExecutor del servidor."""
         if hasattr(self, "command_executor") and self.command_executor:
@@ -1227,12 +1233,14 @@ class AgentSession:
 
                 is_first_iteration = True
                 while True:
-                    pending = self._drain_pending_messages()
-                    if pending:
-                        user_input = pending.pop(0)
+                    next_pending = self._pop_pending_message()
+                    if next_pending:
+                        user_input = next_pending
                         self.ui._push("user_message", {"text": user_input})
                         self.agent_state.add_message(HumanMessage(content=user_input))
                     elif is_first_iteration and not user_input:
+                        break
+                    elif not is_first_iteration and not next_pending:
                         break
 
                     is_first_iteration = False

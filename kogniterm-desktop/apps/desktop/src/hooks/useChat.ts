@@ -5,12 +5,13 @@ import {
     ApprovalRequest,
     QuestionRequest,
     TerminalEntry,
+    QueuedMessage,
     parseAppliedDiff,
 } from '@kogniterm/types';
 import { API_BASE_URL, WS_BASE_URL } from '../config/api';
 
 export { parseAppliedDiff };
-export type { QuestionRequest };
+export type { QuestionRequest, QueuedMessage };
 
 export interface SingleThreadState {
     messages: Message[];
@@ -22,6 +23,7 @@ export interface SingleThreadState {
     isGenerating: boolean;
     scrollPosition: number;
     isUserNearBottom: boolean;
+    messageQueue: QueuedMessage[];
 }
 
 export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
@@ -87,6 +89,12 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
         }
         return true;
     });
+    const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>(() => {
+        if (threadId && threadsCacheRef.current[threadId]?.messageQueue) {
+            return threadsCacheRef.current[threadId].messageQueue;
+        }
+        return [];
+    });
 
     const socketRef = useRef<WebSocket | null>(null);
 
@@ -103,8 +111,9 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             isGenerating,
             scrollPosition,
             isUserNearBottom,
+            messageQueue,
         };
-    }, [threadId, messages, taskPlans, terminalEntries, pendingApproval, pendingQuestion, appliedDiffs, isGenerating, scrollPosition, isUserNearBottom]);
+    }, [threadId, messages, taskPlans, terminalEntries, pendingApproval, pendingQuestion, appliedDiffs, isGenerating, scrollPosition, isUserNearBottom, messageQueue]);
 
     const setThreadScrollPosition = useCallback((scrollTop: number, isNearBottom: boolean) => {
         setScrollPosition(scrollTop);
@@ -145,6 +154,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
                 isGenerating,
                 scrollPosition,
                 isUserNearBottom,
+                messageQueue,
             };
         }
         prevThreadIdRef.current = threadId;
@@ -160,6 +170,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             setIsGenerating(cached.isGenerating);
             setScrollPosition(cached.scrollPosition);
             setIsUserNearBottom(cached.isUserNearBottom);
+            setMessageQueue(cached.messageQueue || []);
         } else {
             setMessages([]);
             setTaskPlans({});
@@ -170,6 +181,7 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             setIsGenerating(false);
             setScrollPosition(0);
             setIsUserNearBottom(true);
+            setMessageQueue([]);
         }
 
         // Fetch thread messages from API
@@ -557,16 +569,32 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
         };
     }, [threadId, targetWorkspaceDir]);
 
-    const sendMessage = useCallback((content: string, images: string[] = []) => {
+    const addToQueue = useCallback((content: string, images: string[] = []) => {
         const trimmed = content.trim();
+        if (!trimmed && images.length === 0) return;
+        const newItem: QueuedMessage = {
+            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            text: trimmed,
+            images: images.length > 0 ? images : undefined,
+            timestamp: Date.now(),
+        };
+        setMessageQueue((prev) => [...prev, newItem]);
+    }, []);
 
-        // 1. Manejo de Meta-comandos locales
-        if (trimmed === '/clear' || trimmed === '%clear') {
-            setMessages([]);
-            setAppliedDiffs([]);
-            return;
-        }
+    const removeFromQueue = useCallback((idOrIndex: string | number) => {
+        setMessageQueue((prev) => {
+            if (typeof idOrIndex === 'number') {
+                return prev.filter((_, idx) => idx !== idOrIndex);
+            }
+            return prev.filter((item) => item.id !== idOrIndex);
+        });
+    }, []);
 
+    const clearQueue = useCallback(() => {
+        setMessageQueue([]);
+    }, []);
+
+    const doSendMessage = useCallback((content: string, images: string[] = []) => {
         if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
             setError('No hay conexión con el servidor.');
             return;
@@ -591,6 +619,58 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             images: images.length > 0 ? images : undefined,
         }));
     }, []);
+
+    const sendMessage = useCallback((content: string, images: string[] = []) => {
+        const trimmed = content.trim();
+
+        // 1. Manejo de Meta-comandos locales
+        if (trimmed === '/clear' || trimmed === '%clear') {
+            setMessages([]);
+            setAppliedDiffs([]);
+            setMessageQueue([]);
+            return;
+        }
+
+        if (isGenerating) {
+            addToQueue(content, images);
+            return;
+        }
+
+        doSendMessage(content, images);
+    }, [isGenerating, addToQueue, doSendMessage]);
+
+    const processNextQueueItem = useCallback(() => {
+        if (messageQueue.length > 0 && !isGenerating) {
+            const nextItem = messageQueue[0];
+            setMessageQueue((prev) => prev.slice(1));
+            doSendMessage(nextItem.text, nextItem.images);
+        }
+    }, [messageQueue, isGenerating, doSendMessage]);
+
+    // Auto-process queue when generation finishes
+    const isProcessingQueueRef = useRef(false);
+    useEffect(() => {
+        if (!isGenerating && isConnected && !error && messageQueue.length > 0 && !isProcessingQueueRef.current) {
+            isProcessingQueueRef.current = true;
+            const timer = setTimeout(() => {
+                setMessageQueue((prev) => {
+                    if (prev.length === 0) {
+                        isProcessingQueueRef.current = false;
+                        return prev;
+                    }
+                    const [nextItem, ...rest] = prev;
+                    doSendMessage(nextItem.text, nextItem.images);
+                    isProcessingQueueRef.current = false;
+                    return rest;
+                });
+            }, 300);
+
+            return () => {
+                clearTimeout(timer);
+                isProcessingQueueRef.current = false;
+            };
+        }
+    }, [isGenerating, isConnected, error, messageQueue, doSendMessage]);
 
     const respondApproval = useCallback((requestId: string, approved: boolean) => {
         if (approved && pendingApproval && pendingApproval.diff_content) {
@@ -669,6 +749,11 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
         scrollPosition,
         isUserNearBottom,
         setThreadScrollPosition,
+        messageQueue,
+        addToQueue,
+        removeFromQueue,
+        clearQueue,
+        processNextQueueItem,
     };
 }
 
