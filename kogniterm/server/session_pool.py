@@ -54,7 +54,7 @@ os.getcwd = custom_getcwd
 os.chdir = custom_chdir
 
 @contextlib.contextmanager
-def session_context(cwd, llm_service=None, history_manager=None, workspace_context=None, vector_db_manager=None):
+def session_context(cwd, llm_service=None, history_manager=None, workspace_context=None, vector_db_manager=None, platform=None):
     """Context manager for isolating session workspace and context."""
     cwd = safe_abs_path(cwd)
     cwd_token = session_cwd_var.set(cwd)
@@ -73,6 +73,8 @@ def session_context(cwd, llm_service=None, history_manager=None, workspace_conte
             tokens.append((llm_service._context_workspace_context, llm_service._context_workspace_context.set(workspace_context)))
         if vector_db_manager:
             tokens.append((llm_service._context_vector_db_manager, llm_service._context_vector_db_manager.set(vector_db_manager)))
+        if platform and hasattr(llm_service, "_context_client_platform"):
+            tokens.append((llm_service._context_client_platform, llm_service._context_client_platform.set(platform)))
     try:
         yield
     finally:
@@ -680,8 +682,10 @@ class AgentSession:
         loop: asyncio.AbstractEventLoop,
         thread_manager: Optional[ThreadManager] = None,
         workspace_dir: Optional[str] = None,
+        platform: Optional[str] = "web",
     ):
         self.session_id = session_id
+        self.platform = (platform or "web").lower()
         self.created_at = datetime.utcnow()
         self.last_activity = datetime.utcnow()
         self.llm_service = llm_service
@@ -1203,7 +1207,8 @@ class AgentSession:
             llm_service=self.llm_service,
             history_manager=self.history_manager,
             workspace_context=self.workspace_context,
-            vector_db_manager=self.vector_db_manager
+            vector_db_manager=self.vector_db_manager,
+            platform=self.platform,
         ):
             old_cwd = os.getcwd()
             try:
@@ -1435,7 +1440,7 @@ class SessionPool:
 
         loop.call_soon_threadsafe(set_event)
 
-    def get_or_create(self, session_id: str, workspace_dir: Optional[str] = None) -> AgentSession:
+    def get_or_create(self, session_id: str, workspace_dir: Optional[str] = None, platform: Optional[str] = None) -> AgentSession:
         """Obtiene una sesión existente o crea una nueva (thread-safe)."""
         with self._lock:
             if session_id not in self._sessions:
@@ -1449,11 +1454,14 @@ class SessionPool:
                     loop=self._loop,
                     thread_manager=self._thread_manager,
                     workspace_dir=workspace_dir,
+                    platform=platform or "web",
                 )
             else:
                 session = self._sessions[session_id]
                 if workspace_dir and session.workspace_dir != workspace_dir:
                     session.update_workspace_dir(workspace_dir)
+                if platform:
+                    session.platform = platform.lower()
             return self._sessions[session_id]
 
     def get(self, session_id: str) -> Optional[AgentSession]:

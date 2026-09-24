@@ -154,9 +154,11 @@ async def _main_async():
     
     # --- Centralización: La TUI actúa como cliente ---
     workspace_directory = os.getcwd()
+    os.environ["KOGNITERM_PLATFORM"] = "tui"
     
     # Iniciar la TUI (KogniTermTUI se conectará al servidor central en on_mount)
     llm_service = LLMService()
+    llm_service.set_platform("tui")
     command_executor = CommandExecutor()
     agent_state = AgentState()
     app = KogniTermTUI(

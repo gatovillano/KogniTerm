@@ -32,13 +32,14 @@ class ChannelAdapter:
     los eventos al destino correcto.
     """
 
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, session_id: Optional[str] = None, platform: Optional[str] = None):
         self.session_id = session_id or pool.new_session_id()
+        self.platform = platform
         self._session: Optional[AgentSession] = None
 
     def _get_session(self) -> AgentSession:
         if self._session is None:
-            self._session = pool.get_or_create(self.session_id)
+            self._session = pool.get_or_create(self.session_id, platform=self.platform)
         return self._session
 
     async def send_message(self, message: str) -> None:
@@ -89,6 +90,9 @@ class CLIAdapter(ChannelAdapter):
     """
 
     PRINTABLE_TYPES = {"stream", "message", "tool_start", "tool_output", "tool_result", "terminal_output", "done", "error"}
+
+    def __init__(self, session_id: Optional[str] = None, platform: Optional[str] = "tui"):
+        super().__init__(session_id=session_id, platform=platform)
 
     async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         t = event["type"]

@@ -975,8 +975,10 @@ class CLIHandler:
         console = Console()
         prompt_text = " ".join(args).strip() if args else None
 
+        os.environ["KOGNITERM_PLATFORM"] = "tui"
         terminal_ui = TerminalUI(console=console)
-        llm_service = LLMService()
+        llm_service = LLMService(platform="tui")
+        llm_service.set_platform("tui")
         agent_state = AgentState()
         interrupt_queue = queue.Queue()
 

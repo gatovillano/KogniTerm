@@ -1730,12 +1730,16 @@ def create_app() -> FastAPI:
 
         await pool.wait_until_ready()
 
-        # Reconocer cuando una sesión es nueva o existente
+        client_type = (
+            websocket.query_params.get("client_type")
+            or websocket.query_params.get("platform")
+            or "desktop"
+        )
         is_new = session_id not in pool._sessions
-        session = pool.get_or_create(session_id, workspace_dir=workspace_dir)
+        session = pool.get_or_create(session_id, workspace_dir=workspace_dir, platform=client_type)
 
         logger.info(
-            f"[WS] Cliente conectado a sesión {session_id} ({'NUEVA' if is_new else 'EXISTENTE'})"
+            f"[WS] Cliente conectado a sesión {session_id} ({'NUEVA' if is_new else 'EXISTENTE'}), plataforma={session.platform}"
         )
 
         from kogniterm.terminal.config_manager import ConfigManager

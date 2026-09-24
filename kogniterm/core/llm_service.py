@@ -120,9 +120,11 @@ class LLMService:
     _context_workspace_context = contextvars.ContextVar('workspace_context', default=None)
     _context_vector_db_manager = contextvars.ContextVar('vector_db_manager', default=None)
     _context_current_workspace_dir = contextvars.ContextVar('current_workspace_dir', default=None)
+    _context_client_platform = contextvars.ContextVar('client_platform', default=None)
 
-    def __init__(self, interrupt_queue: Optional[queue.Queue] = None, use_multi_provider: bool = True):
+    def __init__(self, interrupt_queue: Optional[queue.Queue] = None, use_multi_provider: bool = True, platform: Optional[str] = None):
         self._use_context_vars = False
+        self._platform = (platform or os.environ.get("KOGNITERM_PLATFORM") or "tui").lower()
         # print("DEBUG: Iniciando LLMService.__init__...")
         
         # Inicializar MultiProviderManager
@@ -292,6 +294,35 @@ class LLMService:
         self.SUMMARY_MAX_TOKENS = 800 # Tokens, longitud máxima del resumen de herramientas
         
         self.set_model(self.model_name)
+
+    def get_platform(self) -> str:
+        ctx_platform = self._context_client_platform.get()
+        if ctx_platform:
+            return ctx_platform.lower()
+        if hasattr(self, "_platform") and self._platform:
+            return self._platform.lower()
+        return os.environ.get("KOGNITERM_PLATFORM", "tui").lower()
+
+    def set_platform(self, platform: str) -> None:
+        self._platform = (platform or "tui").lower()
+
+    def _get_platform_instruction(self) -> str:
+        active_platform = self.get_platform()
+        if active_platform in ("web", "desktop", "vscode", "html"):
+            return (
+                "**FORMATO DE VISUALIZACIÓN EN ENTORNO GRÁFICO (WEB/DESKTOP):**\n"
+                "Estás funcionando en una interfaz Web/Desktop que soporta renderizado HTML interactivo y enriquecido.\n"
+                "Puedes utilizar bloques o código HTML (componentes visuales, tablas estilizadas con CSS inline, tarjetas, badges, alerts o dashboards)\n"
+                "cuando sea útil para mejorar significativamente la presentación visual de tus respuestas al usuario."
+            )
+        else:
+            return (
+                "**FORMATO DE VISUALIZACIÓN EN TERMINAL DE CONSOLA (TUI/CLI):**\n"
+                "Estás funcionando en un cliente de consola/terminal (TUI/CLI) donde NO se pueden renderizar etiquetas HTML.\n"
+                "NUNCA generes etiquetas HTML (como `<div>`, `<table>`, `<style>`, `<span>`, etc.) ni bloques de código HTML directo en la respuesta.\n"
+                "Presenta la respuesta usando únicamente Markdown estándar limpio (tablas markdown, negrita, listas y bloques de código con ```).\n"
+                "Esto garantizará una lectura clara sin mostrar etiquetas de marcado sin procesar en la terminal."
+            )
         
     def update_workspace(self, workspace_dir: str):
         """Actualiza el directorio del workspace dinámicamente."""
@@ -1089,6 +1120,27 @@ class LLMService:
             if skill_context_message:
                 if not any("## 🧩 CONTEXTO DE SKILLS" in str(msg.content) for msg in processed_history):
                     system_contents.append(skill_context_message.content)
+
+        # Inyectar instrucción de formato de respuesta según la plataforma activa (Desktop/Web vs TUI/CLI)
+        active_platform = self.get_platform()
+        if active_platform in ("web", "desktop", "vscode", "html"):
+            platform_visual_instruction = (
+                "**FORMATO DE VISUALIZACIÓN EN ENTORNO GRÁFICO (WEB/DESKTOP):**\n"
+                "Estás funcionando en una interfaz Web/Desktop que soporta renderizado HTML interactivo y enriquecido.\n"
+                "Puedes utilizar bloques o código HTML (componentes visuales, tablas estilizadas con CSS inline, tarjetas, badges, alerts o dashboards)\n"
+                "cuando sea útil para mejorar significativamente la presentación visual de tus respuestas al usuario."
+            )
+        else:
+            platform_visual_instruction = (
+                "**FORMATO DE VISUALIZACIÓN EN TERMINAL DE CONSOLA (TUI/CLI):**\n"
+                "Estás funcionando en un cliente de consola/terminal (TUI/CLI) donde NO se pueden renderizar etiquetas HTML.\n"
+                "NUNCA generes etiquetas HTML (como `<div>`, `<table>`, `<style>`, `<span>`, etc.) ni bloques de código HTML directo en la respuesta.\n"
+                "Presenta la respuesta usando únicamente Markdown estándar limpio (tablas markdown, negrita, listas y bloques de código con ```).\n"
+                "Esto garantizará una lectura clara sin mostrar etiquetas de marcado sin procesar en la terminal."
+            )
+
+        if not any("FORMATO DE VISUALIZACIÓN EN" in str(sc) for sc in system_contents):
+            system_contents.append(platform_visual_instruction)
 
         # Unificar todos los mensajes de sistema al principio (Requerido por muchos proveedores)
         if system_contents:
