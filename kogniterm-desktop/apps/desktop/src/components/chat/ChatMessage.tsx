@@ -12,6 +12,96 @@ interface ChatMessageProps {
     message: Message;
 }
 
+const HtmlPreviewCard: React.FC<{ htmlString: string; language?: string }> = ({ htmlString }) => {
+    const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(htmlString);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleOpenExternal = () => {
+        const blob = new Blob([htmlString], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+    };
+
+    return (
+        <div className="my-3 rounded-lg overflow-hidden border border-slate-200/80 dark:border-zinc-800 bg-[#121214] text-left shadow-md">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100/90 dark:bg-[#18181b] border-b border-slate-200/60 dark:border-zinc-800/80 text-[11px] font-mono text-slate-500 dark:text-zinc-400 select-none">
+                <div className="flex items-center gap-1 bg-slate-200/60 dark:bg-zinc-800/80 p-0.5 rounded-md">
+                    <button
+                        onClick={() => setActiveTab('preview')}
+                        className={`px-2.5 py-0.5 rounded text-[10px] font-sans font-medium transition-colors cursor-pointer ${
+                            activeTab === 'preview'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200'
+                        }`}
+                    >
+                        👁️ Vista Previa Visual
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('code')}
+                        className={`px-2.5 py-0.5 rounded text-[10px] font-sans font-medium transition-colors cursor-pointer ${
+                            activeTab === 'code'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200'
+                        }`}
+                    >
+                        ⚡ Código HTML
+                    </button>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleOpenExternal}
+                        className="flex items-center gap-1 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-slate-200/60 dark:hover:bg-zinc-800"
+                        title="Abrir en pestaña nueva"
+                    >
+                        <span className="text-[10px]">↗️ Abrir</span>
+                    </button>
+                    <button
+                        onClick={handleCopy}
+                        className="flex items-center gap-1 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 transition-colors cursor-pointer py-0.5 px-1.5 rounded hover:bg-slate-200/60 dark:hover:bg-zinc-800"
+                        title="Copiar código HTML"
+                    >
+                        {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                        <span className="text-[10px]">{copied ? 'Copiado' : 'Copiar'}</span>
+                    </button>
+                </div>
+            </div>
+
+            {activeTab === 'preview' ? (
+                <div className="w-full bg-white dark:bg-zinc-950 p-1 min-h-[180px] max-h-[550px] overflow-auto">
+                    <iframe
+                        title="HTML Render"
+                        srcDoc={htmlString}
+                        className="w-full h-80 min-h-[220px] border-0 rounded bg-white"
+                        sandbox="allow-scripts allow-modals allow-same-origin"
+                    />
+                </div>
+            ) : (
+                <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language="html"
+                    PreTag="div"
+                    customStyle={{
+                        margin: 0,
+                        padding: '0.85rem 1rem',
+                        background: '#121214',
+                        fontSize: '0.8125rem',
+                        lineHeight: '1.6',
+                        fontFamily: 'var(--font-mono)',
+                    }}
+                >
+                    {htmlString}
+                </SyntaxHighlighter>
+            )}
+        </div>
+    );
+};
+
 const CodeBlock: React.FC<{ language?: string; codeString: string }> = ({ language, codeString }) => {
     const [copied, setCopied] = useState(false);
 
@@ -55,8 +145,19 @@ const CodeBlock: React.FC<{ language?: string; codeString: string }> = ({ langua
 
 const renderCodeBlock = (children: any, className?: string, props?: any) => {
     const match = /language-(\w+)/.exec(className || '');
+    const lang = match ? match[1].toLowerCase() : '';
     const codeString = String(children).replace(/\n$/, '');
     const isMultiLine = codeString.includes('\n');
+
+    const isHtml = lang === 'html' || lang === 'htm' || 
+                   codeString.trim().startsWith('<!DOCTYPE html>') || 
+                   codeString.trim().startsWith('<!doctype html>') || 
+                   codeString.trim().startsWith('<html') ||
+                   (isMultiLine && (codeString.includes('<div') || codeString.includes('<style>') || codeString.includes('<p>')) && (codeString.includes('</') || codeString.includes('/>')));
+
+    if (isHtml) {
+        return <HtmlPreviewCard htmlString={codeString} language={lang || 'html'} />;
+    }
 
     if (match || isMultiLine) {
         return <CodeBlock language={match ? match[1] : undefined} codeString={codeString} />;
@@ -244,7 +345,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                             </ReactMarkdown>
                         </div>
                     ) : (() => {
-                        const rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+                        let rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+                        // Limpiar etiquetas de formato Rich (ej. [dim cyan]...[/]) y secuencias ANSI
+                        rawText = rawText
+                            .replace(/\[\/?[a-z0-9_ -]+\]/gi, '')
+                            .replace(/\x1b\[[0-9;]*m/g, '');
+
                         const parsedDiff = parseAppliedDiff(rawText);
                         if (parsedDiff) {
                             return (
@@ -253,6 +359,17 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                                 </div>
                             );
                         }
+
+                        const trimmed = rawText.trim();
+                        const isUnfencedHtml = trimmed.startsWith('<!DOCTYPE html>') || 
+                                               trimmed.startsWith('<!doctype html>') || 
+                                               trimmed.startsWith('<html') ||
+                                               (trimmed.includes('<html') && trimmed.includes('</html>'));
+
+                        if (isUnfencedHtml) {
+                            return <HtmlPreviewCard htmlString={rawText} language="html" />;
+                        }
+
                         return (
                             <div className="assistant-msg-text w-full py-1 text-slate-800 dark:text-zinc-200 text-[14px] leading-relaxed select-text">
                                 <ReactMarkdown
