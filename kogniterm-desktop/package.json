@@ -1,23 +1,25 @@
 {
   "name": "kogniterm-desktop",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "KogniTerm Desktop Application",
   "private": true,
-  "packageManager": "npm@10.9.8",
+  "type": "module",
+  "packageManager": "npm@11.11.0",
   "workspaces": [
-    "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:desktop": "npm --workspace=@kogniterm/desktop run dev",
+    "dev:app": "npm --workspace=@kogniterm/app run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+    "clean": "turbo run clean && rm -rf node_modules"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "devDependencies": {
-    "turbo": "^2.9.14"
-  }
+    "turbo": "^2.10.2",
+    "typescript": "^5.8.2"
+  },
+  "license": "MIT"
 }

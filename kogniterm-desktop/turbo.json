@@ -1,20 +1,49 @@
 {
-    "$schema": "https://turbo.build/schema.json",
-    "tasks": {
-        "build": {
-            "dependsOn": [
-                "^build"
-            ],
-            "outputs": [
-                "dist/**",
-                ".next/**",
-                "!.next/cache/**"
-            ]
-        },
-        "dev": {
-            "cache": false,
-            "persistent": true
-        },
-        "lint": {}
+  "$schema": "https://v2-8-13.turborepo.dev/schema.json",
+  "globalEnv": [
+    "CI",
+    "KOGNITERM_CHANNEL"
+  ],
+  "globalPassThroughEnv": [
+    "CI",
+    "KOGNITERM_CHANNEL"
+  ],
+  "tasks": {
+    "typecheck": {},
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        "out/**"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "@kogniterm/desktop#build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "out/**",
+        "dist/**"
+      ]
+    },
+    "@kogniterm/app#build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "@kogniterm/ui#build": {
+      "outputs": [
+        "dist/**"
+      ]
     }
+  }
 }
