@@ -213,6 +213,20 @@ class CommandApprovalHandler:
         safe_file_path = file_path or "archivo_desconocido"
         operation_label = tool_name or "file_update"
 
+        is_server_or_non_tty = (
+            getattr(self.terminal_ui, "is_server", False)
+            or type(self.terminal_ui).__name__ == "ServerUI"
+            or not getattr(self.terminal_ui, "is_tty", True)
+        )
+
+        if is_server_or_non_tty and hasattr(self.terminal_ui, "print_message"):
+            self.terminal_ui.print_message(
+                f"### ✅ Cambios aplicados en `{safe_file_path}`\n"
+                f"**Operación:** `{operation_label}`\n\n"
+                f"```diff\n{diff_content}\n```"
+            )
+            return
+
         try:
             diff_table = self.diff_renderer.render_diff_from_string(diff_content, safe_file_path)
             title_text = f"✅ Diff aplicado: {safe_file_path}"

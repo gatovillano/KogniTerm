@@ -400,7 +400,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                         // Limpiar etiquetas de formato Rich (ej. [dim cyan]...[/]) y secuencias ANSI
                         rawText = rawText
                             .replace(/\[\/?(dim|italic|bold|reverse|underline|cyan|red|green|yellow|blue|magenta|white|black)(?:\s+[a-z0-9_#-]+)*\]|\[\/\]/gi, '')
-                            .replace(/\x1b\[[0-9;]*m/g, '');
+                            .replace(/(?:\x1b|\u001b)\[[0-9;]*[a-zA-Z]/g, '')
+                            .replace(/\[\d+(?:;\d+)*m/g, '');
 
                         const parsedDiff = parseAppliedDiff(rawText);
                         if (parsedDiff) {

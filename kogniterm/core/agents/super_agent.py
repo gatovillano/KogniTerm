@@ -411,8 +411,19 @@ class SuperAgentRunner:
                 expand=True,
             )
 
-            # Renderizar en la TUI persistente
-            if hasattr(self.terminal_ui, "update_live") and hasattr(self.terminal_ui, "stop_live"):
+            is_server_or_non_tty = (
+                getattr(self.terminal_ui, "is_server", False)
+                or type(self.terminal_ui).__name__ == "ServerUI"
+                or not getattr(self.terminal_ui, "is_tty", True)
+            )
+
+            if is_server_or_non_tty and hasattr(self.terminal_ui, "print_message"):
+                self.terminal_ui.print_message(
+                    f"### ✅ Cambios aplicados en `{file_path}`\n"
+                    f"**Operación:** `{tool_name}`\n\n"
+                    f"```diff\n{diff_content}\n```"
+                )
+            elif hasattr(self.terminal_ui, "update_live") and hasattr(self.terminal_ui, "stop_live"):
                 self.terminal_ui.update_live(panel)
                 self.terminal_ui.stop_live()
             elif hasattr(self.terminal_ui, "console"):

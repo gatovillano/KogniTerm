@@ -1,17 +1,26 @@
+export function cleanAnsiAndRichFormatting(text) {
+    if (!text)
+        return '';
+    return text
+        .replace(/(?:\x1b|\u001b)\[[0-9;]*[a-zA-Z]/g, '')
+        .replace(/\[\d+(?:;\d+)*m/g, '')
+        .replace(/\[\/?(dim|italic|bold|reverse|underline|cyan|red|green|yellow|blue|magenta|white|black)(?:\s+[a-z0-9_#-]+)*\]|\[\/\]/gi, '');
+}
 export function parseAppliedDiff(rawContent, fallbackFilePath, toolName) {
     if (!rawContent || typeof rawContent !== 'string')
         return null;
-    let diffText = rawContent;
+    let diffText = cleanAnsiAndRichFormatting(rawContent);
     let filePath = fallbackFilePath || '';
     let extractedTool = toolName || '';
     // 1. JSON Payload format
-    if (rawContent.trim().startsWith('{') && rawContent.trim().endsWith('}')) {
+    const trimmedRaw = diffText.trim();
+    if (trimmedRaw.startsWith('{') && trimmedRaw.endsWith('}')) {
         try {
-            const parsed = JSON.parse(rawContent);
+            const parsed = JSON.parse(trimmedRaw);
             if (parsed.diff_content)
-                diffText = parsed.diff_content;
+                diffText = cleanAnsiAndRichFormatting(parsed.diff_content);
             else if (parsed.diff)
-                diffText = parsed.diff;
+                diffText = cleanAnsiAndRichFormatting(parsed.diff);
             if (parsed.file_path || parsed.filePath)
                 filePath = parsed.file_path || parsed.filePath;
             if (parsed.tool || parsed.tool_name || parsed.operation) {
@@ -21,6 +30,16 @@ export function parseAppliedDiff(rawContent, fallbackFilePath, toolName) {
         catch {
             // Ignore parse errors
         }
+    }
+    // Handle Rich Panel title & header extraction
+    const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n╭╮╰╯│]+)/i) ||
+        diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n╭╮╰╯│]+)`?/i);
+    if (titleMatch && !filePath) {
+        filePath = titleMatch[1].trim();
+    }
+    const opLineMatch = diffText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?\s*/i);
+    if (opLineMatch && !extractedTool) {
+        extractedTool = opLineMatch[1];
     }
     // 2. Explicit ```diff ... ``` code block format
     const explicitDiffBlockMatch = diffText.match(/```diff\n([\s\S]*?)\n```/i);
@@ -36,19 +55,26 @@ export function parseAppliedDiff(rawContent, fallbackFilePath, toolName) {
             filePath = pathMatch[1];
         diffText = explicitDiffBlockMatch[1];
     }
-    else {
-        const opLineMatch = diffText.match(/Operación:\s*`?([a-zA-Z0-9_\-]+)`?\s*/i);
-        if (opLineMatch) {
-            if (!extractedTool)
-                extractedTool = opLineMatch[1];
-            diffText = diffText.replace(/Operación:\s*`?[a-zA-Z0-9_\-]+`?\s*/i, '');
+    // Clean Rich Panel box borders & line numbers if present
+    const rawLines = diffText.split('\n');
+    const cleanedLines = [];
+    for (let line of rawLines) {
+        // Skip box border top/bottom lines (e.g. ╭──────╮ or ╰──────╯)
+        if (/^[╭╰]\s*─+.*[╮╯]$/.test(line.trim()) || /^─+$/.test(line.trim())) {
+            continue;
         }
-        const titleMatch = diffText.match(/✅\s*Diff aplicado:\s*([^\n]+)/i) ||
-            diffText.match(/✅\s*Cambios aplicados en\s*`?([^`\n]+)`?/i);
-        if (titleMatch && !filePath) {
-            filePath = titleMatch[1].trim();
+        // Remove box border side characters '│'
+        if (line.includes('│')) {
+            line = line.replace(/^\s*│\s*/, '').replace(/\s*│\s*$/, '');
         }
+        // If line has Rich diff table line numbers before +, -, or @@:
+        // e.g. " 166 166 # etc." or " 166 - (0.0...)" or " 166+ (0.0...)"
+        if (/^\s*\d*(?:\s+\d+)?\s*[\+\-\@\ ]/.test(line)) {
+            line = line.replace(/^\s*\d+(?:\s+\d+)?\s*(?=[\+\-\@\ ])/, '');
+        }
+        cleanedLines.push(line);
     }
+    diffText = cleanedLines.join('\n');
     // 3. Strict validation: MUST have valid unified diff header markers or explicit ```diff block
     const hasHeaderLines = /--- (a\/|\/|[^\s]+)[\s\S]*?\+\+\+ (b\/|\/|[^\s]+)/.test(diffText) ||
         /diff --git a\//.test(diffText) ||

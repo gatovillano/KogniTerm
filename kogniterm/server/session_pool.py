@@ -15,6 +15,7 @@ import threading
 import uuid
 
 import os
+import re
 from datetime import datetime
 from io import StringIO
 from typing import Any, AsyncIterator, Callable, Dict, Optional
@@ -22,6 +23,8 @@ import contextvars
 import contextlib
 
 session_cwd_var = contextvars.ContextVar("session_cwd", default=None)
+session_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("session_id", default="default")
+session_ui_var: contextvars.ContextVar[Optional[Any]] = contextvars.ContextVar("session_ui", default=None)
 
 _original_getcwd = os.getcwd
 _original_chdir = os.chdir
@@ -54,10 +57,12 @@ os.getcwd = custom_getcwd
 os.chdir = custom_chdir
 
 @contextlib.contextmanager
-def session_context(cwd, llm_service=None, history_manager=None, workspace_context=None, vector_db_manager=None, platform=None):
-    """Context manager for isolating session workspace and context."""
+def session_context(cwd, session_id=None, terminal_ui=None, llm_service=None, history_manager=None, workspace_context=None, vector_db_manager=None, platform=None):
+    """Context manager for isolating session workspace, session ID, UI and context."""
     cwd = safe_abs_path(cwd)
     cwd_token = session_cwd_var.set(cwd)
+    sid_token = session_id_var.set(session_id or "default")
+    ui_token = session_ui_var.set(terminal_ui)
     try:
         _original_chdir(cwd)
     except Exception:
@@ -79,6 +84,8 @@ def session_context(cwd, llm_service=None, history_manager=None, workspace_conte
         yield
     finally:
         session_cwd_var.reset(cwd_token)
+        session_id_var.reset(sid_token)
+        session_ui_var.reset(ui_token)
         for var, token in tokens:
             var.reset(token)
 
@@ -143,52 +150,57 @@ def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
             for sub_r in r.renderables:
                 recurse(sub_r)
         elif isinstance(r, Panel):
-            title = str(r.title or "").lower()
+            title_raw = str(r.title or "").strip()
+            title = title_raw.lower()
             is_thinking_panel = "pensando" in title or "thinking" in title
-
-            if not is_thinking_panel:
-                buf = StringIO()
-                c = Console(file=buf, force_terminal=True, color_system="truecolor", width=120)
-                c.print(r)
-                ansi_str = buf.getvalue().strip()
-                if ansi_str:
-                    response += "\n" + ansi_str
-                return
-
             p_content = r.renderable
-            content_str = ""
-            if isinstance(p_content, Markdown):
-                content_str = p_content.markup
-            elif isinstance(p_content, Text):
-                content_str = p_content.plain
-            elif isinstance(p_content, str):
-                content_str = p_content
-            else:
-                try:
-                    if isinstance(p_content, (Group, Padding)):
-                        recurse(p_content)
-                        return
-                    buf = StringIO()
-                    c = Console(
-                        file=buf, force_terminal=True, color_system="truecolor", width=120
-                    )
-                    c.print(p_content)
-                    content_str = buf.getvalue().strip()
-                except Exception:
-                    content_str = str(p_content)
 
             if is_thinking_panel:
+                content_str = ""
+                if isinstance(p_content, Markdown):
+                    content_str = p_content.markup
+                elif isinstance(p_content, Text):
+                    content_str = p_content.plain
+                elif isinstance(p_content, str):
+                    content_str = p_content
+                else:
+                    try:
+                        if isinstance(p_content, (Group, Padding)):
+                            recurse(p_content)
+                            return
+                        buf = StringIO()
+                        c = Console(file=buf, force_terminal=False, no_color=True, width=120)
+                        c.print(p_content)
+                        content_str = buf.getvalue().strip()
+                    except Exception:
+                        content_str = str(p_content)
                 thinking += "\n" + content_str
             else:
-                display_title = f"### {r.title}\n" if r.title else ""
-                response += "\n" + display_title + content_str
+                display_title = f"### {title_raw}\n\n" if title_raw else ""
+                if isinstance(p_content, (Group, Padding)):
+                    if display_title:
+                        response += "\n" + display_title
+                    recurse(p_content)
+                elif isinstance(p_content, Markdown):
+                    response += "\n" + display_title + p_content.markup
+                elif isinstance(p_content, Text):
+                    response += "\n" + display_title + p_content.plain
+                else:
+                    try:
+                        buf = StringIO()
+                        c = Console(file=buf, force_terminal=False, no_color=True, width=120)
+                        c.print(p_content)
+                        content_str = buf.getvalue().strip()
+                        response += "\n" + display_title + content_str
+                    except Exception:
+                        response += "\n" + display_title + str(p_content)
         elif isinstance(r, Table):
             buf = StringIO()
-            c = Console(file=buf, force_terminal=True, color_system="truecolor", width=120)
+            c = Console(file=buf, force_terminal=False, no_color=True, width=120)
             c.print(r)
-            ansi_str = buf.getvalue().strip()
-            if ansi_str:
-                response += "\n" + ansi_str
+            clean_str = buf.getvalue().strip()
+            if clean_str:
+                response += "\n" + clean_str
         elif isinstance(r, Markdown):
             response += "\n" + r.markup
         elif isinstance(r, Text):
@@ -201,7 +213,7 @@ def extract_thinking_and_response(renderable: Any) -> tuple[str, str]:
         else:
             try:
                 buf = StringIO()
-                c = Console(file=buf, force_terminal=True, color_system="truecolor", width=120)
+                c = Console(file=buf, force_terminal=False, no_color=True, width=120)
                 c.print(r)
                 val = buf.getvalue().strip()
                 if val:
@@ -1212,6 +1224,8 @@ class AgentSession:
         """
         with session_context(
             cwd=self.workspace_dir,
+            session_id=self.session_id,
+            terminal_ui=self.ui,
             llm_service=self.llm_service,
             history_manager=self.history_manager,
             workspace_context=self.workspace_context,
@@ -1479,6 +1493,11 @@ class SessionPool:
         with self._lock:
             if session_id in self._sessions:
                 del self._sessions[session_id]
+                try:
+                    from kogniterm.skills.bundled.task_tracker.scripts.tool import clear_session_tasks
+                    clear_session_tasks(session_id)
+                except Exception:
+                    pass
                 logger.info(f"Sesión {session_id} eliminada.")
                 return True
         return False
