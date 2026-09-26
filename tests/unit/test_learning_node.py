@@ -115,3 +115,30 @@ def test_learning_node_handles_none_content_gracefully():
     # Assert
     assert result_state == state
     llm_service.provider_manager.execute.assert_called_once()
+
+
+def test_learning_node_ignores_api_error_responses(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    state = AgentState(messages=[
+        HumanMessage(content="hola"),
+        AIMessage(content="[Error: Error inesperado en LiteLLM: API Error (429): Resource has been exhausted]")
+    ])
+    
+    llm_service = MagicMock()
+    llm_service.model_name = "google/gemini-1.5-flash"
+    llm_service.use_multi_provider = True
+    
+    dummy_response = MagicMock()
+    dummy_response.choices = [
+        MagicMock(message=MagicMock(content="[Error: Error inesperado en LiteLLM: API Error (429): Resource has been exhausted (e.g. check quota).]"))
+    ]
+    llm_service.provider_manager.execute.side_effect = lambda *args, **kwargs: iter([dummy_response])
+
+    terminal_ui = MagicMock()
+    learning_node(state, llm_service, terminal_ui)
+
+    # El mensaje de error NO debe guardarse en instructions.md ni emitirse como aprendizaje
+    instructions_file = tmp_path / ".kogniterm" / "instructions.md"
+    assert not instructions_file.exists()
+    terminal_ui.print_message.assert_not_called()
+

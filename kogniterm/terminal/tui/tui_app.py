@@ -294,7 +294,15 @@ class TextualTerminalUI:
                     self._safe_call(target_log.write_message, renderable)
                     return
                 except Exception:
-                    pass  # Fallback a write_agent_message si el markup falla
+                    # Si el markup de Rich falla (ej. corchetes como [Error: ...]), limpiamos tags Rich y escribimos el texto limpio
+                    clean_msg = re.sub(
+                        r'\[/?(dim|italic|bold|reverse|underline|cyan|red|green|yellow|blue|magenta|white|black)(?:\s+[a-z0-9_#-]+)*\]|\[/\]',
+                        '',
+                        message,
+                        flags=re.IGNORECASE
+                    )
+                    self._safe_call(target_log.write_agent_message, clean_msg)
+                    return
             self._safe_call(target_log.write_agent_message, message)
 
     def print_stream(self, text: str, **kwargs):

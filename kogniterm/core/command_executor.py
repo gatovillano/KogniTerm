@@ -325,9 +325,10 @@ class CommandExecutor:
                             elif "\n" in search_buffer:
                                 first_line, rest = search_buffer.split("\n", 1)
                                 clean_first = re.sub(r'\x1b\[[0-9;?]*[a-zA-Z]', '', first_line).strip()
-                                if prefix_len == 0 or (clean_first and (cmd_stripped.startswith(clean_first) or clean_first.startswith(cmd_stripped[:prefix_len]))):
-                                    # La primera línea era el eco del comando, la descartamos
-                                    search_buffer = rest
+                                if marker_to_hide not in first_line:
+                                    if prefix_len == 0 or (clean_first and (cmd_stripped.startswith(clean_first) or clean_first.startswith(cmd_stripped[:prefix_len]))):
+                                        # La primera línea era el eco del comando, la descartamos
+                                        search_buffer = rest
                                 self._echo_filtered = True
                             # 4. Si el buffer no empieza con el prefijo esperado, ECHO probablemente está desactivado
                             elif prefix_len > 0 and len(clean_buf) >= prefix_len and not clean_buf.startswith(cmd_stripped[:prefix_len]):

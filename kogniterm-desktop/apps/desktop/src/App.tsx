@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
-import { ChatMessage } from './components/chat/ChatMessage';
+import { ChatMessage, QueuedChatMessage } from './components/chat/ChatMessage';
 import { ThinkingSpinner } from './components/chat/ThinkingSpinner';
 import { CommandApproval } from './components/chat/CommandApproval';
 import { FileExplorer } from './components/files/FileExplorer';
@@ -360,6 +360,16 @@ function App() {
                     <div className="space-y-4">
                       {messages.map((msg) => (
                         <ChatMessage key={msg.id} message={msg} />
+                      ))}
+
+                      {/* Queued Messages rendered in Chat Stream */}
+                      {messageQueue.length > 0 && messageQueue.map((item, index) => (
+                        <QueuedChatMessage
+                          key={item.id || index}
+                          item={item}
+                          index={index}
+                          onRemove={(id) => removeFromQueue(id)}
+                        />
                       ))}
 
                       {/* Inline Pending Command Approval matching OpenClaw screenshot */}

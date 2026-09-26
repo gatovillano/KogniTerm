@@ -729,12 +729,55 @@ def test_multi_provider_manager_antigravity_model_mapping():
     assert manager._resolve_model_for_provider(provider, "gemini-2.5-pro") == "gemini-3-pro-high"
 
 
+def test_antigravity_endpoint_priority_prod_first():
+    assert AntigravityClient.CODE_ASSIST_ENDPOINTS[0] == AntigravityClient.CODE_ASSIST_ENDPOINT_PROD
+    assert "cloudcode-pa.googleapis.com" in AntigravityClient.CODE_ASSIST_ENDPOINTS[0]
 
 
+@patch("kogniterm.core.antigravity_client.requests.post")
+def test_antigravity_pro_to_flash_fallback_on_quota_exhausted(mock_post):
+    mock_resp_429_quota = MagicMock()
+    mock_resp_429_quota.status_code = 429
+    mock_resp_429_quota.text = json.dumps({
+        "error": {
+            "code": 429,
+            "message": "Individual quota reached. Please upgrade your subscription.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [{"reason": "QUOTA_EXHAUSTED"}]
+        }
+    })
+    mock_resp_429_quota.json.return_value = {
+        "error": {
+            "code": 429,
+            "message": "Individual quota reached. Please upgrade your subscription.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [{"reason": "QUOTA_EXHAUSTED"}]
+        }
+    }
 
+    mock_resp_200_flash = MagicMock()
+    mock_resp_200_flash.status_code = 200
+    mock_resp_200_flash.json.return_value = {
+        "response": {
+            "candidates": [{
+                "content": {"parts": [{"text": "Respuesta desde gemini-3-flash tras fallback"}]}
+            }]
+        }
+    }
 
+    mock_post.side_effect = [mock_resp_429_quota, mock_resp_200_flash]
 
+    with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
 
+        response = AntigravityClient.completion(
+            model="antigravity/gemini-3.1-pro-high",
+            messages=[{"role": "user", "content": "Hola"}],
+            stream=False
+        )
 
-
-
+        assert response.choices[0].message.content == "Respuesta desde gemini-3-flash tras fallback"
+        assert mock_post.call_count == 2
+        # Verificar que la segunda llamada fue con el modelo gemini-3-flash
+        second_call_body = mock_post.call_args_list[1][1]["json"]
+        assert second_call_body["model"] == "gemini-3-flash"

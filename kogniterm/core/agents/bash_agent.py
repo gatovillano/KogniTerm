@@ -556,10 +556,41 @@ APRENDIZAJE:"""
                 max_tokens=100,
                 temperature=0.3
             )
-        content_val = response.choices[0].message.content if (response.choices and response.choices[0].message) else None
+        content_val = None
+        if isinstance(response, str):
+            content_val = response
+        elif isinstance(response, dict):
+            if response.get("type") != "error":
+                content_val = response.get("content") or response.get("message") or response.get("text")
+        elif hasattr(response, "choices") and response.choices:
+            msg = getattr(response.choices[0], "message", None)
+            if msg:
+                content_val = getattr(msg, "content", None)
+
         learned_text = content_val.strip() if content_val else "NADA"
 
-        if "NADA" not in learned_text.upper() and len(learned_text) > 8:
+        def _is_valid_learning(text: str) -> bool:
+            if not text or len(text) <= 8:
+                return False
+            upper = text.upper()
+            if "NADA" in upper:
+                return False
+            error_keywords = [
+                "[ERROR:", "API ERROR", "RESOURCE HAS BEEN EXHAUSTED", "RATE LIMIT",
+                "LITELLM", "EXCEPTION", "UNEXPECTED ERROR", "BAD REQUEST", "500", "429", "403"
+            ]
+            if any(kw in upper for kw in error_keywords):
+                return False
+            meta_keywords = [
+                "THIS CONVERSATION", "DESCRIPCIÓN DE LA CONVERSACIÓN", "LOOKING AT THE CONVERSATION",
+                "THERE'S NO CLEAR", "THE USER IS ASKING ME TO ANALYZE", "SIN EMBARGO, ESTA CONVERSACIÓN",
+                "NO HAY NINGÚN APRENDIZAJE", "NO CONTIENE PREFERENCIAS", "HOWEVER, THIS"
+            ]
+            if any(kw in upper for kw in meta_keywords):
+                return False
+            return True
+
+        if _is_valid_learning(learned_text):
             learned_text = re.sub(r'^[-\*\s]+', '', learned_text)
             
             instructions_path = os.path.join(os.getcwd(), ".kogniterm", "instructions.md")
@@ -579,7 +610,7 @@ APRENDIZAJE:"""
                 
                 if terminal_ui:
                     from kogniterm.terminal.themes import Icons
-                    terminal_ui.print_message(f"{Icons.THINKING} [dim cyan]Aprendizaje consolidado:[/] [italic white]{learned_text}[/]", style="cyan")
+                    terminal_ui.print_message(f"{Icons.THINKING} **Aprendizaje consolidado:** *{learned_text}*", style="cyan")
     except Exception as e:
         logger.warning(f"Error en el nodo de aprendizaje del agente: {e}", exc_info=True)
         pass

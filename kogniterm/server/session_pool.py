@@ -424,8 +424,16 @@ class ServerUI(TerminalUI):
         self, message: str, style: str = "", agent_id: str = None, **kwargs
     ) -> None:
         logger.info(f"[{self.session_id}] ServerUI.print_message: {message[:50]}...")
-        self._push("chunk", {"content": message}, agent_id=agent_id)
-        self._push("message", {"text": message}, agent_id=agent_id)
+        clean_msg = message
+        if isinstance(message, str):
+            clean_msg = re.sub(
+                r'\[/?(dim|italic|bold|reverse|underline|cyan|red|green|yellow|blue|magenta|white|black)(?:\s+[a-z0-9_#-]+)*\]|\[/\]',
+                '',
+                message,
+                flags=re.IGNORECASE
+            )
+        self._push("chunk", {"content": clean_msg}, agent_id=agent_id)
+        self._push("message", {"text": clean_msg}, agent_id=agent_id)
 
     def show_agent_panel(self, agent_id: str, title: str = "") -> None:
         """Notifica a la TUI que debe mostrar/activar el panel de un subagente."""

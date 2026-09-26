@@ -37,6 +37,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     messageQueue = [],
     onRemoveFromQueue,
     onClearQueue,
+    onProcessNext,
 }) => {
     const [input, setInput] = useState('');
     const [attachedImages, setAttachedImages] = useState<string[]>([]);
@@ -184,6 +185,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                             <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono hidden sm:inline">
                                 {isGenerating ? 'Se despacharán secuencialmente' : 'Listo para procesar'}
                             </span>
+                            {!isGenerating && onProcessNext && (
+                                <button
+                                    type="button"
+                                    onClick={onProcessNext}
+                                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium transition-colors cursor-pointer px-1 py-0.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                                    title="Procesar el primer mensaje en cola ahora"
+                                >
+                                    Procesar
+                                </button>
+                            )}
                             {onClearQueue && (
                                 <button
                                     type="button"

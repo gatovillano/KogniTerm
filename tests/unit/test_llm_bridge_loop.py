@@ -27,7 +27,8 @@ async def test_llm_bridge_executes_tools_and_loops_for_final_answer():
 
     mock_acompletion = AsyncMock(side_effect=[mock_stream_turn1(), mock_stream_turn2()])
 
-    with patch("litellm.acompletion", mock_acompletion), \
+    with patch.object(bridge, "_resolve_model_provider", return_value=("gpt-4", {})), \
+         patch("litellm.acompletion", mock_acompletion), \
          patch.object(bridge, "execute_tool_call", AsyncMock(return_value="contenido de prueba")):
         
         messages = [{"role": "user", "content": "lee test.txt"}]
@@ -78,7 +79,8 @@ async def test_llm_bridge_handles_inline_think_tags():
     async def mock_stream():
         yield chunk1
 
-    with patch("litellm.acompletion", AsyncMock(return_value=mock_stream())):
+    with patch.object(bridge, "_resolve_model_provider", return_value=("gpt-4", {})), \
+         patch("litellm.acompletion", AsyncMock(return_value=mock_stream())):
         messages = [{"role": "user", "content": "hola"}]
         events = []
         async for ev in bridge.chat(messages=messages):

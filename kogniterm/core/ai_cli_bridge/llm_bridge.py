@@ -83,11 +83,12 @@ def _parse_text_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], str]:
 
 
 _CONTINUATION_PATTERNS = [
-    re.compile(r"\b(ahora|a continuación|seguidamente|paso siguiente|próximo paso)\s+(voy a|vamos a|procedo a|procederé a|ejecutaré|crearé|modificaré|revisaré|leeré|instalaré|probaré)", re.IGNORECASE),
-    re.compile(r"\b(procedo a|procederé a)\s+(ejecutar|crear|modificar|revisar|leer|instalar|verificar|analizar|probar|hacer)", re.IGNORECASE),
-    re.compile(r"\b(voy a|vamos a)\s+(ejecutar|crear|modificar|revisar|leer|instalar|verificar|analizar|probar|hacer)", re.IGNORECASE),
-    re.compile(r"\b(paso \d+|step \d+)\b", re.IGNORECASE),
-    re.compile(r"\b(let me (now|proceed)|i will now|next,?\s*i will|i am going to|proceeding to)\b", re.IGNORECASE),
+    re.compile(r"\b(ahora|a continuación|seguidamente|paso siguiente|próximo paso|paso \d+|step \d+)\b", re.IGNORECASE),
+    re.compile(r"\b(voy a|vamos a|procedo a|procederé a|empezaré a|comenzaré a)\s+(ejecutar|crear|modificar|revisar|leer|instalar|verificar|analizar|probar|hacer|buscar|editar|implementar|corregir|aplicar)", re.IGNORECASE),
+    re.compile(r"\b(ejecutaré|crearé|modificaré|revisaré|leeré|instalaré|probaré|buscaré|editaré|implementaré|corregiré|aplicaré)\b", re.IGNORECASE),
+    re.compile(r"\b(para (solucionar|corregir|implementar|resolver|realizar|continuar) esto)\b", re.IGNORECASE),
+    re.compile(r"\b(let me (now|proceed)|i will now|next,?\s*i will|i am going to|proceeding to|let's|first,?\s*i|we need to)\b", re.IGNORECASE),
+    re.compile(r"^\s*(\d+\.|\*|-)\s+(ejecutar|crear|modificar|revisar|leer|instalar|verificar|analizar|editar|implementar|corregir|run|create|edit|check|search|update)", re.IGNORECASE | re.MULTILINE),
 ]
 
 
@@ -178,7 +179,7 @@ class LLMBridge:
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        max_steps: int = 25,
+        max_steps: int = 60,
         interrupt_queue: Optional[Any] = None,
         stop_check: Optional[Callable[[], bool]] = None,
         model: Optional[str] = None,
@@ -196,7 +197,7 @@ class LLMBridge:
 
         step_count = 0
         nudge_count = 0
-        max_nudges = 2
+        max_nudges = 6
         final_accumulated_content = ""
 
         while step_count < max_steps:

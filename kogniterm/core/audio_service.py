@@ -45,6 +45,9 @@ class AudioTranscriptionService:
                     compute_type=self.compute_type
                 )
                 logger.info("Modelo Whisper cargado exitosamente.")
+            except ImportError as e:
+                logger.error(f"Falta la librería faster-whisper: {e}")
+                raise RuntimeError("No se encontró 'faster-whisper'. Ejecuta 'pip install faster-whisper' para activarlo.") from e
             except Exception as e:
                 logger.error(f"Error al inicializar el modelo Whisper: {e}")
                 raise RuntimeError(f"No se pudo cargar el modelo Whisper: {e}") from e

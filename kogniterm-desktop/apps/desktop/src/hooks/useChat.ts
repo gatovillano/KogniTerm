@@ -654,16 +654,15 @@ export function useChat(threadId: string | null, targetWorkspaceDir?: string) {
             isProcessingQueueRef.current = true;
             const timer = setTimeout(() => {
                 setMessageQueue((prev) => {
-                    if (prev.length === 0) {
-                        isProcessingQueueRef.current = false;
-                        return prev;
-                    }
-                    const [nextItem, ...rest] = prev;
-                    doSendMessage(nextItem.text, nextItem.images);
-                    isProcessingQueueRef.current = false;
-                    return rest;
+                    if (prev.length === 0) return prev;
+                    return prev.slice(1);
                 });
-            }, 300);
+                const nextItem = messageQueue[0];
+                if (nextItem) {
+                    doSendMessage(nextItem.text, nextItem.images);
+                }
+                isProcessingQueueRef.current = false;
+            }, 200);
 
             return () => {
                 clearTimeout(timer);

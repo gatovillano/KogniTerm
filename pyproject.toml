@@ -44,6 +44,7 @@ dependencies = [
     "fastembed",
     "websockets",
     "httpx",
+    "faster-whisper",
 ]
 
 [project.scripts]

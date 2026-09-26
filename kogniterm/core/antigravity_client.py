@@ -123,14 +123,14 @@ class AntigravityClient:
         logger.info("Token de Antigravity refrescado correctamente.")
         return cls._access_token
 
+    CODE_ASSIST_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com"
     CODE_ASSIST_ENDPOINT_DAILY = "https://daily-cloudcode-pa.sandbox.googleapis.com"
     CODE_ASSIST_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com"
-    CODE_ASSIST_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com"
 
     CODE_ASSIST_ENDPOINTS = [
+        CODE_ASSIST_ENDPOINT_PROD,
         CODE_ASSIST_ENDPOINT_DAILY,
         CODE_ASSIST_ENDPOINT_AUTOPUSH,
-        CODE_ASSIST_ENDPOINT_PROD,
     ]
 
     @classmethod
@@ -776,6 +776,55 @@ class AntigravityClient:
                     break
 
                 if resp.status_code in (429, 503, 529):
+                    is_quota_exhausted = False
+                    extracted_retry_delay = None
+                    try:
+                        err_json = resp.json()
+                        error_obj = err_json.get("error", {})
+                        err_status = str(error_obj.get("status", "")).upper()
+                        err_msg = str(error_obj.get("message", "")).lower()
+                        
+                        if err_status == "RESOURCE_EXHAUSTED" and ("individual quota reached" in err_msg or "quota limit" in err_msg or "upgrade your subscription" in err_msg):
+                            is_quota_exhausted = True
+
+                        for detail in error_obj.get("details", []):
+                            reason = str(detail.get("reason", "")).upper()
+                            if reason in ("QUOTA_EXHAUSTED", "RESOURCE_EXHAUSTED"):
+                                is_quota_exhausted = True
+                            
+                            retry_info = detail.get("retryDelay")
+                            if retry_info:
+                                try:
+                                    extracted_retry_delay = float(str(retry_info).replace("s", ""))
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                    # Si es cuota agotada en un modelo Pro y aún no hemos probado fallback a Flash, conmutar a gemini-3-flash
+                    is_pro_model = any(p in model.lower() for p in ["pro", "agent"])
+                    if is_quota_exhausted and is_pro_model and not kwargs.get("_is_fallback_attempt"):
+                        logger.warning(
+                            f"⚠️ Cuota individual agotada para el modelo Pro '{model}' en Antigravity. "
+                            f"Realizando conmutación transparente al modelo 'gemini-3-flash'..."
+                        )
+                        fallback_kwargs = kwargs.copy()
+                        fallback_kwargs["_is_fallback_attempt"] = True
+                        return cls.completion(
+                            model="gemini-3-flash",
+                            messages=messages,
+                            tools=tools,
+                            stream=stream,
+                            temperature=temperature,
+                            **fallback_kwargs
+                        )
+
+                    # Si es cuota agotada del mismo modelo y estamos en el intento 0, no desperdiciar retries inútiles
+                    if is_quota_exhausted and attempt == 0 and ep_idx == 0:
+                        logger.warning(f"⚠️ Cuota agotada detectada en Antigravity para {model}. Omitiendo reintentos idénticos.")
+                        endpoint_failed = True
+                        break
+
                     # Si no es el último endpoint y es el primer intento en este endpoint, rotar al siguiente inmediatamente
                     if ep_idx < len(endpoints_to_try) - 1 and attempt == 0:
                         logger.warning(
@@ -788,7 +837,9 @@ class AntigravityClient:
                     if attempt < max_retries:
                         retry_after = resp.headers.get("retry-after") or resp.headers.get("retry-after-ms")
                         wait_s = retry_delay
-                        if retry_after:
+                        if extracted_retry_delay and extracted_retry_delay <= 20.0:
+                            wait_s = extracted_retry_delay
+                        elif retry_after:
                             try:
                                 wait_s = float(retry_after) if "ms" not in str(retry_after) else float(retry_after.replace("ms", "")) / 1000.0
                             except Exception:

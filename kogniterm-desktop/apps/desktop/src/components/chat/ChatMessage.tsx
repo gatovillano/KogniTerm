@@ -3,14 +3,65 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
-import { ChevronRight, Terminal, Copy, Check } from 'lucide-react';
+import { ChevronRight, Terminal, Copy, Check, Layers, X, Clock } from 'lucide-react';
 import { Message } from '../../types/chat';
+import { QueuedMessage } from '@kogniterm/types';
 import { AppliedDiffCard } from './AppliedDiffCard';
 import { parseAppliedDiff } from '../../hooks/useChat';
 
 interface ChatMessageProps {
     message: Message;
 }
+
+interface QueuedChatMessageProps {
+    item: QueuedMessage;
+    index: number;
+    onRemove?: (id: string) => void;
+}
+
+export const QueuedChatMessage: React.FC<QueuedChatMessageProps> = ({ item, index, onRemove }) => {
+    return (
+        <div className="flex flex-col items-end my-3 animate-fade-in">
+            <div className="max-w-[85%] bg-indigo-50/70 dark:bg-indigo-950/40 border border-dashed border-indigo-300 dark:border-indigo-700/60 rounded-2xl p-3.5 text-slate-800 dark:text-zinc-100 shadow-2xs group relative transition-all">
+                <div className="flex items-center justify-between gap-2 mb-1.5 pb-1 border-b border-indigo-200/50 dark:border-indigo-800/40 text-xs">
+                    <div className="flex items-center gap-1.5 font-medium text-indigo-600 dark:text-indigo-400">
+                        <Layers size={13} className="animate-pulse text-indigo-500" />
+                        <span className="text-[11px] font-mono font-medium">En cola #{index + 1}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-indigo-400 dark:text-indigo-500 font-mono flex items-center gap-1">
+                            <Clock size={10} /> Esperando ejecución
+                        </span>
+                        {onRemove && (
+                            <button
+                                type="button"
+                                onClick={() => onRemove(item.id)}
+                                className="p-0.5 text-zinc-400 hover:text-red-500 dark:hover:text-red-400 rounded transition-colors cursor-pointer ml-1"
+                                title="Eliminar de la cola"
+                            >
+                                <X size={13} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {item.images && item.images.length > 0 && (
+                    <div className="flex flex-wrap gap-2 my-2 justify-start">
+                        {item.images.map((imgUrl, i) => (
+                            <div key={i} className="relative max-w-xs rounded-lg overflow-hidden border border-indigo-200 dark:border-indigo-800 bg-zinc-900">
+                                <img src={imgUrl} alt={`Imagen en cola ${i + 1}`} className="max-h-40 object-contain" />
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div className="text-[13.5px] leading-relaxed font-normal whitespace-pre-wrap">
+                    {item.text}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const HtmlPreviewCard: React.FC<{ htmlString: string; language?: string }> = ({ htmlString }) => {
     const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
@@ -348,7 +399,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                         let rawText = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
                         // Limpiar etiquetas de formato Rich (ej. [dim cyan]...[/]) y secuencias ANSI
                         rawText = rawText
-                            .replace(/\[\/?[a-z0-9_ -]+\]/gi, '')
+                            .replace(/\[\/?(dim|italic|bold|reverse|underline|cyan|red|green|yellow|blue|magenta|white|black)(?:\s+[a-z0-9_#-]+)*\]|\[\/\]/gi, '')
                             .replace(/\x1b\[[0-9;]*m/g, '');
 
                         const parsedDiff = parseAppliedDiff(rawText);

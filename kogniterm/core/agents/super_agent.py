@@ -524,7 +524,7 @@ class SuperAgentRunner:
         stream_kwargs: Dict[str, Any] = {
             "messages": llm_messages,
             "system_prompt": system_prompt,
-            "max_steps": 30,
+            "max_steps": int(os.environ.get("KOGNITERM_MAX_STEPS", "60")),
         }
         try:
             import inspect
