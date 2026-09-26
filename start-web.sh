@@ -42,14 +42,9 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="${SCRIPT_DIR}/kogniterm"
 
-# Priorizar la aplicación moderna en kogniterm-desktop/apps/desktop
-if [ -d "${SCRIPT_DIR}/kogniterm-desktop/apps/desktop" ]; then
-  FRONTEND_SRC_DIR="${SCRIPT_DIR}/kogniterm-desktop/apps/desktop"
-  FRONTEND_DIST="${FRONTEND_SRC_DIR}/dist"
-else
-  FRONTEND_SRC_DIR="${SCRIPT_DIR}/kogniterm-web"
-  FRONTEND_DIST="${FRONTEND_SRC_DIR}/dist"
-fi
+# Directorio del frontend web
+FRONTEND_SRC_DIR="${SCRIPT_DIR}/kogniterm-web"
+FRONTEND_DIST="${FRONTEND_SRC_DIR}/dist"
 
 LOGS_DIR="${HOME}/.kogniterm/logs"
 SERVER_LOG="${LOGS_DIR}/web-server.log"
