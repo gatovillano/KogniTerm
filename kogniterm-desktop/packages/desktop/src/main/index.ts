@@ -65,6 +65,10 @@ const TEST_ONBOARDING = process.env.KOGNITERM_TEST_ONBOARDING === "1"
 const SIDECAR_VERSION = process.env.KOGNITERM_SIDECAR_V2 === "1" ? "v2" : "v1"
 const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
+if (process.platform === "linux") {
+  app.disableHardwareAcceleration()
+}
+
 let logger: ReturnType<typeof initLogging>
 let server: SidecarListener | null = null
 
@@ -190,9 +194,13 @@ const main = Effect.gen(function* () {
     onboardingTest: Boolean(onboardingTestRoot),
   })
 
+  if (process.platform === "linux") {
+    app.disableHardwareAcceleration()
+  }
+
   ensureLoopbackNoProxy()
   useEnvProxy()
-  app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
+  app.commandLine.appendSwitch("proxy-bypass-list", "127.0.0.1;localhost;<-loopback>")
   const features = app.commandLine.getSwitchValue("enable-features")
   app.commandLine.appendSwitch("enable-features", features ? `${jsCallStackFeature},${features}` : jsCallStackFeature)
   if (!app.isPackaged) app.commandLine.appendSwitch("remote-debugging-port", "9222")
