@@ -20,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
 export PATH="$SCRIPT_DIR/node_modules/.bin:$SCRIPT_DIR/packages/desktop/node_modules/.bin:$PATH"
+export ELECTRON_DISABLE_SANDBOX=1
 
 # Verificar si estamos en el directorio correcto
 if [ ! -d "packages/desktop" ]; then
