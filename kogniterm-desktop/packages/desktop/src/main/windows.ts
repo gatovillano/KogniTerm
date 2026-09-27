@@ -227,9 +227,28 @@ export function createMainWindow(id: string = randomUUID()) {
   loadWindow(win, "index.html")
   wireZoom(win)
 
+  const showWindow = () => {
+    if (!win.isDestroyed() && !win.isVisible()) {
+      writeLog("window", "showing main window", { id })
+      win.show()
+      win.focus()
+    }
+  }
+
   win.once("ready-to-show", () => {
-    win.show()
+    writeLog("window", "received ready-to-show event", { id })
+    showWindow()
   })
+
+  win.webContents.once("did-finish-load", () => {
+    writeLog("window", "received did-finish-load event", { id })
+    showWindow()
+  })
+
+  setTimeout(() => {
+    writeLog("window", "fallback timer showing window", { id })
+    showWindow()
+  }, 1000)
 
   return win
 }
