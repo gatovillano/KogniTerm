@@ -21,11 +21,15 @@ export default [
     config() {
       return {
         resolve: {
+          dedupe: ["solid-js", "solid-js/web", "@kogniterm/ui", "@kogniterm/app"],
           alias: [
             { find: /^@opencode-ai\/ui\/(.*)$/, replacement: "@kogniterm/ui/$1" },
             { find: "@opencode-ai/ui", replacement: "@kogniterm/ui" },
             { find: /^@opencode-ai\/app\/(.*)$/, replacement: "@kogniterm/app/$1" },
             { find: "@opencode-ai/app", replacement: "@kogniterm/app" },
+            { find: /^@kogniterm\/app\/src\/(.*)$/, replacement: fileURLToPath(new URL("./src/$1", import.meta.url)) },
+            { find: /^@kogniterm\/app$/, replacement: fileURLToPath(new URL("./src/index.ts", import.meta.url)) },
+            { find: /^@kogniterm\/app\/(.*)$/, replacement: fileURLToPath(new URL("./src/$1", import.meta.url)) },
             { find: /^lru_map$/, replacement: fileURLToPath(new URL("./src/utils/lru_map-shim.ts", import.meta.url)) },
             { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
           ],
