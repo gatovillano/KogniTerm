@@ -63,12 +63,12 @@ fi
 echo "${BLUE}🎨 Lanzando KogniTerm Desktop en Producción...${NC}"
 
 if [ "$SHOW_LOGS" = true ]; then
-    "$ELECTRON_BIN" packages/desktop/out/main/index.js
+    "$ELECTRON_BIN" "$SCRIPT_DIR/packages/desktop/out/main/index.js"
 else
     LOGS_DIR="$HOME/.kogniterm/logs"
     mkdir -p "$LOGS_DIR"
     echo "📝 Guardando logs del escritorio en $LOGS_DIR/desktop.log"
-    nohup "$ELECTRON_BIN" packages/desktop/out/main/index.js > "$LOGS_DIR/desktop.log" 2>&1 &
+    setsid "$ELECTRON_BIN" "$SCRIPT_DIR/packages/desktop/out/main/index.js" > "$LOGS_DIR/desktop.log" 2>&1 &
 fi
 
 echo ""
