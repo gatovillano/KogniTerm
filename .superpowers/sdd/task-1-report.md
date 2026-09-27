@@ -1,78 +1,36 @@
-# Task 1 Report: Reducción de Acoplamiento (Aislamiento de AgentInteractionManager)
+# Task 1 Report: Migrate React UI to `kogniterm-web` and Decouple `start-web.sh`
 
-## What Was Implemented
-We decoupled the core layer of KogniTerm (e.g. `session_pool.py`) from the terminal UI layer (e.g., `agent_interaction_manager.py`).
-1. Created `kogniterm/core/agent_interaction.py` defining:
-   - `BaseAgentInteractionManager`: Abstract base class specifying the `invoke_agent` interface.
-   - `AgentInteractionRegistry`: Factory class that registers and instantiates the implementation classes.
-2. Updated `kogniterm/terminal/agent_interaction_manager.py` to:
-   - Inherit `AgentInteractionManager` from `BaseAgentInteractionManager`.
-   - Register itself to the `AgentInteractionRegistry` at module load time.
-3. Updated `kogniterm/server/session_pool.py` to:
-   - Import `AgentInteractionRegistry` from `kogniterm.core.agent_interaction` instead of importing the concrete `AgentInteractionManager` from `kogniterm.terminal.agent_interaction_manager`.
-   - Instantiate the manager via `AgentInteractionRegistry.create(...)`.
+## Summary
+- **Status**: DONE
+- **Commit**: `eac8b11d3890e69baa6e60e9e6d01aa1bb993f19`
+- **Branch**: `main`
 
-## What Was Tested and Test Results
-- Created a unit test suite `tests/unit/test_decoupling.py` verifying:
-  - Default behavior: raising a `RuntimeError` if an attempt is made to create the interaction manager before registration.
-  - Custom registration: registering a dummy interaction manager inherits from `BaseAgentInteractionManager` and instantiating it cleanly with dynamic arguments.
-- Ran tests inside the project virtualenv and confirmed they pass perfectly.
+## Implemented Actions
+1. **Source Migration**:
+   - Copied all frontend React code from `kogniterm-desktop/apps/desktop/src/*` to `kogniterm-web/src/`.
+   - Copied UI components from `kogniterm-desktop/packages/ui/src/*` to `kogniterm-web/src/ui/`.
+   - Copied shared TypeScript definitions from `kogniterm-desktop/packages/types/src/*` to `kogniterm-web/src/types/`.
+   - Copied public assets (`tauri.svg`, `vite.svg`) to `kogniterm-web/public/`.
 
-## TDD Evidence
+2. **Import Decoupling & Resolution**:
+   - Replaced all imports targeting `@kogniterm/types` across `kogniterm-web/src/` (including `hooks/useChat.ts`, `components/chat/ChatInput.tsx`, `components/chat/ChatMessage.tsx`, `components/chat/TerminalPanel.tsx`, and all files in `src/ui/`) with local relative paths (`../types`, `../../types`).
+   - Cleaned up pre-compiled `.d.ts`, `.d.ts.map`, and `.js` artifacts so TypeScript cleanly compiles purely from source.
+   - Configured path aliases in `vite.config.ts` and `tsconfig.json` for `@kogniterm/types` and `@kogniterm/ui` as a safety net.
 
-### RED Step
-- **Command:** `pytest tests/unit/test_decoupling.py -v`
-- **Output:**
-```
-ImportError while importing test module '/home/gato/Proyectos/Gemini-Interpreter/tests/unit/test_decoupling.py'.
-Traceback:
-tests/unit/test_decoupling.py:2: in <module>
-    from kogniterm.core.agent_interaction import BaseAgentInteractionManager, AgentInteractionRegistry
-E   ModuleNotFoundError: No module named 'kogniterm.core.agent_interaction'
-```
-- **Why Failure Expected:** The file `kogniterm/core/agent_interaction.py` did not exist yet, causing an import failure as expected by the TDD workflow.
+3. **Standalone Web Configuration**:
+   - Created `kogniterm-web/package.json` with all required dependencies (`react`, `react-dom`, `@tailwindcss/postcss`, `tailwindcss`, `lucide-react`, `@xterm/*`, `react-markdown`, etc.).
+   - Created `kogniterm-web/vite.config.ts` configured for standalone web dev & build (port 3000).
+   - Created `kogniterm-web/tsconfig.json`, `tsconfig.node.json`, `postcss.config.js`, and `index.html`.
 
-### GREEN Step
-- **Command:** `venv/bin/pytest tests/unit/test_decoupling.py -v`
-- **Output:**
-```
-tests/unit/test_decoupling.py::test_registry_raises_unregistered PASSED  [ 50%]
-tests/unit/test_decoupling.py::test_registry_instantiates_registered PASSED [100%]
+4. **Decouple `start-web.sh`**:
+   - Removed the conditional check for `kogniterm-desktop/apps/desktop`.
+   - Always sets `FRONTEND_SRC_DIR="${SCRIPT_DIR}/kogniterm-web"` and `FRONTEND_DIST="${FRONTEND_SRC_DIR}/dist"`.
 
-============================== 2 passed in 0.02s ===============================
-```
+## Verification & Test Results
+- `npm install` in `kogniterm-web`: Passed (audited 205 packages, 0 vulnerabilities).
+- `npm run build` (`tsc && vite build`) in `kogniterm-web`: Passed cleanly with 0 TypeScript errors. Output generated in `kogniterm-web/dist`.
+- Re-verified clean build: `rm -rf kogniterm-web/dist && npm run build` successfully reproduced the complete distribution bundle in 9.7 seconds.
+- `start-web.sh --help`: Verified script syntax and execution.
 
-## Files Changed
-- **Created**:
-  - `kogniterm/core/agent_interaction.py`
-  - `tests/unit/test_decoupling.py`
-- **Modified**:
-  - `kogniterm/terminal/agent_interaction_manager.py`
-  - `kogniterm/server/session_pool.py`
-
-## Self-Review Findings
-- The implementation completely satisfies the requirements in the brief.
-- Clean separation: core components no longer import anything from `kogniterm/terminal/agent_interaction_manager.py`.
-- Checked for memory leaks or registry cleanup, added registry factory cleanup in unit tests.
-
-## Issues/Concerns
-- **Other Pre-existing Unit Tests Failing**: We observed pre-existing SyntaxErrors and dependency errors in other parts of the codebase (e.g., `tui_app.py` has a missing `except` block, and `test_delegation.py` has some assertions that do not pass on the main branch). These are unrelated to our task of decoupling the agent interaction manager.
-
-## Fix Subagent Findings and Resolutions
-
-### 1. Standalone Server Session Creation Failure
-- **Finding:** If the server runs standalone without importing `kogniterm.terminal.agent_interaction_manager` beforehand, the default terminal implementation won't register its factory, causing `AgentInteractionRegistry.create()` to fail.
-- **Resolution:** Updated `AgentInteractionRegistry.create` in [agent_interaction.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/core/agent_interaction.py) to lazily import `kogniterm.terminal.agent_interaction_manager` if `cls._factory` is `None`. This guarantees registration occurs automatically in a standalone server session.
-
-### 2. Test Isolation in test_decoupling.py
-- **Finding:** Tests in [test_decoupling.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/unit/test_decoupling.py) were not completely robust against import/collection order because `AgentInteractionRegistry._factory` was not reset to `None` at the start of the test cases.
-- **Resolution:** Reset `AgentInteractionRegistry._factory = None` at the start of both test cases in [test_decoupling.py](file:///home/gato/Proyectos/Gemini-Interpreter/tests/unit/test_decoupling.py).
-
-### Verification
-- **Command:** `pytest tests/unit/test_decoupling.py`
-- **Output:**
-  ```
-  tests/unit/test_decoupling.py ..                                         [100%]
-  ============================== 2 passed in 0.03s ===============================
-  ```
-- **Commit:** `696e0c952e35b98a78e28da96c79b4d0d9c74ede` - *fix(architecture): lazy-load agent_interaction_manager and isolate unit tests*
+## Concerns / Notes
+- None. The `kogniterm-web` client is now completely decoupled, self-contained, and builds independently from `kogniterm-desktop`.
