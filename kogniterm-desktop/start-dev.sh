@@ -70,7 +70,7 @@ else
     LOGS_DIR="$HOME/.kogniterm/logs"
     mkdir -p "$LOGS_DIR"
     echo "📝 Guardando logs del escritorio en $LOGS_DIR/desktop.log"
-    npm --workspace=@kogniterm/desktop run dev > "$LOGS_DIR/desktop.log" 2>&1 &
+    nohup npm --workspace=@kogniterm/desktop run dev > "$LOGS_DIR/desktop.log" 2>&1 &
 fi
 
 echo ""
