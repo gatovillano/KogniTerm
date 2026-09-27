@@ -225,6 +225,8 @@ const main = Effect.gen(function* () {
     if (win) {
       win.show()
       win.focus()
+    } else {
+      restoreMainWindows()
     }
   })
 
