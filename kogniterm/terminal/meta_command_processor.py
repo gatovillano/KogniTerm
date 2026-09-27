@@ -851,7 +851,6 @@ Example: /autosave restore autosave_20250515_141530
         if user_input.lower().strip() == '/models':
             from prompt_toolkit.shortcuts import radiolist_dialog
             import httpx
-            import json
 
             # Función auxiliar para obtener modelos de Google
             async def _fetch_google_models():
@@ -1693,8 +1692,6 @@ Example: /autosave restore autosave_20250515_141530
                 if sm and hasattr(sm, 'get_skill_instructions'):
                     instructions = sm.get_skill_instructions(skill_cmd)
                     if instructions:
-                        from rich.panel import Panel
-                        from rich.markdown import Markdown
                         self.terminal_ui.console.print(
                             Panel(
                                 Markdown(instructions),
@@ -1879,10 +1876,6 @@ Example: /autosave restore autosave_20250515_141530
 
     async def _invoke_skill_command(self, skill_name: str, tool, args_raw: str):
         """Invoca una skill directamente desde el input del usuario."""
-        import json
-        from rich.panel import Panel
-        from rich.markdown import Markdown
-
         # Parsear argumentos: JSON o key=value
         tool_args = {}
         if args_raw:
@@ -2215,9 +2208,7 @@ Example: /autosave restore autosave_20250515_141530
 
     def _show_themes_table(self):
         """Muestra una tabla con los temas disponibles y sus colores."""
-        from rich.table import Table
         from rich.text import Text
-        from rich.padding import Padding
         from kogniterm.terminal.themes import _THEMES
         
         table = Table(
@@ -2276,9 +2267,6 @@ Example: /autosave restore autosave_20250515_141530
         try:
             insights = KogniInsightsEngine()
             report = insights.generate_report(days=days)
-            
-            from rich.panel import Panel
-            from rich.table import Table
             
             # Panel de resumen
             summary_data = []

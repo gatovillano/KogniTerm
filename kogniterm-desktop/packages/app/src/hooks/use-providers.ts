@@ -6,14 +6,15 @@ import { createEffect, createMemo, type Accessor } from "solid-js"
 import { selectProviderCatalog } from "./provider-catalog"
 
 export const popularProviders = [
-  "opencode",
-  "opencode-go",
-  "anthropic",
-  "github-copilot",
-  "openai",
+  "antigravity",
+  "inception",
   "google",
   "openrouter",
-  "vercel",
+  "anthropic",
+  "openai",
+  "ollama",
+  "ollama_cloud",
+  "kilocode",
 ]
 const popularProviderSet = new Set(popularProviders)
 

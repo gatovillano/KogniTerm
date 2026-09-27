@@ -75,6 +75,33 @@ async def test_opencode_provider_caching():
         assert resp.status_code == 200
         assert (t1 - t0) < 0.1, f"Cached response took too long: {t1 - t0:.3f}s"
 
+@pytest.mark.asyncio
+async def test_opencode_integrations():
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Test listing integrations
+        resp = await client.get("/api/integration")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        antigravity_int = next(i for i in data if i["id"] == "antigravity")
+        assert antigravity_int["methods"] == []
+        assert len(antigravity_int["connections"]) > 0
+        assert "Nativo" in antigravity_int["connections"][0]["label"]
+
+        # Test single integration
+        resp_ag = await client.get("/api/integration/antigravity")
+        assert resp_ag.status_code == 200
+        ag_data = resp_ag.json()["data"]
+        assert ag_data["methods"] == []
+
+        # Test connecting a key
+        resp_conn = await client.post("/api/integration/testprov/connect/key", json={"key": "test_secret"})
+        assert resp_conn.status_code == 204
+
+        # Test deleting a key
+        resp_del = await client.delete("/api/integration/testprov")
+        assert resp_del.status_code == 204
+
 if __name__ == "__main__":
     import asyncio
     async def run_all():
@@ -86,6 +113,8 @@ if __name__ == "__main__":
         await test_opencode_default_model()
         print("Running test_opencode_provider_caching...")
         await test_opencode_provider_caching()
+        print("Running test_opencode_integrations...")
+        await test_opencode_integrations()
         print("ALL TESTS PASSED!")
 
     asyncio.run(run_all())

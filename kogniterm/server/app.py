@@ -46,6 +46,7 @@ from fastapi import (
     File,
     UploadFile,
     Form,
+    Response,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -1574,25 +1575,66 @@ def create_app() -> FastAPI:
             clean_id = raw_model
         return clean_id, clean_id
 
+    def _get_connected_providers():
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        connected = set()
+        # Antigravity is native/built-in: ALWAYS connected and never asks for API key!
+        connected.add("antigravity")
+        # Ollama local is considered connected
+        connected.add("ollama")
+        if cm.get_api_key("google") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
+            connected.add("google")
+        if cm.get_api_key("openrouter") or os.environ.get("OPENROUTER_API_KEY"):
+            connected.add("openrouter")
+        if cm.get_api_key("openai") or os.environ.get("OPENAI_API_KEY") or cm.get_api_key("custom_openai"):
+            connected.add("openai")
+        if cm.get_api_key("anthropic") or os.environ.get("ANTHROPIC_API_KEY"):
+            connected.add("anthropic")
+        if cm.get_api_key("kilocode") or os.environ.get("KILOCODE_API_KEY"):
+            connected.add("kilocode")
+        if cm.get_api_key("inception") or os.environ.get("INCEPTION_API_KEY") or os.environ.get("INCEPTIONLABS_API_KEY"):
+            connected.add("inception")
+        if cm.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY"):
+            connected.add("ollama_cloud")
+        return connected
+
     @application.get("/api/provider", tags=["Modelos (OpenCode Compat)"])
     @application.get("/provider", tags=["Modelos (OpenCode Compat)"])
     async def opencode_list_providers(request: Request):
         models_data = await get_cached_available_models()
         raw_providers = models_data.get("providers", [])
+        connected_set = _get_connected_providers()
         formatted_providers = []
         for p in raw_providers:
             p_id = p["id"]
             p_name = p.get("name", p_id)
+            is_connected = p_id in connected_set
             models_dict = {}
             for m in p.get("models", []):
                 clean_id, clean_name = _normalize_opencode_model_id(m, p_id)
                 models_dict[clean_id] = {
                     "id": clean_id,
                     "name": clean_name,
+                    "providerID": p_id,
+                    "modelID": clean_id,
+                    "status": "active",
+                    "cost": {
+                        "input": 0.001,
+                        "output": 0.002,
+                        "cache_read": 0.0,
+                        "cache_write": 0.0,
+                    },
+                    "limit": {"context": 128000, "output": 8192},
+                    "capabilities": {"tools": True, "input": ["text", "image"], "output": ["text"]},
+                    "release_date": "2025-01-01",
+                    "options": {},
+                    "headers": {},
                 }
             formatted_providers.append({
                 "id": p_id,
                 "name": p_name,
+                "connected": is_connected,
                 "models": models_dict,
             })
         if request.url.path.startswith("/api/"):
@@ -1613,10 +1655,119 @@ def create_app() -> FastAPI:
                     "id": clean_id,
                     "name": clean_name,
                     "providerID": p_id,
+                    "modelID": clean_id,
+                    "family": p_id,
+                    "status": "active",
+                    "enabled": True,
+                    "cost": [
+                        {
+                            "input": 0.001,
+                            "output": 0.002,
+                            "cache": {"read": 0.0, "write": 0.0},
+                        }
+                    ],
+                    "capabilities": {
+                        "tools": True,
+                        "input": ["text", "image"],
+                        "output": ["text"],
+                    },
+                    "limit": {
+                        "context": 128000,
+                        "input": 128000,
+                        "output": 8192,
+                    },
+                    "variants": [],
+                    "time": {
+                        "created": 1704067200000,
+                        "updated": 1704067200000,
+                        "released": 1704067200000,
+                    },
+                    "settings": {},
+                    "headers": {},
                 })
         if request.url.path.startswith("/api/"):
             return {"data": all_models}
         return all_models
+
+    @application.get("/api/integration", tags=["Integraciones (OpenCode Compat)"])
+    @application.get("/integration", tags=["Integraciones (OpenCode Compat)"])
+    async def opencode_list_integrations(request: Request):
+        models_data = await get_cached_available_models()
+        raw_providers = models_data.get("providers", [])
+        connected_set = _get_connected_providers()
+        integrations = []
+        for p in raw_providers:
+            p_id = p["id"]
+            p_name = p.get("name", p_id)
+            is_connected = p_id in connected_set
+            
+            methods = []
+            if p_id != "antigravity":
+                methods.append({"type": "key", "label": "API Key"})
+            
+            connections = []
+            if is_connected:
+                label = "Nativo (Sin clave)" if p_id == "antigravity" else "Configurado en KogniTerm"
+                connections.append({"type": "credential", "id": p_id, "label": label})
+                
+            integrations.append({
+                "id": p_id,
+                "name": p_name,
+                "methods": methods,
+                "connections": connections,
+            })
+        if request.url.path.startswith("/api/"):
+            return {"data": integrations}
+        return integrations
+
+    @application.get("/api/integration/{integration_id}", tags=["Integraciones (OpenCode Compat)"])
+    @application.get("/integration/{integration_id}", tags=["Integraciones (OpenCode Compat)"])
+    async def opencode_get_integration(integration_id: str, request: Request):
+        connected_set = _get_connected_providers()
+        is_connected = integration_id in connected_set
+        methods = []
+        if integration_id != "antigravity":
+            methods.append({"type": "key", "label": "API Key"})
+        connections = []
+        if is_connected:
+            label = "Nativo (Sin clave)" if integration_id == "antigravity" else "Configurado en KogniTerm"
+            connections.append({"type": "credential", "id": integration_id, "label": label})
+        data = {
+            "id": integration_id,
+            "name": integration_id.capitalize(),
+            "methods": methods,
+            "connections": connections,
+        }
+        if request.url.path.startswith("/api/"):
+            return {"data": data}
+        return data
+
+    @application.post("/api/integration/{integration_id}/connect/key", tags=["Integraciones (OpenCode Compat)"])
+    @application.post("/integration/{integration_id}/connect/key", tags=["Integraciones (OpenCode Compat)"])
+    async def opencode_connect_integration_key(integration_id: str, payload: Dict[str, Any]):
+        nonlocal _cached_models_data
+        key = payload.get("key")
+        if not key:
+            raise HTTPException(status_code=400, detail="Key is required")
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        cm.set_api_key(integration_id, key, scope="global")
+        _cached_models_data = None
+        return Response(status_code=204)
+
+    @application.delete("/api/integration/{integration_id}", tags=["Integraciones (OpenCode Compat)"])
+    @application.delete("/integration/{integration_id}", tags=["Integraciones (OpenCode Compat)"])
+    async def opencode_disconnect_integration(integration_id: str):
+        nonlocal _cached_models_data
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        key_name = f"api_key_{integration_id.lower()}"
+        g_cfg = cm.load_global_config()
+        if key_name in g_cfg:
+            del g_cfg[key_name]
+            cm._save_json(cm.GLOBAL_CONFIG_FILE, g_cfg)
+        _cached_models_data = None
+        return Response(status_code=204)
 
     @application.get("/api/model/default", tags=["Modelos (OpenCode Compat)"])
     @application.get("/model/default", tags=["Modelos (OpenCode Compat)"])

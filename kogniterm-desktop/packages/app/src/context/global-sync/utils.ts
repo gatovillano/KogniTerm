@@ -87,58 +87,67 @@ export function normalizeProviderList(
   for (const model of models ?? []) {
     const provider = all.get(model.providerID)
     if (!provider || model.status === "deprecated") continue
-    const cost = model.cost.find((item) => item.tier === undefined) ?? model.cost[0]
+    const cost = Array.isArray(model.cost)
+      ? (model.cost.find((item: any) => item.tier === undefined) ?? model.cost[0])
+      : model.cost
+    const caps = model.capabilities ?? { tools: true, input: ["text", "image"], output: ["text"] }
+    const capsInput = Array.isArray(caps.input) ? caps.input : ["text", "image"]
+    const capsOutput = Array.isArray(caps.output) ? caps.output : ["text"]
+    const timeReleased = model.time?.released ?? Date.now()
+    const variants = Array.isArray(model.variants) ? model.variants : []
     provider.models[model.id] = {
       id: model.id,
       providerID: model.providerID,
       api: {
-        id: model.modelID,
+        id: model.modelID ?? model.id,
         url: "",
         npm: model.package ?? provider.id,
       },
-      name: model.name,
+      name: model.name ?? model.id,
       family: model.family,
       capabilities: {
         temperature: false,
         reasoning: false,
-        attachment: model.capabilities.input.some((item) => item !== "text"),
-        toolcall: model.capabilities.tools,
+        attachment: capsInput.some((item: any) => item !== "text"),
+        toolcall: !!caps.tools,
         input: {
-          text: model.capabilities.input.includes("text"),
-          audio: model.capabilities.input.includes("audio"),
-          image: model.capabilities.input.includes("image"),
-          video: model.capabilities.input.includes("video"),
-          pdf: model.capabilities.input.includes("pdf"),
+          text: capsInput.includes("text"),
+          audio: capsInput.includes("audio"),
+          image: capsInput.includes("image"),
+          video: capsInput.includes("video"),
+          pdf: capsInput.includes("pdf"),
         },
         output: {
-          text: model.capabilities.output.includes("text"),
-          audio: model.capabilities.output.includes("audio"),
-          image: model.capabilities.output.includes("image"),
-          video: model.capabilities.output.includes("video"),
-          pdf: model.capabilities.output.includes("pdf"),
+          text: capsOutput.includes("text"),
+          audio: capsOutput.includes("audio"),
+          image: capsOutput.includes("image"),
+          video: capsOutput.includes("video"),
+          pdf: capsOutput.includes("pdf"),
         },
         interleaved: false,
       },
       cost: {
-        input: cost?.input ?? 0,
-        output: cost?.output ?? 0,
+        input: cost?.input ?? 0.001,
+        output: cost?.output ?? 0.002,
         cache: {
-          read: cost?.cache.read ?? 0,
-          write: cost?.cache.write ?? 0,
+          read: cost?.cache?.read ?? 0,
+          write: cost?.cache?.write ?? 0,
         },
       },
-      limit: model.limit,
-      status: model.status,
+      limit: model.limit ?? { context: 128000, output: 8192 },
+      status: model.status ?? "active",
       options: model.settings ?? {},
       headers: model.headers ?? {},
-      release_date: new Date(model.time.released).toISOString().slice(0, 10),
-      variants: Object.fromEntries(model.variants.map((variant) => [variant.id, variant.settings ?? {}])),
+      release_date: new Date(timeReleased).toISOString().slice(0, 10),
+      variants: Object.fromEntries(variants.map((variant: any) => [variant.id, variant.settings ?? {}])),
     }
   }
 
   return {
     all,
-    connected: providers.map((provider) => provider.id),
+    connected: providers
+      .filter((provider: any) => provider.connected !== false)
+      .map((provider) => provider.id),
     defaultModel: defaultModel ? { providerID: defaultModel.providerID, modelID: defaultModel.id } : null,
     default: Object.fromEntries(
       providers.flatMap((provider) => {
