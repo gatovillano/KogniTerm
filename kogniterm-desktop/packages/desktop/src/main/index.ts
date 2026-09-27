@@ -67,6 +67,9 @@ const jsCallStackFeature = "DocumentPolicyIncludeJSCallStacksInCrashReports"
 
 if (process.platform === "linux") {
   app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch("disable-gpu")
+  app.commandLine.appendSwitch("disable-gpu-compositing")
+  app.commandLine.appendSwitch("disable-gpu-rasterization")
 }
 
 let logger: ReturnType<typeof initLogging>
