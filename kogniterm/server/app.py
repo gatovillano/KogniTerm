@@ -25,6 +25,7 @@ import logging
 import os
 import secrets
 import shlex
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -429,9 +430,10 @@ def create_app() -> FastAPI:
 
     # ── Gestión de Configuración (LLM) ──────────────────────────────────────
 
-    @application.get("/api/models/available", tags=["Configuración"])
-    @application.get("/models/available", tags=["Configuración"])
-    async def get_available_models():
+    _cached_models_data = None
+    _cached_models_time = 0.0
+
+    async def fetch_all_available_models():
         """Devuelve la lista de modelos y proveedores disponibles, intentando obtenerlos dinámicamente si hay llaves/servicios configurados."""
         import httpx
         from kogniterm.terminal.config_manager import ConfigManager
@@ -746,7 +748,20 @@ def create_app() -> FastAPI:
             ]
         }
 
-    @application.get("/api/config/llm", tags=["Configuración"])
+    async def get_cached_available_models(ttl_seconds: float = 60.0):
+        nonlocal _cached_models_data, _cached_models_time
+        now = time.time()
+        if _cached_models_data and (now - _cached_models_time < ttl_seconds):
+            return _cached_models_data
+        data = await fetch_all_available_models()
+        _cached_models_data = data
+        _cached_models_time = now
+        return data
+
+    @application.get("/api/models/available", tags=["Configuración"])
+    @application.get("/models/available", tags=["Configuración"])
+    async def get_available_models():
+        return await get_cached_available_models()
     @application.get("/config/llm", tags=["Configuración"])
     async def get_llm_config():
         """Obtiene la configuración actual del LLM (enmascarando keys)."""
@@ -1549,38 +1564,74 @@ def create_app() -> FastAPI:
             return {"data": agents}
         return agents
 
+    def _normalize_opencode_model_id(raw_model: str, provider_id: str) -> tuple[str, str]:
+        prefix = f"{provider_id}/"
+        if raw_model.startswith(prefix):
+            clean_id = raw_model[len(prefix):]
+        elif provider_id == "google" and raw_model.startswith("gemini/"):
+            clean_id = raw_model[7:]
+        else:
+            clean_id = raw_model
+        return clean_id, clean_id
+
     @application.get("/api/provider", tags=["Modelos (OpenCode Compat)"])
     @application.get("/provider", tags=["Modelos (OpenCode Compat)"])
     async def opencode_list_providers(request: Request):
-        providers = [
-            {
-                "id": "google",
-                "name": "Google",
-                "models": [
-                    {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
-                    {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
-                ],
-            }
-        ]
+        models_data = await get_cached_available_models()
+        raw_providers = models_data.get("providers", [])
+        formatted_providers = []
+        for p in raw_providers:
+            p_id = p["id"]
+            p_name = p.get("name", p_id)
+            models_dict = {}
+            for m in p.get("models", []):
+                clean_id, clean_name = _normalize_opencode_model_id(m, p_id)
+                models_dict[clean_id] = {
+                    "id": clean_id,
+                    "name": clean_name,
+                }
+            formatted_providers.append({
+                "id": p_id,
+                "name": p_name,
+                "models": models_dict,
+            })
         if request.url.path.startswith("/api/"):
-            return {"data": providers}
-        return providers
+            return {"data": formatted_providers}
+        return formatted_providers
 
     @application.get("/api/model", tags=["Modelos (OpenCode Compat)"])
     @application.get("/model", tags=["Modelos (OpenCode Compat)"])
     async def opencode_list_models(request: Request):
-        models = [
-            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "providerID": "google"},
-            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "providerID": "google"},
-        ]
+        models_data = await get_cached_available_models()
+        raw_providers = models_data.get("providers", [])
+        all_models = []
+        for p in raw_providers:
+            p_id = p["id"]
+            for m in p.get("models", []):
+                clean_id, clean_name = _normalize_opencode_model_id(m, p_id)
+                all_models.append({
+                    "id": clean_id,
+                    "name": clean_name,
+                    "providerID": p_id,
+                })
         if request.url.path.startswith("/api/"):
-            return {"data": models}
-        return models
+            return {"data": all_models}
+        return all_models
 
     @application.get("/api/model/default", tags=["Modelos (OpenCode Compat)"])
     @application.get("/model/default", tags=["Modelos (OpenCode Compat)"])
     async def opencode_default_model(request: Request):
-        default_model = {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "providerID": "google"}
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        raw_model = cm.get_config("default_model") or os.environ.get("LITELLM_MODEL", "gemini-2.0-flash")
+        if "/" in raw_model:
+            prov, m_id = raw_model.split("/", 1)
+        else:
+            prov = "google"
+            m_id = raw_model
+        if prov in ["gemini"]:
+            prov = "google"
+        default_model = {"id": m_id, "name": m_id, "providerID": prov}
         if request.url.path.startswith("/api/"):
             return {"data": default_model}
         return default_model
