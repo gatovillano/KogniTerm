@@ -16,6 +16,7 @@ export const iconNames = [
   "v0",
   "upstage",
   "togetherai",
+  "tencent-coding-plan",
   "synthetic",
   "submodel",
   "stepfun",
@@ -30,9 +31,9 @@ export const iconNames = [
   "privatemode-ai",
   "poe",
   "perplexity",
+  "perplexity-agent",
   "ovhcloud",
   "openrouter",
-  "llmgateway",
   "opencode",
   "opencode-go",
   "openai",
@@ -79,6 +80,8 @@ export const iconNames = [
   "fireworks-ai",
   "fastrouter",
   "evroc",
+  "drun",
+  "dinference",
   "digitalocean",
   "deepseek",
   "deepinfra",
@@ -87,6 +90,7 @@ export const iconNames = [
   "cloudflare-workers-ai",
   "cloudflare-ai-gateway",
   "cloudferro-sherlock",
+  "clarifai",
   "chutes",
   "cerebras",
   "berget",
@@ -97,10 +101,12 @@ export const iconNames = [
   "anthropic",
   "amazon-bedrock",
   "alibaba",
+  "alibaba-coding-plan",
+  "alibaba-coding-plan-cn",
   "alibaba-cn",
   "aihubmix",
   "abacus",
   "302ai",
-] as const
+] as const;
 
-export type IconName = (typeof iconNames)[number]
+export type IconName = (typeof iconNames)[number];
