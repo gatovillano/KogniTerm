@@ -19,6 +19,8 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR" || exit 1
 
+export PATH="$SCRIPT_DIR/node_modules/.bin:$SCRIPT_DIR/packages/desktop/node_modules/.bin:$PATH"
+
 # Verificar si estamos en el directorio correcto
 if [ ! -d "packages/desktop" ]; then
     echo "❌ Error: Este script debe ejecutarse desde el directorio kogniterm-desktop/"
@@ -63,12 +65,12 @@ chmod +x "$SCRIPT_DIR/start-dev.sh" 2>/dev/null || true
 echo "${BLUE}🎨 Iniciando KogniTerm Desktop (Electron + SolidJS)...${NC}"
 
 if [ "$SHOW_LOGS" = true ]; then
-    npm run dev
+    npm --workspace=@kogniterm/desktop run dev
 else
     LOGS_DIR="$HOME/.kogniterm/logs"
     mkdir -p "$LOGS_DIR"
     echo "📝 Guardando logs del escritorio en $LOGS_DIR/desktop.log"
-    npm run dev > "$LOGS_DIR/desktop.log" 2>&1 &
+    npm --workspace=@kogniterm/desktop run dev > "$LOGS_DIR/desktop.log" 2>&1 &
 fi
 
 echo ""

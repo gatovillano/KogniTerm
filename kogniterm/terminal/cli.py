@@ -589,27 +589,29 @@ class CLIHandler:
         original_cwd = os.getcwd()
         
         # Determinar la ruta de kogniterm-desktop
-        # 1. Prioridad: Paquete kogniterm instalado / raíz del repositorio en desarrollo
+        # 1. Prioridad: Directorio actual si contiene kogniterm-desktop
+        cwd_desktop = os.path.join(original_cwd, "kogniterm-desktop")
+        
+        # 2. Prioridad: Paquete kogniterm instalado / raíz del repositorio en desarrollo
         package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         package_desktop = os.path.join(package_root, "kogniterm-desktop")
         
-        # 2. Prioridad: Directorio actual si contiene kogniterm-desktop
-        cwd_desktop = os.path.join(original_cwd, "kogniterm-desktop")
+        # 3. Prioridad: Directorio conocido del proyecto
+        known_desktop = "/home/gato/Proyectos/Gemini-Interpreter/kogniterm-desktop"
         
-        # 3. Prioridad: Directorio de repo alternativo global (~/.kogniterm/repo)
+        # 4. Prioridad: Directorio de repo alternativo global (~/.kogniterm/repo)
         alt_desktop = os.path.expanduser("~/.kogniterm/repo/kogniterm-desktop")
         
-        if os.path.isdir(package_desktop):
-            desktop_dir = package_desktop
-        elif os.path.isdir(cwd_desktop):
+        if os.path.isdir(cwd_desktop):
             desktop_dir = cwd_desktop
+        elif os.path.isdir(package_desktop):
+            desktop_dir = package_desktop
+        elif os.path.isdir(known_desktop):
+            desktop_dir = known_desktop
         elif os.path.isdir(alt_desktop):
             desktop_dir = alt_desktop
         else:
             print(f"❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
-            print(f"   Se buscó en: {package_desktop}")
-            print(f"   Y en: {cwd_desktop}")
-            print(f"   Y en: {alt_desktop}")
             return
                 
         script_path = os.path.join(desktop_dir, "start-dev.sh")
