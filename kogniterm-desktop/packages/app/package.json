@@ -10,7 +10,9 @@
     "./updater": "./src/updater.ts",
     "./wsl/types": "./src/wsl/types.ts",
     "./vite": "./vite.js",
-    "./index.css": "./src/index.css"
+    "./styles": "./src/index.css",
+    "./index.css": "./src/index.css",
+    "./src/*": "./src/*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
