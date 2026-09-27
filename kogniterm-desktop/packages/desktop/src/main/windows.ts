@@ -4,6 +4,7 @@ import type { DesktopTheme } from "@kogniterm/ui/theme/types"
 import oc2ThemeJson from "../../../ui/src/theme/themes/oc-2.json"
 import { randomUUID } from "node:crypto"
 import { rmSync } from "node:fs"
+import * as fsPromises from "node:fs/promises"
 import { app, BrowserWindow, dialog, net, nativeImage, nativeTheme, protocol, shell } from "electron"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -288,6 +289,29 @@ function windowDataFile(id: string) {
   return `kogniterm.window.${id.replace(/[^a-zA-Z0-9._-]/g, "-")}.dat`
 }
 
+function getMimeType(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? ""
+  switch (ext) {
+    case "html": return "text/html; charset=utf-8"
+    case "js":
+    case "mjs": return "text/javascript; charset=utf-8"
+    case "css": return "text/css; charset=utf-8"
+    case "json": return "application/json; charset=utf-8"
+    case "png": return "image/png"
+    case "jpg":
+    case "jpeg": return "image/jpeg"
+    case "gif": return "image/gif"
+    case "svg": return "image/svg+xml"
+    case "ico": return "image/x-icon"
+    case "wasm": return "application/wasm"
+    case "woff": return "font/woff"
+    case "woff2": return "font/woff2"
+    case "ttf": return "font/ttf"
+    case "otf": return "font/otf"
+    default: return "application/octet-stream"
+  }
+}
+
 export function registerRendererProtocol() {
   if (protocol.isProtocolHandled(rendererProtocol)) return
 
@@ -306,24 +330,15 @@ export function registerRendererProtocol() {
     }
 
     try {
-      const range = request.headers.get("range")
-      const response = await net.fetch(pathToFileURL(file).toString(), {
-        headers: range ? { range } : undefined,
+      const data = await fsPromises.readFile(file)
+      const headers = new Headers({
+        "Content-Type": getMimeType(file),
+        "Access-Control-Allow-Origin": "*",
       })
-      if (response.status >= 400) {
-        writeLog(
-          "protocol",
-          "fetch failed",
-          {
-            url: request.url,
-            file,
-            status: response.status,
-            statusText: response.statusText,
-          },
-          "error",
-        )
+      if (file.toLowerCase().endsWith(".html")) {
+        headers.set(documentPolicyHeader, jsCallStacksDocumentPolicy)
       }
-      return addDocumentPolicy(response, file)
+      return new Response(data, { status: 200, headers })
     } catch (error) {
       writeLog("protocol", "fetch error", { url: request.url, file, error }, "error")
       return new Response("Not found", { status: 404 })
