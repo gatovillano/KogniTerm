@@ -427,6 +427,11 @@ function ProviderConnection(props: {
         .then((result) => result.data),
   )
   const loading = createMemo(() => integration.loading)
+  const hasExistingConnection = createMemo(() => {
+    if (props.provider === "antigravity") return true
+    if (providers.connected().some((p) => p.id === props.provider)) return true
+    return (integration.latest?.connections?.length ?? 0) > 0
+  })
   const methods = createMemo<ConnectMethod[]>(() => {
     const values = integration.latest?.methods.filter(
       (method): method is ConnectMethod => method.type === "key" || method.type === "oauth",
@@ -709,6 +714,11 @@ function ProviderConnection(props: {
   createEffect(() => {
     if (auto) return
     if (loading()) return
+    if (props.provider === "antigravity") {
+      auto = true
+      void complete()
+      return
+    }
     if (methods().length === 1) {
       auto = true
       void selectMethod(0)
@@ -815,6 +825,8 @@ function ProviderConnection(props: {
       apiKey?.focus({ preventScroll: true })
     })
 
+    const isConfigured = createMemo(() => hasExistingConnection())
+
     async function handleSubmit(e: SubmitEvent) {
       e.preventDefault()
 
@@ -823,6 +835,11 @@ function ProviderConnection(props: {
       const apiKey = formData.get("apiKey") as string
 
       if (!apiKey?.trim()) {
+        if (isConfigured()) {
+          // Ya está configurada previamente en KogniTerm (TUI/Config/Env)
+          await complete()
+          return
+        }
         setFormStore("error", language.t("provider.connect.apiKey.required"))
         return
       }
@@ -841,7 +858,16 @@ function ProviderConnection(props: {
         <div class="flex flex-col gap-5 px-3 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-muted">
           <Show
             when={provider().id === "opencode"}
-            fallback={language.t("provider.connect.apiKey.description", { provider: provider().name })}
+            fallback={
+              <Show
+                when={isConfigured()}
+                fallback={language.t("provider.connect.apiKey.description", { provider: provider().name })}
+              >
+                <div>
+                  {provider().name} ya cuenta con credenciales configuradas en KogniTerm. Puedes presionar Continuar para usar la configuración actual o ingresar una nueva clave para actualizarla.
+                </div>
+              </Show>
+            }
           >
             <div class="flex flex-col gap-5">
               <div>{language.t("provider.connect.opencodeZen.line1")}</div>
@@ -866,7 +892,7 @@ function ProviderConnection(props: {
                 class="!w-full"
                 name="apiKey"
                 data-input="provider-api-key"
-                placeholder={language.t("provider.connect.apiKey.placeholder")}
+                placeholder={isConfigured() ? "•••••••••••• (Guardada en KogniTerm)" : language.t("provider.connect.apiKey.placeholder")}
                 value={formStore.value}
                 invalid={formStore.error !== undefined}
                 aria-describedby={formStore.error ? errorID : undefined}
@@ -905,6 +931,11 @@ function ProviderConnection(props: {
               </div>
             </div>
           </Match>
+          <Match when={isConfigured()}>
+            <div class="text-14-regular text-text-base">
+              {provider().name} ya cuenta con credenciales configuradas en KogniTerm. Puedes presionar Continuar para usar la configuración actual o ingresar una nueva clave para actualizarla.
+            </div>
+          </Match>
           <Match when={true}>
             <div class="text-14-regular text-text-base">
               {language.t("provider.connect.apiKey.description", { provider: provider().name })}
@@ -917,7 +948,7 @@ function ProviderConnection(props: {
             ref={apiKey}
             type="text"
             label={language.t("provider.connect.apiKey.label", { provider: provider().name })}
-            placeholder={language.t("provider.connect.apiKey.placeholder")}
+            placeholder={isConfigured() ? "•••••••••••• (Guardada en KogniTerm)" : language.t("provider.connect.apiKey.placeholder")}
             name="apiKey"
             value={formStore.value}
             onChange={(v) => setFormStore("value", v)}

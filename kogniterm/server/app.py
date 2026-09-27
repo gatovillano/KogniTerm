@@ -1640,7 +1640,11 @@ def create_app() -> FastAPI:
             })
         if request.url.path.startswith("/api/"):
             return {"data": formatted_providers}
-        return formatted_providers
+        return {
+            "all": formatted_providers,
+            "connected": [p["id"] for p in formatted_providers if p.get("connected")],
+            "default": {},
+        }
 
     @application.get("/api/provider/auth", tags=["Modelos (OpenCode Compat)"])
     @application.get("/provider/auth", tags=["Modelos (OpenCode Compat)"])
@@ -1652,7 +1656,9 @@ def create_app() -> FastAPI:
         for p in raw_providers:
             p_id = p["id"]
             methods = []
-            if p_id != "antigravity":
+            if p_id == "antigravity":
+                methods.append({"type": "oauth", "label": "Google Account (Conectado)"})
+            else:
                 methods.append({"type": "api", "label": "API Key"})
             result[p_id] = methods
 
@@ -1722,12 +1728,14 @@ def create_app() -> FastAPI:
             is_connected = p_id in connected_set
             
             methods = []
-            if p_id != "antigravity":
+            if p_id == "antigravity":
+                methods.append({"type": "oauth", "label": "Google Account (Conectado)"})
+            else:
                 methods.append({"type": "key", "label": "API Key"})
             
             connections = []
             if is_connected:
-                label = "Nativo (Sin clave)" if p_id == "antigravity" else "Configurado en KogniTerm"
+                label = "Nativo (Google Login)" if p_id == "antigravity" else "Configurado en KogniTerm"
                 connections.append({"type": "credential", "id": p_id, "label": label})
                 
             integrations.append({
@@ -1746,11 +1754,13 @@ def create_app() -> FastAPI:
         connected_set = _get_connected_providers()
         is_connected = integration_id in connected_set
         methods = []
-        if integration_id != "antigravity":
+        if integration_id == "antigravity":
+            methods.append({"type": "oauth", "label": "Google Account (Conectado)"})
+        else:
             methods.append({"type": "key", "label": "API Key"})
         connections = []
         if is_connected:
-            label = "Nativo (Sin clave)" if integration_id == "antigravity" else "Configurado en KogniTerm"
+            label = "Nativo (Google Login)" if integration_id == "antigravity" else "Configurado en KogniTerm"
             connections.append({"type": "credential", "id": integration_id, "label": label})
         data = {
             "id": integration_id,
@@ -1766,6 +1776,8 @@ def create_app() -> FastAPI:
     @application.post("/integration/{integration_id}/connect/key", tags=["Integraciones (OpenCode Compat)"])
     async def opencode_connect_integration_key(integration_id: str, payload: Dict[str, Any]):
         nonlocal _cached_models_data
+        if integration_id == "antigravity":
+            return Response(status_code=204)
         key = payload.get("key")
         if not key:
             raise HTTPException(status_code=400, detail="Key is required")
@@ -1773,6 +1785,18 @@ def create_app() -> FastAPI:
         cm = ConfigManager()
         cm.set_api_key(integration_id, key, scope="global")
         _cached_models_data = None
+        return Response(status_code=204)
+
+    @application.post("/api/integration/{integration_id}/oauth/connect", tags=["Integraciones (OpenCode Compat)"])
+    @application.post("/integration/{integration_id}/oauth/connect", tags=["Integraciones (OpenCode Compat)"])
+    async def opencode_oauth_connect(integration_id: str, payload: Optional[Dict[str, Any]] = None):
+        if integration_id == "antigravity":
+            return {"data": {"url": "https://accounts.google.com", "mode": "auto", "attemptID": "antigravity-native"}}
+        raise HTTPException(status_code=400, detail="OAuth not supported for this provider")
+
+    @application.post("/api/integration/{integration_id}/oauth/complete", tags=["Integraciones (OpenCode Compat)"])
+    @application.post("/integration/{integration_id}/oauth/complete", tags=["Integraciones (OpenCode Compat)"])
+    async def opencode_oauth_complete(integration_id: str, payload: Optional[Dict[str, Any]] = None):
         return Response(status_code=204)
 
     @application.delete("/api/integration/{integration_id}", tags=["Integraciones (OpenCode Compat)"])
