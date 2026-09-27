@@ -65,12 +65,12 @@ chmod +x "$SCRIPT_DIR/start-dev.sh" 2>/dev/null || true
 echo "${BLUE}🎨 Iniciando KogniTerm Desktop (Electron + SolidJS)...${NC}"
 
 if [ "$SHOW_LOGS" = true ]; then
-    npm --workspace=@kogniterm/desktop run dev
+    (cd packages/desktop && npm run dev)
 else
     LOGS_DIR="$HOME/.kogniterm/logs"
     mkdir -p "$LOGS_DIR"
     echo "📝 Guardando logs del escritorio en $LOGS_DIR/desktop.log"
-    nohup npm --workspace=@kogniterm/desktop run dev > "$LOGS_DIR/desktop.log" 2>&1 &
+    nohup bash -c "cd '$SCRIPT_DIR/packages/desktop' && npm run dev" > "$LOGS_DIR/desktop.log" 2>&1 &
 fi
 
 echo ""
