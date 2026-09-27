@@ -48,16 +48,10 @@ fi
 echo "✅ Dependencias verificadas"
 echo ""
 
-# Instalar dependencias de node_modules si no existen
-if [ ! -d "node_modules" ]; then
-    echo "📦 Instalando dependencias de Node.js..."
-    npm install
-    if [ $? -ne 0 ]; then
-        echo "❌ Error al instalar dependencias de Node.js"
-        exit 1
-    fi
-    echo "✅ Dependencias instaladas"
-    echo ""
+# Verificación y autosanación del binario de Electron
+if [ ! -f "node_modules/electron/path.txt" ]; then
+    echo "⚡ Descargando binario de Electron..."
+    node node_modules/electron/install.js 2>/dev/null || true
 fi
 
 # Hacer ejecutable el script
