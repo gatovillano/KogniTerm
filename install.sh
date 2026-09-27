@@ -279,6 +279,7 @@ install_from_scratch() {
         source_opt="${source_opt:-1}"
         if [ "$source_opt" = "1" ]; then
             install_source="$PWD"
+            REPO_DIR="$PWD"
         fi
     fi
 
@@ -309,6 +310,16 @@ install_from_scratch() {
     if [ $? -ne 0 ]; then
         echo -e "${RED}❌ Error al instalar dependencias.${RESET}"
         exit 1
+    fi
+
+    if [ -d "$install_source/kogniterm-desktop" ]; then
+        echo -e "\n${BOLD}${BLUE}[3.5/4] Preparando KogniTerm Desktop v2 (Electron)...${RESET}"
+        if command -v npm &>/dev/null; then
+            (cd "$install_source/kogniterm-desktop" && npm install && node node_modules/electron/install.js) &>/dev/null || true
+            echo -e "  ${GREEN}✔${RESET} Dependencias de KogniTerm Desktop e instalador de Electron listos."
+        else
+            echo -e "  ${YELLOW}⚠️ npm no detectado. Instala Node.js/npm para usar KogniTerm Desktop.${RESET}"
+        fi
     fi
 
     echo -e "\n${BOLD}${BLUE}[4/4] Creando lanzadores globales...${RESET}"
