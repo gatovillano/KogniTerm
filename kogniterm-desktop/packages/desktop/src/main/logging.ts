@@ -206,5 +206,13 @@ function initConsoleTransport() {
 }
 
 function isBrokenPipe(err: unknown) {
-  return typeof err === "object" && err !== null && "code" in err && err.code === "EPIPE"
+  if (typeof err !== "object" || err === null) return false
+  const code = (err as { code?: string }).code
+  const message = (err as { message?: string }).message
+  return (
+    code === "EPIPE" ||
+    code === "EIO" ||
+    code === "ERR_STREAM_DESTROYED" ||
+    (typeof message === "string" && (message.includes("EIO") || message.includes("EPIPE")))
+  )
 }
