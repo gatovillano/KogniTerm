@@ -614,7 +614,13 @@ class CLIHandler:
             print(f"❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
             return
                 
-        script_path = os.path.join(desktop_dir, "start-dev.sh")
+        is_dev = "--dev" in args
+        target_script = "start-dev.sh" if is_dev else "start.sh"
+        script_path = os.path.join(desktop_dir, target_script)
+        if not os.path.exists(script_path):
+            script_path = os.path.join(desktop_dir, "start-dev.sh")
+            target_script = "start-dev.sh"
+            
         if not os.path.exists(script_path):
             print(f"❌ Error: No se encontró el script de inicio en {script_path}")
             return
@@ -627,17 +633,18 @@ class CLIHandler:
             pass
             
         try:
-            # Ejecutar el script start-dev.sh en su directorio de trabajo
-            # Usamos Popen para que corra en segundo plano y el CLI pueda retornar de inmediato
+            # Ejecutar el script de producción (start.sh) o dev (start-dev.sh)
             env = os.environ.copy()
             env["KOGNITERM_WORKSPACE"] = original_cwd
             
-            cmd = ["./start-dev.sh"]
+            cmd = [f"./{target_script}"]
             if "--logs" in args:
                 cmd.append("--logs")
+            if "--build" in args:
+                cmd.append("--build")
                 
             subprocess.Popen(cmd, cwd=desktop_dir, env=env, start_new_session=True)
-            print("✨ Proceso de inicio lanzado en segundo plano.")
+            print("✨ KogniTerm Desktop lanzado en segundo plano.")
         except Exception as e:
             print(f"❌ Error al iniciar KogniTerm Desktop: {e}")
 
