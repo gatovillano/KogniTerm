@@ -681,7 +681,7 @@ export function persisted<T>(
     return api
   })()
 
-  const [state, setState, init] = makePersisted(store, { name: config.key, storage })
+  const [state, setState, init] = makePersisted(store as any, { name: config.key, storage })
 
   const isAsync = init instanceof Promise
   const [ready] = createResource(
@@ -694,8 +694,8 @@ export function persisted<T>(
   )
 
   return [
-    state,
-    setState,
+    state as T,
+    setState as any,
     init,
     Object.assign(() => (ready.loading ? false : ready.latest === true), {
       promise: init instanceof Promise ? init : undefined,

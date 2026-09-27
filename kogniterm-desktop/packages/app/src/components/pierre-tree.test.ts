@@ -5,8 +5,8 @@ test("reports directory expansion changes", () => {
   const changes: Array<{ path: string; expanded: boolean }> = []
   const tree = new FileTree({
     paths: ["src/"],
-    onExpansionChange: (change) => changes.push(change),
-  })
+    onExpansionChange: (change: any) => changes.push(change),
+  } as any)
 
   const src = tree.getItem("src/")
   if (!src || !src.isDirectory()) throw new Error("Expected src to be a directory")
