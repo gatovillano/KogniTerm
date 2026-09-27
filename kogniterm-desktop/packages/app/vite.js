@@ -21,9 +21,13 @@ export default [
     config() {
       return {
         resolve: {
-          alias: {
-            "@": fileURLToPath(new URL("./src", import.meta.url)),
-          },
+          alias: [
+            { find: /^@opencode-ai\/ui\/(.*)$/, replacement: "@kogniterm/ui/$1" },
+            { find: "@opencode-ai/ui", replacement: "@kogniterm/ui" },
+            { find: /^@opencode-ai\/app\/(.*)$/, replacement: "@kogniterm/app/$1" },
+            { find: "@opencode-ai/app", replacement: "@kogniterm/app" },
+            { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
+          ],
         },
         define: {
           "import.meta.env.VITE_KOGNITERM_CHANNEL": JSON.stringify(channel),
