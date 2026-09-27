@@ -50,8 +50,13 @@ echo ""
 
 # Verificación y autosanación del binario de Electron
 if [ ! -f "node_modules/electron/path.txt" ]; then
-    echo "⚡ Descargando binario de Electron..."
+    echo "⚡ Descargando binario de Electron (raíz)..."
     node node_modules/electron/install.js 2>/dev/null || true
+fi
+
+if [ -d "packages/desktop/node_modules/electron" ] && [ ! -f "packages/desktop/node_modules/electron/path.txt" ]; then
+    echo "⚡ Descargando binario de Electron (packages/desktop)..."
+    (cd packages/desktop && node node_modules/electron/install.js) 2>/dev/null || true
 fi
 
 # Hacer ejecutable el script

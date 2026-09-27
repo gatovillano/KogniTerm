@@ -10,6 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "postinstall": "node node_modules/electron/install.js || true",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
