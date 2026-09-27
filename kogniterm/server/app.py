@@ -1652,6 +1652,13 @@ def create_app() -> FastAPI:
             return {"data": []}
         return []
 
+    @application.get("/api/question", tags=["Preguntas (OpenCode Compat)"])
+    @application.get("/question", tags=["Preguntas (OpenCode Compat)"])
+    async def opencode_questions(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
     @application.get("/api/event", tags=["Eventos (OpenCode Compat)"])
     @application.get("/event", tags=["Eventos (OpenCode Compat)"])
     async def opencode_events(request: Request):
