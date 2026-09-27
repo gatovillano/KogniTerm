@@ -604,10 +604,10 @@ class CLIHandler:
         
         if os.path.isdir(cwd_desktop):
             desktop_dir = cwd_desktop
-        elif os.path.isdir(package_desktop):
-            desktop_dir = package_desktop
         elif os.path.isdir(known_desktop):
             desktop_dir = known_desktop
+        elif os.path.isdir(package_desktop):
+            desktop_dir = package_desktop
         elif os.path.isdir(alt_desktop):
             desktop_dir = alt_desktop
         else:

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process"
 import { existsSync } from "node:fs"
+import { homedir } from "node:os"
 import { resolve } from "node:path"
 import { app } from "electron"
 
@@ -27,18 +28,20 @@ export function getSidecarUrl(): string {
 }
 
 function findRepoRoot(): string {
-  const current = process.cwd()
   const candidates = [
-    current,
-    resolve(current, ".."),
-    resolve(current, "../.."),
+    resolve(__dirname, "../../.."),
+    resolve(__dirname, "../../../.."),
+    process.cwd(),
+    resolve(process.cwd(), ".."),
+    resolve(process.cwd(), "../.."),
+    "/home/gato/Proyectos/Gemini-Interpreter",
   ]
   for (const dir of candidates) {
-    if (existsSync(resolve(dir, "kogniterm"))) {
+    if (existsSync(resolve(dir, "kogniterm", "server", "app.py"))) {
       return dir
     }
   }
-  return current
+  return process.cwd()
 }
 
 function findPythonBinary(repoRoot: string): string {
@@ -51,7 +54,9 @@ function findPythonBinary(repoRoot: string): string {
 
   const isWin = process.platform === "win32"
   const pyName = isWin ? "Scripts/python.exe" : "bin/python"
+  const home = (typeof app !== "undefined" && app?.getPath ? app.getPath("home") : "") || homedir() || process.env.HOME || ""
   const candidates = [
+    resolve(home, ".kogniterm", "venv", pyName),
     resolve(repoRoot, ".venv", pyName),
     resolve(process.cwd(), ".venv", pyName),
     resolve(repoRoot, "venv", pyName),

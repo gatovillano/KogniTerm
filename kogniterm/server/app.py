@@ -19,6 +19,7 @@ memoria por sesión hasta que la sesión es eliminada explícitamente.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import logging
 import os
@@ -342,11 +343,16 @@ def create_app() -> FastAPI:
     # ── Health Check ────────────────────────────────────────────────────────────
 
     @application.get("/health", tags=["Sistema"])
+    @application.get("/api/health", tags=["Sistema"])
+    @application.get("/global/health", tags=["Sistema"])
     async def health():
         """Estado del servidor y sesiones activas."""
         sessions = pool.list_all()
         return {
             "status": "online",
+            "healthy": True,
+            "pid": os.getpid(),
+            "version": "2.0.0",
             "active_sessions": len(sessions),
             "sessions": sessions,
             "configured_channels": [
@@ -1330,6 +1336,347 @@ def create_app() -> FastAPI:
             logger.info(f"[Server] Sesión {session_id} cerrada correctamente.")
             return {"status": "closed", "session_id": session_id}
         return {"status": "not_found", "session_id": session_id}
+
+    # ── OpenCode Compatibility API Layer ───────────────────────────────────────
+
+    def _format_session_info(session_id: str, ws_dir: Optional[str] = None, title: Optional[str] = None, created_ms: Optional[int] = None):
+        now_ms = int(datetime.datetime.now().timestamp() * 1000)
+        t_ms = created_ms or now_ms
+        dir_path = ws_dir or os.getcwd()
+        return {
+            "id": session_id,
+            "projectID": "global",
+            "title": title or "Terminal Session",
+            "cost": 0,
+            "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+            "time": {
+                "created": t_ms,
+                "updated": t_ms,
+            },
+            "location": {
+                "directory": dir_path,
+            },
+        }
+
+    @application.get("/api/session", tags=["Sesiones (OpenCode Compat)"])
+    @application.get("/session", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_list_sessions(
+        request: Request,
+        directory: Optional[str] = None,
+        limit: int = 50,
+        order: str = "desc",
+        parentID: Optional[str] = None,
+        cursor: Optional[str] = None,
+        search: Optional[str] = None,
+    ):
+        await pool.wait_until_ready()
+        session_list = []
+        seen = set()
+
+        # In-memory sessions
+        with pool._lock:
+            for s in pool._sessions.values():
+                seen.add(s.session_id)
+                c_ms = int(s.created_at.timestamp() * 1000)
+                session_list.append(_format_session_info(
+                    session_id=s.session_id,
+                    ws_dir=s.workspace_dir,
+                    title=getattr(s, "title", "Terminal Session"),
+                    created_ms=c_ms,
+                ))
+
+        # Saved threads
+        if pool._thread_manager:
+            dirs = [safe_abs_path(directory)] if directory else []
+            threads = pool._thread_manager.list_threads(additional_dirs=dirs)
+            for t in threads:
+                tid = t.get("thread_id") or t.get("id")
+                if tid and tid not in seen:
+                    seen.add(tid)
+                    updated_at_str = t.get("updated_at") or t.get("created_at")
+                    try:
+                        ts = int(datetime.datetime.fromisoformat(updated_at_str).timestamp() * 1000)
+                    except Exception:
+                        ts = int(datetime.datetime.now().timestamp() * 1000)
+                    session_list.append(_format_session_info(
+                        session_id=tid,
+                        ws_dir=t.get("workspace_dir"),
+                        title=t.get("title") or "Chat Session",
+                        created_ms=ts,
+                    ))
+
+        if order == "desc":
+            session_list.sort(key=lambda x: x["time"]["created"], reverse=True)
+        else:
+            session_list.sort(key=lambda x: x["time"]["created"])
+
+        items = session_list[:limit]
+        if request.url.path.startswith("/api/"):
+            return {"data": items, "cursor": {}}
+        return items
+
+    @application.get("/api/session/active", tags=["Sesiones (OpenCode Compat)"])
+    @application.get("/session/active", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_active_sessions(request: Request):
+        await pool.wait_until_ready()
+        active = {}
+        with pool._lock:
+            for sid in pool._sessions.keys():
+                active[sid] = {"type": "running"}
+        if request.url.path.startswith("/api/"):
+            return {"data": active}
+        return active
+
+    @application.get("/api/session/{session_id}", tags=["Sesiones (OpenCode Compat)"])
+    @application.get("/session/{session_id}", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_get_session(session_id: str, request: Request):
+        await pool.wait_until_ready()
+        s = pool.get(session_id)
+        item = None
+        if s:
+            c_ms = int(s.created_at.timestamp() * 1000)
+            item = _format_session_info(s.session_id, s.workspace_dir, getattr(s, "title", None), c_ms)
+        elif pool._thread_manager:
+            th = pool._thread_manager.get_thread(session_id)
+            if th:
+                item = _format_session_info(session_id, th.get("workspace_dir"), th.get("title"))
+        if not item:
+            item = _format_session_info(session_id)
+        if request.url.path.startswith("/api/"):
+            return {"data": item}
+        return item
+
+    @application.post("/api/session", tags=["Sesiones (OpenCode Compat)"], status_code=201)
+    @application.post("/session", tags=["Sesiones (OpenCode Compat)"], status_code=201)
+    async def opencode_create_session(request: Request, req: Any = Body(default={})):
+        await pool.wait_until_ready()
+        sid = None
+        ws_dir = None
+        if isinstance(req, dict):
+            sid = req.get("id")
+            loc = req.get("location")
+            if isinstance(loc, dict):
+                ws_dir = loc.get("directory")
+        sid = sid or pool.new_session_id()
+        session = pool.get_or_create(sid, workspace_dir=ws_dir)
+        c_ms = int(session.created_at.timestamp() * 1000)
+        item = _format_session_info(session.session_id, session.workspace_dir, None, c_ms)
+        if request.url.path.startswith("/api/"):
+            return {"data": item}
+        return item
+
+    @application.delete("/api/session/{session_id}", tags=["Sesiones (OpenCode Compat)"])
+    @application.delete("/session/{session_id}", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_delete_session(session_id: str, request: Request):
+        await pool.wait_until_ready()
+        pool.delete(session_id)
+        if pool._thread_manager:
+            pool._thread_manager.delete_thread(session_id)
+        if request.url.path.startswith("/api/"):
+            return {"data": True}
+        return True
+
+    @application.post("/api/session/{session_id}/prompt", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/session/{session_id}/prompt", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_prompt(session_id: str, request: Request, req: Any = Body(...)):
+        await pool.wait_until_ready()
+        res = {"id": str(uuid.uuid4()), "sessionID": session_id}
+        if request.url.path.startswith("/api/"):
+            return {"data": res}
+        return res
+
+    @application.post("/api/session/{session_id}/compact", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/session/{session_id}/compact", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_compact(session_id: str):
+        return {"status": "ok"}
+
+    @application.post("/api/session/{session_id}/interrupt", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/session/{session_id}/interrupt", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_interrupt(session_id: str, request: Request):
+        await pool.wait_until_ready()
+        s = pool.get(session_id)
+        if s:
+            s.interrupt()
+        if request.url.path.startswith("/api/"):
+            return {"data": True}
+        return True
+
+    @application.get("/api/project", tags=["Proyectos (OpenCode Compat)"])
+    @application.get("/project", tags=["Proyectos (OpenCode Compat)"])
+    async def opencode_list_projects(request: Request):
+        projects = [{"id": "global", "name": "KogniTerm", "directory": os.getcwd()}]
+        if request.url.path.startswith("/api/"):
+            return {"data": projects}
+        return projects
+
+    @application.get("/api/project/current", tags=["Proyectos (OpenCode Compat)"])
+    @application.get("/project/current", tags=["Proyectos (OpenCode Compat)"])
+    async def opencode_current_project(request: Request):
+        cur = {"id": "global", "name": "KogniTerm", "directory": os.getcwd()}
+        if request.url.path.startswith("/api/"):
+            return {"data": cur}
+        return cur
+
+    @application.get("/api/path", tags=["Sistema (OpenCode Compat)"])
+    @application.get("/path", tags=["Sistema (OpenCode Compat)"])
+    async def opencode_path(request: Request):
+        home = str(Path.home())
+        paths = {
+            "directory": os.getcwd(),
+            "home": home,
+            "config": str(Path.home() / ".kogniterm"),
+            "state": str(Path.home() / ".kogniterm"),
+            "cache": str(Path.home() / ".kogniterm" / "cache"),
+            "log": str(Path.home() / ".kogniterm" / "logs"),
+        }
+        if request.url.path.startswith("/api/"):
+            return {"data": paths}
+        return paths
+
+    @application.get("/api/location", tags=["Sistema (OpenCode Compat)"])
+    @application.get("/location", tags=["Sistema (OpenCode Compat)"])
+    async def opencode_location(request: Request):
+        loc = {"directory": os.getcwd()}
+        if request.url.path.startswith("/api/"):
+            return {"data": loc}
+        return loc
+
+    @application.get("/api/agent", tags=["Agentes (OpenCode Compat)"])
+    @application.get("/agent", tags=["Agentes (OpenCode Compat)"])
+    async def opencode_list_agents(request: Request):
+        agents = [{"id": "default", "name": "KogniTerm Agent", "description": "Default Agent", "mode": "chat"}]
+        if request.url.path.startswith("/api/"):
+            return {"data": agents}
+        return agents
+
+    @application.get("/api/provider", tags=["Modelos (OpenCode Compat)"])
+    @application.get("/provider", tags=["Modelos (OpenCode Compat)"])
+    async def opencode_list_providers(request: Request):
+        providers = [
+            {
+                "id": "google",
+                "name": "Google",
+                "models": [
+                    {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"},
+                    {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
+                ],
+            }
+        ]
+        if request.url.path.startswith("/api/"):
+            return {"data": providers}
+        return providers
+
+    @application.get("/api/model", tags=["Modelos (OpenCode Compat)"])
+    @application.get("/model", tags=["Modelos (OpenCode Compat)"])
+    async def opencode_list_models(request: Request):
+        models = [
+            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "providerID": "google"},
+            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "providerID": "google"},
+        ]
+        if request.url.path.startswith("/api/"):
+            return {"data": models}
+        return models
+
+    @application.get("/api/model/default", tags=["Modelos (OpenCode Compat)"])
+    @application.get("/model/default", tags=["Modelos (OpenCode Compat)"])
+    async def opencode_default_model(request: Request):
+        default_model = {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "providerID": "google"}
+        if request.url.path.startswith("/api/"):
+            return {"data": default_model}
+        return default_model
+
+    @application.get("/api/config", tags=["Configuración (OpenCode Compat)"])
+    @application.get("/config", tags=["Configuración (OpenCode Compat)"])
+    @application.get("/global/config", tags=["Configuración (OpenCode Compat)"])
+    async def opencode_config(request: Request):
+        cfg = {}
+        if request.url.path.startswith("/api/"):
+            return {"data": cfg}
+        return cfg
+
+    @application.get("/lsp", tags=["LSP (OpenCode Compat)"])
+    @application.get("/api/lsp", tags=["LSP (OpenCode Compat)"])
+    async def opencode_lsp(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
+    @application.get("/experimental/resource", tags=["Recursos (OpenCode Compat)"])
+    @application.get("/api/experimental/resource", tags=["Recursos (OpenCode Compat)"])
+    async def opencode_experimental_resource(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
+    @application.get("/api/vcs", tags=["VCS (OpenCode Compat)"])
+    @application.get("/vcs", tags=["VCS (OpenCode Compat)"])
+    async def opencode_vcs(request: Request):
+        vcs_info = {"branch": "main", "default_branch": "main"}
+        if request.url.path.startswith("/api/"):
+            return {"data": vcs_info}
+        return vcs_info
+
+    @application.get("/api/command", tags=["Comandos (OpenCode Compat)"])
+    @application.get("/command", tags=["Comandos (OpenCode Compat)"])
+    async def opencode_commands(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
+    @application.get("/api/reference", tags=["Referencias (OpenCode Compat)"])
+    @application.get("/reference", tags=["Referencias (OpenCode Compat)"])
+    async def opencode_references(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
+    @application.get("/api/permission/request", tags=["Permisos (OpenCode Compat)"])
+    @application.get("/permission/request", tags=["Permisos (OpenCode Compat)"])
+    @application.get("/permission", tags=["Permisos (OpenCode Compat)"])
+    async def opencode_permission_requests(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
+    @application.get("/api/mcp", tags=["MCP (OpenCode Compat)"])
+    @application.get("/mcp", tags=["MCP (OpenCode Compat)"])
+    async def opencode_mcp(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
+    @application.get("/api/mcp/resource", tags=["MCP (OpenCode Compat)"])
+    @application.get("/mcp/resource", tags=["MCP (OpenCode Compat)"])
+    async def opencode_mcp_resources(request: Request):
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
+
+    @application.get("/api/event", tags=["Eventos (OpenCode Compat)"])
+    @application.get("/event", tags=["Eventos (OpenCode Compat)"])
+    async def opencode_events(request: Request):
+        async def event_generator():
+            init_event = {
+                "id": str(uuid.uuid4()),
+                "type": "server.connected",
+                "data": {},
+            }
+            yield f"data: {json.dumps(init_event)}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                await asyncio.sleep(15)
+                yield ": heartbeat\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     # ── Gestión de Workspaces ─────────────────────────────────────────────────
 
