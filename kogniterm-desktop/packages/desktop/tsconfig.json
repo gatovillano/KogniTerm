@@ -15,7 +15,11 @@
     "noEmit": true,
     "emitDeclarationOnly": false,
     "outDir": "node_modules/.ts-dist",
-    "types": ["vite/client", "node", "electron"]
+    "types": ["vite/client", "node", "electron"],
+    "paths": {
+      "@opencode-ai/ui/*": ["../ui/src/*"],
+      "@opencode-ai/ui": ["../ui/src"]
+    }
   },
   "references": [{ "path": "../app" }],
   "include": ["src", "package.json"],

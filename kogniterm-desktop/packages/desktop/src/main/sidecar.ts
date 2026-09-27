@@ -1,157 +1,220 @@
-import * as http from "node:http"
-import * as tls from "node:tls"
+import { spawn, type ChildProcess } from "node:child_process"
+import { existsSync } from "node:fs"
+import { resolve } from "node:path"
+import { app } from "electron"
 
-type NodeHttpWithEnvProxy = typeof http & {
-  setGlobalProxyFromEnv: () => void
+export interface SidecarOptions {
+  host?: string
+  port?: number
+  pythonBin?: string
+  timeoutMs?: number
+  cwd?: string
 }
 
-type NodeTlsWithSystemCertificates = typeof tls & {
-  getCACertificates: (type: "default" | "system") => string[]
-  setDefaultCACertificates: (certificates: string[]) => void
-}
-
-type StartCommand = {
-  type: "start"
-  hostname: string
+export interface SidecarInstance {
+  url: string
+  host: string
   port: number
-  password: string
-  userDataPath: string
+  process?: ChildProcess
+  stop: () => Promise<void>
 }
 
-type StopCommand = { type: "stop" }
-type SidecarCommand = StartCommand | StopCommand
+let activeSidecarProcess: ChildProcess | null = null
+let currentServerUrl: string = "http://127.0.0.1:8765"
 
-type SidecarMessage =
-  | { type: "ready" }
-  | { type: "stopped" }
-  | { type: "error"; error: { message: string; stack?: string } }
-
-type ParentPort = {
-  postMessage(message: SidecarMessage): void
-  on(event: "message", listener: (event: { data: unknown }) => void): void
+export function getSidecarUrl(): string {
+  return currentServerUrl
 }
 
-type Listener = {
-  stop(close?: boolean): void | Promise<void>
-}
-
-const parentPort = getParentPort()
-let listener: Listener | undefined
-
-parentPort.on("message", (event) => {
-  const command = parseCommand(event.data)
-  if (!command) return
-  if (command.type === "stop") {
-    void stop()
-    return
+function findRepoRoot(): string {
+  const current = process.cwd()
+  const candidates = [
+    current,
+    resolve(current, ".."),
+    resolve(current, "../.."),
+  ]
+  for (const dir of candidates) {
+    if (existsSync(resolve(dir, "kogniterm"))) {
+      return dir
+    }
   }
-  void start(command)
-})
+  return current
+}
 
-async function start(command: StartCommand) {
-  try {
-    prepareSidecarEnv(command.password, command.userDataPath)
-    ensureLoopbackNoProxy()
-    useSystemCertificates()
-    useEnvProxy()
-    const { Server } = await import("virtual:opencode-server")
+function findPythonBinary(repoRoot: string): string {
+  if (process.env.KOGNITERM_PYTHON && existsSync(process.env.KOGNITERM_PYTHON)) {
+    return process.env.KOGNITERM_PYTHON
+  }
+  if (process.env.KOGNITERM_PYTHON) {
+    return process.env.KOGNITERM_PYTHON
+  }
 
-    listener = await Server.listen({
-      port: command.port,
-      hostname: command.hostname,
-      username: "opencode",
-      password: command.password,
-      cors: ["oc://renderer"],
+  const isWin = process.platform === "win32"
+  const pyName = isWin ? "Scripts/python.exe" : "bin/python"
+  const candidates = [
+    resolve(repoRoot, ".venv", pyName),
+    resolve(process.cwd(), ".venv", pyName),
+    resolve(repoRoot, "venv", pyName),
+    resolve(process.cwd(), "venv", pyName),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return isWin ? "python" : "python3"
+}
+
+export async function isServerHealthy(url: string, timeoutMs: number = 2000): Promise<boolean> {
+  const cleanUrl = url.replace(/\/+$/, "")
+  const probeUrls = [`${cleanUrl}/health`, `${cleanUrl}/docs`]
+  for (const probeUrl of probeUrls) {
+    try {
+      const res = await fetch(probeUrl, {
+        method: "GET",
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (res.ok || res.status === 200) {
+        return true
+      }
+    } catch {
+      // not yet responding
+    }
+  }
+  return false
+}
+
+export async function stopSidecar(): Promise<void> {
+  const proc = activeSidecarProcess
+  if (!proc) return
+  activeSidecarProcess = null
+
+  if (proc.killed || proc.exitCode !== null) return
+
+  return new Promise<void>((resolve) => {
+    let done = false
+    const finish = () => {
+      if (!done) {
+        done = true
+        resolve()
+      }
+    }
+
+    const timer = setTimeout(() => {
+      try {
+        proc.kill("SIGKILL")
+      } catch {}
+      finish()
+    }, 4000)
+
+    proc.once("exit", () => {
+      clearTimeout(timer)
+      finish()
     })
-    parentPort.postMessage({ type: "ready" })
-  } catch (error) {
-    parentPort.postMessage({ type: "error", error: serializeError(error) })
-    setImmediate(() => process.exit(1))
-  }
-}
 
-async function stop() {
-  try {
-    await listener?.stop()
-  } finally {
-    listener = undefined
-    parentPort.postMessage({ type: "stopped" })
-    setImmediate(() => process.exit(0))
-  }
-}
-
-function prepareSidecarEnv(password: string, userDataPath: string) {
-  Object.assign(process.env, {
-    OPENCODE_SERVER_USERNAME: "opencode",
-    OPENCODE_SERVER_PASSWORD: password,
-    XDG_STATE_HOME: process.env.XDG_STATE_HOME ?? userDataPath,
+    try {
+      proc.kill("SIGTERM")
+    } catch {
+      clearTimeout(timer)
+      finish()
+    }
   })
 }
 
-function ensureLoopbackNoProxy() {
-  const loopback = ["127.0.0.1", "localhost", "::1"]
-  const upsert = (key: string) => {
-    const items = (process.env[key] ?? "")
-      .split(",")
-      .map((value: string) => value.trim())
-      .filter((value: string) => Boolean(value))
+// Hook clean shutdown on Electron application quit
+if (typeof app !== "undefined" && app?.on) {
+  app.on("before-quit", () => {
+    void stopSidecar()
+  })
+  app.on("will-quit", () => {
+    void stopSidecar()
+  })
+}
 
-    for (const host of loopback) {
-      if (items.some((value: string) => value.toLowerCase() === host)) continue
-      items.push(host)
+export async function initSidecar(options?: SidecarOptions): Promise<SidecarInstance> {
+  const host = options?.host ?? process.env.KOGNITERM_HOST ?? "127.0.0.1"
+  const port = options?.port ?? (process.env.KOGNITERM_PORT ? Number(process.env.KOGNITERM_PORT) : 8765)
+  const url = `http://${host}:${port}`
+  currentServerUrl = url
+  const timeoutMs = options?.timeoutMs ?? 30000
+
+  // 1. Probe if KogniTerm Server is already running
+  if (await isServerHealthy(url, 2000)) {
+    console.log(`[sidecar] KogniTerm server is already running at ${url}`)
+    return {
+      url,
+      host,
+      port,
+      stop: () => stopSidecar(),
     }
-
-    process.env[key] = items.join(",")
   }
 
-  upsert("NO_PROXY")
-  upsert("no_proxy")
-}
+  // 2. Spawn subprocess python -m kogniterm.server --host 127.0.0.1 --port 8765
+  const repoRoot = options?.cwd ?? findRepoRoot()
+  const pythonBin = options?.pythonBin ?? findPythonBinary(repoRoot)
 
-function useSystemCertificates() {
-  try {
-    const nodeTls = tls as NodeTlsWithSystemCertificates
-    nodeTls.setDefaultCACertificates([
-      ...new Set([...nodeTls.getCACertificates("default"), ...nodeTls.getCACertificates("system")]),
-    ])
-  } catch (error) {
-    console.warn("failed to load system certificates", error)
+  console.log(`[sidecar] Spawning KogniTerm Server (${pythonBin} -m kogniterm.server --host ${host} --port ${port}) in ${repoRoot}`)
+
+  const childEnv = {
+    ...process.env,
+    PYTHONUNBUFFERED: "1",
+    KOGNITERM_ALLOWED_ORIGINS: "*",
+    PYTHONPATH: [repoRoot, process.env.PYTHONPATH].filter(Boolean).join(":"),
   }
-}
 
-function useEnvProxy() {
-  try {
-    ;(http as NodeHttpWithEnvProxy).setGlobalProxyFromEnv()
-  } catch (error) {
-    console.warn("failed to load proxy environment", error)
+  const child = spawn(
+    pythonBin,
+    ["-m", "kogniterm.server", "--host", host, "--port", String(port)],
+    {
+      cwd: repoRoot,
+      env: childEnv,
+      stdio: ["ignore", "pipe", "pipe"],
+    }
+  )
+
+  activeSidecarProcess = child
+
+  child.stdout?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString("utf8").trimEnd()
+    if (text) console.log(`[kogniterm-server] ${text}`)
+  })
+
+  child.stderr?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString("utf8").trimEnd()
+    if (text) console.warn(`[kogniterm-server] ${text}`)
+  })
+
+  let childExited = false
+  let exitCode: number | null = null
+  child.once("exit", (code) => {
+    childExited = true
+    exitCode = code
+    if (activeSidecarProcess === child) {
+      activeSidecarProcess = null
+    }
+  })
+
+  // 3. Poll until healthy
+  const startTime = Date.now()
+  while (Date.now() - startTime < timeoutMs) {
+    if (childExited) {
+      throw new Error(`KogniTerm server exited prematurely with code ${exitCode}`)
+    }
+    if (await isServerHealthy(url, 1000)) {
+      console.log(`[sidecar] KogniTerm server is ready at ${url}`)
+      return {
+        url,
+        host,
+        port,
+        process: child,
+        stop: () => stopSidecar(),
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
   }
-}
 
-function parseCommand(value: unknown): SidecarCommand | undefined {
-  if (!value || typeof value !== "object") return
-  const command = value as Partial<StartCommand | StopCommand>
-  if (command.type === "stop") return { type: "stop" }
-  if (command.type !== "start") return
-  if (typeof command.hostname !== "string") return
-  if (typeof command.port !== "number") return
-  if (typeof command.password !== "string") return
-  if (typeof command.userDataPath !== "string") return
-  return {
-    type: "start",
-    hostname: command.hostname,
-    port: command.port,
-    password: command.password,
-    userDataPath: command.userDataPath,
-  }
-}
-
-function serializeError(error: unknown) {
-  if (error instanceof Error) return { message: error.message, stack: error.stack }
-  return { message: String(error) }
-}
-
-function getParentPort() {
-  const port = process.parentPort as ParentPort | undefined
-  if (!port) throw new Error("Sidecar parent port unavailable")
-  return port
+  await stopSidecar()
+  throw new Error(`Timed out waiting for KogniTerm server to start at ${url} (${timeoutMs}ms)`)
 }

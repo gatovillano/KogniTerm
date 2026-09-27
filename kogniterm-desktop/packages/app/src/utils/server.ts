@@ -1,5 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import { KogniTerm, type OpenCodeClient } from "@opencode-ai/client/promise"
+import { OpenCode, type OpenCodeClient } from "@opencode-ai/client/promise"
+import { KogniTermClient } from "@/api/client"
 import type { ServerConnection } from "@/context/server"
 import { decode64 } from "@/utils/base64"
 
@@ -44,8 +45,14 @@ export function createSdkForServer({
 export function createApiForServer(input: {
   server: ServerConnection.HttpBase
   fetch?: typeof globalThis.fetch
-}): OpenCodeClient {
-  return KogniTerm.make({
+}): ServerApi {
+  const kogniClient = new KogniTermClient({
+    baseUrl: input.server.url,
+    fetch: input.fetch,
+    token: input.server.password ?? undefined,
+  })
+
+  const baseClient = OpenCode.make({
     baseUrl: input.server.url,
     fetch: input.fetch,
     headers: input.server.password
@@ -57,6 +64,14 @@ export function createApiForServer(input: {
         }
       : undefined,
   })
+
+  return Object.assign(baseClient, {
+    kogniTerm: kogniClient,
+  })
 }
 
-export type ServerApi = OpenCodeClient
+export type ServerApi = OpenCodeClient & {
+  kogniTerm: KogniTermClient
+}
+
+export { KogniTermClient }

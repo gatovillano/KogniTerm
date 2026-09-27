@@ -31,6 +31,7 @@ import {
   spawnLocalServer,
   type SidecarListener,
 } from "./server"
+import { initSidecar, stopSidecar } from "./sidecar"
 import { setupAutoUpdater, showUpdaterDialog } from "./updater"
 import { safeWebContentsURL } from "./window-state"
 import {
@@ -165,6 +166,7 @@ const main = Effect.gen(function* () {
     },
   )
   const stopSidecars = async () => {
+    await stopSidecar()
     await killSidecar()
     wslServers.stopAll()
   }
@@ -325,85 +327,26 @@ const main = Effect.gen(function* () {
   )
 
   const loadingTask = yield* Effect.gen(function* () {
-    logger.log("sidecar connection started", { version: SIDECAR_VERSION })
+    logger.log("sidecar connection started")
 
     ensureLoopbackNoProxy()
     useEnvProxy()
 
-    if (SIDECAR_VERSION === "v2") {
-      logger.log("spawning v2 sidecar")
-      const sidecar = yield* Effect.promise(() => startBackgroundCli(logger, shellEnv?.XDG_STATE_HOME))
-      yield* Deferred.succeed(serverReady, {
-        url: sidecar.url,
-        username: sidecar.username,
-        password: sidecar.password,
-      })
+    logger.log("initializing KogniTerm server sidecar")
+    const sidecar = yield* Effect.promise(() => initSidecar())
+    server = { stop: () => sidecar.stop() }
 
-      if (process.platform === "win32") {
-        void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
-      }
-
-      logger.log("loading task finished")
-      return
-    }
-
-    const port = yield* Effect.gen(function* () {
-      const fromEnv = process.env.OPENCODE_PORT
-      if (fromEnv) {
-        const parsed = Number.parseInt(fromEnv, 10)
-        if (!Number.isNaN(parsed)) return parsed
-      }
-
-      const res = yield* Deferred.make<number, unknown>()
-      const socket = createServer()
-      socket.on("error", (e) => Deferred.failSync(res, () => e))
-      socket.listen(0, "127.0.0.1", () => {
-        const address = socket.address()
-        if (typeof address !== "object" || !address) {
-          socket.close()
-          Deferred.failSync(res, () => new Error("Failed to get port"))
-          return
-        }
-        const port = address.port
-        socket.close(() => Effect.runSync(Deferred.succeed(res, port)))
-      })
-
-      return yield* Deferred.await(res)
-    })
-    const hostname = "127.0.0.1"
-    const url = `http://${hostname}:${port}`
-    const password = randomUUID()
-
-    logger.log("spawning sidecar", { url })
-    const { listener, health } = yield* Effect.promise(() =>
-      spawnLocalServer(hostname, port, password, {
-        userDataPath: app.getPath("userData"),
-        onStdout: (message) => writeLog("server", "stdout", { message }),
-        onStderr: (message) => writeLog("server", "stderr", { message }, "warn"),
-        onExit: (code) => writeLog("utility", "sidecar exited", { code }, "warn"),
-      }),
-    )
-    server = listener
     yield* Deferred.succeed(serverReady, {
-      url,
-      username: "opencode",
-      password,
+      url: sidecar.url,
+      username: null,
+      password: null,
     })
 
     if (process.platform === "win32") {
       void wslServers.initialize().catch((error) => logger.error("wsl server initialization failed", error))
     }
 
-    yield* Effect.promise(() => health.wait).pipe(
-      Effect.timeout("30 seconds"),
-      Effect.catch((e) =>
-        Effect.sync(() => {
-          logger.error("sidecar health check failed", e.toString())
-        }),
-      ),
-    )
-
-    logger.log("loading task finished")
+    logger.log("KogniTerm server sidecar ready", { url: sidecar.url })
   }).pipe(forwardInitializationFailure(serverReady), Effect.forkChild)
 
   yield* Fiber.await(loadingTask)

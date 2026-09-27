@@ -69,11 +69,15 @@ const require = __cjs_mod__.createRequire(import.meta.url);
         },
       },
       {
-        name: "opencode:copy-server-assets",
+        name: "kogniterm:copy-server-assets",
         async writeBundle() {
-          for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
-            if (!l.endsWith(".wasm")) continue
-            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${OPENCODE_SERVER_DIST}/${l}`))
+          try {
+            for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
+              if (!l.endsWith(".wasm")) continue
+              await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${OPENCODE_SERVER_DIST}/${l}`))
+            }
+          } catch {
+            // Server assets not compiled locally; using sidecar launcher
           }
         },
       },
