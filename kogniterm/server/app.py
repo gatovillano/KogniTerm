@@ -763,6 +763,7 @@ def create_app() -> FastAPI:
     @application.get("/models/available", tags=["Configuración"])
     async def get_available_models():
         return await get_cached_available_models()
+    @application.get("/api/config/llm", tags=["Configuración"])
     @application.get("/config/llm", tags=["Configuración"])
     async def get_llm_config():
         """Obtiene la configuración actual del LLM (enmascarando keys)."""
