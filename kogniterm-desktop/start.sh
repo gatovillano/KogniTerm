@@ -42,8 +42,8 @@ if [ ! -f "node_modules/electron/path.txt" ] && [ ! -f "packages/desktop/node_mo
     (cd packages/desktop && node node_modules/electron/install.js) 2>/dev/null || true
 fi
 
-# Compilar producción si no existe out/ o se solicita --build
-if [ ! -f "packages/desktop/out/main/index.js" ] || [ "$REBUILD" = true ]; then
+# Compilar producción si no existe out/main/index.js o out/renderer/index.html o se solicita --build
+if [ ! -f "packages/desktop/out/main/index.js" ] || [ ! -f "packages/desktop/out/renderer/index.html" ] || [ "$REBUILD" = true ]; then
     echo "📦 Compilando paquetes de producción..."
     (cd packages/desktop && npm run build)
 fi
