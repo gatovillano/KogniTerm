@@ -2,6 +2,7 @@ import { sentryVitePlugin } from "@sentry/vite-plugin"
 import { defineConfig } from "electron-vite"
 import appPlugin from "@kogniterm/app/vite"
 import * as fs from "node:fs/promises"
+import { resolve } from "node:path"
 
 const OPENCODE_SERVER_DIST = "../opencode/dist/node"
 
@@ -98,6 +99,14 @@ const require = __cjs_mod__.createRequire(import.meta.url);
     plugins: [appPlugin, sentry],
     publicDir: "../../../app/public",
     root: "src/renderer",
+    resolve: {
+      dedupe: ["solid-js", "solid-js/web", "solid-js/store", "@kogniterm/ui", "@kogniterm/app"],
+      alias: [
+        { find: "solid-js/web", replacement: resolve(__dirname, "../../node_modules/solid-js/web") },
+        { find: "solid-js/store", replacement: resolve(__dirname, "../../node_modules/solid-js/store") },
+        { find: "solid-js", replacement: resolve(__dirname, "../../node_modules/solid-js") },
+      ],
+    },
     build: {
       sourcemap: true,
       rollupOptions: {
