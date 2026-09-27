@@ -26,11 +26,15 @@ export default [
             { find: "@opencode-ai/ui", replacement: "@kogniterm/ui" },
             { find: /^@opencode-ai\/app\/(.*)$/, replacement: "@kogniterm/app/$1" },
             { find: "@opencode-ai/app", replacement: "@kogniterm/app" },
+            { find: /^lru_map$/, replacement: fileURLToPath(new URL("./src/utils/lru_map-shim.ts", import.meta.url)) },
             { find: "@", replacement: fileURLToPath(new URL("./src", import.meta.url)) },
           ],
         },
         define: {
           "import.meta.env.VITE_KOGNITERM_CHANNEL": JSON.stringify(channel),
+        },
+        optimizeDeps: {
+          include: ["lru_map", "@pierre/diffs", "@pierre/trees"],
         },
         worker: {
           format: "es",
