@@ -636,7 +636,7 @@ class CLIHandler:
             if "--logs" in args:
                 cmd.append("--logs")
                 
-            subprocess.Popen(cmd, cwd=desktop_dir, env=env)
+            subprocess.Popen(cmd, cwd=desktop_dir, env=env, start_new_session=True)
             print("✨ Proceso de inicio lanzado en segundo plano.")
         except Exception as e:
             print(f"❌ Error al iniciar KogniTerm Desktop: {e}")
