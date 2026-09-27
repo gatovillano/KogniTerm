@@ -1641,6 +1641,25 @@ def create_app() -> FastAPI:
             return {"data": formatted_providers}
         return formatted_providers
 
+    @application.get("/api/provider/auth", tags=["Modelos (OpenCode Compat)"])
+    @application.get("/provider/auth", tags=["Modelos (OpenCode Compat)"])
+    async def opencode_provider_auth(request: Request, directory: Optional[str] = None):
+        """Métodos de autenticación soportados por proveedor para compatibilidad con OpenCode/KogniTerm Desktop."""
+        models_data = await get_cached_available_models()
+        raw_providers = models_data.get("providers", [])
+        result = {}
+        for p in raw_providers:
+            p_id = p["id"]
+            methods = []
+            if p_id != "antigravity":
+                methods.append({"type": "api", "label": "API Key"})
+            result[p_id] = methods
+
+        if request.url.path.startswith("/api/"):
+            return {"data": result}
+        return result
+
+
     @application.get("/api/model", tags=["Modelos (OpenCode Compat)"])
     @application.get("/model", tags=["Modelos (OpenCode Compat)"])
     async def opencode_list_models(request: Request):
@@ -1768,6 +1787,28 @@ def create_app() -> FastAPI:
             cm._save_json(cm.GLOBAL_CONFIG_FILE, g_cfg)
         _cached_models_data = None
         return Response(status_code=204)
+
+    @application.put("/api/auth/{provider_id}", tags=["Integraciones (OpenCode Compat)"])
+    @application.put("/auth/{provider_id}", tags=["Integraciones (OpenCode Compat)"])
+    async def opencode_set_auth_legacy(provider_id: str, payload: Dict[str, Any]):
+        nonlocal _cached_models_data
+        auth = payload.get("auth") or {}
+        key = auth.get("key") or payload.get("key")
+        if not key:
+            raise HTTPException(status_code=400, detail="Key is required")
+        from kogniterm.terminal.config_manager import ConfigManager
+        cm = ConfigManager()
+        cm.set_api_key(provider_id, key, scope="global")
+        _cached_models_data = None
+        return True
+
+    @application.post("/api/instance/dispose", tags=["Sistema (OpenCode Compat)"])
+    @application.post("/instance/dispose", tags=["Sistema (OpenCode Compat)"])
+    async def opencode_instance_dispose():
+        nonlocal _cached_models_data
+        _cached_models_data = None
+        return True
+
 
     @application.get("/api/model/default", tags=["Modelos (OpenCode Compat)"])
     @application.get("/model/default", tags=["Modelos (OpenCode Compat)"])
