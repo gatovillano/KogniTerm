@@ -109,6 +109,57 @@ export interface PendingQuestion {
   questions: unknown[]
 }
 
+/** Workspace del backend Kogniterm: una carpeta de trabajo con hilos de chat propios. */
+export interface KogniTermWorkspace {
+  id: string
+  name: string
+  path: string
+}
+
+/**
+ * Hilo de chat persistente del backend (ThreadManager).
+ * Vive en `<workspace>/.kogniterm/threads/<id>/` y es lo mismo que la TUI
+ * muestra con `/session list`. El campo `workspace_dir` lo asocia a su proyecto.
+ */
+export interface KogniTermThread {
+  id?: string
+  thread_id?: string
+  title?: string
+  title_source?: string
+  created_at?: string
+  updated_at?: string
+  parent_thread_id?: string | null
+  workspace_dir?: string
+  message_count?: number
+  messages?: number
+  metadata?: Record<string, unknown>
+}
+
+export interface KogniTermThreadMessage {
+  id: string
+  role: "user" | "assistant" | "system" | "tool"
+  content: string
+  reasoning?: string
+  tool_calls?: Array<{ id: string; name: string; args: Record<string, unknown> }>
+  tool_call_id?: string | null
+  timestamp?: number
+  images?: unknown[]
+}
+
+export function threadIdOf(thread: KogniTermThread): string {
+  return thread.thread_id ?? thread.id ?? ""
+}
+
+export function threadWorkspaceOf(thread: KogniTermThread): string {
+  return thread.workspace_dir ?? ""
+}
+
+export function threadMessageCountOf(thread: KogniTermThread): number {
+  if (typeof thread.message_count === "number") return thread.message_count
+  if (typeof thread.messages === "number") return thread.messages
+  return 0
+}
+
 export interface KogniTermSessionStore {
   // Signals
   connected: Accessor<boolean>
@@ -311,15 +362,71 @@ export class KogniTermClient {
     return res.json()
   }
 
-  async listWorkspaces(signal?: AbortSignal): Promise<unknown> {
+  async listWorkspaces(signal?: AbortSignal): Promise<{ workspaces: KogniTermWorkspace[] }> {
     const res = await this.fetch("/api/workspaces", { signal })
     if (!res.ok) throw new Error(`List workspaces failed: ${res.statusText}`)
     return res.json()
   }
 
-  async listThreads(signal?: AbortSignal): Promise<unknown> {
-    const res = await this.fetch("/api/threads", { signal })
+  async addWorkspace(path: string, name?: string, signal?: AbortSignal): Promise<{ workspace: KogniTermWorkspace }> {
+    return this.postJson<{ workspace: KogniTermWorkspace }>(
+      "/api/workspaces",
+      name ? { path, name } : { path },
+      signal,
+    )
+  }
+
+  async removeWorkspace(path: string, signal?: AbortSignal): Promise<{ deleted: string }> {
+    const res = await this.fetch(`/api/workspaces?path=${encodeURIComponent(path)}`, {
+      method: "DELETE",
+      signal,
+    })
+    if (!res.ok) throw new Error(`Remove workspace failed: ${res.statusText}`)
+    return res.json()
+  }
+
+  async listThreads(
+    input?: { workspaceDirs?: string[]; filterOnly?: boolean },
+    signal?: AbortSignal,
+  ): Promise<{ threads: KogniTermThread[] }> {
+    const params = new URLSearchParams()
+    if (input?.workspaceDirs?.length) params.set("workspace_dirs", input.workspaceDirs.join(","))
+    if (input?.filterOnly) params.set("filter_only", "true")
+    const query = params.toString()
+    const res = await this.fetch(query ? `/api/threads?${query}` : "/api/threads", { signal })
     if (!res.ok) throw new Error(`List threads failed: ${res.statusText}`)
+    return res.json()
+  }
+
+  async createThread(
+    input?: { session_id?: string; workspace_dir?: string },
+    signal?: AbortSignal,
+  ): Promise<{ thread_id: string; metadata: KogniTermThread }> {
+    return this.postJson<{ thread_id: string; metadata: KogniTermThread }>("/api/threads", input ?? {}, signal)
+  }
+
+  async renameThread(threadId: string, title: string, signal?: AbortSignal): Promise<void> {
+    const res = await this.fetch(`/api/threads/${encodeURIComponent(threadId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+      signal,
+    })
+    if (!res.ok) throw new Error(`Rename thread failed: ${res.statusText}`)
+  }
+
+  async deleteThread(threadId: string, signal?: AbortSignal): Promise<{ deleted: string }> {
+    const res = await this.fetch(`/api/threads/${encodeURIComponent(threadId)}`, {
+      method: "DELETE",
+      signal,
+    })
+    if (!res.ok) throw new Error(`Delete thread failed: ${res.statusText}`)
+    return res.json()
+  }
+
+  async getThreadMessages(threadId: string, signal?: AbortSignal): Promise<{ messages: KogniTermThreadMessage[] }> {
+    const res = await this.fetch(`/api/threads/${encodeURIComponent(threadId)}/messages`, { signal })
+    if (!res.ok) throw new Error(`Get thread messages failed: ${res.statusText}`)
     return res.json()
   }
 

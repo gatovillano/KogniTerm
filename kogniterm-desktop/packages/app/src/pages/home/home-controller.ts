@@ -5,6 +5,7 @@ import { useServerSync } from "@/context/server-sync"
 import { useTabs } from "@/context/tabs"
 import { toggleHomeProjectSelection } from "@/pages/layout/helpers"
 import { createEffect, createMemo } from "solid-js"
+import { ensureWorkspaceRegistered } from "@/utils/kogniterm-workspaces"
 
 export function createHomeController() {
   const sync = useServerSync()
@@ -92,16 +93,24 @@ export function createHomeController() {
         const ctx = global.ensureServerCtx(conn)
         directories.forEach((item) => {
           if (ctx.projects.list().some((project) => project.worktree === item)) return
-          const location = { directory: item }
-          void ctx.sdk.api.file
-            .list({ path: ".", location })
-            .then(async (files) => {
-              if (files.data.length > 0) return ctx.sdk.api.project.current({ location })
-              const result = await ctx.sdk.client.project.initGit({ directory: item })
-              return result.data ?? ctx.sdk.api.project.current({ location })
-            })
-            .then((project) => ctx.sync.child(item, { bootstrap: false })[1]("project", project.id))
-            .catch(() => undefined)
+          // Backend Kogniterm: la carpeta es un workspace con hilos propios
+          // (`<workspace>/.kogniterm/threads/`). Registrarla y asociar el
+          // proyecto antes de abrir, sin pasar por file/project de opencode.
+          void ensureWorkspaceRegistered(ctx.sdk.currentApi?.kogniTerm, item).then((workspace) => {
+            if (!workspace) {
+              const location = { directory: item }
+              return ctx.sdk.api.file
+                .list({ path: ".", location })
+                .then(async (files) => {
+                  if (files.data.length > 0) return ctx.sdk.api.project.current({ location })
+                  const result = await ctx.sdk.client.project.initGit({ directory: item })
+                  return result.data ?? ctx.sdk.api.project.current({ location })
+                })
+                .then((project) => ctx.sync.child(item, { bootstrap: false })[1]("project", project.id))
+                .catch(() => undefined)
+            }
+            ctx.sync.child(item, { bootstrap: false })[1]("project", workspace.id)
+          })
           ctx.projects.open(item)
         })
         ctx.projects.touch(directory)

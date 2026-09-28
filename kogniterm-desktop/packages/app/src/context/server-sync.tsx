@@ -59,6 +59,7 @@ import type {
 } from "@opencode-ai/client/promise"
 import { toggleMcp } from "./global-sync/mcp"
 import { createServerSession, type ServerSession } from "./server-session"
+import { ensureWorkspaceRegistered } from "@/utils/kogniterm-workspaces"
 
 type GlobalStore = {
   ready: boolean
@@ -412,6 +413,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     }
 
     const limit = Math.max(retainedLimit + SESSION_RECENT_LIMIT, SESSION_RECENT_LIMIT)
+    // La carpeta es un workspace Kogniterm: registrarla en el backend para que
+    // `GET /api/threads` escanee sus hilos (los mismos que muestra la TUI).
+    void ensureWorkspaceRegistered(serverSDK.currentApi?.kogniTerm, directory)
     const promise = queryClient
       .fetchQuery({
         ...queryOptionsApi.sessions(key),
@@ -420,7 +424,13 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
             .then((protocol) =>
               protocol === "v1"
                 ? loadRootSessionsV1({ client: sdkFor(directory), directory, limit })
-                : loadRootSessions({ api: serverSDK.api.session, directory, limit }),
+                : loadRootSessions({
+                    api: serverSDK.api.session,
+                    directory,
+                    limit,
+                    kogniTerm: serverSDK.currentApi?.kogniTerm,
+                    projectID: store.project || undefined,
+                  }),
             )
             .then((x) => {
               const nonArchived = (x.data ?? [])

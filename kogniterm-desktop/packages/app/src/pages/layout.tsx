@@ -48,6 +48,7 @@ import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { SessionRouteKey, SessionStateKey } from "@/utils/server-scope"
 import { listAllSessions } from "@/utils/session"
+import { ensureWorkspaceRegistered, isSameWorkspace } from "@/utils/kogniterm-workspaces"
 
 import { useDialog } from "@kogniterm/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@kogniterm/ui/theme/context"
@@ -1227,7 +1228,12 @@ export default function LegacyLayout(props: ParentProps) {
             directory: item,
             parentID: null,
             order: "desc",
-          }).catch(() => []),
+          })
+            // Cada proyecto abre solo chats de su workspace.
+            .then((sessions) =>
+              sessions.filter((session) => !session.directory || isSameWorkspace(session.directory, item)),
+            )
+            .catch(() => []),
         })),
       ),
       Date.now(),
@@ -1245,6 +1251,9 @@ export default function LegacyLayout(props: ParentProps) {
   }
 
   function openProject(directory: string, navigate = true) {
+    // Registrar la carpeta como workspace Kogniterm para que el backend
+    // incluya sus hilos de chat (los mismos que la TUI) en este proyecto.
+    void ensureWorkspaceRegistered(serverSDK().currentApi?.kogniTerm, directory)
     layout.projects.open(directory)
     if (navigate) return navigateToProject(directory)
   }

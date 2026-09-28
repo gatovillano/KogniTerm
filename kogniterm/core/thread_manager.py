@@ -6,6 +6,7 @@ Reemplaza la funcionalidad de AutosaveManager y SessionManager.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -30,6 +31,12 @@ def safe_abs_path(path: Optional[str]) -> str:
         parts = clean.split('/~/')
         clean = os.path.expanduser('~/' + parts[1])
     return os.path.abspath(os.path.expanduser(clean))
+
+
+def stable_workspace_id(workspace_dir: str) -> str:
+    """ID estable para un workspace (el hash() builtin de Python no lo es entre reinicios)."""
+    digest = hashlib.sha1(safe_abs_path(workspace_dir).encode("utf-8")).hexdigest()[:12]
+    return f"ws-{digest}"
 
 
 class ThreadManager:
@@ -89,7 +96,7 @@ class ThreadManager:
             for ws in valid_dirs:
                 name = os.path.basename(ws.rstrip("/")) or ws
                 res.append({
-                    "id": f"ws-{abs(hash(ws))}",
+                    "id": stable_workspace_id(ws),
                     "name": name,
                     "path": ws
                 })

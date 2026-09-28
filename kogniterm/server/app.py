@@ -64,6 +64,7 @@ from kogniterm.server.channel_adapters import (
     CLIAdapter,
     TelegramAdapter,
 )
+from kogniterm.server.pty_manager import pty_manager
 
 logger = logging.getLogger("kogniterm.server.app")
 logging.basicConfig(
@@ -280,7 +281,7 @@ ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         "KOGNITERM_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765,http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765,http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173,oc://renderer,oc://kogniterm",
     ).split(",")
     if o.strip()
 ]
@@ -338,8 +339,22 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Session-ID"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Session-ID",
+            # Headers enviados por el SDK de OpenCode / KogniTerm Desktop
+            "X-Opencode-Directory",
+            "X-Opencode-Workspace",
+            # Cabeceras genéricas de seguridad y tracking
+            "X-Request-ID",
+            "X-Correlation-ID",
+            "Accept",
+            "Accept-Language",
+            "Cache-Control",
+        ],
+        expose_headers=["Content-Type", "X-Request-ID"],
     )
 
     # ── Health Check ────────────────────────────────────────────────────────────
@@ -1356,13 +1371,34 @@ def create_app() -> FastAPI:
 
     # ── OpenCode Compatibility API Layer ───────────────────────────────────────
 
+    def _workspace_project_id(ws_dir: Optional[str] = None) -> str:
+        """ID de proyecto estable derivado del workspace (misma lógica que ThreadManager)."""
+        import hashlib
+
+        clean = safe_abs_path(ws_dir) if ws_dir else safe_abs_path(os.getcwd())
+        digest = hashlib.sha1(clean.encode("utf-8")).hexdigest()[:12]
+        return f"ws-{digest}"
+
+    def _workspace_to_project(ws_dir: str, name: Optional[str] = None):
+        """Mapea un workspace (carpeta de trabajo) al shape Project que espera el desktop."""
+        clean = safe_abs_path(ws_dir)
+        now_ms = int(datetime.datetime.now().timestamp() * 1000)
+        return {
+            "id": _workspace_project_id(clean),
+            "worktree": clean,
+            "directory": clean,
+            "name": name or os.path.basename(clean.rstrip("/")) or clean,
+            "sandboxes": [],
+            "time": {"created": now_ms, "updated": now_ms},
+        }
+
     def _format_session_info(session_id: str, ws_dir: Optional[str] = None, title: Optional[str] = None, created_ms: Optional[int] = None):
         now_ms = int(datetime.datetime.now().timestamp() * 1000)
         t_ms = created_ms or now_ms
-        dir_path = ws_dir or os.getcwd()
+        dir_path = safe_abs_path(ws_dir) if ws_dir else safe_abs_path(os.getcwd())
         return {
             "id": session_id,
-            "projectID": "global",
+            "projectID": _workspace_project_id(dir_path),
             "title": title or "Terminal Session",
             "cost": 0,
             "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}},
@@ -1421,6 +1457,28 @@ def create_app() -> FastAPI:
                         title=t.get("title") or "Chat Session",
                         created_ms=ts,
                     ))
+
+        # Filtrar por workspace cuando el desktop pide un directorio concreto:
+        # cada hilo/chat pertenece al workspace indicado por su workspace_dir,
+        # igual que en la TUI (`/session list` muestra Workspace por hilo).
+        if directory:
+            wanted = safe_abs_path(directory)
+            # Registrar el directorio para que list_threads también escanee
+            # hilos guardados físicamente bajo ese workspace.
+            if pool._thread_manager:
+                pool._thread_manager.register_workspace(wanted)
+            session_list = [
+                s for s in session_list
+                if safe_abs_path(s.get("location", {}).get("directory")) == wanted
+            ]
+
+        if search:
+            needle = search.lower()
+            session_list = [
+                s for s in session_list
+                if needle in (s.get("id") or "").lower()
+                or needle in (s.get("title") or "").lower()
+            ]
 
         if order == "desc":
             session_list.sort(key=lambda x: x["time"]["created"], reverse=True)
@@ -1495,12 +1553,83 @@ def create_app() -> FastAPI:
 
     @application.post("/api/session/{session_id}/prompt", tags=["Sesiones (OpenCode Compat)"])
     @application.post("/session/{session_id}/prompt", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/api/session/{session_id}/prompt_async", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/session/{session_id}/prompt_async", tags=["Sesiones (OpenCode Compat)"])
     async def opencode_session_prompt(session_id: str, request: Request, req: Any = Body(...)):
+        """
+        Envía un mensaje al agente de forma asíncrona (fire-and-forget).
+        Retorna inmediatamente con el messageID. Los eventos de la respuesta
+        se entregan via el stream SSE de /sse/{session_id} o WebSocket /ws/{session_id}.
+
+        Compatible con el SDK de OpenCode v1 (promptAsync) y v2 (prompt).
+        Formatos de body aceptados:
+          - SDK v1: { "parts": [{"type": "text", "text": "..."}], "messageID": "..." }
+          - SDK v2: { "text": "...", "messageID": "..." }
+          - Simplificado: { "message": "..." }
+        """
         await pool.wait_until_ready()
-        res = {"id": str(uuid.uuid4()), "sessionID": session_id}
+        message_id = str(uuid.uuid4())
+
+        # Extraer el texto del mensaje desde cualquiera de los formatos del SDK
+        message_text = ""
+        images: list = []
+        if isinstance(req, dict):
+            # Formato v1: parts array
+            parts = req.get("parts") or []
+            for part in parts:
+                if isinstance(part, dict):
+                    if part.get("type") == "text":
+                        message_text += part.get("text", "")
+                    elif part.get("type") == "file":
+                        url = part.get("url") or part.get("uri", "")
+                        if url:
+                            images.append(url)
+            # Formato v2: campo texto directo
+            if not message_text:
+                message_text = req.get("text") or req.get("message") or ""
+            # Fallback: prompt string directo
+            if not message_text:
+                message_text = str(req.get("prompt") or "")
+            # Override de messageID si el cliente provee uno
+            message_id = req.get("messageID") or req.get("id") or message_id
+
+        if not message_text:
+            logger.warning(f"[{session_id}] prompt_async: cuerpo vacío o sin texto reconocible")
+            message_text = ""
+
+        # Obtener o crear sesión
+        session = pool.get_or_create(session_id)
+
+        # Actualizar workspace si el cliente lo informa vía header o body
+        directory_header = request.headers.get("x-opencode-directory") or request.headers.get("X-Opencode-Directory")
+        directory_body = req.get("location", {}).get("directory") if isinstance(req, dict) else None
+        directory = directory_header or directory_body
+        if directory:
+            try:
+                # El header viene URL-encoded, decodificar
+                from urllib.parse import unquote
+                decoded_dir = unquote(directory)
+                session.update_workspace_dir(decoded_dir)
+            except Exception as exc:
+                logger.debug(f"[{session_id}] No se pudo actualizar workspace desde header: {exc}")
+
+        # Lanzar el agente en background (fire-and-forget) solo si hay mensaje
+        if message_text:
+            asyncio.create_task(session.send(message_text, pool._executor, images=images or None))
+
+        res = {
+            "id": message_id,
+            "sessionID": session_id,
+            "admittedSeq": 0,
+            "type": "user",
+            "timeCreated": int(__import__("time").time() * 1000),
+            "data": {"text": message_text},
+            "delivery": "steer",
+        }
         if request.url.path.startswith("/api/"):
             return {"data": res}
         return res
+
 
     @application.post("/api/session/{session_id}/compact", tags=["Sesiones (OpenCode Compat)"])
     @application.post("/session/{session_id}/compact", tags=["Sesiones (OpenCode Compat)"])
@@ -1518,18 +1647,179 @@ def create_app() -> FastAPI:
             return {"data": True}
         return True
 
+    @application.post("/api/session/{session_id}/abort", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/session/{session_id}/abort", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_abort(session_id: str, request: Request):
+        return await opencode_session_interrupt(session_id, request)
+
+    @application.get("/api/session/{session_id}/todo", tags=["Sesiones (OpenCode Compat)"])
+    @application.get("/session/{session_id}/todo", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_todos(session_id: str, request: Request):
+        """Retorna las tareas (todos) activas del TaskTracker para esta sesión."""
+        await pool.wait_until_ready()
+        s = pool.get(session_id)
+        todos = getattr(s.ui, "current_todos", []) if s and hasattr(s, "ui") else []
+        if request.url.path.startswith("/api/"):
+            return {"data": todos}
+        return todos
+
+    @application.get("/api/session/{session_id}/message", tags=["Sesiones (OpenCode Compat)"])
+    @application.get("/session/{session_id}/message", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_messages(session_id: str, request: Request, limit: int = 100):
+        """Retorna el historial de mensajes de la sesión compatible con OpenCode / KogniTerm Desktop."""
+        await pool.wait_until_ready()
+        s = pool.get(session_id)
+        raw_msgs = []
+        if s and hasattr(s, "agent_state") and s.agent_state:
+            raw_msgs = s.agent_state.messages
+        elif pool._thread_manager:
+            raw_msgs = pool._thread_manager.load_thread_messages(session_id) or []
+
+        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+        formatted = []
+        now_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
+        for i, m in enumerate(raw_msgs):
+            content_str = m.content if isinstance(m.content, str) else str(m.content)
+            if isinstance(m, HumanMessage):
+                m_id = getattr(m, "id", None) or f"user-msg-{i}"
+                formatted.append({
+                    "id": m_id,
+                    "sessionID": session_id,
+                    "role": "user",
+                    "time": {"created": now_ms, "completed": now_ms},
+                    "parts": [
+                        {
+                            "id": f"part-u-{i}",
+                            "sessionID": session_id,
+                            "messageID": m_id,
+                            "type": "text",
+                            "text": content_str,
+                        }
+                    ],
+                })
+            elif isinstance(m, AIMessage):
+                m_id = getattr(m, "id", None) or f"asst-msg-{i}"
+                parts = []
+                # Si hay tool_calls, agregarlos
+                tool_calls = getattr(m, "tool_calls", None) or []
+                for tc in tool_calls:
+                    tc_id = tc.get("id") or str(uuid.uuid4())
+                    parts.append({
+                        "id": f"tool-{tc_id}",
+                        "sessionID": session_id,
+                        "messageID": m_id,
+                        "type": "tool",
+                        "callID": tc_id,
+                        "tool": tc.get("name", "tool"),
+                        "state": {
+                            "status": "completed",
+                            "input": tc.get("args", {}),
+                            "output": "",
+                            "time": {"start": now_ms, "end": now_ms},
+                        },
+                    })
+                if content_str:
+                    parts.append({
+                        "id": f"part-a-{i}",
+                        "sessionID": session_id,
+                        "messageID": m_id,
+                        "type": "text",
+                        "text": content_str,
+                    })
+                formatted.append({
+                    "id": m_id,
+                    "sessionID": session_id,
+                    "role": "assistant",
+                    "time": {"created": now_ms, "completed": now_ms},
+                    "parts": parts,
+                })
+
+        if request.url.path.startswith("/api/"):
+            return {"data": formatted}
+        return formatted
+
+    @application.post("/api/permission/{request_id}/reply", tags=["Permisos (OpenCode Compat)"])
+    @application.post("/permission/{request_id}/reply", tags=["Permisos (OpenCode Compat)"])
+    @application.post("/api/session/{session_id}/permission/{request_id}/reply", tags=["Permisos (OpenCode Compat)"])
+    @application.post("/session/{session_id}/permission/{request_id}/reply", tags=["Permisos (OpenCode Compat)"])
+    async def opencode_permission_reply(request_id: str, request: Request, payload: Any = Body(default={}), session_id: Optional[str] = None):
+        """Responde a una solicitud de confirmación de comando del agente."""
+        await pool.wait_until_ready()
+        reply_val = "once"
+        if isinstance(payload, dict):
+            reply_val = payload.get("reply", "once")
+        approved = reply_val in ("once", "always", True)
+
+        resolved = False
+        target_sessions = [pool.get(session_id)] if session_id and pool.get(session_id) else pool._sessions.values()
+        for s in target_sessions:
+            if s and hasattr(s, "ui") and s.ui:
+                s.ui.handle_approval_response(request_id, approved)
+                resolved = True
+                break
+
+        if request.url.path.startswith("/api/"):
+            return {"data": resolved}
+        return resolved
+
+    @application.post("/api/question/{request_id}/reply", tags=["Preguntas (OpenCode Compat)"])
+    @application.post("/question/{request_id}/reply", tags=["Preguntas (OpenCode Compat)"])
+    @application.post("/api/session/{session_id}/question/{request_id}/reply", tags=["Preguntas (OpenCode Compat)"])
+    @application.post("/session/{session_id}/question/{request_id}/reply", tags=["Preguntas (OpenCode Compat)"])
+    async def opencode_question_reply(request_id: str, request: Request, payload: Any = Body(default={}), session_id: Optional[str] = None):
+        """Responde a una pregunta interactiva formulada por el agente."""
+        await pool.wait_until_ready()
+        selected = ""
+        if isinstance(payload, dict):
+            selected = payload.get("reply") or (payload.get("answers", [""])[0] if isinstance(payload.get("answers"), list) else str(payload))
+        elif isinstance(payload, str):
+            selected = payload
+
+        target_sessions = [pool.get(session_id)] if session_id and pool.get(session_id) else pool._sessions.values()
+        resolved = False
+        for s in target_sessions:
+            if s and hasattr(s, "ui") and s.ui:
+                s.ui.handle_question_response(request_id, selected)
+                resolved = True
+                break
+
+        if request.url.path.startswith("/api/"):
+            return {"data": resolved}
+        return resolved
+
     @application.get("/api/project", tags=["Proyectos (OpenCode Compat)"])
     @application.get("/project", tags=["Proyectos (OpenCode Compat)"])
     async def opencode_list_projects(request: Request):
-        projects = [{"id": "global", "name": "KogniTerm", "directory": os.getcwd()}]
+        # Cada workspace conocido del backend es un proyecto del desktop:
+        # así el sidebar muestra los mismos workspaces (y sus hilos) que la TUI.
+        await pool.wait_until_ready()
+        projects = []
+        seen = set()
+        if pool._thread_manager:
+            for ws in pool._thread_manager.get_known_workspaces():
+                path = ws.get("path")
+                if not path or path in seen:
+                    continue
+                seen.add(path)
+                projects.append(_workspace_to_project(path, ws.get("name")))
+        if not projects:
+            projects.append(_workspace_to_project(os.getcwd(), "KogniTerm"))
         if request.url.path.startswith("/api/"):
             return {"data": projects}
         return projects
 
     @application.get("/api/project/current", tags=["Proyectos (OpenCode Compat)"])
     @application.get("/project/current", tags=["Proyectos (OpenCode Compat)"])
-    async def opencode_current_project(request: Request):
-        cur = {"id": "global", "name": "KogniTerm", "directory": os.getcwd()}
+    async def opencode_current_project(request: Request, directory: Optional[str] = None):
+        await pool.wait_until_ready()
+        if directory:
+            wanted = safe_abs_path(directory)
+            if pool._thread_manager:
+                pool._thread_manager.register_workspace(wanted)
+            cur = _workspace_to_project(wanted)
+        else:
+            cur = _workspace_to_project(os.getcwd(), "KogniTerm")
         if request.url.path.startswith("/api/"):
             return {"data": cur}
         return cur
@@ -1929,19 +2219,37 @@ def create_app() -> FastAPI:
 
     @application.get("/api/event", tags=["Eventos (OpenCode Compat)"])
     @application.get("/event", tags=["Eventos (OpenCode Compat)"])
+    @application.get("/global/event", tags=["Eventos (OpenCode Compat)"])
     async def opencode_events(request: Request):
         async def event_generator():
             init_event = {
                 "id": str(uuid.uuid4()),
                 "type": "server.connected",
+                "properties": {},
                 "data": {},
             }
             yield f"data: {json.dumps(init_event)}\n\n"
-            while True:
-                if await request.is_disconnected():
-                    break
-                await asyncio.sleep(15)
-                yield ": heartbeat\n\n"
+
+            # Suscribirse al broadcast global de eventos del pool
+            queue: asyncio.Queue = asyncio.Queue()
+            with pool._global_event_lock:
+                pool._global_event_queues.append(queue)
+
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        # Esperar evento con timeout de 15s para enviar heartbeat si no hay tráfico
+                        event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                        queue.task_done()
+                        yield f"data: {json.dumps(event)}\n\n"
+                    except asyncio.TimeoutError:
+                        yield ": heartbeat\n\n"
+            finally:
+                with pool._global_event_lock:
+                    if queue in pool._global_event_queues:
+                        pool._global_event_queues.remove(queue)
 
         return StreamingResponse(
             event_generator(),
@@ -1952,6 +2260,148 @@ def create_app() -> FastAPI:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    # ── PTY / Terminal Real Interactivo (OpenCode / Desktop Compat) ────────────
+
+    @application.get("/pty/shells", tags=["PTY (OpenCode Compat)"])
+    @application.get("/api/pty/shells", tags=["PTY (OpenCode Compat)"])
+    async def opencode_pty_shells(request: Request):
+        """Lista los shells disponibles en el sistema para el terminal integrado."""
+        import shutil
+        shells = []
+        candidates = [
+            ("/bin/bash", "bash"),
+            ("/usr/bin/bash", "bash"),
+            ("/bin/zsh", "zsh"),
+            ("/usr/bin/zsh", "zsh"),
+            ("/bin/sh", "sh"),
+            ("/usr/bin/fish", "fish"),
+            ("/usr/local/bin/fish", "fish"),
+        ]
+        seen = set()
+        for path, name in candidates:
+            if path in seen:
+                continue
+            if shutil.which(name) or os.path.exists(path):
+                actual = shutil.which(name) or path
+                if actual in seen:
+                    continue
+                seen.add(actual)
+                shells.append({
+                    "path": actual,
+                    "name": name,
+                    "title": name.capitalize(),
+                    "acceptable": True,
+                })
+        if not shells:
+            shells.append({
+                "path": "/bin/sh",
+                "name": "sh",
+                "title": "Sh",
+                "acceptable": True,
+            })
+        if request.url.path.startswith("/api/"):
+            return {"data": shells}
+        return shells
+
+    @application.get("/pty", tags=["PTY (OpenCode Compat)"])
+    @application.get("/api/pty", tags=["PTY (OpenCode Compat)"])
+    async def opencode_pty_list(request: Request):
+        """Lista las sesiones PTY activas."""
+        ptys = await pty_manager.list_ptys()
+        if request.url.path.startswith("/api/"):
+            return {"data": ptys}
+        return ptys
+
+    @application.post("/pty", tags=["PTY (OpenCode Compat)"])
+    @application.post("/api/pty", tags=["PTY (OpenCode Compat)"])
+    async def opencode_pty_create(request: Request, payload: Any = Body(default={})):
+        """Crea una sesión PTY interactiva real en el directorio de trabajo."""
+        title = None
+        directory = None
+        if isinstance(payload, dict):
+            title = payload.get("title")
+            loc = payload.get("location")
+            if isinstance(loc, dict):
+                directory = loc.get("directory")
+            if not directory:
+                directory = payload.get("directory")
+
+        # Fallback a cabecera
+        if not directory:
+            raw_dir = request.headers.get("x-opencode-directory") or request.headers.get("X-Opencode-Directory")
+            if raw_dir:
+                from urllib.parse import unquote
+                directory = unquote(raw_dir)
+
+        proc = await pty_manager.create_pty(cwd=directory, title=title)
+        res = {
+            "id": proc.pty_id,
+            "title": proc.title,
+            "status": "running",
+            "wsPath": f"/pty/{proc.pty_id}/connect",
+        }
+        if request.url.path.startswith("/api/"):
+            return {"data": res}
+        return res
+
+    @application.get("/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    @application.get("/api/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    async def opencode_pty_get(pty_id: str, request: Request):
+        proc = await pty_manager.get_pty(pty_id)
+        if not proc:
+            res = {"id": pty_id, "status": "exited"}
+        else:
+            res = {"id": proc.pty_id, "title": proc.title, "status": "exited" if proc.exited else "running"}
+        if request.url.path.startswith("/api/"):
+            return {"data": res}
+        return res
+
+    @application.post("/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    @application.put("/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    @application.post("/api/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    @application.put("/api/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    async def opencode_pty_update(pty_id: str, request: Request, payload: Any = Body(default={})):
+        if isinstance(payload, dict):
+            size = payload.get("size")
+            if isinstance(size, dict):
+                cols = size.get("cols", 80)
+                rows = size.get("rows", 24)
+                await pty_manager.resize_pty(pty_id, cols, rows)
+            title = payload.get("title")
+            if title:
+                proc = await pty_manager.get_pty(pty_id)
+                if proc:
+                    proc.title = title
+        if request.url.path.startswith("/api/"):
+            return {"data": True}
+        return True
+
+    @application.delete("/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    @application.delete("/api/pty/{pty_id}", tags=["PTY (OpenCode Compat)"])
+    async def opencode_pty_delete(pty_id: str, request: Request):
+        await pty_manager.kill_pty(pty_id)
+        if request.url.path.startswith("/api/"):
+            return {"data": True}
+        return True
+
+    @application.get("/pty/{pty_id}/connect-token", tags=["PTY (OpenCode Compat)"])
+    @application.post("/pty/{pty_id}/connect-token", tags=["PTY (OpenCode Compat)"])
+    @application.get("/api/pty/{pty_id}/connect-token", tags=["PTY (OpenCode Compat)"])
+    @application.post("/api/pty/{pty_id}/connect-token", tags=["PTY (OpenCode Compat)"])
+    async def opencode_pty_connect_token(pty_id: str, request: Request):
+        res = {"ticket": "1"}
+        if request.url.path.startswith("/api/"):
+            return {"data": res}
+        return res
+
+    @application.websocket("/pty/{pty_id}/connect")
+    @application.websocket("/api/pty/{pty_id}/connect")
+    async def opencode_pty_websocket(websocket: WebSocket, pty_id: str, directory: Optional[str] = None):
+        """Conexión WebSocket directa para xterm.js / Ghostty al PTY."""
+        await pty_manager.handle_websocket(websocket, pty_id, directory=directory)
+
+
 
     # ── Gestión de Workspaces ─────────────────────────────────────────────────
 
@@ -1981,7 +2431,7 @@ def create_app() -> FastAPI:
 
         name = req.name or os.path.basename(target_path.rstrip("/")) or target_path
         ws_obj = {
-            "id": f"ws-{abs(hash(target_path))}",
+            "id": _workspace_project_id(target_path),
             "name": name,
             "path": target_path
         }

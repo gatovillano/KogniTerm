@@ -268,6 +268,8 @@ class ServerUI(TerminalUI):
         self.current_thinking: str = ""
         self.current_response: str = ""
         self.active_terminal_entries: list = []
+        self.current_todos: list = []
+        self.current_message_id: str = str(uuid.uuid4())
 
     def reset_live_buffer(self) -> None:
         """Limpia el búfer del estado en vivo cuando concluye la generación."""
@@ -341,6 +343,13 @@ class ServerUI(TerminalUI):
 
             # Backwards compatibility: push a la cola legacy
             self._loop.call_soon_threadsafe(self._async_queue.put_nowait, event)
+
+            # Forward al pool global para clientes SSE (OpenCode Desktop)
+            try:
+                if 'pool' in globals() and pool is not None:
+                    pool.broadcast_from_session(self.session_id, event_type, data)
+            except Exception:
+                pass
 
             # Broadcast a Telegram si es un mensaje de texto (solo agente principal)
             if (
@@ -520,7 +529,24 @@ class ServerUI(TerminalUI):
         )
 
     def update_task_tracker(self, agent_plans: dict) -> None:
+        todos = []
+        idx = 1
+        for agent_name, tasks in (agent_plans or {}).items():
+            if isinstance(tasks, list):
+                for task in tasks:
+                    if isinstance(task, dict):
+                        status = str(task.get("status", "pending")).lower()
+                        opencode_status = "completed" if status in ("done", "completed") else ("in_progress" if status in ("in-progress", "in_progress") else "pending")
+                        todos.append({
+                            "id": str(idx),
+                            "content": task.get("task", ""),
+                            "status": opencode_status,
+                            "priority": "medium",
+                        })
+                        idx += 1
+        self.current_todos = todos
         self._push("task_tracker", agent_plans)
+        self._push("todo.updated", {"sessionID": self.session_id, "todos": todos})
 
     async def ask_approval_async(
         self, message: str, title: str = "Aprobación Requerida", **kwargs
@@ -1434,6 +1460,8 @@ class SessionPool:
             max_workers=20, thread_name_prefix="kt-agent"
         )
         self._ready_event: Optional[asyncio.Event] = None
+        self._global_event_queues: list = []
+        self._global_event_lock = threading.Lock()
 
     @property
     def ready_event(self) -> asyncio.Event:
@@ -1508,6 +1536,125 @@ class SessionPool:
 
     def new_session_id(self) -> str:
         return str(uuid.uuid4())
+
+    def broadcast_global_event(self, event: dict) -> None:
+        """Difunde un evento estructurado a todos los clientes suscritos al SSE global."""
+        with self._global_event_lock:
+            for q in list(self._global_event_queues):
+                if self._loop and self._loop.is_running():
+                    self._loop.call_soon_threadsafe(q.put_nowait, event)
+
+    async def subscribe_global_events(self) -> AsyncIterator[dict]:
+        """Generador asíncrono para suscripciones SSE globales (/global/event y /api/event)."""
+        q: asyncio.Queue = asyncio.Queue()
+        with self._global_event_lock:
+            self._global_event_queues.append(q)
+        try:
+            while True:
+                event = await q.get()
+                yield event
+                q.task_done()
+        finally:
+            with self._global_event_lock:
+                if q in self._global_event_queues:
+                    self._global_event_queues.remove(q)
+
+    def broadcast_from_session(self, session_id: str, event_type: str, data: Any) -> None:
+        """Adapta un evento interno de ServerUI al formato OpenCode Desktop y lo difunde."""
+        opencode_events = []
+        now_ms = int(datetime.utcnow().timestamp() * 1000)
+        session = self._sessions.get(session_id)
+        msg_id = getattr(session.ui, "current_message_id", session_id) if session and hasattr(session, "ui") else session_id
+
+        if event_type == "user_message":
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "session.status",
+                "properties": {"sessionID": session_id, "status": {"type": "running"}},
+            })
+        elif event_type in ("done", "live_stop"):
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "session.status",
+                "properties": {"sessionID": session_id, "status": {"type": "idle"}},
+            })
+        elif event_type in ("stream", "chunk"):
+            text = data if isinstance(data, str) else (data.get("content", "") if isinstance(data, dict) else str(data))
+            if text:
+                opencode_events.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "message.part.delta",
+                    "properties": {
+                        "sessionID": session_id,
+                        "messageID": msg_id,
+                        "partID": f"text-{session_id}",
+                        "delta": text,
+                    },
+                })
+        elif event_type == "live_update" and isinstance(data, dict):
+            thinking = data.get("thinking")
+            response = data.get("response")
+            if thinking:
+                opencode_events.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "message.part.updated",
+                    "properties": {
+                        "part": {
+                            "id": f"reasoning-{session_id}",
+                            "sessionID": session_id,
+                            "messageID": msg_id,
+                            "type": "reasoning",
+                            "text": thinking,
+                            "time": {"start": now_ms},
+                        }
+                    },
+                })
+            if response:
+                opencode_events.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "message.part.updated",
+                    "properties": {
+                        "part": {
+                            "id": f"text-{session_id}",
+                            "sessionID": session_id,
+                            "messageID": msg_id,
+                            "type": "text",
+                            "text": response,
+                        }
+                    },
+                })
+        elif event_type == "todo.updated" and isinstance(data, dict):
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "todo.updated",
+                "properties": data,
+            })
+        elif event_type == "approval_required" and isinstance(data, dict):
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "permission.asked",
+                "properties": {
+                    "id": data.get("id"),
+                    "sessionID": session_id,
+                    "permission": "command",
+                    "patterns": [data.get("message", "")],
+                    "metadata": data,
+                },
+            })
+        elif event_type == "question_required" and isinstance(data, dict):
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "question.asked",
+                "properties": {
+                    "id": data.get("id"),
+                    "sessionID": session_id,
+                    "question": data.get("question", ""),
+                    "options": data.get("options", []),
+                },
+            })
+
+        for oe in opencode_events:
+            self.broadcast_global_event(oe)
 
 
 # Instancia global (singleton)
