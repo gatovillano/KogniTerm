@@ -1565,12 +1565,36 @@ class SessionPool:
         now_ms = int(datetime.utcnow().timestamp() * 1000)
         session = self._sessions.get(session_id)
         msg_id = getattr(session.ui, "current_message_id", session_id) if session and hasattr(session, "ui") else session_id
+        if not msg_id:
+            msg_id = session_id
 
         if event_type == "user_message":
+            asst_msg_id = str(uuid.uuid4())
+            if session and hasattr(session, "ui"):
+                session.ui.current_message_id = asst_msg_id
+            msg_id = asst_msg_id
+
             opencode_events.append({
                 "id": str(uuid.uuid4()),
                 "type": "session.status",
                 "properties": {"sessionID": session_id, "status": {"type": "running"}},
+            })
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "message.updated",
+                "properties": {
+                    "sessionID": session_id,
+                    "info": {
+                        "id": asst_msg_id,
+                        "sessionID": session_id,
+                        "role": "assistant",
+                        "time": {"created": now_ms},
+                        "parentID": None,
+                        "modelID": "gemini-2.0-flash",
+                        "providerID": "google",
+                        "mode": "build",
+                    },
+                },
             })
         elif event_type in ("done", "live_stop"):
             opencode_events.append({
@@ -1588,6 +1612,7 @@ class SessionPool:
                         "sessionID": session_id,
                         "messageID": msg_id,
                         "partID": f"text-{session_id}",
+                        "field": "text",
                         "delta": text,
                     },
                 })
@@ -1599,6 +1624,7 @@ class SessionPool:
                     "id": str(uuid.uuid4()),
                     "type": "message.part.updated",
                     "properties": {
+                        "sessionID": session_id,
                         "part": {
                             "id": f"reasoning-{session_id}",
                             "sessionID": session_id,
@@ -1606,7 +1632,7 @@ class SessionPool:
                             "type": "reasoning",
                             "text": thinking,
                             "time": {"start": now_ms},
-                        }
+                        },
                     },
                 })
             if response:
@@ -1614,20 +1640,21 @@ class SessionPool:
                     "id": str(uuid.uuid4()),
                     "type": "message.part.updated",
                     "properties": {
+                        "sessionID": session_id,
                         "part": {
                             "id": f"text-{session_id}",
                             "sessionID": session_id,
                             "messageID": msg_id,
                             "type": "text",
                             "text": response,
-                        }
+                        },
                     },
                 })
         elif event_type == "todo.updated" and isinstance(data, dict):
             opencode_events.append({
                 "id": str(uuid.uuid4()),
                 "type": "todo.updated",
-                "properties": data,
+                "properties": {"sessionID": session_id, "todos": data.get("todos", []) if "todos" in data else data},
             })
         elif event_type == "approval_required" and isinstance(data, dict):
             opencode_events.append({
@@ -1654,6 +1681,11 @@ class SessionPool:
             })
 
         for oe in opencode_events:
+            props = oe.get("properties") or {}
+            oe["properties"] = props
+            oe["data"] = props
+            if session and getattr(session, "workspace_dir", None):
+                oe["location"] = {"directory": session.workspace_dir}
             self.broadcast_global_event(oe)
 
 

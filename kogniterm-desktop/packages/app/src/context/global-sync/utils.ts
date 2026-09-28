@@ -51,26 +51,43 @@ export function normalizePermissionRequest(input: PermissionV2Request | Permissi
 }
 
 export function normalizeProviderList(
-  providers: ProviderListOutput["data"] | ProviderListResponse,
+  rawProviders: ProviderListOutput["data"] | ProviderListResponse,
   models?: ModelListOutput["data"],
   defaultModel?: ModelDefaultOutput["data"],
 ): NormalizedProviderListResponse {
-  if (!Array.isArray(providers)) {
+  if (!rawProviders) {
     return {
-      ...providers,
+      all: new Map(),
+      connected: [],
+      default: {},
+      defaultModel: null,
+    } as any
+  }
+
+  if (typeof rawProviders === "object" && !Array.isArray(rawProviders) && Array.isArray((rawProviders as any).data)) {
+    return normalizeProviderList((rawProviders as any).data, models, defaultModel)
+  }
+
+  if (!Array.isArray(rawProviders)) {
+    const allProviders = Array.isArray((rawProviders as any).all) ? (rawProviders as any).all : []
+    return {
+      ...rawProviders,
       all: new Map(
-        providers.all.map((provider) => [
+        allProviders.map((provider: any) => [
           provider.id,
           {
             ...provider,
             models: Object.fromEntries(
-              Object.entries(provider.models).filter(([, model]) => model.status !== "deprecated"),
+              Object.entries(provider.models ?? {}).filter(([, model]: any) => model?.status !== "deprecated"),
             ),
           },
         ]),
       ),
+      connected: Array.isArray((rawProviders as any).connected) ? (rawProviders as any).connected : [],
+      default: (rawProviders as any).default ?? {},
     }
   }
+  const providers = rawProviders
   const all = new Map<string, Provider>()
 
   for (const provider of providers) {

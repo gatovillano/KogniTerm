@@ -1487,7 +1487,7 @@ def create_app() -> FastAPI:
 
         items = session_list[:limit]
         if request.url.path.startswith("/api/"):
-            return {"data": items, "cursor": {}}
+            return {"data": items, "cursor": {"next": None, "previous": None}}
         return items
 
     @application.get("/api/session/active", tags=["Sesiones (OpenCode Compat)"])
@@ -1514,7 +1514,16 @@ def create_app() -> FastAPI:
         elif pool._thread_manager:
             th = pool._thread_manager.get_thread(session_id)
             if th:
-                item = _format_session_info(session_id, th.get("workspace_dir"), th.get("title"))
+                ws_dir = getattr(th, "workspace_dir", None) or (th.get("workspace_dir") if isinstance(th, dict) else None)
+                title = getattr(th, "title", None) or (th.get("title") if isinstance(th, dict) else None)
+                cat = getattr(th, "created_at", None) or (th.get("created_at") if isinstance(th, dict) else None)
+                created_ms = None
+                if cat:
+                    try:
+                        created_ms = int(datetime.datetime.fromisoformat(cat).timestamp() * 1000)
+                    except Exception:
+                        pass
+                item = _format_session_info(session_id, ws_dir, title, created_ms)
         if not item:
             item = _format_session_info(session_id)
         if request.url.path.startswith("/api/"):
@@ -1767,7 +1776,7 @@ def create_app() -> FastAPI:
                 })
 
         if request.url.path.startswith("/api/"):
-            return {"data": formatted}
+            return {"data": formatted, "cursor": {"next": None, "previous": None}}
         return formatted
 
     @application.post("/api/permission/{request_id}/reply", tags=["Permisos (OpenCode Compat)"])
@@ -1959,13 +1968,13 @@ def create_app() -> FastAPI:
                 "connected": is_connected,
                 "models": models_dict,
             })
-        if request.url.path.startswith("/api/"):
-            return {"data": formatted_providers}
-        return {
+        res_dict = {
             "all": formatted_providers,
             "connected": [p["id"] for p in formatted_providers if p.get("connected")],
             "default": {},
+            "data": formatted_providers,
         }
+        return res_dict
 
     @application.get("/api/provider/auth", tags=["Modelos (OpenCode Compat)"])
     @application.get("/provider/auth", tags=["Modelos (OpenCode Compat)"])
@@ -2241,6 +2250,8 @@ def create_app() -> FastAPI:
             return {"data": []}
         return []
 
+    @application.get("/api/question/request", tags=["Preguntas (OpenCode Compat)"])
+    @application.get("/question/request", tags=["Preguntas (OpenCode Compat)"])
     @application.get("/api/question", tags=["Preguntas (OpenCode Compat)"])
     @application.get("/question", tags=["Preguntas (OpenCode Compat)"])
     async def opencode_questions(request: Request):

@@ -26,40 +26,42 @@ type CurrentDelta = Extract<
 >
 
 export function adaptServerEvent(event: OpenCodeEvent): ServerEvent {
+  const eventData = ((event as any)?.data ?? (event as any)?.properties ?? {}) as Record<string, any>
   if (event.type === "permission.v2.asked") {
     return {
       id: event.id,
       type: "permission.asked",
       properties: {
-        id: event.data.id,
-        sessionID: event.data.sessionID,
-        permission: event.data.action,
-        patterns: event.data.resources,
-        always: event.data.save ?? [],
-        metadata: event.data.metadata ?? {},
+        id: eventData.id,
+        sessionID: eventData.sessionID,
+        permission: eventData.action ?? eventData.permission,
+        patterns: eventData.resources ?? eventData.patterns ?? [],
+        always: eventData.save ?? eventData.always ?? [],
+        metadata: eventData.metadata ?? {},
         tool:
-          event.data.source?.type === "tool"
-            ? { messageID: event.data.source.messageID, callID: event.data.source.callID }
+          eventData.source?.type === "tool"
+            ? { messageID: eventData.source.messageID, callID: eventData.source.callID }
             : undefined,
       },
       current: event,
     } as ServerEvent
   }
   if (event.type === "permission.v2.replied")
-    return { id: event.id, type: "permission.replied", properties: event.data, current: event } as ServerEvent
+    return { id: event.id, type: "permission.replied", properties: eventData, current: event } as ServerEvent
   if (event.type === "question.v2.asked")
-    return { id: event.id, type: "question.asked", properties: event.data, current: event } as ServerEvent
+    return { id: event.id, type: "question.asked", properties: eventData, current: event } as ServerEvent
   if (event.type === "question.v2.replied")
-    return { id: event.id, type: "question.replied", properties: event.data, current: event } as ServerEvent
+    return { id: event.id, type: "question.replied", properties: eventData, current: event } as ServerEvent
   if (event.type === "question.v2.rejected")
-    return { id: event.id, type: "question.rejected", properties: event.data, current: event } as ServerEvent
-  return { id: event.id, type: event.type, properties: event.data, current: event } as ServerEvent
+    return { id: event.id, type: "question.rejected", properties: eventData, current: event } as ServerEvent
+  return { id: event.id, type: event.type, properties: eventData, current: event } as ServerEvent
 }
 
 const coalescedKey = (event: QueuedServerEvent) => {
   if (event.payload.type === "lsp.updated") return `lsp.updated:${event.directory}`
   if (event.payload.type === "message.part.updated") {
-    const part = event.payload.properties.part
+    const part = event.payload.properties?.part
+    if (!part) return undefined
     return `message.part.updated:${event.directory}:${part.messageID}:${part.id}`
   }
   return undefined
@@ -112,11 +114,16 @@ export function coalesceServerEvents(events: QueuedServerEvent[]) {
       return
     }
     const props = event.payload.properties
+    if (!props) {
+      output.push(event)
+      return
+    }
     const previous = output[output.length - 1]
     if (
       !previous ||
       previous.payload.type !== "message.part.delta" ||
       previous.directory !== event.directory ||
+      !previous.payload.properties ||
       previous.payload.properties.messageID !== props.messageID ||
       previous.payload.properties.partID !== props.partID ||
       previous.payload.properties.field !== props.field

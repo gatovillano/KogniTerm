@@ -543,8 +543,8 @@ export function createServerSession(
         })
       const first = await request(before)
       const pages = [first]
-      while (pages.at(-1)?.cursor.next && needsOlderTurnRoot(pages.flatMap((page) => page.data).toReversed())) {
-        const response = await request(pages.at(-1)!.cursor.next ?? undefined)
+      while (pages.at(-1)?.cursor?.next && needsOlderTurnRoot(pages.flatMap((page) => page.data).toReversed())) {
+        const response = await request(pages.at(-1)!.cursor?.next ?? undefined)
         pages.push(response)
         if (!response.data.length) break
       }
@@ -559,7 +559,7 @@ export function createServerSession(
         source,
         sourceMode: before ? ("older" as const) : ("latest" as const),
         projectSource: true,
-        cursor: response.cursor.next ?? undefined,
+        cursor: response.cursor?.next ?? undefined,
         complete: response.data.length === 0,
       }
     }

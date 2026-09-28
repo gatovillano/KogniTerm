@@ -45,7 +45,7 @@ export async function loadHomeSessionIndex(
     )
     const page = response.data!
     data.push(...page.data)
-    if (page.data.length < HOME_V2_SESSION_PAGE_LIMIT || !page.cursor.next)
+    if (page.data.length < HOME_V2_SESSION_PAGE_LIMIT || !page.cursor?.next)
       return { sessions: parseHomeSessionIndex(data), eventSequence }
     cursor = page.cursor.next
   }
