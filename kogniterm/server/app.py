@@ -1521,8 +1521,8 @@ def create_app() -> FastAPI:
             return {"data": item}
         return item
 
-    @application.post("/api/session", tags=["Sesiones (OpenCode Compat)"], status_code=201)
-    @application.post("/session", tags=["Sesiones (OpenCode Compat)"], status_code=201)
+    @application.post("/api/session", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/session", tags=["Sesiones (OpenCode Compat)"])
     async def opencode_create_session(request: Request, req: Any = Body(default={})):
         await pool.wait_until_ready()
         sid = None
@@ -1624,6 +1624,37 @@ def create_app() -> FastAPI:
             "type": "user",
             "timeCreated": int(__import__("time").time() * 1000),
             "data": {"text": message_text},
+            "delivery": "steer",
+        }
+        if request.url.path.startswith("/api/"):
+            return {"data": res}
+        return res
+
+    @application.post("/api/session/{session_id}/command", tags=["Sesiones (OpenCode Compat)"])
+    @application.post("/session/{session_id}/command", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_command(session_id: str, request: Request, req: Any = Body(...)):
+        """Ejecuta un comando de sesión (ej: /compact, /model, /reset)."""
+        await pool.wait_until_ready()
+        message_id = str(uuid.uuid4())
+        cmd = ""
+        args = ""
+        if isinstance(req, dict):
+            cmd = req.get("command", "")
+            args = req.get("arguments", "")
+            message_id = req.get("id") or req.get("messageID") or message_id
+
+        full_text = f"/{cmd} {args}".strip() if cmd else ""
+        session = pool.get_or_create(session_id)
+        if full_text:
+            asyncio.create_task(session.send(full_text, pool._executor))
+
+        res = {
+            "id": message_id,
+            "sessionID": session_id,
+            "admittedSeq": 0,
+            "type": "user",
+            "timeCreated": int(__import__("time").time() * 1000),
+            "data": {"text": full_text},
             "delivery": "steer",
         }
         if request.url.path.startswith("/api/"):
