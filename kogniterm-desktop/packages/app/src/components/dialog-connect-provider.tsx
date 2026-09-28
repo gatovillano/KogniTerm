@@ -407,9 +407,10 @@ function ProviderConnection(props: {
     timer.current = undefined
   })
 
-  const provider = createMemo(
-    () => providers.all().get(props.provider) ?? serverSync().data.provider.all.get(props.provider)!,
-  )
+  const provider = createMemo(() => {
+    const p = providers.all().get(props.provider) ?? serverSync().data.provider.all.get(props.provider)
+    return p ?? { id: props.provider, name: props.provider.charAt(0).toUpperCase() + props.provider.slice(1), models: {} }
+  })
   const fallback = createMemo<ConnectMethod[]>(() => [
     {
       type: "key" as const,
@@ -713,12 +714,12 @@ function ProviderConnection(props: {
   let auto = false
   createEffect(() => {
     if (auto) return
-    if (loading()) return
     if (props.provider === "antigravity") {
       auto = true
       void complete()
       return
     }
+    if (loading()) return
     if (methods().length === 1) {
       auto = true
       void selectMethod(0)
@@ -1171,7 +1172,7 @@ function ProviderConnection(props: {
           autofocus={!newLayout() && store.methodIndex === undefined ? true : undefined}
         >
           <Switch>
-            <Match when={loading()}>
+            <Match when={props.provider === "antigravity" || loading()}>
               <div class="text-14-regular text-text-base">
                 <div class="flex items-center gap-x-2">
                   <Spinner />

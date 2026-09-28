@@ -54,9 +54,16 @@ export function createShellSettingsController() {
   const serverSync = useServerSync()
   const [shells] = createResource(
     async () => {
-      const sdk = serverSdk()
-      if ((await sdk.protocol) === "v1") return (await sdk.client.pty.shells()).data ?? []
-      return [] as ShellOption[]
+      // The current (V2) API exposes no shell listing, and minimal servers may
+      // not implement the legacy endpoint either — never let this fail the
+      // settings page, fall back to an empty list.
+      try {
+        const sdk = serverSdk()
+        if ((await sdk.protocol) === "v1") return (await sdk.client.pty.shells()).data ?? []
+        return [] as ShellOption[]
+      } catch {
+        return [] as ShellOption[]
+      }
     },
     { initialValue: [] as ShellOption[] },
   )

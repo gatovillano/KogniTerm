@@ -8,14 +8,26 @@ const mockFetch = (run: (input: string | URL | Request) => Promise<Response>) =>
   Object.assign(run, { preconnect: globalThis.fetch.preconnect })
 
 describe("detectServerProtocol", () => {
-  test("prefers the legacy health endpoint when both API generations exist", async () => {
+  test("prefers V2 when the current health endpoint reports a process identifier", async () => {
     const fetcher = mockFetch((input) => {
       const path = new URL(input instanceof Request ? input.url : input).pathname
       if (path === "/global/health") return Promise.resolve(json({ healthy: true, version: "1.18.4" }))
       return Promise.resolve(json({ healthy: true, version: "2.0.0", pid: 123 }))
     })
 
-    expect(await detectServerProtocol(server, fetcher)).toBe("v1")
+    expect(await detectServerProtocol(server, fetcher)).toBe("v2")
+  })
+
+  test("recognizes the KogniTerm Python backend as V2 despite its legacy health alias", async () => {
+    // The Python server answers both health endpoints with `{ healthy: true, pid }`.
+    const fetcher = mockFetch((input) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      if (path === "/global/health")
+        return Promise.resolve(json({ status: "online", healthy: true, pid: 123, version: "2.0.0" }))
+      return Promise.resolve(json({ status: "online", healthy: true, pid: 123, version: "2.0.0" }))
+    })
+
+    expect(await detectServerProtocol(server, fetcher)).toBe("v2")
   })
 
   test("recognizes V2 health by its process identifier", async () => {

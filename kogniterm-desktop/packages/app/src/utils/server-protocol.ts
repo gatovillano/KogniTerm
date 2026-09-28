@@ -25,11 +25,18 @@ export async function detectServerProtocol(
   server: ServerConnection.HttpBase,
   fetch: typeof globalThis.fetch,
 ): Promise<ServerProtocol> {
+  // Probe the current API first: a numeric `pid` positively identifies a V2
+  // server. This matters because the KogniTerm Python backend answers both
+  // `/global/health` and `/api/health` with `{ healthy: true, pid }` — probing
+  // legacy first misclassified it as V1, and the app then called legacy-only
+  // endpoints such as `GET /pty/shells` that the Python server never
+  // implemented (404).
+  const current = await probe(server, fetch, "/api/health").catch(() => undefined)
+  if (current && "pid" in current && typeof current.pid === "number") return "v2"
+
   const legacy = await probe(server, fetch, "/global/health").catch(() => undefined)
   if (legacy && "healthy" in legacy && legacy.healthy === true) return "v1"
 
-  const current = await probe(server, fetch, "/api/health").catch(() => undefined)
-  if (current && "pid" in current && typeof current.pid === "number") return "v2"
   if (current && "healthy" in current && current.healthy === true) return "v1"
   return "v2"
 }

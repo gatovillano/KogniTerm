@@ -24,6 +24,7 @@ LOCAL_BIN="$HOME/.local/bin"
 WRAPPER_PATH="$LOCAL_BIN/kogniterm"
 SERVER_WRAPPER_PATH="$LOCAL_BIN/kogniterm-server"
 WEB_WRAPPER_PATH="$LOCAL_BIN/kogniterm-web"
+DESKTOP_WRAPPER_PATH="$LOCAL_BIN/kogniterm-desktop"
 GITHUB_REPO_URL="https://github.com/gatovillano/KogniTerm.git"
 
 # Limpiar pantalla y asegurar interactividad desde pipes (ej. curl | bash)
@@ -244,6 +245,31 @@ exec kogniterm web "\$@"
 EOF
     chmod +x "$WEB_WRAPPER_PATH"
     echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Web creado en: ${BOLD}${WEB_WRAPPER_PATH}${RESET}"
+
+    # Lanzador para kogniterm-desktop (Electron v2)
+    local desktop_dir=""
+    if [ -f "$REPO_DIR/kogniterm-desktop/packages/desktop/out/main/index.js" ]; then
+        desktop_dir="$REPO_DIR/kogniterm-desktop"
+    elif [ -f "$PWD/kogniterm-desktop/packages/desktop/out/main/index.js" ]; then
+        desktop_dir="$PWD/kogniterm-desktop"
+    fi
+
+    if [ -n "$desktop_dir" ]; then
+        cat << EOF > "$DESKTOP_WRAPPER_PATH"
+#!/usr/bin/env bash
+DESKTOP_PATH="$desktop_dir"
+if [ -f "\$DESKTOP_PATH/node_modules/.bin/electron" ]; then
+    ELECTRON_BIN="\$DESKTOP_PATH/node_modules/.bin/electron"
+elif command -v electron &>/dev/null; then
+    ELECTRON_BIN="electron"
+else
+    ELECTRON_BIN="npx electron"
+fi
+exec "\$ELECTRON_BIN" "\$DESKTOP_PATH/packages/desktop/out/main/index.js" "\$@"
+EOF
+        chmod +x "$DESKTOP_WRAPPER_PATH"
+        echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Desktop creado en: ${BOLD}${DESKTOP_WRAPPER_PATH}${RESET}"
+    fi
 
     # Asegurar permisos ejecutables para scripts auxiliares
     if [ -f "$REPO_DIR/start-web.sh" ]; then
