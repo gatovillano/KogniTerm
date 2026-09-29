@@ -614,6 +614,11 @@ class TUICommandProcessor:
             "  /theme    : Cambiar tema visual de la TUI\n"
             "  /reset    : Reiniciar la conversación\n"
             "  /undo     : Deshacer última interacción\n"
+            "  /new      : Nueva pestaña de sesión (mismo proyecto)\n"
+            "  /tabs     : Listar pestañas\n"
+            "  /switch   : Cambiar de pestaña (/switch <nº>)\n"
+            "  /rename   : Renombrar pestaña activa\n"
+            "  /close    : Cerrar pestaña activa\n"
             "\n"
             "[dim]Nota: Estos comandos configuran el servidor central.[/dim]"
         )

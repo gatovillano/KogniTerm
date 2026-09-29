@@ -29,7 +29,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator, Optional, List, Any
+from typing import AsyncIterator, Optional, List, Any, Dict
 
 import uvicorn
 from fastapi import (
@@ -65,6 +65,7 @@ from kogniterm.server.channel_adapters import (
     TelegramAdapter,
 )
 from kogniterm.server.pty_manager import pty_manager
+from kogniterm.server.payments import payment_service, PaymentProviderType
 
 logger = logging.getLogger("kogniterm.server.app")
 logging.basicConfig(
@@ -281,7 +282,7 @@ ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         "KOGNITERM_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765,http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173,oc://renderer,oc://kogniterm",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765,http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,oc://renderer,oc://kogniterm,null,file://,app://kogniterm,http://localhost:4444,http://127.0.0.1:4444",
     ).split(",")
     if o.strip()
 ]
@@ -442,6 +443,66 @@ def create_app() -> FastAPI:
         success = await heartbeat_scheduler.trigger_heartbeat(heartbeat_id)
         if not success:
             raise HTTPException(status_code=500, detail="Error ejecutando heartbeat")
+        return {"status": "triggered", "id": heartbeat_id}
+
+    # ── Endpoints de Pagos y Suscripciones ──────────────────────────────────────
+
+    @application.get("/api/payments/plans", tags=["Payments"])
+    async def get_payment_plans():
+        """Obtiene la lista de planes de suscripción disponibles."""
+        return payment_service.get_plans()
+
+    @application.get("/api/payments/subscription/{user_id}", tags=["Payments"])
+    async def get_user_subscription(user_id: str):
+        """Obtiene la suscripción y saldo de créditos de un usuario."""
+        return payment_service.get_user_subscription(user_id)
+
+    @application.post("/api/payments/checkout", tags=["Payments"])
+    async def create_checkout(payload: Dict[str, Any] = Body(...)):
+        """
+        Crea una sesión de checkout (Stripe, MercadoPago o Mock).
+        Payload: {"user_id": "...", "plan_id": "...", "provider": "mock"|"stripe"|"mercadopago"}
+        """
+        user_id = payload.get("user_id", "default_user")
+        plan_id = payload.get("plan_id")
+        provider = payload.get("provider")
+        if not plan_id:
+            raise HTTPException(status_code=400, detail="El campo 'plan_id' es obligatorio.")
+        
+        provider_enum = PaymentProviderType(provider) if provider else None
+        try:
+            return payment_service.create_checkout_session(user_id=user_id, plan_id=plan_id, provider=provider_enum)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @application.post("/api/payments/mock-checkout/complete", tags=["Payments"])
+    async def complete_mock_checkout(payload: Dict[str, Any] = Body(...)):
+        """
+        Simula la aprobación exitosa de un pago en modo MOCK/Desarrollo.
+        Payload: {"transaction_id": "tx_..."}
+        """
+        tx_id = payload.get("transaction_id")
+        if not tx_id:
+            raise HTTPException(status_code=400, detail="transaction_id es requerido.")
+        try:
+            sub = payment_service.complete_transaction(tx_id=tx_id)
+            return {"status": "success", "subscription": sub}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @application.post("/api/payments/webhook/{provider}", tags=["Payments"])
+    async def payment_webhook(provider: str, request: Request):
+        """
+        Endpoint genérico para recepción de Webhooks (Stripe / MercadoPago).
+        """
+        body_bytes = await request.body()
+        sig_header = request.headers.get("stripe-signature") or request.headers.get("x-signature")
+        try:
+            res = payment_service.process_webhook(provider, body_bytes, sig_header)
+            return res
+        except Exception as e:
+            logger.error(f"Error procesando webhook de {provider}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
         return {"status": "triggered", "id": heartbeat_id}
 
     # ── Gestión de Configuración (LLM) ──────────────────────────────────────
@@ -1622,9 +1683,13 @@ def create_app() -> FastAPI:
             except Exception as exc:
                 logger.debug(f"[{session_id}] No se pudo actualizar workspace desde header: {exc}")
 
+        session.last_user_message_id = message_id
+        if hasattr(session, "ui") and session.ui:
+            session.ui.last_user_message_id = message_id
+
         # Lanzar el agente en background (fire-and-forget) solo si hay mensaje
         if message_text:
-            asyncio.create_task(session.send(message_text, pool._executor, images=images or None))
+            asyncio.create_task(session.send(message_text, pool._executor, images=images or None, user_message_id=message_id))
 
         res = {
             "id": message_id,
@@ -1673,8 +1738,37 @@ def create_app() -> FastAPI:
 
     @application.post("/api/session/{session_id}/compact", tags=["Sesiones (OpenCode Compat)"])
     @application.post("/session/{session_id}/compact", tags=["Sesiones (OpenCode Compat)"])
-    async def opencode_session_compact(session_id: str):
-        return {"status": "ok"}
+    async def opencode_session_compact(session_id: str, request: Request):
+        """Compacta el historial de la sesión."""
+        await pool.wait_until_ready()
+        session = pool.get(session_id)
+        if not session:
+            if request.url.path.startswith("/api/"):
+                raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        if len(session.agent_state.messages) > 2:
+            try:
+                summary = await asyncio.get_event_loop().run_in_executor(
+                    pool._executor,
+                    session.llm_service.compress_history,
+                    session.agent_state.messages
+                )
+                if summary:
+                    from langchain_core.messages import SystemMessage
+                    session.agent_state.messages = [SystemMessage(content=f"Resumen de conversación previa: {summary}")]
+                    if session.thread_manager:
+                        session.thread_manager.save_thread_messages(session_id, session.agent_state.messages)
+                    
+                    if request.url.path.startswith("/api/"):
+                        return {"data": {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}}
+                    return {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}
+            except Exception as e:
+                logger.error(f"Error compacting session {session_id}: {e}")
+        
+        if request.url.path.startswith("/api/"):
+            return {"data": {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}}
+        return {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}
 
     @application.post("/api/session/{session_id}/interrupt", tags=["Sesiones (OpenCode Compat)"])
     @application.post("/session/{session_id}/interrupt", tags=["Sesiones (OpenCode Compat)"])
@@ -1718,16 +1812,37 @@ def create_app() -> FastAPI:
         from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
         formatted = []
-        now_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
+        now_ms = int(time.time() * 1000)
+        num_msgs = len(raw_msgs)
+        last_user_id = getattr(s, "last_user_message_id", None) if s else None
+
+        last_human_idx = -1
+        for idx in range(num_msgs - 1, -1, -1):
+            if isinstance(raw_msgs[idx], HumanMessage):
+                last_human_idx = idx
+                break
+
         for i, m in enumerate(raw_msgs):
+            # Monotonic chronological timestamp: older messages earlier, latest message at now_ms
+            msg_time = now_ms - (num_msgs - 1 - i) * 1000
             content_str = m.content if isinstance(m.content, str) else str(m.content)
             if isinstance(m, HumanMessage):
-                m_id = getattr(m, "id", None) or f"user-msg-{i}"
+                m_id = getattr(m, "id", None)
+                if not m_id:
+                    if i == last_human_idx and getattr(s, "last_user_message_id", None):
+                        m_id = s.last_user_message_id
+                    else:
+                        m_id = f"user-msg-{i}"
+                last_user_id = m_id
                 formatted.append({
                     "id": m_id,
                     "sessionID": session_id,
+                    "type": "user",
                     "role": "user",
-                    "time": {"created": now_ms, "completed": now_ms},
+                    "text": content_str,
+                    "time": {"created": msg_time, "completed": msg_time},
+                    "files": [],
+                    "agents": [],
                     "parts": [
                         {
                             "id": f"part-u-{i}",
@@ -1741,11 +1856,12 @@ def create_app() -> FastAPI:
             elif isinstance(m, AIMessage):
                 m_id = getattr(m, "id", None) or f"asst-msg-{i}"
                 parts = []
+                content_items = []
                 # Si hay tool_calls, agregarlos
                 tool_calls = getattr(m, "tool_calls", None) or []
                 for tc in tool_calls:
                     tc_id = tc.get("id") or str(uuid.uuid4())
-                    parts.append({
+                    tool_item = {
                         "id": f"tool-{tc_id}",
                         "sessionID": session_id,
                         "messageID": m_id,
@@ -1756,9 +1872,11 @@ def create_app() -> FastAPI:
                             "status": "completed",
                             "input": tc.get("args", {}),
                             "output": "",
-                            "time": {"start": now_ms, "end": now_ms},
+                            "time": {"start": msg_time, "end": msg_time},
                         },
-                    })
+                    }
+                    parts.append(tool_item)
+                    content_items.append(tool_item)
                 if content_str:
                     parts.append({
                         "id": f"part-a-{i}",
@@ -1767,17 +1885,59 @@ def create_app() -> FastAPI:
                         "type": "text",
                         "text": content_str,
                     })
+                    content_items.append({
+                        "type": "text",
+                        "text": content_str,
+                    })
                 formatted.append({
                     "id": m_id,
                     "sessionID": session_id,
+                    "type": "assistant",
                     "role": "assistant",
-                    "time": {"created": now_ms, "completed": now_ms},
+                    "parentID": last_user_id,
+                    "time": {"created": msg_time, "completed": msg_time},
+                    "tokens": {
+                        "input": 0,
+                        "output": 0,
+                        "reasoning": 0,
+                        "cache": {"read": 0, "write": 0},
+                    },
+                    "model": {"id": "gemini-2.0-flash", "providerID": "google"},
+                    "modelID": "gemini-2.0-flash",
+                    "providerID": "google",
+                    "agent": "build",
+                    "mode": "build",
+                    "content": content_items,
                     "parts": parts,
                 })
 
+        order = request.query_params.get("order")
+        # In OpenCode API v2, default order is "desc" (newest first).
+        # When order is "desc" (or on /api/ routes where order defaults to desc),
+        # return newest first. The client reverses it with .toReversed() to get chronological order.
+        if order == "desc" or (order is None and request.url.path.startswith("/api/")):
+            formatted_ordered = formatted[::-1]
+        else:
+            formatted_ordered = formatted
+
         if request.url.path.startswith("/api/"):
-            return {"data": formatted, "cursor": {"next": None, "previous": None}}
-        return formatted
+            return {"data": formatted_ordered, "cursor": {"next": None, "previous": None}}
+        return formatted_ordered
+
+    @application.get("/api/session/{session_id}/message/{message_id}", tags=["Sesiones (OpenCode Compat)"])
+    @application.get("/session/{session_id}/message/{message_id}", tags=["Sesiones (OpenCode Compat)"])
+    async def opencode_session_single_message(session_id: str, message_id: str, request: Request):
+        """Retorna un mensaje individual por ID."""
+        await pool.wait_until_ready()
+        all_res = await opencode_session_messages(session_id, request)
+        msgs = all_res.get("data", []) if isinstance(all_res, dict) else all_res
+        for msg in msgs:
+            if msg.get("id") == message_id:
+                if request.url.path.startswith("/api/"):
+                    return {"data": msg}
+                return msg
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Message not found")
 
     @application.post("/api/permission/{request_id}/reply", tags=["Permisos (OpenCode Compat)"])
     @application.post("/permission/{request_id}/reply", tags=["Permisos (OpenCode Compat)"])
@@ -2187,7 +2347,22 @@ def create_app() -> FastAPI:
     @application.get("/config", tags=["Configuración (OpenCode Compat)"])
     @application.get("/global/config", tags=["Configuración (OpenCode Compat)"])
     async def opencode_config(request: Request):
-        cfg = {}
+        """Retorna la configuración global compatible con OpenCode."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        
+        cm = ConfigManager()
+        global_config = cm.load_global_config()
+        project_config = cm.load_project_config()
+        
+        # Configuración que el desktop espera
+        cfg = {
+            "autoApprove": global_config.get("auto_approve", False),
+            "theme": global_config.get("theme", "default"),
+            "model": global_config.get("default_model") or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash"),
+            "reasoningEffort": global_config.get("reasoning_effort", "medium"),
+            "keybinds": global_config.get("keybinds", {}),
+        }
+        
         if request.url.path.startswith("/api/"):
             return {"data": cfg}
         return cfg
@@ -2217,47 +2392,342 @@ def create_app() -> FastAPI:
     @application.get("/api/command", tags=["Comandos (OpenCode Compat)"])
     @application.get("/command", tags=["Comandos (OpenCode Compat)"])
     async def opencode_commands(request: Request):
+        """Lista de comandos slash disponibles (formato OpenCode)."""
+        commands = [
+            {"id": "help", "name": "help", "description": "Show help", "category": "session"},
+            {"id": "model", "name": "model", "description": "Change model", "category": "session"},
+            {"id": "provider", "name": "provider", "description": "Change provider", "category": "session"},
+            {"id": "mcp", "name": "mcp", "description": "Manage MCP servers", "category": "session"},
+            {"id": "theme", "name": "theme", "description": "Change theme", "category": "session"},
+            {"id": "reset", "name": "reset", "description": "Reset conversation", "category": "session"},
+            {"id": "undo", "name": "undo", "description": "Undo last interaction", "category": "session"},
+            {"id": "compact", "name": "compact", "description": "Compact history", "category": "session"},
+            {"id": "session", "name": "session", "description": "Manage sessions", "category": "session"},
+            {"id": "resume", "name": "resume", "description": "Resume session", "category": "session"},
+            {"id": "init", "name": "init", "description": "Re-index workspace", "category": "session"},
+            {"id": "index", "name": "index", "description": "Re-index workspace", "category": "session"},
+            {"id": "skills", "name": "skills", "description": "List skills", "category": "session"},
+            {"id": "plan", "name": "plan", "description": "Show plan mode", "category": "session"},
+            {"id": "keys", "name": "keys", "description": "Configure API keys", "category": "session"},
+            {"id": "config", "name": "config", "description": "Show config", "category": "session"},
+        ]
         if request.url.path.startswith("/api/"):
-            return {"data": []}
-        return []
+            return {"data": commands}
+        return commands
 
     @application.get("/api/reference", tags=["Referencias (OpenCode Compat)"])
     @application.get("/reference", tags=["Referencias (OpenCode Compat)"])
-    async def opencode_references(request: Request):
+    async def opencode_references(request: Request, directory: Optional[str] = None):
+        """Lista de referencias de archivos disponibles (@file mentions)."""
+        if not directory:
+            directory = request.headers.get("x-opencode-directory") or request.headers.get("X-Opencode-Directory")
+            if directory:
+                from urllib.parse import unquote
+                directory = unquote(directory)
+        
+        workspace_path = safe_abs_path(directory) if directory else safe_abs_path(os.getcwd())
+        
+        # Obtener archivos del workspace (similar a /api/workspace/files)
+        try:
+            from kogniterm.terminal.file_completer import is_ignored_path
+        except ImportError:
+            if request.url.path.startswith("/api/"):
+                return {"data": []}
+            return []
+        
+        exclude_extensions = {'.pyc', '.tmp', '.log', '.swp', '.bak', '.old', '.pyfly'}
+        refs = []
+        
+        for root, dirs, files in os.walk(workspace_path):
+            dirs[:] = [d for d in dirs if not is_ignored_path(d)]
+            try:
+                rel_root = os.path.relpath(root, workspace_path)
+            except ValueError:
+                continue
+
+            for f in files:
+                if f.startswith('.') or any(f.endswith(ext) for ext in exclude_extensions):
+                    continue
+                rel_path = os.path.join(rel_root, f) if rel_root != '.' else f
+                refs.append({
+                    "id": f"file-{rel_path}",
+                    "type": "file",
+                    "path": rel_path,
+                    "name": f,
+                    "description": f"Reference to {rel_path}"
+                })
+        
         if request.url.path.startswith("/api/"):
-            return {"data": []}
-        return []
+            return {"data": refs}
+        return refs
 
     @application.get("/api/permission/request", tags=["Permisos (OpenCode Compat)"])
     @application.get("/permission/request", tags=["Permisos (OpenCode Compat)"])
     @application.get("/permission", tags=["Permisos (OpenCode Compat)"])
     async def opencode_permission_requests(request: Request):
+        """Solicitudes de permiso pendientes (formato OpenCode)."""
+        await pool.wait_until_ready()
+        
+        pending = []
+        with pool._lock:
+            for session in pool._sessions.values():
+                if hasattr(session, "ui") and session.ui:
+                    # approval_required pendientes
+                    for req_id, (event, _) in session.ui._pending_approvals.items():
+                        pending.append({
+                            "id": req_id,
+                            "sessionID": session.session_id,
+                            "permission": "command",
+                            "patterns": [event.get("message", "")] if isinstance(event, dict) else [str(event)],
+                            "metadata": event,
+                        })
+                    # approval_required async pendientes
+                    for req_id, (event, _) in session.ui._pending_approvals_async.items():
+                        pending.append({
+                            "id": req_id,
+                            "sessionID": session.session_id,
+                            "permission": "command",
+                            "patterns": [event.get("message", "")] if isinstance(event, dict) else [str(event)],
+                            "metadata": event,
+                        })
+        
         if request.url.path.startswith("/api/"):
-            return {"data": []}
-        return []
+            return {"data": pending}
+        return pending
+
+    def _opencode_mcp_directory(request: Request) -> Optional[str]:
+        """Extrae el directory del query (location[directory]), params o headers.
+        El SDK genera `location[directory]=...` en el query string."""
+        from urllib.parse import unquote
+        qp = request.query_params
+        directory = (
+            qp.get("location[directory]")
+            or qp.get("location.directory")
+            or qp.get("directory")
+        )
+        if not directory:
+            raw_loc = qp.get("location")
+            if raw_loc:
+                try:
+                    import json as _json
+                    parsed = _json.loads(raw_loc)
+                    if isinstance(parsed, dict):
+                        directory = parsed.get("directory")
+                except Exception:
+                    pass
+        if not directory:
+            directory = request.headers.get("x-opencode-directory") or request.headers.get("X-Opencode-Directory")
+        if directory:
+            try:
+                return unquote(directory)
+            except Exception:
+                return directory
+        return None
+
+    def _opencode_mcp_location(directory: Optional[str]) -> dict:
+        """Construye el objeto location OpenCode con IDs de proyecto estables."""
+        import hashlib
+        dir_path = safe_abs_path(directory) if directory else safe_abs_path(os.getcwd())
+        digest = hashlib.sha1(dir_path.encode("utf-8")).hexdigest()[:12]
+        return {
+            "directory": dir_path,
+            "workspaceID": None,
+            "project": {"id": f"ws-{digest}", "directory": dir_path},
+        }
+
+    def _opencode_mcp_servers() -> list:
+        """Lista de servidores en formato McpServer del SDK (sin wrap)."""
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+        statuses = MCPManager.get_instance().get_all_servers_status()
+        servers = []
+        for name, info in statuses.items():
+            status_val = info.get("status", "disconnected")
+            if status_val == "connected":
+                status_obj = {"status": "connected"}
+            elif status_val == "disabled":
+                status_obj = {"status": "disabled"}
+            elif status_val == "error":
+                status_obj = {"status": "failed", "error": info.get("error", "Unknown error")}
+            else:
+                status_obj = {"status": "pending"}
+            entry = {"name": name, "status": status_obj}
+            if info.get("integrationID"):
+                entry["integrationID"] = info["integrationID"]
+            servers.append(entry)
+        return servers
 
     @application.get("/api/mcp", tags=["MCP (OpenCode Compat)"])
     @application.get("/mcp", tags=["MCP (OpenCode Compat)"])
     async def opencode_mcp(request: Request):
-        if request.url.path.startswith("/api/"):
-            return {"data": []}
-        return []
+        """Lista servidores MCP. El cliente generado NO desempaqueta: el body
+        debe ser McpListOutput = {location, data} directamente."""
+        await pool.wait_until_ready()
+        directory = _opencode_mcp_directory(request)
+        return {"location": _opencode_mcp_location(directory), "data": _opencode_mcp_servers()}
+
+    @application.put("/api/mcp/{server_name}", tags=["MCP (OpenCode Compat)"])
+    @application.put("/mcp/{server_name}", tags=["MCP (OpenCode Compat)"])
+    async def opencode_mcp_add(server_name: str, request: Request, payload: dict = Body(...)):
+        """Agrega/actualiza un servidor MCP. El cliente envía PUT con body
+        {config: {type: local|remote, ...}} y espera 204 vacío."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        await pool.wait_until_ready()
+        config = payload.get("config", {}) if isinstance(payload, dict) else {}
+        directory = _opencode_mcp_directory(request)
+
+        # Convertir formato OpenCode a formato interno KogniTerm
+        if config.get("type") == "local":
+            cmd = config.get("command") or []
+            if isinstance(cmd, str):
+                import shlex as _shlex
+                cmd = _shlex.split(cmd)
+            internal_config = {
+                "transport": "stdio",
+                "command": cmd[0] if cmd else "",
+                "args": list(cmd[1:]) if len(cmd) > 1 else [],
+                "env": config.get("environment"),
+                "disabled": config.get("disabled", False),
+            }
+            if not internal_config["command"]:
+                raise HTTPException(status_code=400, detail="Command is required for local servers")
+        elif config.get("type") == "remote":
+            internal_config = {
+                "transport": "sse",
+                "url": config.get("url"),
+                "headers": config.get("headers"),
+                "disabled": config.get("disabled", False),
+            }
+            if not internal_config["url"]:
+                raise HTTPException(status_code=400, detail="URL is required for remote servers")
+        else:
+            raise HTTPException(status_code=400, detail="Invalid config type (expected local|remote)")
+
+        cm = ConfigManager()
+        scope = "project" if directory else "global"
+        cm.set_mcp_server(server_name, internal_config, scope=scope)
+
+        await MCPManager.get_instance().reload()
+        return Response(status_code=204)
+
+    @application.delete("/api/mcp/{server_name}", tags=["MCP (OpenCode Compat)"])
+    @application.delete("/mcp/{server_name}", tags=["MCP (OpenCode Compat)"])
+    async def opencode_mcp_delete(server_name: str, request: Request):
+        """Elimina un servidor MCP. El cliente espera 204 vacío."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        await pool.wait_until_ready()
+        directory = _opencode_mcp_directory(request)
+
+        cm = ConfigManager()
+        scope = "project" if directory else "global"
+        cm.delete_mcp_server(server_name, scope=scope)
+
+        await MCPManager.get_instance().reload()
+        return Response(status_code=204)
+
+    @application.post("/api/mcp/{server_name}/connect", tags=["MCP (OpenCode Compat)"])
+    @application.post("/mcp/{server_name}/connect", tags=["MCP (OpenCode Compat)"])
+    async def opencode_mcp_connect(server_name: str, request: Request):
+        """Habilita/conecta un servidor MCP. El cliente espera 204 vacío."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        await pool.wait_until_ready()
+
+        cm = ConfigManager()
+        servers = cm.get_mcp_servers()
+        if server_name not in servers:
+            raise HTTPException(status_code=404, detail="MCP server not found")
+
+        config = servers[server_name]
+        if config.get("disabled"):
+            config["disabled"] = False
+            cm.set_mcp_server(server_name, config)
+
+        await MCPManager.get_instance().reload()
+        return Response(status_code=204)
+
+    @application.post("/api/mcp/{server_name}/disconnect", tags=["MCP (OpenCode Compat)"])
+    @application.post("/mcp/{server_name}/disconnect", tags=["MCP (OpenCode Compat)"])
+    async def opencode_mcp_disconnect(server_name: str, request: Request):
+        """Deshabilita/desconecta un servidor MCP. El cliente espera 204 vacío."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        await pool.wait_until_ready()
+
+        cm = ConfigManager()
+        servers = cm.get_mcp_servers()
+        if server_name not in servers:
+            raise HTTPException(status_code=404, detail="MCP server not found")
+
+        config = servers[server_name]
+        config["disabled"] = True
+        cm.set_mcp_server(server_name, config)
+
+        await MCPManager.get_instance().reload()
+        return Response(status_code=204)
+
+    @application.post("/api/mcp/{server_name}/authenticate", tags=["MCP (OpenCode Compat)"])
+    @application.post("/mcp/{server_name}/authenticate", tags=["MCP (OpenCode Compat)"])
+    async def opencode_mcp_authenticate(server_name: str, request: Request):
+        """Autentica un servidor MCP (OAuth)."""
+        from kogniterm.terminal.config_manager import ConfigManager
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        await pool.wait_until_ready()
+
+        cm = ConfigManager()
+        servers = cm.get_mcp_servers()
+        if server_name not in servers:
+            raise HTTPException(status_code=404, detail="MCP server not found")
+
+        # Intentar reconectar para disparar flujo OAuth si aplica
+        await MCPManager.get_instance().reload()
+        return Response(status_code=204)
 
     @application.get("/api/mcp/resource", tags=["MCP (OpenCode Compat)"])
     @application.get("/mcp/resource", tags=["MCP (OpenCode Compat)"])
     async def opencode_mcp_resources(request: Request):
-        if request.url.path.startswith("/api/"):
-            return {"data": []}
-        return []
+        """Catálogo de recursos MCP. El cliente NO desempaqueta: el body debe
+        ser McpResourceCatalogOutput = {location, data} directamente."""
+        await pool.wait_until_ready()
+        directory = _opencode_mcp_directory(request)
+
+        # Por ahora vacío: los recursos requieren catálogo dinámico que el
+        # MCPManager actual no expone.
+        return {
+            "location": _opencode_mcp_location(directory),
+            "data": {"resources": [], "templates": []},
+        }
+        return response
 
     @application.get("/api/question/request", tags=["Preguntas (OpenCode Compat)"])
     @application.get("/question/request", tags=["Preguntas (OpenCode Compat)"])
     @application.get("/api/question", tags=["Preguntas (OpenCode Compat)"])
     @application.get("/question", tags=["Preguntas (OpenCode Compat)"])
     async def opencode_questions(request: Request):
+        """Solicitudes de pregunta pendientes (formato OpenCode)."""
+        await pool.wait_until_ready()
+        
+        pending = []
+        with pool._lock:
+            for session in pool._sessions.values():
+                if hasattr(session, "ui") and session.ui:
+                    for req_id, (event, _) in session.ui._pending_questions.items():
+                        pending.append({
+                            "id": req_id,
+                            "sessionID": session.session_id,
+                            "question": event.get("question", "") if isinstance(event, dict) else str(event),
+                            "options": event.get("options", []) if isinstance(event, dict) else [],
+                        })
+        
         if request.url.path.startswith("/api/"):
-            return {"data": []}
-        return []
+            return {"data": pending}
+        return pending
 
     @application.get("/api/event", tags=["Eventos (OpenCode Compat)"])
     @application.get("/event", tags=["Eventos (OpenCode Compat)"])
@@ -2607,7 +3077,7 @@ def create_app() -> FastAPI:
             "reasoning": reasoning,
             "tool_calls": tool_calls,
             "tool_call_id": tool_call_id,
-            "timestamp": int(datetime.utcnow().timestamp() * 1000)
+            "timestamp": int(time.time() * 1000)
         }
         if images:
             res["images"] = images

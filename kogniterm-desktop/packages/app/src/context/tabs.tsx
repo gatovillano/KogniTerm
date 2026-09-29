@@ -277,6 +277,12 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           navigateTab(entry.tab)
         })
       },
+      // True while a tab removal transition is in flight. Auto-add effects
+      // (titlebar, session route) must check this to avoid resurrecting a
+      // tab the user just closed when a stale fetch resolves mid-transition.
+      isClosing(key: string) {
+        return closing.has(key)
+      },
       removeSessionTab(input: Omit<SessionTab, "type">) {
         updateClosed((stack) => removeClosedTabs(stack, input.server, [input.sessionId]))
         const index = store.findIndex(

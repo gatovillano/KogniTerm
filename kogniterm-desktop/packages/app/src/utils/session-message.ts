@@ -13,12 +13,14 @@ const emptyModel: { id: string; providerID: string; variant?: string } = { id: "
 const decodeToolInput = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)
 
 export function compareMessages(a: Pick<Message, "id" | "time">, b: Pick<Message, "id" | "time">) {
-  const left = messageKey(a)
-  const right = messageKey(b)
-  return left < right ? -1 : left > right ? 1 : 0
+  const timeA = typeof a?.time?.created === "number" ? a.time.created : 0
+  const timeB = typeof b?.time?.created === "number" ? b.time.created : 0
+  if (timeA !== timeB) return timeA - timeB
+  return (a?.id ?? "").localeCompare(b?.id ?? "")
 }
 
-export const messageKey = (message: Pick<Message, "id" | "time">) => message.time.created + message.id
+export const messageKey = (message: Pick<Message, "id" | "time">) =>
+  String(message.time?.created ?? 0).padStart(15, "0") + (message.id ?? "")
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -61,10 +63,11 @@ export function normalizeSessionMessages(sessionID: string, source: readonly Ses
       model = message.model
       return
     }
-    if (message.type === "user") {
+    const msgType = (message as any).type ?? (message as any).role
+    if (msgType === "user") {
       parentID = message.id
-      messages.push(userMessage(sessionID, message, agent, model))
-      parts.set(message.id, userParts(sessionID, message))
+      messages.push(userMessage(sessionID, message as any, agent, model))
+      parts.set(message.id, userParts(sessionID, message as any))
       return
     }
     if (message.type === "synthetic" && message.description?.trim()) {
@@ -87,21 +90,22 @@ export function normalizeSessionMessages(sessionID: string, source: readonly Ses
       parentID = undefined
       return
     }
-    if (message.type === "assistant") {
-      agent = message.agent
-      model = message.model
-      if (!parentID) return
-      const parent = messages.findLast((item) => item.id === parentID)
+    if (msgType === "assistant") {
+      agent = (message as any).agent ?? agent
+      model = (message as any).model ?? model
+      const effectiveParentID = (message as any).parentID ?? parentID ?? messages.findLast((item) => item.role === "user")?.id
+      if (!effectiveParentID) return
+      const parent = messages.findLast((item) => item.id === effectiveParentID)
       if (parent?.role === "user") {
-        parent.agent = message.agent
+        parent.agent = agent
         parent.model = {
-          providerID: message.model.providerID,
-          modelID: message.model.id,
-          variant: message.model.variant,
+          providerID: model.providerID,
+          modelID: model.id,
+          variant: model.variant,
         }
       }
-      messages.push(assistantMessage(sessionID, parentID, message))
-      parts.set(message.id, assistantParts(sessionID, message))
+      messages.push(assistantMessage(sessionID, effectiveParentID, message as any))
+      parts.set(message.id, assistantParts(sessionID, message as any))
       return
     }
     if (message.type !== "compaction" || !parentID) return
@@ -203,8 +207,13 @@ function userMessage(
 }
 
 function userParts(sessionID: string, message: SessionMessageUser): Part[] {
+  const userText =
+    message.text ??
+    (Array.isArray((message as any).parts)
+      ? (message as any).parts.map((p: any) => p.text ?? "").join("\n")
+      : "")
   return [
-    textPart(sessionID, message.id, 0, message.text),
+    textPart(sessionID, message.id, 0, userText),
     ...(message.files ?? []).map(
       (file, index): FilePart => ({
         id: `${message.id}:file:${index}`,
@@ -248,14 +257,14 @@ function assistantMessage(sessionID: string, parentID: string, message: SessionM
     id: message.id,
     sessionID,
     role: "assistant",
-    time: message.time,
+    time: message.time ?? { created: Date.now() },
     error,
     parentID,
-    modelID: message.model.id,
-    providerID: message.model.providerID,
-    variant: message.model.variant,
-    mode: message.agent,
-    agent: message.agent,
+    modelID: message.model?.id ?? (message as any).modelID ?? "",
+    providerID: message.model?.providerID ?? (message as any).providerID ?? "",
+    variant: message.model?.variant ?? (message as any).variant,
+    mode: message.agent ?? (message as any).mode ?? "build",
+    agent: message.agent ?? (message as any).mode ?? "build",
     path: { cwd: "", root: "" },
     cost: message.cost ?? 0,
     tokens: message.tokens ?? emptyTokens,
@@ -265,10 +274,17 @@ function assistantMessage(sessionID: string, parentID: string, message: SessionM
 
 function assistantParts(sessionID: string, message: SessionMessageAssistant): Part[] {
   const ordinals = { text: 0, reasoning: 0 }
-  return message.content.flatMap((content): Part[] => {
+  const contents = Array.isArray(message.content)
+    ? message.content
+    : Array.isArray((message as any).parts)
+      ? (message as any).parts
+      : (message as any).text
+        ? [{ type: "text", text: (message as any).text }]
+        : []
+  return contents.flatMap((content: any): Part[] => {
     if (content.type === "text") {
-      const part = textPart(sessionID, message.id, ordinals.text++, content.text)
-      return content.text.trim() ? [part] : []
+      const part = textPart(sessionID, message.id, ordinals.text++, content.text ?? "")
+      return content.text?.trim() ? [part] : []
     }
     if (content.type === "reasoning") {
       const part: Part = {
@@ -276,14 +292,14 @@ function assistantParts(sessionID: string, message: SessionMessageAssistant): Pa
         sessionID,
         messageID: message.id,
         type: "reasoning",
-        text: content.text,
+        text: content.text ?? "",
         metadata: content.state,
         time: {
-          start: content.time?.created ?? message.time.created,
+          start: content.time?.created ?? message.time?.created ?? Date.now(),
           end: content.time?.completed,
         },
       }
-      return content.text.trim() ? [part] : []
+      return content.text?.trim() ? [part] : []
     }
     return [toolPart(sessionID, message.id, content)]
   })
@@ -300,66 +316,101 @@ function textPart(sessionID: string, messageID: string, ordinal: number, text: s
   }
 }
 
-function toolPart(sessionID: string, messageID: string, tool: SessionMessageAssistantTool): ToolPart {
-  const start = tool.time.ran ?? tool.time.created
+function toolPart(sessionID: string, messageID: string, tool: any): ToolPart {
+  if (tool.callID && tool.state) {
+    return {
+      id: tool.id ?? tool.callID,
+      sessionID,
+      messageID,
+      type: "tool",
+      callID: tool.callID,
+      tool: tool.tool ?? tool.name ?? "tool",
+      state: {
+        status: tool.state.status ?? "completed",
+        input: tool.state.input ?? {},
+        output:
+          typeof tool.state.output === "string"
+            ? tool.state.output
+            : Array.isArray(tool.state.content)
+              ? tool.state.content.flatMap((i: any) => (i.type === "text" ? [i.text] : [])).join("\n")
+              : "",
+        time: tool.state.time ?? { start: Date.now() },
+        title: tool.state.title ?? tool.tool ?? tool.name ?? "tool",
+        metadata: tool.state.metadata ?? {},
+        error: tool.state.error,
+      },
+      metadata: tool.metadata,
+    }
+  }
+
+  const start = tool.time?.ran ?? tool.time?.created ?? tool.state?.time?.start ?? Date.now()
+  const toolName = tool.name ?? tool.tool ?? "tool"
   const state = (() => {
+    if (!tool.state) {
+      return { status: "completed" as const, input: {}, output: "", time: { start } }
+    }
     if (tool.state.status === "streaming") {
       const value = Option.getOrUndefined(decodeToolInput(tool.state.input))
-      const input = normalizeToolInput(tool.name, record(value) ? value : {})
+      const input = normalizeToolInput(toolName, record(value) ? value : {})
       return { status: "pending" as const, input, raw: tool.state.input }
     }
     if (tool.state.status === "running") {
       return {
         status: "running" as const,
-        input: normalizeToolInput(tool.name, tool.state.input),
-        // metadata: normalizeToolMetadata(tool.name, tool.state.structured),
-        metadata: normalizeToolMetadata(tool.name, tool.state.metadata ?? {}),
+        input: normalizeToolInput(toolName, tool.state.input),
+        metadata: normalizeToolMetadata(toolName, tool.state.metadata ?? {}),
         time: { start },
       }
     }
     if (tool.state.status === "error") {
       return {
         status: "error" as const,
-        input: normalizeToolInput(tool.name, tool.state.input),
-        error: tool.state.error.message,
-        // metadata: normalizeToolMetadata(tool.name, tool.state.structured),
-        metadata: normalizeToolMetadata(tool.name, tool.state.metadata ?? {}),
-        time: { start, end: tool.time.completed ?? start },
+        input: normalizeToolInput(toolName, tool.state.input),
+        error: tool.state.error?.message ?? String(tool.state.error ?? ""),
+        metadata: normalizeToolMetadata(toolName, tool.state.metadata ?? {}),
+        time: { start, end: tool.time?.completed ?? tool.state?.time?.end ?? start },
       }
     }
-    const attachments = tool.state.content.flatMap((item, index): FilePart[] =>
-      item.type === "file"
-        ? [
-            {
-              id: `${tool.id}:file:${index}`,
-              sessionID,
-              messageID,
-              type: "file",
-              mime: item.mime,
-              filename: item.name,
-              url: item.uri,
-            },
-          ]
-        : [],
-    )
+    const attachments = Array.isArray(tool.state.content)
+      ? tool.state.content.flatMap((item: any, index: number): FilePart[] =>
+          item.type === "file"
+            ? [
+                {
+                  id: `${tool.id}:file:${index}`,
+                  sessionID,
+                  messageID,
+                  type: "file",
+                  mime: item.mime,
+                  filename: item.name,
+                  url: item.uri,
+                },
+              ]
+            : [],
+        )
+      : []
+    const output =
+      typeof tool.state.output === "string"
+        ? tool.state.output
+        : Array.isArray(tool.state.content)
+          ? tool.state.content.flatMap((item: any) => (item.type === "text" ? [item.text] : [])).join("\n")
+          : ""
     return {
       status: "completed" as const,
-      input: normalizeToolInput(tool.name, tool.state.input),
-      output: tool.state.content.flatMap((item) => (item.type === "text" ? [item.text] : [])).join("\n"),
-      title: tool.name,
-      // metadata: normalizeToolMetadata(tool.name, tool.state.structured),
-      metadata: normalizeToolMetadata(tool.name, tool.state.metadata ?? {}),
-      time: { start, end: tool.time.completed ?? start },
+      input: normalizeToolInput(toolName, tool.state.input),
+      output,
+      title: toolName,
+      metadata: normalizeToolMetadata(toolName, tool.state.metadata ?? {}),
+      time: { start, end: tool.time?.completed ?? tool.state?.time?.end ?? start },
       attachments: attachments.length ? attachments : undefined,
     }
   })()
   return {
-    id: tool.id,
+    id: tool.id ?? tool.callID ?? `tool-${Date.now()}`,
     sessionID,
     messageID,
     type: "tool",
-    callID: tool.id,
-    tool: tool.name,
+    callID: tool.callID ?? tool.id ?? `call-${Date.now()}`,
+    tool: toolName,
     state,
     metadata: { providerState: tool.providerState, providerResultState: tool.providerResultState },
   }

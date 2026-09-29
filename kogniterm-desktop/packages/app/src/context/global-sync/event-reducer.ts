@@ -362,11 +362,37 @@ export function applyDirectoryEvent(input: {
       break
     }
     case "message.part.delta": {
-      const props = event.properties as { messageID: string; partID: string; field: string; delta: string }
-      const parts = input.store.part[props.messageID]
-      if (!parts) break
-      const result = Binary.search(parts, props.partID, (part) => part.id)
-      if (!result.found) break
+      const props = event.properties as { messageID: string; partID: string; field: string; delta: string; sessionID?: string }
+      let parts = input.store.part[props.messageID]
+      if (!parts) {
+        const initialPart = {
+          id: props.partID,
+          sessionID: props.sessionID ?? "",
+          messageID: props.messageID,
+          type: "text" as const,
+          text: "",
+        }
+        input.setStore("part", props.messageID, [initialPart as any])
+        parts = [initialPart as any]
+      }
+      let result = Binary.search(parts, props.partID, (part) => part.id)
+      if (!result.found) {
+        const initialPart = {
+          id: props.partID,
+          sessionID: props.sessionID ?? "",
+          messageID: props.messageID,
+          type: "text" as const,
+          text: "",
+        }
+        input.setStore(
+          "part",
+          props.messageID,
+          produce((draft) => {
+            draft.splice(result.index, 0, initialPart as any)
+          }),
+        )
+        result = { found: true, index: result.index }
+      }
       const field = props.field as keyof (typeof parts)[number]
       const current = parts[result.index]?.[field]
       input.setStore(

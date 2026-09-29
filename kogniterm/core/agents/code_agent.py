@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 from langgraph.graph import StateGraph, END
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..llm_service import LLMService

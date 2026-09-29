@@ -3,6 +3,7 @@ import os
 import queue
 import json
 import logging
+import re
 import uuid
 from typing import Any, Optional
 from textual.app import App, ComposeResult
@@ -71,6 +72,22 @@ try:
     from kogniterm.terminal.agent_interaction_manager import AgentInteractionManager
 except Exception:
     AgentInteractionManager = None
+try:
+    from kogniterm.terminal.tui.session import (
+        Session,
+        SessionUIProxy,
+        RoutingUI,
+        SessionContext,
+        new_interrupt_queue,
+        build_session_title,
+    )
+except Exception:
+    Session = None
+    SessionUIProxy = None
+    RoutingUI = None
+    SessionContext = None
+    new_interrupt_queue = None
+    build_session_title = None
 try:
     from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
 except Exception:
@@ -226,6 +243,30 @@ class TerminalPanel(Static):
         self.tooltip = (
             "Haz clic o usa TAB para capturar teclado y enviar comandos directos"
         )
+
+
+class SessionTabButton(Button):
+    """Botón de pestaña que avisa a la app del hover (marquesina del título)."""
+
+    def __init__(self, *args, session_id: str = "", **kwargs):
+        super().__init__(*args, **kwargs)
+        self._tab_session_id = session_id
+
+    def on_enter(self, event: events.Enter) -> None:
+        try:
+            app = self.app
+            if hasattr(app, "_tab_hover_enter"):
+                app._tab_hover_enter(self._tab_session_id)
+        except Exception:
+            pass
+
+    def on_leave(self, event: events.Leave) -> None:
+        try:
+            app = self.app
+            if hasattr(app, "_tab_hover_leave"):
+                app._tab_hover_leave(self._tab_session_id)
+        except Exception:
+            pass
 
 
 class TextualTerminalUI:
@@ -927,6 +968,101 @@ class KogniTermTUI(App):
         background: transparent;
     }
 
+    /* ── BARRA DE SESIONES (pestañas superiores, mismo workspace) ─── */
+    #sessions_bar {
+        dock: top;
+        height: 2;
+        width: 100%;
+        background: transparent;
+        border-bottom: solid #374151;
+        layout: horizontal;
+        padding: 0 1;
+    }
+    #sessions_list {
+        width: 1fr;
+        height: 1;
+        layout: horizontal;
+        background: transparent;
+        padding: 0;
+    }
+    .session-tab-wrap {
+        width: auto;
+        height: 1;
+        layout: horizontal;
+        background: transparent;
+    }
+    .session-tab {
+        width: auto;
+        min-width: 16;
+        max-width: 36;
+        height: 1;
+        margin: 0;
+        padding: 0 1 0 2;
+        background: transparent;
+        color: #9ca3af;
+        border: none;
+    }
+    .session-tab:hover {
+        background: #ffffff 10%;
+    }
+    .session-close {
+        width: 3;
+        min-width: 3;
+        height: 1;
+        margin: 0 1 0 0;
+        padding: 0;
+        background: transparent;
+        color: #6b7280;
+        border: none;
+    }
+    .session-close:hover {
+        background: #ef4444 45%;
+        color: #ffffff;
+        text-style: bold;
+    }
+    .session-tab.--active {
+        background: #3b82f6;
+        color: white;
+        text-style: bold;
+    }
+    .session-tab.--busy {
+        color: #fbbf24;
+    }
+    .session-tab.--active.--busy {
+        background: #3b82f6;
+        color: #fef3c7;
+    }
+    #new_session_btn {
+        width: auto;
+        min-width: 3;
+        height: 1;
+        margin: 0;
+        background: transparent;
+        color: #10b981;
+        border: none;
+        text-style: bold;
+    }
+    #new_session_btn:hover {
+        background: #10b981 30%;
+    }
+    #sessions_content {
+        height: 1fr;
+        width: 100%;
+        align-horizontal: center;
+        background: transparent;
+    }
+    .session-chat {
+        width: 85%;
+        max-width: 180;
+        min-width: 60;
+        height: 1fr;
+        padding: 0;
+        background: transparent;
+        color: white;
+        scrollbar-size: 1 1; /* Scrollbar angosto de 1 celda */
+        border: none;
+    }
+
     #live_display {
         /* Alinear texto al centro */
         text-align: center;
@@ -1038,9 +1174,25 @@ class KogniTermTUI(App):
         if self.llm_service:
             self.llm_service.terminal_ui = self.tui_ui
             self.llm_service.interrupt_queue = self.tui_ui.get_interrupt_queue()
-        self.is_processing = False
-        self._input_queue = []  # Cola para mensajes cuando el agente está ocupado
+        # ── Multisesión con pestañas (mismo workspace/proyecto) ──────────
+        # Cada sesión tiene su propio thread, AgentState, cola de
+        # interrupción, interaction manager y ChatLogWidget. El LLMService y
+        # el CommandExecutor se comparten. Ver session.py.
+        self._sessions = {}
+        self._session_order = []
+        self._active_session_id = None
+        self._session_counter = 0
+        self._session_id_prefix = "s"
         self._is_processing_queue = False
+        # Spinner animado en las etiquetas de las pestañas ocupadas
+        self._session_spinner_frame = 0
+        self._session_spinner_timer = None
+        # Marquesina del título al pasar el ratón por una pestaña
+        self._hover_tab_id = None
+        self._marquee_tick = 0
+        self._marquee_timer = None
+        self._marquee_width = 20
+        self._marquee_dwell = 4
         # Estado interno del spinner animado
         self._spinner_frame = 0
         self._spinner_timer = None
@@ -1166,7 +1318,70 @@ class KogniTermTUI(App):
     BINDINGS = [
         ("ctrl+t", "toggle_mouse", "Mouse Tracking"),
         ("shift+tab", "toggle_auto_approve", "Auto-aprobación"),
+        ("ctrl+n", "new_session", "Nueva sesión"),
+        ("ctrl+w", "close_session", "Cerrar sesión"),
+        # ctrl+pageup/pagedown no los emite la mayoría de terminales;
+        # alt+left/right sí (ESC[1;3D / ESC[1;3C).
+        ("ctrl+pageup", "prev_session", "Sesión anterior"),
+        ("ctrl+pagedown", "next_session", "Sesión siguiente"),
+        ("alt+left", "prev_session", "Sesión anterior"),
+        ("alt+right", "next_session", "Sesión siguiente"),
     ]
+
+    # ── Propiedades de compatibilidad multisesión ─────────────────────
+    # `chat_log`, `is_processing` y `_input_queue` reflejan la sesión
+    # activa para que todo el código legacy (spinners, ws_client,
+    # meta-comandos, tests) siga funcionando sin cambios.
+
+    @property
+    def chat_log(self):
+        override = self.__dict__.get("_chat_log_override")
+        if override is not None:
+            return override
+        session = self.get_active_session()
+        if session is not None:
+            widget = self._session_widget(session)
+            if widget is not None:
+                return widget
+        return None
+
+    @chat_log.setter
+    def chat_log(self, value):
+        self.__dict__["_chat_log_override"] = value
+
+    @property
+    def is_processing(self) -> bool:
+        session = self.get_active_session()
+        if session is not None:
+            return bool(session.is_processing)
+        return bool(self.__dict__.get("_is_processing_fallback", False))
+
+    @is_processing.setter
+    def is_processing(self, value: bool):
+        session = self.get_active_session()
+        if session is not None:
+            session.is_processing = bool(value)
+        else:
+            self.__dict__["_is_processing_fallback"] = bool(value)
+
+    @property
+    def _input_queue(self) -> list:
+        session = self.get_active_session()
+        if session is not None:
+            return session.input_queue
+        fallback = self.__dict__.get("_input_queue_fallback")
+        if fallback is None:
+            fallback = []
+            self.__dict__["_input_queue_fallback"] = fallback
+        return fallback
+
+    @_input_queue.setter
+    def _input_queue(self, value: list):
+        session = self.get_active_session()
+        if session is not None:
+            session.input_queue = list(value or [])
+        else:
+            self.__dict__["_input_queue_fallback"] = list(value or [])
 
     def _build_splash_title(self) -> str:
         """Retorna el título ASCII para el splash centrado como markup Rich."""
@@ -1186,8 +1401,16 @@ class KogniTermTUI(App):
 
         # ── Base layer: chat interface ──────────────────────
         with Vertical(id="chat_container"):
-            self.chat_log = ChatLogWidget(id="chat_log")
-            yield self.chat_log
+            # Barra superior de pestañas de sesión (mismo workspace) + botón "+"
+            with Horizontal(id="sessions_bar"):
+                with Horizontal(id="sessions_list"):
+                    pass
+                yield Button(
+                    "+", id="new_session_btn", tooltip="Nueva sesión (Ctrl+N)"
+                )
+            # Contenido: un ChatLogWidget por sesión (solo visible la activa)
+            with Vertical(id="sessions_content"):
+                pass
 
         self.approval_container = Vertical(id="approval_container")
         yield self.approval_container
@@ -1283,6 +1506,14 @@ class KogniTermTUI(App):
         # Actualizar info del modelo en el splash y enfocar el input del splash
         self.call_after_refresh(self._setup_splash)
 
+        # Inicializar multisesión (pestaña inicial del mismo workspace).
+        # Se hace de forma síncrona en el hilo de la app para que el primer
+        # mensaje siempre tenga una sesión y un widget válidos.
+        try:
+            self._init_sessions()
+        except Exception as e:
+            logger.error(f"Error inicializando sesiones: {e}", exc_info=True)
+
         # El ratón se maneja en el mount para asegurar que las secuencias se envíen.
         # force_on/off evita spam de mensajes en el inicio.
         self.call_after_refresh(
@@ -1303,9 +1534,10 @@ class KogniTermTUI(App):
     async def _try_server_connect(self) -> None:
         """
         Prueba si el servidor KogniTerm está disponible y, si es así, activa
-        el modo servidor iniciando el cliente WebSocket persistente.
+        el modo servidor iniciando un cliente WebSocket por pestaña (cada
+        pestaña tiene su propia sesión remota y conversación independiente).
         """
-        from kogniterm.terminal.tui.ws_client import probe_server, TUIWebSocketClient
+        from kogniterm.terminal.tui.ws_client import probe_server
 
         available = await probe_server(self._server_url)
         if not available:
@@ -1314,9 +1546,14 @@ class KogniTermTUI(App):
 
         logger.info("[Híbrido] Servidor disponible. Activando modo servidor.")
         self._server_mode = True
-        self._ws_client = TUIWebSocketClient(self, self._server_url, self._session_id)
-        # Crear tarea de conexión persistente en el loop de Textual
-        self._ws_task = asyncio.create_task(self._ws_client.run())
+        # Conectar todas las pestañas existentes (normalmente solo la inicial)
+        try:
+            for session in self.list_sessions():
+                self._ensure_session_client(session)
+        except Exception as exc:
+            logger.debug(f"No se pudieron conectar clientes de sesión: {exc}")
+        # Alias legacy: cliente de la sesión activa
+        self._sync_legacy_ws_alias()
 
         # Sincronizar el modelo activo del servidor con la TUI
         try:
@@ -1328,20 +1565,124 @@ class KogniTermTUI(App):
         except Exception as ex:
             logger.warning(f"No se pudo sincronizar el modelo inicial del servidor: {ex}")
 
-    async def _send_to_server(self, text: str) -> None:
-        """Envía un mensaje al servidor vía WebSocket y actualiza el estado."""
-        if not self._ws_client or not self._ws_client.is_connected:
-            # El servidor puede haberse desconectado; caer al modo local
-            logger.warning("[Híbrido] WS no conectado. Fallback a modo local.")
-            self.switch_to_local_mode()
-            self.process_agent_request(text)
+    def _session_server_id(self, session) -> str:
+        """ID de sesión remota estable para la pestaña (conversación propia)."""
+        try:
+            if getattr(session, "server_session_id", None):
+                return session.server_session_id
+            sid = f"{self._session_id}-{session.session_id}"
+            session.server_session_id = sid
+            return sid
+        except Exception:
+            return self._session_id
+
+    def _ensure_session_client(self, session):
+        """Crea (si falta) el WebSocket de la pestaña y su tarea de conexión."""
+        if session is None:
+            return None
+        try:
+            client = getattr(session, "ws_client", None)
+            if client is not None and not getattr(client, "_stopped", False):
+                return client
+            from kogniterm.terminal.tui.ws_client import TUIWebSocketClient
+
+            client = TUIWebSocketClient(
+                self, self._server_url, self._session_server_id(session),
+                tab_id=session.session_id,
+            )
+            session.ws_client = client
+            try:
+                loop = asyncio.get_running_loop()
+                session.ws_task = loop.create_task(client.run())
+            except RuntimeError:
+                # Sin loop activo (tests): se conectará al enviar
+                session.ws_task = None
+            self._sync_legacy_ws_alias()
+            return client
+        except Exception as exc:
+            logger.debug(f"No se pudo crear WS client para pestaña: {exc}")
+            return None
+
+    def _sync_legacy_ws_alias(self):
+        """Alias legacy: _ws_client/_ws_task apuntan a la pestaña activa."""
+        try:
+            active = self.get_active_session()
+            if active is not None and getattr(active, "ws_client", None) is not None:
+                self._ws_client = active.ws_client
+                self._ws_task = getattr(active, "ws_task", None)
+        except Exception:
+            pass
+
+    def _any_session_connected(self) -> bool:
+        try:
+            for session in self.list_sessions():
+                client = getattr(session, "ws_client", None)
+                if client is not None and bool(getattr(client, "is_connected", False)):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _on_tab_disconnect(self, tab_id: str, reason: str = "") -> None:
+        """Aviso de desconexión de una pestaña (hilo de la app).
+
+        Solo cae a modo local global si ninguna pestaña sigue conectada;
+        si no, avisa localmente en la pestaña (su reconnect loop reintenta).
+        """
+        session = self.get_session(tab_id)
+        if session is None:
+            return
+        if self._any_session_connected():
+            try:
+                session.ui_proxy.print_message(
+                    "⚠️ Conexión al servidor perdida en esta pestaña. Reintentando…",
+                    style="yellow",
+                )
+            except Exception:
+                pass
+            return
+        # Sin pestañas conectadas: fallback global legacy
+        self.switch_to_local_mode()
+
+    def _on_tab_reconnect(self, tab_id: str) -> None:
+        """Una pestaña recuperó su WebSocket (hilo de la app).
+
+        No imprime nada: la desconexión ya notificó al usuario y el
+        reconnect loop es silencioso (evita spam en el log de la pestaña).
+        """
+        if not self._server_mode:
+            self.switch_to_server_mode()
+        self._sync_legacy_ws_alias()
+
+    async def _send_to_server(self, text: str, session=None) -> None:
+        """Envía un mensaje al servidor vía el WebSocket DE LA PESTAÑA."""
+        if session is None:
+            session = self.get_active_session()
+        client = None
+        try:
+            if self._server_mode and session is not None:
+                client = self._ensure_session_client(session)
+        except Exception:
+            client = None
+        try:
+            connected = bool(client is not None and client.is_connected)
+        except Exception:
+            connected = False
+        if not connected:
+            # Sin conexión en esta pestaña: procesar en local sin tumbar
+            # el modo global (el reconnect loop de la pestaña reintenta).
+            logger.warning("[Híbrido] WS de pestaña no conectado. Fallback local.")
+            self.process_agent_request(text, getattr(session, "session_id", None))
             return
 
         # _send_to_server ya corre en el loop de Textual (desde _handle_input_async),
         # por lo que podemos llamar métodos de UI directamente.
-        self.is_processing = True
-        self._start_spinner()
-        await self._ws_client.send_message(text)
+        session.is_processing = True
+        try:
+            self._start_spinner_for_session(session.session_id)
+        except Exception:
+            pass
+        await client.send_message(text)
 
     def switch_to_local_mode(self) -> None:
         """Cambia la TUI al modo local autónomo."""
@@ -1368,25 +1709,54 @@ class KogniTermTUI(App):
     # ── Workspace indexing check ───────────────────────────────────────────────
 
     def _check_workspace_index(self):
-        """Check if the workspace is indexed; if not, prompt user to index."""
+        """Comprueba en background si el workspace está indexado.
+
+        Abrir ChromaDB puede tardar varios segundos (carga del modelo de
+        embeddings en el primer uso), así que NUNCA se hace en el event loop:
+        bloquea el loop y la TUI parece colgada al arrancar. El diálogo se
+        muestra desde el hilo de la app cuando haya respuesta.
+        """
         if self.workspace_directory is None:
             self.workspace_directory = os.getcwd()
-        try:
-            from kogniterm.core.context.vector_db_manager import VectorDBManager
 
-            vdb = VectorDBManager(self.workspace_directory)
-            if not vdb.is_indexed():
-                # Show confirmation modal
-                self.push_screen(
-                    IndexingConfirmModal(
-                        title="Inicializar contexto del proyecto",
-                        message="¿Desea inicializar el espacio de trabajo para este proyecto? Esto generará la memoria de contexto (.kogniterm/llm_context.md) mediante investigación autónoma e indexará el código para búsquedas inteligentes. (Equivale a ejecutar el comando /init)",
-                    ),
-                    self._on_indexing_confirmation,
-                )
-            vdb.close()
+        def _worker():
+            needs_index = False
+            try:
+                from kogniterm.core.context.vector_db_manager import VectorDBManager
+
+                vdb = VectorDBManager(self.workspace_directory)
+                try:
+                    needs_index = not vdb.is_indexed()
+                finally:
+                    try:
+                        vdb.close()
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug(f"No se pudo comprobar el estado de indexación: {e}")
+                return
+            if needs_index:
+                self.call_from_thread(self._prompt_workspace_index)
+
+        try:
+            threading.Thread(
+                target=_worker, daemon=True, name="kogniterm-index-check"
+            ).start()
         except Exception as e:
-            logger.error(f"Error checking index status: {e}")
+            logger.debug(f"No se pudo lanzar el chequeo de indexación: {e}")
+
+    def _prompt_workspace_index(self):
+        """Muestra el modal de indexación (debe correr en el hilo de la app)."""
+        try:
+            self.push_screen(
+                IndexingConfirmModal(
+                    title="Inicializar contexto del proyecto",
+                    message="¿Desea inicializar el espacio de trabajo para este proyecto? Esto generará la memoria de contexto (.kogniterm/llm_context.md) mediante investigación autónoma e indexará el código para búsquedas inteligentes. (Equivale a ejecutar el comando /init)",
+                ),
+                self._on_indexing_confirmation,
+            )
+        except Exception as e:
+            logger.error(f"No se pudo mostrar el modal de indexación: {e}")
 
     def _on_indexing_confirmation(self, should_index: bool):
         """Handle response from indexing confirmation modal."""
@@ -1817,6 +2187,11 @@ class KogniTermTUI(App):
                         "%init",
                         "%keys",
                         "%session",
+                        "%new",
+                        "%tabs",
+                        "%switch",
+                        "%rename",
+                        "%close",
                         "%resume",
                         "%salir",
                         "%mouse",
@@ -1845,6 +2220,11 @@ class KogniTermTUI(App):
                         "/init",
                         "/keys",
                         "/session",
+                        "/new",
+                        "/tabs",
+                        "/switch",
+                        "/rename",
+                        "/close",
                         "/resume",
                         "/salir",
                         "/mouse",
@@ -1978,6 +2358,11 @@ class KogniTermTUI(App):
                         "%init",
                         "%keys",
                         "%session",
+                        "%new",
+                        "%tabs",
+                        "%switch",
+                        "%rename",
+                        "%close",
                         "%resume",
                         "%salir",
                         "%mouse",
@@ -2006,6 +2391,11 @@ class KogniTermTUI(App):
                         "/init",
                         "/keys",
                         "/session",
+                        "/new",
+                        "/tabs",
+                        "/switch",
+                        "/rename",
+                        "/close",
                         "/resume",
                         "/salir",
                         "/mouse",
@@ -2163,6 +2553,23 @@ class KogniTermTUI(App):
             event.prevent_default()
 
     def on_key(self, event: events.Key):
+        # 0. Atajos de pestañas: siempre tienen prioridad (incluso con PTY activo)
+        if event.key in ("ctrl+n", "ctrl+w", "ctrl+pageup", "ctrl+pagedown", "alt+left", "alt+right"):
+            try:
+                if event.key == "ctrl+n":
+                    self.action_new_session()
+                elif event.key == "ctrl+w":
+                    self.action_close_session()
+                elif event.key in ("ctrl+pagedown", "alt+right"):
+                    self.action_next_session()
+                elif event.key in ("ctrl+pageup", "alt+left"):
+                    self.action_prev_session()
+            except Exception:
+                pass
+            event.prevent_default()
+            event.stop()
+            return
+
         # 1. Prioridad: Si el panel de terminal está enfocado, enviar teclas al PTY
         # Importación local para evitar circulares
         try:
@@ -2178,8 +2585,9 @@ class KogniTermTUI(App):
 
         is_interactive_mode = False
         if focused_widget and is_terminal_focused:
+            _focus_exec = self.get_active_executor()
             if (
-                (self.command_executor and self.command_executor.process)
+                (_focus_exec and getattr(_focus_exec, "process", None))
                 or (self._server_mode and self.interactive_executor)
                 or getattr(self, "interactive_executor", None)
                 or getattr(self, "_cursor_active", False)
@@ -2227,9 +2635,13 @@ class KogniTermTUI(App):
                 "f12": "\x1b[24~",
             }
 
-            executor = getattr(self, "interactive_executor", None) or getattr(
-                self, "command_executor", None
-            )
+            # Executor de la pestaña a la que pertenece el widget enfocado
+            # (cada pestaña tiene su propio shell persistente).
+            _focus_session = self._session_for_widget(focused_widget)
+            if _focus_session is not None and getattr(_focus_session, "interactive_executor", None):
+                executor = _focus_session.interactive_executor
+            else:
+                executor = getattr(self, "interactive_executor", None) or self.get_active_executor()
 
             # Manejar Ctrl+Letra
             if event.key.startswith("ctrl+"):
@@ -2251,27 +2663,48 @@ class KogniTermTUI(App):
 
         if event.key == "escape":
             if self.is_processing:
-                if (
-                    self._server_mode
-                    and self._ws_client
-                    and self._ws_client.is_connected
-                ):
-                    # Modo servidor: enviar interrupción al backend
+                # Interrumpir la SESIÓN ACTIVA (cada pestaña tiene su cola y
+                # su propio WebSocket en modo servidor)
+                _esc_session = self.get_active_session()
+                _esc_queue = None
+                _esc_ws = None
+                if _esc_session is not None:
+                    _esc_queue = getattr(_esc_session, "interrupt_queue", None)
+                    _esc_ws = getattr(_esc_session, "ws_client", None)
+                    try:
+                        if _esc_session.agent_state is not None:
+                            _esc_session.agent_state.stop_requested = True
+                    except Exception:
+                        pass
+                try:
+                    _esc_connected = bool(
+                        self._server_mode and _esc_ws is not None and _esc_ws.is_connected
+                    )
+                except Exception:
+                    _esc_connected = False
+                if _esc_connected:
+                    # Modo servidor: enviar interrupción al backend de ESTA pestaña
                     # Usar call_later de Textual para programar la coroutine de
                     # forma segura en el event loop, evitando excepciones silenciosas.
-                    self.call_later(self._ws_client.send_interrupt)
+                    self.call_later(_esc_ws.send_interrupt)
                     # También señalar la cola local como respaldo por si el
                     # WebSocket tarda en entregar la señal al hilo del agente.
                     try:
-                        self.tui_ui.get_interrupt_queue().put_nowait(True)
+                        (_esc_queue or self.tui_ui.get_interrupt_queue()).put_nowait(True)
                     except Exception:
                         pass
                 else:
-                    # Modo local: usar la cola de interrupción estándar
-                    self.tui_ui.get_interrupt_queue().put(True)
-                self.tui_ui.print_message(
-                    "⏳ Solicitando interrupción...", style="yellow"
-                )
+                    # Modo local: usar la cola de interrupción de la sesión activa
+                    try:
+                        (_esc_queue or self.tui_ui.get_interrupt_queue()).put(True)
+                    except Exception:
+                        pass
+                try:
+                    (_esc_session.ui_proxy if _esc_session is not None else self.tui_ui).print_message(
+                        "⏳ Solicitando interrupción...", style="yellow"
+                    )
+                except Exception:
+                    pass
                 event.prevent_default()
                 return
             elif self.command_popup.display:
@@ -2346,7 +2779,7 @@ class KogniTermTUI(App):
         except Exception:
             is_terminal_focused = False
 
-        cmd_exec = getattr(self, "command_executor", None)
+        cmd_exec = self.get_active_executor()
         proc = getattr(cmd_exec, "process", None) if cmd_exec else None
         is_proc_running = proc is not None and getattr(proc, "poll", lambda: None)() is None
 
@@ -2364,18 +2797,34 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-        # Bloquear nuevo input si ya hay una petición en curso
+        # Sesión de origen: la pestaña activa en el momento del envío.
+        # Cada pestaña tiene su propia cola y su propio flag de procesado
+        # para permitir trabajo en paralelo.
+        try:
+            _submit_session = self.get_active_session()
+            _submit_sid = _submit_session.session_id if _submit_session else None
+            _busy = bool(_submit_session.is_processing) if _submit_session is not None else bool(getattr(self, "is_processing", False))
+        except Exception:
+            _submit_session, _submit_sid, _busy = None, None, bool(getattr(self, "is_processing", False))
+
+        # Bloquear nuevo input si ESA pestaña ya procesa
         # PERO permitir encolar mensajes para mejor UX
-        if getattr(self, "is_processing", False) is True:
-            self._input_queue.append(user_input)
+        if _busy is True:
+            try:
+                (_submit_session.input_queue if _submit_session is not None else self._input_queue).append(user_input)
+            except Exception:
+                pass
             if hasattr(self, "queue_display"):
-                self.queue_display.update_queue(self._input_queue)
+                try:
+                    self.queue_display.update_queue(self._input_queue)
+                except Exception:
+                    pass
             return
 
         rw = getattr(self, "run_worker", None)
         if rw is not None:
             try:
-                rw(self._handle_input_async(user_input))
+                rw(self._handle_input_async(user_input, _submit_sid))
             except Exception:
                 pass
 
@@ -2412,7 +2861,7 @@ class KogniTermTUI(App):
         except Exception:
             is_terminal_focused = False
 
-        cmd_exec = getattr(self, "command_executor", None)
+        cmd_exec = self.get_active_executor()
         proc = getattr(cmd_exec, "process", None) if cmd_exec else None
         is_proc_running = proc is not None and getattr(proc, "poll", lambda: None)() is None
 
@@ -2420,15 +2869,29 @@ class KogniTermTUI(App):
             cmd_exec.write_input(user_input + "\n")
             return
 
-        # Bloquear nuevo input si ya hay una petición en curso
-        if getattr(self, "is_processing", False) is True:
-            self._input_queue.append(user_input)
+        # Sesión de origen: la pestaña activa en el momento del envío
+        try:
+            _submit_session = self.get_active_session()
+            _submit_sid = _submit_session.session_id if _submit_session else None
+            _busy = bool(_submit_session.is_processing) if _submit_session is not None else bool(getattr(self, "is_processing", False))
+        except Exception:
+            _submit_session, _submit_sid, _busy = None, None, bool(getattr(self, "is_processing", False))
+
+        # Bloquear nuevo input si ESA pestaña ya procesa (encolar en su cola)
+        if _busy is True:
+            try:
+                (_submit_session.input_queue if _submit_session is not None else self._input_queue).append(user_input)
+            except Exception:
+                pass
             if hasattr(self, "queue_display"):
-                self.queue_display.update_queue(self._input_queue)
+                try:
+                    self.queue_display.update_queue(self._input_queue)
+                except Exception:
+                    pass
             return
 
         # Despachar al worker asíncrono
-        self.run_worker(self._handle_input_async(user_input))
+        self.run_worker(self._handle_input_async(user_input, _submit_sid))
 
     def _transition_to_chat(self, first_message: str):
         """Oculta el splash y activa el modo chat con el primer mensaje."""
@@ -2450,8 +2913,39 @@ class KogniTermTUI(App):
         # Procesar el primer mensaje en worker
         self.run_worker(self._handle_input_async(first_message))
 
-    async def _handle_input_async(self, user_input: str):
-        """Procesa la entrada del usuario de forma asíncrona en un worker."""
+    async def _handle_input_async(self, user_input: str, session_id: Optional[str] = None):
+        """Procesa la entrada del usuario de forma asíncrona en un worker.
+
+        El ``session_id`` fija la pestaña de origen para que cada sesión
+        procese en paralelo con su propio historial y su propio widget.
+        Si es None, se usa la sesión activa en el momento del envío.
+        """
+        session = self.get_session(session_id) if session_id else self.get_active_session()
+        if session is None:
+            try:
+                session = self._ensure_active_session()
+            except Exception:
+                session = None
+            if session is None:
+                return
+
+        # 0. Asegurar managers de la sesión bajo demanda.
+        # OJO: la construcción es pesada (system prompt + runners de agente) y
+        # no puede hacerse en el event loop o la UI se congela. Se delega a un
+        # hilo y se espera sin bloquear el loop.
+        try:
+            if not getattr(session, "_managers_ready", False):
+                await asyncio.to_thread(self._ensure_session_managers, session)
+        except Exception as exc:
+            logger.debug(f"_ensure_session_managers: {exc}")
+
+        # 0b. Comandos de pestañas/sesión (no se reflejan como mensaje)
+        try:
+            if await self._handle_session_command(user_input, session):
+                return
+        except Exception as e:
+            logger.error(f"Error procesando comando de sesión: {e}", exc_info=True)
+
         # 1. Intentar procesar comando desde TUICommandProcessor (modales interactivos en worker)
         cmd_proc = getattr(self, "command_processor", None)
         if cmd_proc and hasattr(cmd_proc, "process_command"):
@@ -2461,26 +2955,348 @@ class KogniTermTUI(App):
             except Exception as e:
                 logger.error(f"Error procesando comando TUI: {e}", exc_info=True)
 
-        self.chat_log.write_user_message(user_input)
+        try:
+            session.ui_proxy.print_message(user_input, is_user_message=True)
+        except Exception:
+            pass
 
-        if self.meta_command_processor:
+        # Título provisional inmediato con la petición (el LLM lo sustituirá
+        # al terminar el turno). Se hace tras descartar que sea un comando.
+        try:
+            if not (user_input or "").strip().startswith(("/", "%")):
+                self._provisional_title_from_request(session, user_input)
+        except Exception:
+            pass
+
+        # Meta-comandos con el processor de ESTA sesión (su AgentState + su UI).
+        meta_proc = getattr(session, "meta_processor", None) or self.meta_command_processor
+        if meta_proc:
             try:
-                if await self.meta_command_processor.process_meta_command(user_input):
+                if await meta_proc.process_meta_command(user_input):
                     return
             except Exception as e:
                 logger.error(f"Error procesando meta-comando: {e}", exc_info=True)
-                if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "print_message"):
-                    self.tui_ui.print_message(f"Error ejecutando comando: {e}", style="red")
-                elif hasattr(self, "chat_log"):
-                    self.chat_log.write_agent_message(f"❌ Error ejecutando comando: {e}")
+                try:
+                    session.ui_proxy.print_message(f"Error ejecutando comando: {e}", style="red")
+                except Exception:
+                    pass
                 return
 
         # ── Decisión híbrida: servidor vs local ────────────────────────────────
-        if self._server_mode and self._ws_client:
+        # En modo servidor cada pestaña usa su propio WebSocket/sesión remota.
+        _srv_client = None
+        try:
+            if self._server_mode and session is not None:
+                _srv_client = getattr(session, "ws_client", None) or self._ensure_session_client(session)
+        except Exception:
+            _srv_client = None
+        try:
+            _srv_connected = bool(_srv_client is not None and _srv_client.is_connected)
+        except Exception:
+            _srv_connected = False
+        if _srv_connected:
             # Intentar via WebSocket; si falla, caer al modo local automáticamente
-            await self._send_to_server(user_input)
+            await self._send_to_server(user_input, session)
         else:
-            self.process_agent_request(user_input)
+            self.process_agent_request(user_input, session.session_id)
+
+    # ── Comandos de pestañas ──────────────────────────────────────────
+    # Aceptan prefijo / o %. Se interceptan antes que cualquier otro
+    # procesador para no contaminar historiales ni hilos.
+
+    SESSION_COMMANDS = (
+        "new", "tabs", "sessions", "switch", "rename", "close", "tab",
+    )
+
+    async def _handle_session_command(self, user_input: str, session) -> bool:
+        """Procesa /new /tabs /switch /rename /close (+ intercepta /reset,
+        /resume y /session para que operen sobre la pestaña activa).
+
+        Devuelve True si el comando fue consumido.
+        """
+        text = (user_input or "").strip()
+        if not text or text[0] not in ("/", "%"):
+            return False
+        parts = text.split()
+        cmd = parts[0][1:].lower()
+        args = parts[1:]
+
+        if cmd in self.SESSION_COMMANDS:
+            if cmd == "new":
+                self.create_session(title=" ".join(args) if args else None)
+            elif cmd in ("tabs", "sessions"):
+                self._print_sessions_list(session)
+            elif cmd in ("switch", "tab"):
+                self._cmd_switch_session(args, session)
+            elif cmd == "rename":
+                if args:
+                    self.rename_session(" ".join(args), session.session_id)
+                else:
+                    session.ui_proxy.print_message("Uso: `/rename <título>`", style="yellow")
+            elif cmd == "close":
+                target = self._resolve_session_arg(args, session) if args else session
+                self.close_session(target.session_id if target else session.session_id)
+            return True
+
+        if cmd == "reset":
+            self._reset_session(session)
+            return True
+
+        if cmd == "resume":
+            await self._resume_into_session(session, args[0] if args else None)
+            return True
+
+        if cmd == "session":
+            await self._handle_session_subcommand(session, args)
+            return True
+
+        return False
+
+    def _resolve_session_arg(self, args: list, current):
+        """Resuelve '2' o parte del título a una sesión."""
+        if not args:
+            return current
+        key = " ".join(args).strip().lower()
+        sessions = self.list_sessions()
+        if key.isdigit():
+            idx = int(key) - 1
+            if 0 <= idx < len(sessions):
+                return sessions[idx]
+            return None
+        for s in sessions:
+            if key in (s.title or "").lower() or key == s.session_id.lower():
+                return s
+        matches = [s for s in sessions if key in (s.title or "").lower()]
+        return matches[0] if len(matches) == 1 else None
+
+    def _cmd_switch_session(self, args: list, current):
+        target = self._resolve_session_arg(args, current)
+        if target is None:
+            try:
+                current.ui_proxy.print_message(
+                    "Uso: `/switch <nº|título>`. Ver `/tabs`.", style="yellow"
+                )
+            except Exception:
+                pass
+            return
+        self.switch_session(target.session_id)
+
+    def _print_sessions_list(self, current):
+        sessions = self.list_sessions()
+        lines = ["[bold cyan]📑 Pestañas (mismo proyecto):[/bold cyan]"]
+        for idx, s in enumerate(sessions):
+            markers = []
+            if s.session_id == current.session_id:
+                markers.append("← activa")
+            if s.is_processing:
+                markers.append("● procesando")
+            suffix = f" ({', '.join(markers)})" if markers else ""
+            lines.append(f"  [bold]{idx + 1}.[/bold] {s.title}{suffix}")
+        lines.append("[dim]/new [título] · /switch <nº> · /rename <título> · /close [nº][/dim]")
+        try:
+            current.ui_proxy.print_message("\n".join(lines))
+        except Exception:
+            pass
+
+    def _reset_session(self, session):
+        """Limpia la pestaña activa (su AgentState e historial) sin tocar las demás."""
+        try:
+            if session.agent_state is not None and hasattr(session.agent_state, "reset"):
+                session.agent_state.reset()
+            if getattr(self, "llm_service", None) is not None and session.session_id == self._active_session_id:
+                try:
+                    from kogniterm.core.agents.bash_agent import get_system_message
+
+                    self.llm_service.conversation_history = [get_system_message(self.llm_service)]
+                    session.agent_state.messages = list(self.llm_service.conversation_history)
+                    try:
+                        self.llm_service._save_history(self.llm_service.conversation_history)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            widget = self._session_widget(session)
+            if widget is not None:
+                widget.clear()
+            session.input_queue.clear()
+            try:
+                session.ui_proxy.print_message(
+                    f"🧹 **{session.title}** limpiada. Historial reiniciado.",
+                    style="green",
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Error en _reset_session: {e}", exc_info=True)
+
+    async def _resume_into_session(self, session, query: Optional[str]):
+        """Carga un thread persistido en la pestaña indicada."""
+        tm = getattr(self, "thread_manager", None)
+        if tm is None:
+            try:
+                session.ui_proxy.print_message("Thread manager no disponible.", style="red")
+            except Exception:
+                pass
+            return
+        try:
+            threads = tm.list_threads()
+        except Exception:
+            threads = []
+        # Filtrar al workspace actual (las pestañas son del mismo proyecto)
+        try:
+            ws = os.path.abspath(self.workspace_directory or os.getcwd())
+            if threads:
+                filtered = [t for t in threads if os.path.abspath(t.get("workspace_dir") or "") == ws]
+                if filtered:
+                    threads = filtered
+        except Exception:
+            pass
+        if not threads:
+            try:
+                session.ui_proxy.print_message("No hay hilos guardados para retomar.", style="yellow")
+            except Exception:
+                pass
+            return
+        thread_id = None
+        if query:
+            try:
+                exact = tm.get_thread(query)
+            except Exception:
+                exact = None
+            if exact:
+                thread_id = exact.id
+            else:
+                try:
+                    matches = tm.find_threads(query)
+                except Exception:
+                    matches = []
+                if len(matches) == 1:
+                    thread_id = matches[0].get("id")
+                elif len(matches) > 1:
+                    threads = matches
+        if not thread_id:
+            options = []
+            for t in threads[:20]:
+                label = f"{t.get('title', t.get('id', ''))} — {str(t.get('updated_at', ''))[:19]} ({t.get('message_count', 0)} msgs)"
+                options.append((t.get("id", ""), label))
+            try:
+                thread_id = await session.ui_proxy.ask_radiolist_async(
+                    title="Retomar hilo",
+                    text="Selecciona el hilo a cargar en esta pestaña:",
+                    values=options,
+                )
+            except Exception:
+                thread_id = None
+            if not thread_id:
+                try:
+                    session.ui_proxy.print_message("Selección cancelada.", style="dim")
+                except Exception:
+                    pass
+                return
+        try:
+            thread = tm.get_thread(thread_id)
+        except Exception:
+            thread = None
+        if thread is None:
+            try:
+                session.ui_proxy.print_message(f"No se pudo cargar el hilo '{thread_id}'.", style="red")
+            except Exception:
+                pass
+            return
+        history = list(thread.messages or [])
+        session.thread_id = thread.id
+        try:
+            session.title = (thread.title or session.title)[:40]
+        except Exception:
+            pass
+        if session.agent_state is not None:
+            try:
+                session.agent_state.reset()
+                session.agent_state.messages = list(history)
+            except Exception:
+                session.agent_state.messages = list(history)
+        try:
+            tm.set_current_thread_id(thread.id)
+        except Exception:
+            pass
+        self._render_history_into_session(session, history)
+        self._refresh_session_tabs()
+        try:
+            session.ui_proxy.print_message(
+                f"▶️ Hilo **{thread.title}** cargado en **{session.title}** ({len(history)} mensajes).",
+                style="green",
+            )
+        except Exception:
+            pass
+
+    async def _handle_session_subcommand(self, session, args: list):
+        """Versión por pestaña de `/session` (mismo workspace)."""
+        tm = getattr(self, "thread_manager", None)
+        if tm is None:
+            try:
+                session.ui_proxy.print_message("Thread manager no disponible.", style="red")
+            except Exception:
+                pass
+            return
+        sub = args[0].lower() if args else "list"
+        rest = args[1:] if len(args) > 1 else []
+        if sub == "list":
+            try:
+                threads = tm.list_threads()
+            except Exception:
+                threads = []
+            if not threads:
+                session.ui_proxy.print_message("No hay hilos guardados.", style="yellow")
+                return
+            lines = ["[bold cyan]🧵 Hilos guardados:[/bold cyan]"]
+            for t in threads[:20]:
+                mark = " ← pestaña actual" if t.get("id") == session.thread_id else ""
+                lines.append(
+                    f"  • [bold]{t.get('title', '')}[/bold] `{(t.get('id', '')[:8])}` "
+                    f"({t.get('message_count', 0)} msgs){mark}"
+                )
+            session.ui_proxy.print_message("\n".join(lines))
+        elif sub == "new":
+            self.create_session(title=" ".join(rest) if rest else None)
+        elif sub == "load":
+            if not rest:
+                session.ui_proxy.print_message("Uso: `/session load <thread_id>`", style="yellow")
+                return
+            await self._resume_into_session(session, rest[0])
+        elif sub == "save":
+            target = rest[0] if rest else (session.thread_id or "hilo")
+            history = list(session.agent_state.messages or []) if session.agent_state else []
+            try:
+                thread = tm.get_thread(target)
+                if thread is None:
+                    thread = tm.create_thread(thread_id=target, title=target, messages=history)
+                    saved = thread is not None
+                else:
+                    thread.messages = history
+                    saved = tm.save_thread(thread, llm_service=getattr(self, "llm_service", None))
+                session.ui_proxy.print_message(
+                    f"Hilo '{target}' guardado. ✅" if saved else f"Error guardando '{target}'. ❌",
+                    style="green" if saved else "red",
+                )
+            except Exception as e:
+                session.ui_proxy.print_message(f"Error guardando hilo: {e}", style="red")
+        elif sub == "delete":
+            if not rest:
+                session.ui_proxy.print_message("Uso: `/session delete <thread_id>`", style="yellow")
+                return
+            try:
+                ok = tm.delete_thread(rest[0])
+                session.ui_proxy.print_message(
+                    f"Hilo '{rest[0]}' eliminado. 🗑️" if ok else f"No se pudo eliminar '{rest[0]}'.",
+                    style="green" if ok else "red",
+                )
+            except Exception as e:
+                session.ui_proxy.print_message(f"Error eliminando hilo: {e}", style="red")
+        else:
+            session.ui_proxy.print_message(
+                "Subcomandos: `list`, `save`, `load`, `new`, `delete`. También: `/new /tabs /switch /rename /close /resume /reset`.",
+                style="yellow",
+            )
 
     def apply_theme(self, theme_name: str, persist: bool = True):
         """Aplica un tema visual a la aplicación Textual.
@@ -2511,13 +3327,42 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-        # 4. Estilizar el LOG y sus SCROLLBARS
-        log = self.chat_log
-        log.styles.background = "transparent"
-        log.styles.color = p.TEXT_PRIMARY
-        log.styles.scrollbar_color = p.GRAY_600
-        log.styles.scrollbar_color_hover = p.PRIMARY
-        log.styles.scrollbar_color_active = p.PRIMARY_LIGHT
+        # 3b. Barra de pestañas: fondo transparente, borde y colores con el tema
+        try:
+            sessions_bar = self.query_one("#sessions_bar")
+            sessions_bar.styles.background = "transparent"
+            sessions_bar.styles.border_bottom = ("solid", p.GRAY_700)
+        except Exception:
+            pass
+        try:
+            new_btn = self.query_one("#new_session_btn")
+            new_btn.styles.background = "transparent"
+            new_btn.styles.color = p.SUCCESS
+        except Exception:
+            pass
+        # Reaplicar los colores de cada pestaña con la paleta nueva
+        try:
+            self._refresh_session_tabs()
+        except Exception:
+            pass
+
+        # 4. Estilizar los LOGS (uno por pestaña) y sus SCROLLBARS
+        _logs = []
+        try:
+            for _s in self.list_sessions():
+                _w = self._session_widget(_s)
+                if _w is not None:
+                    _logs.append(_w)
+        except Exception:
+            pass
+        if not _logs and self.chat_log is not None:
+            _logs = [self.chat_log]
+        for log in _logs:
+            log.styles.background = "transparent"
+            log.styles.color = p.TEXT_PRIMARY
+            log.styles.scrollbar_color = p.GRAY_600
+            log.styles.scrollbar_color_hover = p.PRIMARY
+            log.styles.scrollbar_color_active = p.PRIMARY_LIGHT
 
         # 5. Estilizar contenedores secundarios
         self.approval_container.styles.background = bg_color
@@ -2675,8 +3520,67 @@ class KogniTermTUI(App):
         # Reiniciar el spinner como si fuera la primera vez
         self._start_spinner()
 
-    def set_terminal_cursor(self, active: bool, executor=None):
-        """Activa o desactiva el simulador de cursor en el chat log."""
+    def get_active_executor(self):
+        """Executor del shell persistente de la pestaña activa.
+
+        Cada pestaña tiene su propio CommandExecutor (shell persistente
+        independiente). Puede no existir todavía si los managers se están
+        creando en segundo plano: en ese caso cae al global legacy.
+        """
+        try:
+            session = self.get_active_session()
+            if session is not None and getattr(session, "command_executor", None) is not None:
+                return session.command_executor
+        except Exception:
+            pass
+        return getattr(self, "command_executor", None)
+
+    def _session_for_widget(self, widget):
+        """Resuelve a qué pestaña pertenece un widget (subiendo por padres)."""
+        try:
+            node = widget
+            wanted = {s.chat_widget_id for s in self.list_sessions() if s.chat_widget_id}
+            while node is not None:
+                if getattr(node, "id", None) in wanted:
+                    for s in self.list_sessions():
+                        if s.chat_widget_id == node.id:
+                            return s
+                    return None
+                node = getattr(node, "parent", None)
+        except Exception:
+            pass
+        return None
+
+    def set_terminal_cursor(self, active: bool, executor=None, session_id: Optional[str] = None):
+        """Activa o desactiva el simulador de cursor en el chat log.
+
+        El estado se registra por pestaña (`session_id` explícito, contexto
+        del worker o activa). Solo la pestaña activa refleja el estado en la
+        UI global (placeholder, timer de parpadeo).
+        """
+        session = None
+        try:
+            if session_id:
+                session = self.get_session(session_id)
+            if session is None and SessionContext is not None:
+                session = self.get_session(SessionContext.get())
+            if session is None:
+                session = self.get_active_session()
+        except Exception:
+            session = None
+        if session is not None:
+            try:
+                session.cursor_active = bool(active)
+                session.interactive_executor = executor if active else None
+            except Exception:
+                pass
+            try:
+                if session.session_id != self._active_session_id:
+                    # Pestaña en fondo: registrar sin tocar la UI global
+                    return
+            except Exception:
+                pass
+
         self.interactive_executor = executor if active else None
         self._cursor_active = active
 
@@ -2715,29 +3619,69 @@ class KogniTermTUI(App):
             )
 
     @work(thread=True)
-    def process_agent_request(self, user_input: str):
-        self.is_processing = True
-        # Drenar cualquier señal de interrupción residual y reiniciar banderas de parada
-        if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "interrupt_queue"):
-            iq = self.tui_ui.interrupt_queue
-            while iq and not iq.empty():
+    def process_agent_request(self, user_input: str, session_id: Optional[str] = None):
+        # Resolver la pestaña de origen (paralelismo: cada sesión procesa
+        # con su propio AgentState, interaction manager y UI).
+        session = self.get_session(session_id) if session_id else self.get_active_session()
+        if session is None or getattr(session, "agent_state", None) is None:
+            # Fallback legacy (sin multisesión disponible)
+            self._process_agent_request_legacy(user_input)
+            return
+
+        # Managers pesados listos (por si se invoca este worker directamente)
+        try:
+            if not getattr(session, "_managers_ready", False):
+                self._ensure_session_managers(session)
+        except Exception:
+            pass
+
+        if SessionContext is not None:
+            SessionContext.set(session.session_id)
+        session.is_processing = True
+        try:
+            self._refresh_session_tabs()
+        except Exception:
+            pass
+        # Drenar cualquier señal de interrupción residual de ESTA sesión
+        iq = getattr(session, "interrupt_queue", None)
+        if iq is not None:
+            while not iq.empty():
                 try:
                     iq.get_nowait()
                 except Exception:
                     break
         if hasattr(self, "llm_service") and self.llm_service:
-            self.llm_service.stop_generation_flag = False
+            try:
+                self.llm_service.stop_generation_flag = False
+            except Exception:
+                pass
 
-        # Mostrar spinner animado mientras el LLM procesa
-        self.call_from_thread(self._start_spinner)
-        # Añadir el mensaje del usuario al historial
-        self.agent_state.add_message(HumanMessage(content=user_input))
+        # Mostrar spinner (global si está activa, inline si está en fondo)
+        try:
+            self.call_from_thread(self._start_spinner_for_session, session.session_id)
+        except Exception:
+            pass
+        # Añadir el mensaje del usuario al historial de ESTA sesión
+        try:
+            session.agent_state.add_message(HumanMessage(content=user_input))
+        except Exception as exc:
+            logger.error(f"No se pudo añadir mensaje a la sesión: {exc}")
+
+        agent_state = session.agent_state
+        interaction_manager = getattr(session, "interaction_manager", None) or self.agent_interaction_manager
+        session_ui = getattr(session, "ui_proxy", None) or self.tui_ui
+        # Handler de aprobaciones de ESTA pestaña (su executor + su UI).
+        approval_handler = (
+            getattr(session, "approval_handler", None) or self.command_approval_handler
+        )
 
         try:
             while True:
                 try:
+                    if interaction_manager is None:
+                        raise RuntimeError("Interaction manager no disponible para esta sesión.")
                     # Invoke agent synchronously in this thread
-                    final_state = self.agent_interaction_manager.invoke_agent(
+                    final_state = interaction_manager.invoke_agent(
                         user_input
                     )
                 except Exception as e:
@@ -2745,52 +3689,56 @@ class KogniTermTUI(App):
 
                     error_trace = traceback.format_exc()
                     logger.error(f"Error crítico en invoke_agent: {e}\n{error_trace}")
-                    self.tui_ui.print_message(
-                        f"❌ Error crítico al invocar al agente: {str(e)}",
-                        style="bold red",
-                    )
+                    try:
+                        session_ui.print_message(
+                            f"❌ Error crítico al invocar al agente: {str(e)}",
+                            style="bold red",
+                        )
+                    except Exception:
+                        pass
                     break
 
-                self.agent_state.messages = final_state.get(
-                    "messages", self.agent_state.messages
+                agent_state.messages = final_state.get(
+                    "messages", agent_state.messages
                 )
-                self.agent_state.command_to_confirm = final_state.get(
+                agent_state.command_to_confirm = final_state.get(
                     "command_to_confirm"
                 )
-                self.agent_state.tool_pending_confirmation = final_state.get(
-                    "tool_pending_confirmation", self.agent_state.tool_pending_confirmation
+                agent_state.tool_pending_confirmation = final_state.get(
+                    "tool_pending_confirmation", agent_state.tool_pending_confirmation
                 )
-                self.agent_state.tool_args_pending_confirmation = final_state.get(
-                    "tool_args_pending_confirmation", self.agent_state.tool_args_pending_confirmation
+                agent_state.tool_args_pending_confirmation = final_state.get(
+                    "tool_args_pending_confirmation", agent_state.tool_args_pending_confirmation
                 )
-                self.agent_state.file_update_diff_pending_confirmation = final_state.get(
-                    "file_update_diff_pending_confirmation", self.agent_state.file_update_diff_pending_confirmation
+                agent_state.file_update_diff_pending_confirmation = final_state.get(
+                    "file_update_diff_pending_confirmation", agent_state.file_update_diff_pending_confirmation
                 )
                 # También recuperar el tool_call_id para poder crear el ToolMessage correcto
                 tool_call_id_for_cmd = (
-                    final_state.get("tool_call_id_to_confirm") or self.agent_state.tool_call_id_to_confirm or "execute_command"
+                    final_state.get("tool_call_id_to_confirm") or agent_state.tool_call_id_to_confirm or "execute_command"
                 )
                 # DIAGNOSTIC LOG
                 logger.info(
-                    "[DIAG] tui_app: final_state keys=%s, file_diff=%s, tool_pend=%s",
+                    "[DIAG] tui_app: final_state keys=%s, file_diff=%s, tool_pend=%s, session=%s",
                     list(final_state.keys()) if isinstance(final_state, dict) else type(final_state).__name__,
                     final_state.get('file_update_diff_pending_confirmation') if isinstance(final_state, dict) else 'N/A',
                     final_state.get('tool_pending_confirmation') if isinstance(final_state, dict) else 'N/A',
+                    session.session_id,
                 )
                 logger.info(
                     "[DIAG] tui_app: after sync - agent_state.file_diff=%s, agent_state.tool_pend=%s",
-                    self.agent_state.file_update_diff_pending_confirmation,
-                    self.agent_state.tool_pending_confirmation,
+                    agent_state.file_update_diff_pending_confirmation,
+                    agent_state.tool_pending_confirmation,
                 )
                 # 2. SECCIÓN DE CONFIRMACIONES (Bash y Skills)
                 # -------------------------------------------------------------
 
                 # Caso A: Comando de terminal (Bash)
-                if self.agent_state.command_to_confirm:
-                    command = self.agent_state.command_to_confirm
+                if agent_state.command_to_confirm:
+                    command = agent_state.command_to_confirm
 
-                    if command and self.command_approval_handler:
-                        approval_result = self.command_approval_handler.handle_command_approval(
+                    if command and approval_handler:
+                        approval_result = approval_handler.handle_command_approval(
                             command_to_execute=command
                         )
                         approved = approval_result.get("approved", False)
@@ -2803,25 +3751,28 @@ class KogniTermTUI(App):
                         )
 
                     # Limpiar estado de confirmación tras procesar
-                    self.agent_state.command_to_confirm = None
-                    self.agent_state.tool_call_id_to_confirm = None
+                    agent_state.command_to_confirm = None
+                    agent_state.tool_call_id_to_confirm = None
 
                     # Si fue aprobado, imprimir advertencia visual de que se completó
                     if not approved:
-                        self.tui_ui.print_warning_box(
-                            "Comando cancelado por el usuario."
-                        )
+                        try:
+                            session_ui.print_warning_box(
+                                "Comando cancelado por el usuario."
+                            )
+                        except Exception:
+                            pass
 
                     user_input = None
                     continue  # Volver al inicio del bucle para que el agente procese el resultado
 
                 # Caso B: Confirmación de Skill (file_operations, advanced_file_editor, etc.)
                 elif (
-                    self.agent_state.tool_pending_confirmation
-                    or self.agent_state.file_update_diff_pending_confirmation
+                    agent_state.tool_pending_confirmation
+                    or agent_state.file_update_diff_pending_confirmation
                 ):
-                    tool_name = self.agent_state.tool_pending_confirmation
-                    diff_info = self.agent_state.file_update_diff_pending_confirmation
+                    tool_name = agent_state.tool_pending_confirmation
+                    diff_info = agent_state.file_update_diff_pending_confirmation
 
                     # Extraer info del diff
                     message = "Confirmación de herramienta requerida."
@@ -2841,8 +3792,8 @@ class KogniTermTUI(App):
                     elif isinstance(diff_info, str):
                         diff_content = diff_info
 
-                    if self.command_approval_handler:
-                        approval_result = self.command_approval_handler.handle_command_approval(
+                    if approval_handler:
+                        approval_result = approval_handler.handle_command_approval(
                             command_to_execute="",  # No es un comando bash
                             raw_tool_output=diff_info
                             if isinstance(diff_info, dict)
@@ -2853,7 +3804,7 @@ class KogniTermTUI(App):
                                 "operation": tool_name,
                             },
                             tool_name=tool_name,
-                            original_tool_args=self.agent_state.tool_args_pending_confirmation,
+                            original_tool_args=agent_state.tool_args_pending_confirmation,
                         )
                         approved = approval_result.get("approved", False)
                     else:
@@ -2865,12 +3816,15 @@ class KogniTermTUI(App):
                         )
 
                     # Desencolar/avanzar la confirmación actual
-                    self.agent_state.pop_pending_confirmation()
+                    agent_state.pop_pending_confirmation()
 
                     if not approved:
-                        self.tui_ui.print_warning_box(
-                            "Acción cancelada por el usuario."
-                        )
+                        try:
+                            session_ui.print_warning_box(
+                                "Acción cancelada por el usuario."
+                            )
+                        except Exception:
+                            pass
 
                     user_input = None
                     continue  # Volver al inicio del bucle
@@ -2883,34 +3837,102 @@ class KogniTermTUI(App):
             error_trace = traceback.format_exc()
             logger.error(f"Error fatal en process_agent_request: {e}\n{error_trace}")
             # Mostrar error al usuario
-            self.tui_ui.print_message(
-                f"❌ Error fatal en el hilo del agente: {str(e)}", style="bold red"
-            )
+            try:
+                session_ui.print_message(
+                    f"❌ Error fatal en el hilo del agente: {str(e)}", style="bold red"
+                )
+            except Exception:
+                pass
+        finally:
+            session.is_processing = False
+            # Persistir el historial de ESTA sesión en su propio thread
+            try:
+                if getattr(self, "thread_manager", None) is not None and session.thread_id:
+                    self.thread_manager.save_thread_messages(
+                        session.thread_id, list(agent_state.messages or [])
+                    )
+            except Exception as exc:
+                logger.debug(f"No se pudo persistir sesión {session.session_id}: {exc}")
+            if SessionContext is not None:
+                SessionContext.set(None)
+            # Asegurar que el spinner se detenga siempre al terminar
+            try:
+                self.call_from_thread(self._on_session_finished, session.session_id)
+            except Exception:
+                pass
+
+    def _process_agent_request_legacy(self, user_input: str):
+        """Ruta original mono-sesión (fallback si no hay sesiones)."""
+        self.is_processing = True
+        if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "interrupt_queue"):
+            iq = self.tui_ui.interrupt_queue
+            while iq and not iq.empty():
+                try:
+                    iq.get_nowait()
+                except Exception:
+                    break
+        if hasattr(self, "llm_service") and self.llm_service:
+            self.llm_service.stop_generation_flag = False
+        self.call_from_thread(self._start_spinner)
+        try:
+            self.agent_state.add_message(HumanMessage(content=user_input))
+        except Exception:
+            pass
+        try:
+            final_state = self.agent_interaction_manager.invoke_agent(user_input)
+            self.agent_state.messages = final_state.get("messages", self.agent_state.messages)
+        except Exception as e:
+            import traceback
+
+            logger.error(f"Error crítico en invoke_agent: {e}\n{traceback.format_exc()}")
+            try:
+                self.tui_ui.print_message(f"❌ Error crítico al invocar al agente: {e}", style="bold red")
+            except Exception:
+                pass
         finally:
             self.is_processing = False
-            # Asegurar que el spinner se detenga siempre al terminar
-            self.call_from_thread(self._stop_spinner)
-            # Procesar el siguiente mensaje en la cola si existe
-            self.call_from_thread(self._process_queue)
+            try:
+                self.call_from_thread(self._stop_spinner)
+            except Exception:
+                pass
+            try:
+                self.call_from_thread(self._process_queue)
+            except Exception:
+                pass
 
-    def _process_queue(self):
-        """Procesa el siguiente mensaje en la cola si el agente está libre."""
-        if self._input_queue and not self.is_processing:
-            next_message = self._input_queue.pop(0)
-            if hasattr(self, "queue_display"):
-                self.queue_display.update_queue(self._input_queue)
-            # Drenar interrupciones antes de lanzar el mensaje en cola
-            if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "interrupt_queue"):
-                iq = self.tui_ui.interrupt_queue
-                while iq and not iq.empty():
+    def _process_queue(self, session_id: Optional[str] = None):
+        """Procesa el siguiente mensaje en la cola de la sesión si está libre."""
+        session = self.get_session(session_id) if session_id else self.get_active_session()
+        if session is None:
+            # Fallback legacy sobre la cola global
+            if self._input_queue and not self.is_processing:
+                next_message = self._input_queue.pop(0)
+                if hasattr(self, "queue_display"):
+                    self.queue_display.update_queue(self._input_queue)
+                self.run_worker(self._handle_input_async(next_message))
+            return
+        if session.input_queue and not session.is_processing:
+            next_message = session.input_queue.pop(0)
+            if session.session_id == self._active_session_id and hasattr(self, "queue_display"):
+                try:
+                    self.queue_display.update_queue(session.input_queue)
+                except Exception:
+                    pass
+            # Drenar interrupciones de ESTA sesión antes de lanzar el mensaje
+            iq = getattr(session, "interrupt_queue", None)
+            if iq is not None:
+                while not iq.empty():
                     try:
                         iq.get_nowait()
                     except Exception:
                         break
             if hasattr(self, "llm_service") and self.llm_service:
-                self.llm_service.stop_generation_flag = False
+                try:
+                    self.llm_service.stop_generation_flag = False
+                except Exception:
+                    pass
             # Volver a llamar a handle_input_async para el siguiente mensaje
-            self.run_worker(self._handle_input_async(next_message))
+            self.run_worker(self._handle_input_async(next_message, session.session_id))
 
     async def push_screen_wait(self, screen) -> Any:
         """Helper asíncrono para pushear una pantalla y esperar su resultado."""
@@ -2936,6 +3958,17 @@ class KogniTermTUI(App):
             pass
         if hasattr(self, "command_approval_handler") and self.command_approval_handler:
             self.command_approval_handler.auto_approve = active
+        # Propagar a los handlers de todas las pestañas
+        try:
+            for session in self.list_sessions():
+                handler = getattr(session, "approval_handler", None)
+                if handler is not None:
+                    try:
+                        handler.auto_approve = active
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         try:
             from kogniterm.terminal.tui.components.status_footer import StatusFooter
             footer = self.query_one(StatusFooter)
@@ -2950,12 +3983,53 @@ class KogniTermTUI(App):
         status = "activada ⚡" if not current else "desactivada"
         self.notify(f"Auto-aprobación {status}", severity="info" if not current else "warning")
 
+    def _approval_host(self, session_id: Optional[str] = None):
+        """Resuelve (host_widget, session) para montar una aprobación.
+
+        Cada pestaña recibe sus aprobaciones inline en su propio chat log,
+        permitiendo decisiones en paralelo. Fallback al contenedor global.
+        """
+        session = None
+        try:
+            if session_id:
+                session = self.get_session(session_id)
+            if session is None and SessionContext is not None:
+                session = self.get_session(SessionContext.get())
+            if session is None:
+                session = self.get_active_session()
+        except Exception:
+            session = None
+        if session is not None:
+            try:
+                widget = self._session_widget(session)
+                if widget is not None:
+                    return widget, session
+            except Exception:
+                pass
+        if hasattr(self, "approval_container"):
+            return self.approval_container, session
+        return self, session
+
+    def _track_approval(self, session, delta: int):
+        """Contador de aprobaciones pendientes (se refleja en la pestaña)."""
+        if session is None:
+            return
+        try:
+            session.pending_approvals = max(0, int(getattr(session, "pending_approvals", 0)) + delta)
+        except Exception:
+            pass
+        try:
+            self._refresh_session_tabs()
+        except Exception:
+            pass
+
     async def ask_for_approval_async(
         self,
         message: str,
         title: str = "Aprobación Requerida",
         diff_content: str = "",
         file_path: str = "",
+        session_id: Optional[str] = None,
     ) -> bool:
         """Versión asíncrona de ask_for_approval que no bloquea el event loop."""
         if getattr(self, "_auto_approve_all", False):
@@ -2964,24 +4038,41 @@ class KogniTermTUI(App):
         from .components.inline_approval import InlineApprovalWidget
 
         future = asyncio.get_event_loop().create_future()
+        resolved: dict = {}
+
+        def _on_decided(result):
+            try:
+                self._track_approval(resolved.get("session"), -1)
+            except Exception:
+                pass
+            if not future.done():
+                future.set_result(result)
 
         def mount_widget():
+            # Resolver aquí (hilo de la app): host = chat log de la pestaña
+            host, session = self._approval_host(session_id)
+            resolved["session"] = session
+            self._track_approval(session, +1)
             widget = InlineApprovalWidget(
                 message=message,
                 title=title,
                 diff_content=diff_content or None,
                 file_path=file_path or None,
-                callback=lambda result: (
-                    future.set_result(result) if not future.done() else None
-                ),
+                callback=_on_decided,
             )
-            if hasattr(self, "approval_container"):
-                self.approval_container.mount(widget)
-            else:
-                self.mount(widget)
+            host.mount(widget)
 
-            self.chat_log.scroll_end(animate=False)
-            widget.focus()
+            try:
+                if hasattr(host, "scroll_end"):
+                    host.scroll_end(animate=False)
+                else:
+                    self.chat_log.scroll_end(animate=False)
+            except Exception:
+                pass
+            try:
+                widget.focus()
+            except Exception:
+                pass
 
         # Puesto que es asíncrono y se llama desde el loop, podemos montar directo
         mount_widget()
@@ -3007,8 +4098,12 @@ class KogniTermTUI(App):
         title: str = "Aprobación Requerida",
         diff_content: str = "",
         file_path: str = "",
+        session_id: Optional[str] = None,
     ) -> bool:
-        """Muestra un InlineApprovalWidget en el chat y bloquea hasta que el usuario decide.
+        """Muestra un InlineApprovalWidget en la pestaña y bloquea hasta decidir.
+
+        Cada pestaña recibe sus aprobaciones inline en su propio chat log,
+        permitiendo decisiones en paralelo sin secuestrar otras pestañas.
 
         Devuelve True si el usuario acepta (Aceptar o Aceptar siempre), False si cancela.
         El resultado 'accept_all' se guarda en self._auto_approve_all para omitir futuras
@@ -3022,26 +4117,48 @@ class KogniTermTUI(App):
         from .components.inline_approval import InlineApprovalWidget
 
         future: concurrent.futures.Future = concurrent.futures.Future()
+        resolved: dict = {}
+
+        def _on_decided(result):
+            try:
+                self._track_approval(resolved.get("session"), -1)
+            except Exception:
+                pass
+            if not future.done():
+                future.set_result(result)
 
         def mount_widget():
+            # Resolver aquí (hilo de la app): host = chat log de la pestaña.
+            # SessionContext (fijado por el worker de la sesión) dirige al
+            # tab correcto aunque varias pestañas pidan aprobación a la vez.
+            host, session = self._approval_host(session_id)
+            resolved["session"] = session
+            try:
+                self._track_approval(session, +1)
+            except Exception:
+                pass
             widget = InlineApprovalWidget(
                 message=message,
                 title=title,
                 diff_content=diff_content or None,
                 file_path=file_path or None,
-                callback=lambda result: (
-                    future.set_result(result) if not future.done() else None
-                ),
+                callback=_on_decided,
             )
-            # Montar en approval_container para que aparezca después del log
-            if hasattr(self, "approval_container"):
-                self.approval_container.mount(widget)
-            else:
-                self.mount(widget)  # Fallback retrocompatible
+            # Montar en el chat log de la pestaña (fallback: contenedor global)
+            host.mount(widget)
 
-            self.chat_log.scroll_end(animate=False)
-            # Enfocar el widget para que capture teclado
-            widget.focus()
+            try:
+                if hasattr(host, "scroll_end"):
+                    host.scroll_end(animate=False)
+                else:
+                    self.chat_log.scroll_end(animate=False)
+            except Exception:
+                pass
+            # Enfocar el widget para que capture teclado (solo si está visible)
+            try:
+                widget.focus()
+            except Exception:
+                pass
 
         if (
             threading.current_thread() is threading.main_thread()
@@ -3123,6 +4240,1219 @@ class KogniTermTUI(App):
             self.call_from_thread(push_modal)
 
         return future.result()
+
+    # ── Multisesión con pestañas (mismo workspace/proyecto) ──────────
+    # Todas las sesiones comparten workspace_directory, LLMService y
+    # CommandExecutor. Cada una aísla thread, AgentState, interrupt_queue,
+    # interaction manager y ChatLogWidget para permitir procesamiento en
+    # paralelo (una puede responder mientras otra sigue trabajando).
+
+    def get_session(self, session_id: Optional[str]):
+        if not session_id:
+            return None
+        try:
+            return self._sessions.get(session_id)
+        except Exception:
+            return None
+
+    def get_active_session(self):
+        try:
+            if self._active_session_id:
+                session = self._sessions.get(self._active_session_id)
+                if session is not None:
+                    return session
+            if self._session_order:
+                return self._sessions.get(self._session_order[0])
+        except Exception:
+            pass
+        return None
+
+    def list_sessions(self) -> list:
+        try:
+            return [self._sessions[sid] for sid in self._session_order if sid in self._sessions]
+        except Exception:
+            return []
+
+    def _session_widget(self, session):
+        if session is None or not getattr(session, "chat_widget_id", None):
+            return None
+        try:
+            return self.query_one(f"#{session.chat_widget_id}", ChatLogWidget)
+        except Exception:
+            return None
+
+    def _init_sessions(self):
+        """Crea la pestaña inicial y enruta las UIs compartidas.
+
+        Se llama una vez desde on_mount (hilo de la app). Es idempotente.
+        """
+        if getattr(self, "_sessions_ready", False) and self._session_order:
+            return
+        # Enrutar la salida de herramientas compartidas (LLMService y
+        # CommandExecutor) hacia la pestaña que originó cada llamada.
+        try:
+            if RoutingUI is not None and SessionContext is not None:
+                router = RoutingUI(self, self.tui_ui)
+                if getattr(self, "llm_service", None) is not None:
+                    try:
+                        self.llm_service.terminal_ui = router
+                    except Exception:
+                        pass
+                if getattr(self, "command_executor", None) is not None:
+                    try:
+                        self.command_executor.terminal_ui = router
+                    except Exception:
+                        pass
+                try:
+                    if (
+                        getattr(self, "command_approval_handler", None) is not None
+                        and hasattr(self.command_approval_handler, "terminal_ui")
+                    ):
+                        self.command_approval_handler.terminal_ui = router
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.debug(f"No se pudo instalar el RoutingUI: {exc}")
+        self._ensure_active_session()
+        self._sessions_ready = True
+
+    def _ensure_active_session(self):
+        """Devuelve la sesión activa, creando la inicial si aún no existe."""
+        session = self.get_active_session()
+        if session is not None:
+            # Asegurar que su widget existe (p. ej. tras recargas en tests)
+            if self._session_widget(session) is None:
+                try:
+                    self._mount_session_widget(session)
+                except Exception:
+                    pass
+            return session
+        return self.create_session(title="Sesión 1", _initial=True)
+
+    def _create_session_state(self, title: str):
+        """Crea el estado lógico de una sesión (sin tocar el DOM).
+
+        Solo trabajo barato: thread, AgentState, cola y proxy de UI. Los
+        managers pesados (CommandExecutor, approval handler,
+        AgentInteractionManager, MetaCommandProcessor) se crean de forma
+        perezosa con :meth:`_ensure_session_managers`, para no bloquear el
+        arranque de la TUI ni la creación de pestañas.
+        """
+        from kogniterm.core.agent_state import AgentState as CoreAgentState
+
+        self._session_counter += 1
+        session_id = f"s{self._session_id_prefix}{self._session_counter}"
+        widget_id = f"session-chat-{session_id}"
+
+        # Thread persistente dentro del MISMO workspace
+        thread_id = None
+        thread_title = title
+        try:
+            if getattr(self, "thread_manager", None) is not None:
+                if self._session_counter == 1:
+                    # Reutilizar el hilo auto-creado en __init__ para no duplicar
+                    thread_id = self.thread_manager.get_current_thread_id()
+                if not thread_id:
+                    thread = self.thread_manager.create_thread(title=thread_title)
+                    thread_id = thread.id if thread else None
+                if thread_id:
+                    try:
+                        self.thread_manager.set_current_thread_id(thread_id)
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.debug(f"No se pudo crear thread para {session_id}: {exc}")
+
+        # AgentState propio (historial aislado)
+        if self._session_counter == 1 and getattr(self, "agent_state", None) is not None:
+            agent_state = self.agent_state
+        else:
+            agent_state = CoreAgentState()
+            # El interaction manager inserta el system message al construirse;
+            # si eso falla (entorno de tests), lo añadimos manualmente.
+            try:
+                if getattr(self, "llm_service", None) is not None:
+                    from kogniterm.core.agents.bash_agent import get_system_message
+
+                    agent_state.messages.append(get_system_message(self.llm_service))
+            except Exception:
+                pass
+
+        interrupt_q = None
+        if self._session_counter == 1 and getattr(self, "tui_ui", None) is not None:
+            try:
+                interrupt_q = self.tui_ui.get_interrupt_queue()
+            except Exception:
+                interrupt_q = None
+        if interrupt_q is None:
+            try:
+                interrupt_q = new_interrupt_queue() if new_interrupt_queue else queue.Queue()
+            except Exception:
+                interrupt_q = queue.Queue()
+
+        session = Session(
+            session_id=session_id,
+            title=thread_title,
+            thread_id=thread_id,
+            chat_widget_id=widget_id,
+            agent_state=agent_state,
+            interrupt_queue=interrupt_q,
+        )
+
+        # Proxy de UI hacia el widget de esta pestaña
+        try:
+            if SessionUIProxy is not None:
+                session.ui_proxy = SessionUIProxy(
+                    base=self.tui_ui,
+                    app=self,
+                    get_widget=lambda s=session: self._session_widget(s),
+                    interrupt_queue=interrupt_q,
+                    session_id=session_id,
+                )
+            else:
+                session.ui_proxy = self.tui_ui
+        except Exception:
+            session.ui_proxy = self.tui_ui
+
+        # ── PTY/shell + managers: perezosos ───────────────────────────
+        # El trabajo pesado (CommandExecutor, CommandApprovalHandler,
+        # AgentInteractionManager, MetaCommandProcessor) NO se hace aquí para
+        # no bloquear el arranque de la TUI. Se construye bajo demanda con
+        # _ensure_session_managers().
+        # La primera pestaña reutiliza las instancias globales de __init__
+        # (ya creadas antes de arrancar la UI) y solo las reconecta a su
+        # proxy de UI, de modo que no hay coste adicional de inicio.
+        if self._session_counter == 1:
+            session.command_executor = getattr(self, "command_executor", None)
+            session.approval_handler = getattr(self, "command_approval_handler", None)
+            session.interaction_manager = getattr(self, "agent_interaction_manager", None)
+            session.meta_processor = getattr(self, "meta_command_processor", None)
+            # Solo están listos si las instancias globales existen de verdad
+            # (p.ej. en tests sin executor/handler hay que construirlos).
+            if (
+                session.command_executor is not None
+                and session.approval_handler is not None
+                and session.interaction_manager is not None
+            ):
+                session._managers_ready = True
+                self._rewire_global_managers_to_session(session)
+
+        self._sessions[session_id] = session
+        self._session_order.append(session_id)
+        return session
+
+    def _rewire_global_managers_to_session(self, session) -> None:
+        """Apunta los managers globales de __init__ al proxy de la sesión 1.
+
+        Así el proceso de la primera pestaña (incluido en segundo plano)
+        escribe siempre en su propio widget, sin crear objetos nuevos.
+        """
+        proxy = getattr(session, "ui_proxy", None)
+        if proxy is None:
+            return
+        targets = [
+            getattr(self, "agent_interaction_manager", None),
+            getattr(self, "meta_command_processor", None),
+            getattr(self, "command_approval_handler", None),
+        ]
+        mgr = getattr(self, "agent_interaction_manager", None)
+        for name in ("bash_agent_app", "super_agent_app", "learning_agent_app", "active_agent_app"):
+            targets.append(getattr(mgr, name, None))
+        for obj in targets:
+            if obj is None:
+                continue
+            try:
+                if hasattr(obj, "terminal_ui"):
+                    obj.terminal_ui = proxy
+            except Exception:
+                pass
+        # El handler global debe usar el executor de la sesión
+        handler = getattr(self, "command_approval_handler", None)
+        if handler is not None and session.command_executor is not None:
+            try:
+                handler.command_executor = session.command_executor
+            except Exception:
+                pass
+
+    def _build_session_managers_worker(self, session_id: str) -> None:
+        """Hilo en background: crea los managers pesados de la sesión."""
+        session = self.get_session(session_id)
+        if session is None:
+            return
+        try:
+            self._ensure_session_managers(session)
+        except Exception as exc:
+            logger.error(f"No se pudieron crear managers de {session_id}: {exc}", exc_info=True)
+
+    def _ensure_session_managers(self, session) -> None:
+        """Construye (una sola vez) los managers pesados de la sesión.
+
+        Se llama bajo demanda: al enviar un mensaje y en background al crear
+        una pestaña. Nunca en el arranque de la app.
+        """
+        if session is None:
+            return
+        try:
+            if getattr(session, "_managers_ready", False):
+                return
+        except Exception:
+            pass
+        proxy = getattr(session, "ui_proxy", None) or self.tui_ui
+        agent_state = getattr(session, "agent_state", None)
+        interrupt_q = getattr(session, "interrupt_queue", None)
+
+        # 1. CommandExecutor propio (shell persistente de la pestaña).
+        #    La sesión 1 reutiliza el global ya creado.
+        if getattr(session, "command_executor", None) is None:
+            try:
+                from kogniterm.core.command_executor import CommandExecutor as _CE
+
+                ex = _CE()
+                try:
+                    ex.terminal_ui = proxy
+                except Exception:
+                    pass
+                ws = getattr(self, "workspace_directory", None) or getattr(
+                    getattr(self, "command_executor", None), "workspace_directory", None
+                )
+                if ws:
+                    try:
+                        ex.set_workspace_directory(ws)
+                    except Exception:
+                        pass
+                session.command_executor = ex
+            except Exception as exc:
+                logger.debug(f"No se pudo crear CommandExecutor de {session.session_id}: {exc}")
+                session.command_executor = getattr(self, "command_executor", None)
+
+        # 2. CommandApprovalHandler propio (usa executor + UI de la pestaña)
+        if getattr(session, "approval_handler", None) is not None:
+            # Handler heredado (p.ej. el global de __init__): reapuntarlo al
+            # executor/UI de esta pestaña para que no ejecute en otro shell.
+            try:
+                if session.command_executor is not None and getattr(
+                    session.approval_handler, "command_executor", None
+                ) is not session.command_executor:
+                    session.approval_handler.command_executor = session.command_executor
+                if hasattr(session.approval_handler, "terminal_ui"):
+                    session.approval_handler.terminal_ui = proxy
+            except Exception:
+                pass
+        else:
+            try:
+                from kogniterm.terminal.command_approval_handler import (
+                    CommandApprovalHandler as _CAH,
+                )
+
+                _g = getattr(self, "command_approval_handler", None)
+                session.approval_handler = _CAH(
+                    self.llm_service,
+                    session.command_executor,
+                    None,
+                    proxy,
+                    agent_state,
+                    getattr(_g, "file_update_tool", None),
+                    getattr(_g, "advanced_file_editor_tool", None),
+                    getattr(_g, "file_operations_tool", None),
+                )
+                try:
+                    session.approval_handler.auto_approve = bool(
+                        getattr(_g, "auto_approve", getattr(self, "_auto_approve_all", False))
+                    )
+                except Exception:
+                    pass
+            except Exception as exc:
+                logger.debug(f"No se pudo crear approval handler de {session.session_id}: {exc}")
+                session.approval_handler = getattr(self, "command_approval_handler", None)
+
+        # 3. AgentInteractionManager + MetaCommandProcessor propios
+        if getattr(session, "interaction_manager", None) is None:
+            try:
+                if AgentInteractionManager is not None and getattr(self, "llm_service", None) is not None:
+                    session.interaction_manager = AgentInteractionManager(
+                        self.llm_service,
+                        agent_state,
+                        proxy,
+                        interrupt_q,
+                        session.approval_handler
+                        or getattr(self, "command_approval_handler", None),
+                    )
+            except Exception as exc:
+                logger.debug(f"No se pudo crear interaction manager de {session.session_id}: {exc}")
+                session.interaction_manager = getattr(self, "agent_interaction_manager", None)
+        if getattr(session, "meta_processor", None) is None:
+            try:
+                from kogniterm.terminal.meta_command_processor import MetaCommandProcessor
+
+                session.meta_processor = MetaCommandProcessor(
+                    self.llm_service, agent_state, proxy, self
+                )
+            except Exception as exc:
+                logger.debug(f"No se pudo crear meta processor de {session.session_id}: {exc}")
+                session.meta_processor = getattr(self, "meta_command_processor", None)
+
+        try:
+            session._managers_ready = True
+        except Exception:
+            pass
+        # El executor puede haberse creado tarde: refrescar barra de estado
+        try:
+            self._refresh_session_tabs()
+        except Exception:
+            pass
+
+    def _mount_session_widget(self, session):
+        """Monta el ChatLogWidget de la sesión en #sessions_content."""
+        if ChatLogWidget is None:
+            return None
+        existing = self._session_widget(session)
+        if existing is not None:
+            return existing
+        try:
+            container = self.query_one("#sessions_content")
+        except Exception:
+            return None
+        widget = ChatLogWidget(id=session.chat_widget_id, classes="session-chat")
+        try:
+            container.mount(widget)
+        except Exception as exc:
+            logger.debug(f"No se pudo montar widget de {session.session_id}: {exc}")
+            return None
+        # Solo la pestaña activa es visible
+        try:
+            widget.display = session.session_id == self._active_session_id
+        except Exception:
+            pass
+        return widget
+
+    def create_session(self, title: Optional[str] = None, _initial: bool = False):
+        """Crea una pestaña nueva (mismo workspace) y cambia a ella."""
+        if Session is None:
+            return None
+        sessions = self.list_sessions()
+        if title is None or not str(title).strip():
+            try:
+                title = build_session_title(len(sessions) + 1) if build_session_title else f"Sesión {len(sessions) + 1}"
+            except Exception:
+                title = f"Sesión {len(sessions) + 1}"
+        session = self._create_session_state(str(title).strip())
+        try:
+            self._mount_session_widget(session)
+        except Exception:
+            pass
+        self.switch_session(session.session_id)
+        # En modo servidor, la pestaña nueva abre su propia sesión remota
+        try:
+            if self._server_mode:
+                self._ensure_session_client(session)
+        except Exception:
+            pass
+        # Managers pesados en segundo plano: crear una pestaña no debe
+        # bloquear la UI (suele tardar por system prompt + agentes).
+        # La sesión inicial NO se pre-construye: en el caso normal ya tiene
+        # los managers globales de __init__, y si faltan se construyen al
+        # enviar el primer mensaje (evita ruido en el arranque).
+        try:
+            if not getattr(session, "_managers_ready", False) and self._session_counter > 1:
+                th = threading.Thread(
+                    target=self._build_session_managers_worker,
+                    args=(session.session_id,),
+                    daemon=True,
+                    name=f"kogniterm-session-managers-{session.session_id}",
+                )
+                th.start()
+        except Exception:
+            pass
+        if not _initial:
+            try:
+                session.ui_proxy.print_message(
+                    f"🆕 **{session.title}** — mismo proyecto/workspace.",
+                    style="dim",
+                )
+            except Exception:
+                pass
+        return session
+
+    def switch_session(self, session_id: str) -> bool:
+        """Muestra la pestaña indicada y sincroniza el contexto legacy."""
+        session = self.get_session(session_id)
+        if session is None:
+            return False
+        # Asegurar widget montado
+        try:
+            if self._session_widget(session) is None:
+                self._mount_session_widget(session)
+        except Exception:
+            pass
+        self._active_session_id = session.session_id
+        # Alias legacy de WS hacia la pestaña activa
+        try:
+            self._sync_legacy_ws_alias()
+        except Exception:
+            pass
+        # Visibilidad: solo la activa
+        try:
+            for sid in self._session_order:
+                s = self._sessions.get(sid)
+                if s is None:
+                    continue
+                w = self._session_widget(s)
+                if w is not None:
+                    w.display = sid == session.session_id
+        except Exception:
+            pass
+        # Sincronizar contexto legacy (thread actual + historial global) para
+        # que los meta-comandos y el modo servidor operen sobre esta pestaña.
+        try:
+            if getattr(self, "thread_manager", None) is not None and session.thread_id:
+                self.thread_manager.set_current_thread_id(session.thread_id)
+        except Exception:
+            pass
+        try:
+            if getattr(self, "llm_service", None) is not None and session.agent_state is not None:
+                self.llm_service.conversation_history = list(session.agent_state.messages or [])
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "queue_display"):
+                self.queue_display.update_queue(session.input_queue)
+        except Exception:
+            pass
+        self._refresh_session_tabs()
+        try:
+            widget = self._session_widget(session)
+            if widget is not None:
+                widget.scroll_end(animate=False)
+        except Exception:
+            pass
+        # Reflejar el estado interactivo de la pestaña en la UI global
+        # (cada pestaña conserva su propio cursor/executor).
+        try:
+            self.interactive_executor = getattr(session, "interactive_executor", None)
+            self._cursor_active = bool(getattr(session, "cursor_active", False))
+            chat_input = self.query_one("#chat_input", ChatInput)
+            if self._cursor_active:
+                chat_input.placeholder = "Terminal Interactiva (Escribe abajo o HAZ CLIC en el panel para modo directo)..."
+                chat_input.styles.color = "#10b981"
+                try:
+                    self.live_display.add_class("interactive")
+                except Exception:
+                    pass
+            else:
+                chat_input.placeholder = "Escribe un mensaje..."
+                chat_input.styles.color = "white"
+                try:
+                    self.live_display.remove_class("interactive")
+                except Exception:
+                    pass
+            chat_input.focus()
+        except Exception:
+            try:
+                self.query_one("#chat_input", ChatInput).focus()
+            except Exception:
+                pass
+        return True
+
+    def close_session(self, session_id: Optional[str] = None) -> bool:
+        """Cierra una pestaña (no elimina su thread persistido)."""
+        session = self.get_session(session_id) if session_id else self.get_active_session()
+        if session is None:
+            return False
+        if len(self._session_order) <= 1:
+            try:
+                session.ui_proxy.print_message(
+                    "⚠️ No se puede cerrar la última pestaña. Usa `/reset` para limpiar.",
+                    style="yellow",
+                )
+            except Exception:
+                pass
+            return False
+        if session.is_processing:
+            try:
+                session.ui_proxy.print_message(
+                    "⏳ La pestaña está procesando. Pulsa `esc` para interrumpir antes de cerrarla.",
+                    style="yellow",
+                )
+            except Exception:
+                pass
+            return False
+        # Persistir por si acaso (el thread queda disponible en /resume)
+        try:
+            if getattr(self, "thread_manager", None) is not None and session.thread_id:
+                self.thread_manager.save_thread_messages(
+                    session.thread_id, list(session.agent_state.messages or [])
+                )
+        except Exception:
+            pass
+        # Detener el WebSocket de la pestaña (modo servidor)
+        try:
+            _sess_ws = getattr(session, "ws_client", None)
+            if _sess_ws is not None:
+                try:
+                    _sess_ws.stop()
+                except Exception:
+                    pass
+            _ws_task = getattr(session, "ws_task", None)
+            if _ws_task is not None:
+                try:
+                    _ws_task.cancel()
+                except Exception:
+                    pass
+            session.ws_client = None
+            session.ws_task = None
+        except Exception:
+            pass
+        try:
+            widget = self._session_widget(session)
+            if widget is not None:
+                widget.remove()
+        except Exception:
+            pass
+        try:
+            self._session_order.remove(session.session_id)
+            self._sessions.pop(session.session_id, None)
+        except Exception:
+            pass
+        # Activar vecina (el refresh de pestañas elimina el botón obsoleto)
+        if self._active_session_id == session.session_id:
+            neighbor = self._session_order[-1] if self._session_order else None
+            if neighbor:
+                self.switch_session(neighbor)
+                return True
+        self._refresh_session_tabs()
+        return True
+
+    def rename_session(self, new_title: str, session_id: Optional[str] = None) -> bool:
+        session = self.get_session(session_id) if session_id else self.get_active_session()
+        if session is None or not new_title or not str(new_title).strip():
+            return False
+        session.title = str(new_title).strip()[:40]
+        try:
+            if getattr(self, "thread_manager", None) is not None and session.thread_id:
+                self.thread_manager.rename_thread(session.thread_id, session.title)
+        except Exception:
+            pass
+        self._refresh_session_tabs()
+        return True
+
+    # Frames del spinner animado en la etiqueta de la pestaña
+    SESSION_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    # ── Título de la conversación (naming por LLM) ───────────────────
+
+    GENERIC_TITLES = {
+        "Nueva conversación",
+        "Nueva Conversación",
+        "Conversación sin título",
+        "Conversación",
+        "",
+    }
+
+    def _title_is_generic(self, title: Optional[str]) -> bool:
+        t = (title or "").strip()
+        if not t:
+            return True
+        if t in self.GENERIC_TITLES:
+            return True
+        # "Sesión N" es el nombre provisional de una pestaña nueva
+        return bool(re.match(r"^Sesión \d+$", t)) or t in ("Session", "session")
+
+    def _apply_session_title(self, session_id: Optional[str], title: str):
+        """Aplica a una pestaña un título nuevo (del LLM o del servidor)."""
+        try:
+            session = self.get_session(session_id) if session_id else self.get_active_session()
+            if session is None:
+                return
+            clean = " ".join(str(title or "").split())[:60]
+            if not clean or clean == session.title:
+                return
+            session.title = clean
+            self._refresh_session_tabs()
+        except Exception as exc:
+            logger.debug(f"_apply_session_title falló: {exc}")
+
+    def _provisional_title_from_request(self, session, user_input: str):
+        """Título provisional inmediato con las primeras palabras de la petición.
+
+        Marca el título como "fallback" para que el LLM pueda sustituirlo
+        después (mismo criterio que usa el servidor).
+        """
+        try:
+            if session is None or not self._title_is_generic(session.title):
+                return
+            text = " ".join(str(user_input or "").split())
+            if not text:
+                return
+            # Quitar prefijos de comando por si vinieran
+            for pref in ("/", "%"):
+                if text.startswith(pref):
+                    text = text[1:].lstrip()
+            if not text:
+                return
+            session.title = text[:40]
+            try:
+                if getattr(self, "thread_manager", None) is not None and session.thread_id:
+                    self.thread_manager.rename_thread(
+                        session.thread_id, session.title, source="fallback"
+                    )
+            except Exception:
+                pass
+            self._refresh_session_tabs()
+        except Exception as exc:
+            logger.debug(f"_provisional_title_from_request falló: {exc}")
+
+    def _request_llm_title(self, session_id: str):
+        """Pide al LLM un título para la conversación (en background).
+
+        En local el worker del agente corre en un hilo sin event loop, así que
+        `schedule_title_generation` no puede agendar nada: lo ejecutamos aquí
+        con su propio loop y aplicamos el resultado a la pestaña.
+        """
+        session = self.get_session(session_id)
+        if session is None:
+            return
+        tm = getattr(self, "thread_manager", None)
+        llm = getattr(self, "llm_service", None)
+        if tm is None or llm is None or not session.thread_id:
+            return
+
+        def _worker():
+            try:
+                messages = list(session.agent_state.messages or [])
+                title = asyncio.run(
+                    tm.generate_title_if_needed(session.thread_id, messages, llm)
+                )
+                if title:
+                    self.call_from_thread(self._apply_session_title, session_id, title)
+            except Exception as exc:
+                logger.debug(f"No se pudo generar título LLM para {session_id}: {exc}")
+
+        try:
+            threading.Thread(
+                target=_worker, daemon=True, name=f"kogniterm-title-{session_id}"
+            ).start()
+        except Exception:
+            pass
+
+    def _sync_session_title_from_thread(self, session_id: str):
+        """Relee el título del hilo y lo refleja en la pestaña (respaldo).
+
+        Solo aplica si la pestaña aún tiene un título genérico: nunca pisa un
+        título del servidor/LLM ya asignado con uno local más viejo.
+        """
+        try:
+            session = self.get_session(session_id)
+            tm = getattr(self, "thread_manager", None)
+            if session is None or tm is None or not session.thread_id:
+                return
+            if not self._title_is_generic(session.title):
+                return
+            meta = tm.get_thread_metadata(session.thread_id) or {}
+            title = (meta.get("title") or "").strip()
+            if title and title != session.title:
+                session.title = title
+                self._refresh_session_tabs()
+        except Exception:
+            pass
+
+    def _tab_prefix(self, session) -> str:
+        """Prefijo de la etiqueta (`? ` / spinner / vacío), compartido por la
+        etiqueta estática y la marquesina."""
+        try:
+            if int(getattr(session, "pending_approvals", 0) or 0) > 0:
+                return "? "
+            if session.is_processing:
+                frames = self.SESSION_SPINNER_FRAMES
+                return f"{frames[self._session_spinner_frame % len(frames)]} "
+        except Exception:
+            pass
+        return ""
+
+    def _session_tab_label(self, session, idx: int, total: int) -> str:
+        label = session.title or f"Sesión {idx + 1}"
+        # Si no cabe, se corta y se marca con "..." para que se note
+        max_len = 20
+        if len(label) > max_len:
+            label = label[: max_len - 3].rstrip() + "..."
+        return self._tab_prefix(session) + label
+
+    def _update_tab_labels(self):
+        """Recalcula y aplica las etiquetas de las pestañas (hilo de la app).
+
+        La pestaña bajo el ratón la gobierna la marquesina y se salta aquí.
+        """
+        try:
+            sessions = self.list_sessions()
+        except Exception:
+            return
+        for idx, s in enumerate(sessions):
+            try:
+                if s.session_id == self._hover_tab_id:
+                    continue
+                btn = self.query_one(f"#session-tab-{s.session_id}", Button)
+                btn.label = self._session_tab_label(s, idx, len(sessions))
+            except Exception:
+                continue
+
+    def _tab_hover_enter(self, session_id: str):
+        """El ratón entra en una pestaña: arranca la marquesina si no cabe."""
+        try:
+            session = self.get_session(session_id)
+            if session is None:
+                return
+            full = session.title or ""
+            if len(full) <= self._marquee_width:
+                return  # cabe entero, no hay nada que desplazar
+            self._hover_tab_id = session_id
+            self._marquee_tick = 0
+            self._start_marquee_timer()
+        except Exception:
+            pass
+
+    def _tab_hover_leave(self, session_id: str):
+        """El ratón sale de la pestaña: se restaura su etiqueta estática."""
+        try:
+            if self._hover_tab_id != session_id:
+                return
+            self._hover_tab_id = None
+            self._stop_marquee_timer()
+            self._update_tab_labels()
+        except Exception:
+            pass
+
+    def _start_marquee_timer(self):
+        try:
+            if self._marquee_timer is None:
+                self._marquee_timer = self.set_interval(0.25, self._tick_tab_marquee)
+        except Exception:
+            self._marquee_timer = None
+
+    def _stop_marquee_timer(self):
+        try:
+            if self._marquee_timer is not None:
+                self._marquee_timer.stop()
+        except Exception:
+            pass
+        self._marquee_timer = None
+
+    def _tick_tab_marquee(self):
+        """Desplaza la ventana visible del título (ping-pong con pausas)."""
+        try:
+            import threading as _th
+
+            if _th.current_thread() is not _th.main_thread():
+                return
+            session = self.get_session(self._hover_tab_id) if self._hover_tab_id else None
+            if session is None:
+                self._stop_marquee_timer()
+                return
+            full = session.title or ""
+            width = self._marquee_width
+            if len(full) <= width:
+                self._stop_marquee_timer()
+                self._update_tab_labels()
+                return
+            self._marquee_tick += 1
+            span = len(full) - width
+            dwell = self._marquee_dwell
+            cycle = 2 * span + 2 * dwell
+            t = self._marquee_tick % cycle
+            if t < dwell:
+                off = 0
+            elif t < dwell + span:
+                off = t - dwell
+            elif t < 2 * dwell + span:
+                off = span
+            else:
+                off = span - (t - (2 * dwell + span))
+            btn = self.query_one(f"#session-tab-{session.session_id}", Button)
+            btn.label = self._tab_prefix(session) + full[off : off + width]
+        except Exception:
+            pass
+
+    def _tick_session_spinners(self):
+        """Avanza un frame del spinner de las pestañas ocupadas."""
+        try:
+            if threading.current_thread() is not threading.main_thread():
+                return
+            self._session_spinner_frame += 1
+            self._update_tab_labels()
+        except Exception:
+            pass
+
+    def _sync_session_spinner_timer(self):
+        """Arranca/para el timer del spinner según haya pestañas ocupadas."""
+        try:
+            any_busy = any(s.is_processing for s in self.list_sessions())
+        except Exception:
+            return
+        if any_busy and self._session_spinner_timer is None:
+            try:
+                self._session_spinner_timer = self.set_interval(
+                    0.12, self._tick_session_spinners
+                )
+            except Exception:
+                self._session_spinner_timer = None
+        elif not any_busy and self._session_spinner_timer is not None:
+            try:
+                self._session_spinner_timer.stop()
+            except Exception:
+                pass
+            self._session_spinner_timer = None
+            self._session_spinner_frame = 0
+            # Quitar el spinner de las etiquetas
+            self._update_tab_labels()
+
+    def _style_session_tab(self, btn, wrap, session) -> None:
+        """Aplica a una pestaña los colores del tema activo.
+
+        Inactiva = texto secundario sobre fondo transparente; activa = PRIMARY
+        con texto de contraste; ocupada = WARNING; y la X de cierre en gris
+        (o rojo si la pestaña está ocupada).
+        """
+        try:
+            from kogniterm.terminal.themes import ColorPalette as P
+
+            is_active = session.session_id == self._active_session_id
+            is_busy = bool(session.is_processing) or int(
+                getattr(session, "pending_approvals", 0) or 0
+            ) > 0
+            contrast = "#ffffff" if self.dark else getattr(P, "GRAY_900", "#111827")
+
+            if is_active:
+                btn.styles.background = P.PRIMARY
+                btn.styles.color = contrast
+            else:
+                btn.styles.background = "transparent"
+                # Solo color: un borde en un botón de 1 fila se comería el
+                # alto y dejaría el nombre invisible.
+                btn.styles.color = P.WARNING if is_busy else P.TEXT_SECONDARY
+
+            try:
+                close_btn = wrap.query_one(
+                    f"#session-close-{session.session_id}", Button
+                )
+                close_btn.styles.background = "transparent"
+                close_btn.styles.color = (
+                    P.ERROR if is_busy else getattr(P, "GRAY_500", "#6b7280")
+                )
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.debug(f"_style_session_tab falló: {exc}")
+
+    def _refresh_session_tabs(self):
+        """Actualiza la barra de pestañas reutilizando widgets existentes.
+
+        Cada pestaña es un contenedor `session-wrap-<id>` con dos botones:
+        la etiqueta (`session-tab-<id>`, cambia de pestaña) y la X de cierre
+        (`session-close-<id>`). Reutilizar en lugar de recrear evita
+        colisiones de IDs duplicados y bucles de layout: solo se monta o
+        destruye cuando cambia el número de sesiones.
+
+        Llamar desde el hilo de la app.
+        """
+        def _do_refresh():
+            try:
+                tabs = self.query_one("#sessions_list")
+            except Exception:
+                return
+            sessions = self.list_sessions()
+            wanted_ids = {s.session_id for s in sessions}
+            try:
+                existing = {}
+                for child in list(tabs.children):
+                    cid = getattr(child, "id", "") or ""
+                    if cid.startswith("session-wrap-"):
+                        existing[cid[len("session-wrap-"):]] = child
+                # Eliminar pestañas de sesiones que ya no existen
+                for sid, child in existing.items():
+                    if sid not in wanted_ids:
+                        try:
+                            child.remove()
+                        except Exception:
+                            pass
+                # Actualizar o crear
+                for idx, s in enumerate(sessions):
+                    label = self._session_tab_label(s, idx, len(sessions))
+                    wrap = existing.get(s.session_id)
+                    btn = None
+                    if wrap is None:
+                        try:
+                            wrap = Horizontal(
+                                id=f"session-wrap-{s.session_id}",
+                                classes="session-tab-wrap",
+                            )
+                            # El contenedor debe estar montado antes de
+                            # colgarle hijos (Textual lo exige).
+                            tabs.mount(wrap)
+                            btn = SessionTabButton(
+                                label,
+                                id=f"session-tab-{s.session_id}",
+                                classes="session-tab",
+                                tooltip=f"{s.title} ({idx + 1}/{len(sessions)})",
+                                session_id=s.session_id,
+                            )
+                            close_btn = Button(
+                                "×",
+                                id=f"session-close-{s.session_id}",
+                                classes="session-close",
+                                tooltip=f"Cerrar {s.title}",
+                            )
+                            wrap.mount(btn)
+                            wrap.mount(close_btn)
+                        except Exception as exc:
+                            logger.debug(f"No se pudo montar pestaña {s.session_id}: {exc}")
+                            continue
+                    else:
+                        try:
+                            btn = wrap.query_one(f"#session-tab-{s.session_id}", Button)
+                        except Exception:
+                            btn = None
+                        if btn is not None:
+                            # Button.label es un reactive (Button.render() lo
+                            # usa); Static.update() no cambiaría la etiqueta.
+                            try:
+                                btn.label = label
+                            except Exception:
+                                try:
+                                    btn.update(label)
+                                except Exception:
+                                    pass
+                            try:
+                                btn.tooltip = f"{s.title} ({idx + 1}/{len(sessions)})"
+                            except Exception:
+                                pass
+                    if btn is None:
+                        continue
+                    try:
+                        is_active = s.session_id == self._active_session_id
+                        _busy = bool(s.is_processing) or int(
+                            getattr(s, "pending_approvals", 0) or 0
+                        ) > 0
+                        btn.set_class(is_active, "--active")
+                        btn.set_class(_busy, "--busy")
+                        if "session-tab" not in btn.classes:
+                            btn.add_class("session-tab")
+                    except Exception:
+                        pass
+                    # Colores según el tema activo
+                    try:
+                        self._style_session_tab(btn, wrap, s)
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logger.debug(f"_refresh_session_tabs falló: {exc}")
+            # El spinner de las pestañas solo corre mientras haya trabajo
+            try:
+                self._sync_session_spinner_timer()
+            except Exception:
+                pass
+        try:
+            import threading as _th
+
+            if _th.current_thread() is _th.main_thread():
+                _do_refresh()
+            else:
+                self.call_from_thread(_do_refresh)
+        except Exception:
+            try:
+                _do_refresh()
+            except Exception:
+                pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Botón '+' y clics en pestañas (no interfiere con otros botones)."""
+        try:
+            btn_id = getattr(event.button, "id", "") or ""
+        except Exception:
+            return
+        if btn_id == "new_session_btn":
+            try:
+                self.create_session()
+                try:
+                    self.query_one("#chat_input", ChatInput).focus()
+                except Exception:
+                    pass
+            except Exception as exc:
+                logger.error(f"Error creando sesión: {exc}", exc_info=True)
+            event.prevent_default()
+            event.stop()
+            return
+        if btn_id.startswith("session-close-"):
+            sid = btn_id[len("session-close-"):]
+            try:
+                self.close_session(sid)
+            except Exception as exc:
+                logger.error(f"Error cerrando sesión {sid}: {exc}", exc_info=True)
+            event.prevent_default()
+            event.stop()
+            return
+        if btn_id.startswith("session-tab-"):
+            sid = btn_id[len("session-tab-"):]
+            try:
+                self.switch_session(sid)
+            except Exception as exc:
+                logger.error(f"Error cambiando de sesión: {exc}", exc_info=True)
+            event.prevent_default()
+            event.stop()
+            return
+
+    def action_new_session(self) -> None:
+        """Ctrl+N: nueva pestaña en el mismo workspace."""
+        try:
+            self.create_session()
+        except Exception as exc:
+            logger.error(f"action_new_session falló: {exc}", exc_info=True)
+
+    def action_close_session(self) -> None:
+        """Ctrl+W: cerrar la pestaña activa."""
+        try:
+            self.close_session()
+        except Exception as exc:
+            logger.error(f"action_close_session falló: {exc}", exc_info=True)
+
+    def action_next_session(self) -> None:
+        """Ctrl+PgDn: siguiente pestaña."""
+        try:
+            if len(self._session_order) < 2:
+                return
+            idx = self._session_order.index(self._active_session_id) if self._active_session_id in self._session_order else -1
+            self.switch_session(self._session_order[(idx + 1) % len(self._session_order)])
+        except Exception as exc:
+            logger.debug(f"action_next_session falló: {exc}")
+
+    def action_prev_session(self) -> None:
+        """Ctrl+PgUp: pestaña anterior."""
+        try:
+            if len(self._session_order) < 2:
+                return
+            idx = self._session_order.index(self._active_session_id) if self._active_session_id in self._session_order else 0
+            self.switch_session(self._session_order[(idx - 1) % len(self._session_order)])
+        except Exception as exc:
+            logger.debug(f"action_prev_session falló: {exc}")
+
+    def _spinner_active_for_session(self, session_id: str) -> bool:
+        """¿Hay un spinner realmente activo para esa pestaña?
+
+        Se usa para NO detener el stream del chat en cada fragmento de texto:
+        `_stop_spinner()` implica `chat_log.stop_stream()`.
+        """
+        try:
+            session = self.get_session(session_id)
+            if session is None:
+                return False
+            if session.session_id == self._active_session_id:
+                return self._spinner_timer is not None
+            return bool(getattr(session, "inline_spinner", False))
+        except Exception:
+            return False
+
+    def _start_spinner_for_session(self, session_id: str):
+        """Spinner global si la sesión está activa; inline si está en fondo."""
+        session = self.get_session(session_id)
+        if session is None:
+            return
+        if session_id == self._active_session_id:
+            try:
+                self._start_spinner()
+            except Exception:
+                pass
+        else:
+            widget = self._session_widget(session)
+            if widget is not None:
+                try:
+                    widget.write_stream(("__SPINNER__", "Procesando..."))
+                    session.inline_spinner = True
+                except Exception:
+                    pass
+        self._refresh_session_tabs()
+
+    def _stop_spinner_for_session(self, session_id: str):
+        session = self.get_session(session_id)
+        if session is None:
+            return
+        if session_id == self._active_session_id:
+            try:
+                self._stop_spinner()
+            except Exception:
+                pass
+        else:
+            # Solo cerrar el stream si este turno puso un spinner inline:
+            # `stop_stream()` corta el widget en curso y, de llamarse en cada
+            # fragmento, duplica la respuesta en el chat.
+            if getattr(session, "inline_spinner", False):
+                session.inline_spinner = False
+                widget = self._session_widget(session)
+                if widget is not None:
+                    try:
+                        widget.stop_stream()
+                    except Exception:
+                        pass
+        self._refresh_session_tabs()
+
+    def _on_session_finished(self, session_id: str):
+        """Limpieza UI al terminar un worker de sesión (hilo de la app)."""
+        self._stop_spinner_for_session(session_id)
+        # El hilo pudo ser renombrado en el meanwhile (servidor o LLM en local)
+        try:
+            self._sync_session_title_from_thread(session_id)
+        except Exception:
+            pass
+        # En local no hay event loop en el worker: pedimos el título aquí
+        try:
+            session = self.get_session(session_id)
+            if session is not None and not getattr(self, "_server_mode", False):
+                self._request_llm_title(session_id)
+        except Exception:
+            pass
+        try:
+            self._process_queue(session_id)
+        except Exception:
+            pass
+
+    def _render_history_into_session(self, session, history: list):
+        """Pinta un historial cargado en el widget de la sesión."""
+        from langchain_core.messages import HumanMessage as _HM, AIMessage as _AM, ToolMessage as _TM
+
+        widget = self._session_widget(session)
+        if widget is None or not history:
+            return
+        try:
+            widget.clear()
+        except Exception:
+            pass
+        for msg in history:
+            try:
+                content = getattr(msg, "content", "")
+                if isinstance(msg, _HM) or getattr(msg, "type", None) == "human":
+                    if content:
+                        widget.write_user_message(content)
+                elif isinstance(msg, _AM) or getattr(msg, "type", None) == "ai":
+                    reasoning = ""
+                    try:
+                        if isinstance(getattr(msg, "additional_kwargs", None), dict):
+                            reasoning = msg.additional_kwargs.get("reasoning_content", "")
+                    except Exception:
+                        pass
+                    if reasoning:
+                        try:
+                            from kogniterm.terminal.visual_components import create_thought_bubble
+
+                            widget.write(create_thought_bubble(reasoning))
+                        except Exception:
+                            pass
+                    if content and isinstance(content, str):
+                        widget.write_agent_message(content)
+                elif isinstance(msg, _TM) or getattr(msg, "type", None) == "tool":
+                    if content:
+                        widget.write_tool_output(str(content), getattr(msg, "name", None) or "tool")
+            except Exception as exc:
+                logger.debug(f"Error renderizando mensaje en sesión: {exc}")
+        try:
+            widget.scroll_end(animate=False)
+        except Exception:
+            pass
 
     @staticmethod
     def _pane_id(agent_id: str) -> str:

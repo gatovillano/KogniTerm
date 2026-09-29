@@ -26,7 +26,14 @@ type Context = {
 }
 
 const tokenTotal = (msg: AssistantMessage) => {
-  return msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
+  if (!msg?.tokens) return 0
+  return (
+    (msg.tokens.input ?? 0) +
+    (msg.tokens.output ?? 0) +
+    (msg.tokens.reasoning ?? 0) +
+    (msg.tokens.cache?.read ?? 0) +
+    (msg.tokens.cache?.write ?? 0)
+  )
 }
 
 const lastAssistantWithTokens = (messages: Message[]) => {
@@ -43,8 +50,8 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Context | 
   if (!message) return undefined
 
   const provider = providers.find((item) => item.id === message.providerID)
-  const model = provider?.models[message.modelID]
-  const limit = model?.limit.context
+  const model = provider?.models?.[message.modelID]
+  const limit = model?.limit?.context
   const total = tokenTotal(message)
 
   return {
@@ -54,7 +61,7 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Context | 
     providerLabel: provider?.name ?? message.providerID,
     modelLabel: model?.name ?? message.modelID,
     limit,
-    input: message.tokens.input,
+    input: message.tokens?.input ?? 0,
     total,
     usage: limit ? Math.round((total / limit) * 100) : null,
   }

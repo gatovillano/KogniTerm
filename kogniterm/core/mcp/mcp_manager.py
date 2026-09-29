@@ -1,10 +1,81 @@
 import asyncio
 import logging
+import os
+import threading
 from typing import Dict, Any, List, Optional
 from kogniterm.terminal.config_manager import ConfigManager
 from kogniterm.core.mcp.config import MCPServerConfig
 
 logger = logging.getLogger(__name__)
+
+# ── Aislamiento de stderr de los servidores MCP ─────────────────────────────
+# `mcp.client.stdio.stdio_client` usa `errlog=sys.stderr` por defecto. En la TUI
+# `sys.stderr` es la propia terminal de pantalla completa, así que cualquier
+# banner/log de un servidor MCP (p.ej. el "FastMCP 4.0.9" de MuseScore) se
+# dibuja encima de la interfaz y la corrompe. Redirigimos stderr a un log propio.
+_MCP_ERRLOG_LOCK = threading.Lock()
+_MCP_ERRLOG = None
+_STDIO_PATCHED = False
+
+
+def mcp_errlog_path() -> str:
+    """Ruta del log de stderr de los servidores MCP."""
+    base = os.environ.get("KOGNITERM_LOG_DIR") or os.path.join(
+        os.path.expanduser("~"), ".kogniterm", "logs"
+    )
+    return os.path.join(base, "mcp-stderr.log")
+
+
+def _get_mcp_errlog():
+    """Devuelve el file object de stderr de MCP (abierto una sola vez)."""
+    global _MCP_ERRLOG
+    with _MCP_ERRLOG_LOCK:
+        if _MCP_ERRLOG is not None and not _MCP_ERRLOG.closed:
+            return _MCP_ERRLOG
+        path = mcp_errlog_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _MCP_ERRLOG = open(path, "a", encoding="utf-8", errors="replace", buffering=1)
+            return _MCP_ERRLOG
+        except Exception:
+            try:
+                _MCP_ERRLOG = open(os.devnull, "w", encoding="utf-8")
+                return _MCP_ERRLOG
+            except Exception:
+                return None
+
+
+def isolate_mcp_stderr() -> bool:
+    """Fuerza a que los subprocesos MCP escriban en su log, no en la terminal.
+
+    Idempotente. Devuelve True si el parche quedó aplicado.
+    """
+    global _STDIO_PATCHED
+    if _STDIO_PATCHED:
+        return True
+    try:
+        import langchain_mcp_adapters.sessions as _sessions
+
+        current = getattr(_sessions, "stdio_client", None)
+        if current is None:
+            return False
+        if getattr(current, "_kogniterm_isolated", False):
+            _STDIO_PATCHED = True
+            return True
+
+        def _isolated_stdio_client(server, errlog=None, **kwargs):
+            target = _get_mcp_errlog()
+            return current(server, errlog=target, **kwargs)
+
+        _isolated_stdio_client._kogniterm_isolated = True
+        _sessions.stdio_client = _isolated_stdio_client
+        _STDIO_PATCHED = True
+        logger.debug("stderr de servidores MCP redirigido a %s", mcp_errlog_path())
+        return True
+    except Exception as exc:
+        logger.debug("No se pudo aislar stderr de MCP: %s", exc)
+        return False
+
 
 class MCPManager:
     """Gestor singleton para la administración de conexiones y herramientas MCP."""
@@ -62,7 +133,10 @@ class MCPManager:
     async def _load_server_tools(self, name: str, config_dict: Dict[str, Any]) -> List[Any]:
         """Carga las herramientas de un servidor MCP por stdio o sse sin cerrar la sesión."""
         from langchain_mcp_adapters.tools import load_mcp_tools
-        
+
+        # Nunca dejar que la salida del subproceso MCP contamine la terminal.
+        isolate_mcp_stderr()
+
         transport = config_dict.get("transport", "stdio")
         if transport == "stdio":
             cmd = config_dict.get("command")

@@ -19,7 +19,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 logger = logging.getLogger("kogniterm.tui.ws_client")
 
@@ -122,12 +122,17 @@ class TUIWebSocketClient:
         await client.send_approval(id, approved)   # Responder aprobación
     """
 
-    def __init__(self, app: "KogniTermTUI", server_url: str, session_id: str):
+    def __init__(self, app: "KogniTermTUI", server_url: str, session_id: str, tab_id: Optional[str] = None):
         self._app = app
         self._server_url = server_url  # e.g. "ws://127.0.0.1:8765"
         self._session_id = session_id
+        # tab_id: pestaña TUI propietaria (multisesión). Si se indica, los
+        # eventos del agente principal (sin agent_id) se enrutan al widget de
+        # esa pestaña en lugar del chat_log activo.
+        self._tab_id = tab_id
         self._ws = None
         self._stopped = False
+        self._connected = False
         if not hasattr(self._app, "_auto_approve_all"):
             try:
                 from kogniterm.terminal.config_manager import ConfigManager
@@ -149,19 +154,33 @@ class TUIWebSocketClient:
     # ── Punto de entrada del bucle de conexión ──────────────────────────────────
 
     def _handle_disconnect(self, reason: str = "") -> None:
-        """Maneja la desconexión del servidor y cambia al modo local."""
-        if self._connected or self._app._server_mode:
-            self._connected = False
+        """Maneja la desconexión del servidor.
+
+        Con pestaña propietaria: avisa en esa pestaña y solo cae a modo
+        local global si ninguna pestaña sigue conectada. Sin pestaña:
+        comportamiento legacy (caída global a modo local).
+        """
+        was_connected = bool(getattr(self, "_connected", False))
+        self._connected = False
+        if self._tab_id:
+            try:
+                self._app.call_from_thread(
+                    self._app._on_tab_disconnect, self._tab_id, reason or ""
+                )
+            except Exception as exc:
+                logger.debug(f"[WS] _on_tab_disconnect falló: {exc}")
+            return
+        if was_connected or self._app._server_mode:
             self._app.call_from_thread(self._app.switch_to_local_mode)
         else:
-            self._connected = False
+            pass
 
         if not self._stopped:
             msg = f"⚠️  Conexión al servidor perdida. Reintentando en {_RECONNECT_DELAY:.0f}s…"
             if reason:
                 logger.warning(f"[WS] Conexión perdida: {reason}")
             self._app.call_from_thread(
-                self._app.tui_ui.print_message,
+                self._main_ui().print_message,
                 msg,
                 "yellow",
             )
@@ -210,8 +229,11 @@ class TUIWebSocketClient:
             self._connected = True
             logger.info("[WS] Conectado al servidor KogniTerm.")
 
-            # Cambiar a modo servidor en la TUI
-            self._app.call_from_thread(self._app.switch_to_server_mode)
+            # Cambiar a modo servidor en la TUI (por pestaña si aplica)
+            if self._tab_id and hasattr(self._app, "_on_tab_reconnect"):
+                self._app.call_from_thread(self._app._on_tab_reconnect, self._tab_id)
+            else:
+                self._app.call_from_thread(self._app.switch_to_server_mode)
 
             # Correr recepción y envío de forma concurrente
             receive_task = asyncio.create_task(self._receive_loop(ws))
@@ -288,8 +310,8 @@ class TUIWebSocketClient:
                         self._app.call_from_thread(self._show_agent_panel, agent_id)
 
                     def write_to_log(cl=chat_log, acc=accumulated, aid=agent_id):
-                        if not aid and self._app._spinner_timer:
-                            self._app._stop_spinner()
+                        if not aid:
+                            self._stop_main_spinner_sync()
                         cl.write_stream(acc)
                     self._app.call_from_thread(write_to_log)
 
@@ -302,7 +324,7 @@ class TUIWebSocketClient:
                 text = str(data) if data else ""
             if text:
                 self._app.call_from_thread(
-                    self._app.tui_ui.print_message,
+                    self._main_ui().print_message,
                     text,
                     panel_id=agent_id
                 )
@@ -326,7 +348,7 @@ class TUIWebSocketClient:
                 self._app.call_from_thread(chat_log.write_tool_notification, tool_name, description, skill)
             else:
                 self._app.call_from_thread(
-                    self._app.tui_ui.print_tool_notification,
+                    self._main_ui().print_tool_notification,
                     tool_name, description, skill,
                 )
 
@@ -348,7 +370,7 @@ class TUIWebSocketClient:
                     self._app.call_from_thread(chat_log.write_tool_output, displayed, tool_name)
                 else:
                     self._app.call_from_thread(
-                        self._app.tui_ui.update_tool_display,
+                        self._main_ui().update_tool_display,
                         tool_name, output,
                     )
 
@@ -371,7 +393,7 @@ class TUIWebSocketClient:
                     self._app.call_from_thread(chat_log.write_stream, ("__TERMINAL__", tool_name, output, command))
                 else:
                     self._app.call_from_thread(
-                        self._app.tui_ui.update_terminal_output,
+                        self._main_ui().update_terminal_output,
                         tool_name, output, command=command,
                     )
 
@@ -380,7 +402,8 @@ class TUIWebSocketClient:
             self._app.call_from_thread(
                 self._app.set_terminal_cursor,
                 active,
-                ServerTerminalExecutorProxy(self) if active else None
+                ServerTerminalExecutorProxy(self) if active else None,
+                self._tab_id,
             )
 
         elif event_type == "task_tracker":
@@ -424,16 +447,15 @@ class TUIWebSocketClient:
                         renderable = build_native_renderable(thinking, response)
                         if renderable:
                             def write_to_log(cl=chat_log, r=renderable):
-                                if self._app._spinner_timer:
-                                    self._app._stop_spinner()
+                                self._stop_main_spinner_sync()
                                 cl.write_stream(r)
                             self._app.call_from_thread(write_to_log)
             else:
                 text = str(data) if data else ""
                 if text:
                     def write_to_log(cl=chat_log, t=text, aid=agent_id):
-                        if not aid and self._app._spinner_timer:
-                            self._app._stop_spinner()
+                        if not aid:
+                            self._stop_main_spinner_sync()
                         cl.write_stream(t)
                     self._app.call_from_thread(write_to_log)
 
@@ -457,7 +479,17 @@ class TUIWebSocketClient:
                 self._app.call_from_thread(
                     self._handle_approval_request,
                     request_id, message, title, diff_content, file_path,
+                    self._tab_id,
                 )
+
+        elif event_type == "thread_title_updated":
+            # El servidor renombró el hilo (título fallback o del LLM)
+            if isinstance(data, dict):
+                title = str(data.get("title") or "").strip()
+                if title:
+                    self._app.call_from_thread(
+                        self._app._apply_session_title, self._tab_id, title
+                    )
 
         elif event_type == "done":
             # El agente terminó su turno
@@ -483,7 +515,7 @@ class TUIWebSocketClient:
                 self._last_live_update_time = 0.0
                 self._stream_accumulators.clear()
                 self._app.call_from_thread(
-                    self._app.tui_ui.print_message,
+                    self._main_ui().print_message,
                     f"❌ Error del servidor: {error_msg}",
                     "bold red",
                 )
@@ -527,15 +559,76 @@ class TUIWebSocketClient:
 
     # ── Helpers de enrutamiento a paneles ────────────────────────────────────
 
+    def _tab_session(self):
+        """Sesión/pestaña TUI propietaria de este cliente (o None)."""
+        try:
+            if self._tab_id and hasattr(self._app, "get_session"):
+                return self._app.get_session(self._tab_id)
+        except Exception:
+            pass
+        return None
+
+    def _main_ui(self):
+        """UI para eventos del agente principal: proxy de la pestaña si hay."""
+        try:
+            session = self._tab_session()
+            if session is not None and getattr(session, "ui_proxy", None) is not None:
+                return session.ui_proxy
+        except Exception:
+            pass
+        return self._app.tui_ui
+
+    def _main_log(self):
+        """ChatLogWidget para eventos del agente principal."""
+        try:
+            session = self._tab_session()
+            if session is not None and hasattr(self._app, "_session_widget"):
+                widget = self._app._session_widget(session)
+                if widget is not None:
+                    return widget
+        except Exception:
+            pass
+        return self._app.chat_log
+
+    def _stop_main_spinner_sync(self) -> None:
+        """Detiene el spinner del agente principal (pestaña o global).
+
+        IMPORTANTE: solo actúa si el spinner está realmente corriendo.
+        `KogniTermTUI._stop_spinner()` hace `chat_log.stop_stream()`, y
+        llamarlo en cada fragmento de texto cerraba el widget en curso para
+        que cada fragmento creara uno nuevo (la respuesta se veía repetida
+        tantas veces como fragmentos). El propio ChatLogWidget ya sustituye
+        el spinner cuando llega contenido real.
+
+        Debe llamarse ya en el hilo de la app.
+        """
+        try:
+            session = self._tab_session()
+        except Exception:
+            session = None
+        if session is not None and hasattr(self._app, "_spinner_active_for_session"):
+            try:
+                if self._app._spinner_active_for_session(session.session_id):
+                    self._app._stop_spinner_for_session(session.session_id)
+                return
+            except Exception:
+                return
+        try:
+            if getattr(self._app, "_spinner_timer", None):
+                self._app._stop_spinner()
+        except Exception:
+            pass
+
     def _get_chat_log(self, agent_id: str = None):
         """Retorna el ChatLogWidget para el agente indicado.
 
+        Sin agent_id: widget de la pestaña propietaria (si hay) o chat_log.
         Primero busca como atributo directo (compatibilidad con mocks y versiones
         anteriores), luego intenta localizar el widget dinámico via query_one.
         Si no lo encuentra, devuelve el chat_log principal.
         """
         if not agent_id:
-            return self._app.chat_log
+            return self._main_log()
 
         # 1. Atributo directo en la app (compatibilidad backward)
         if hasattr(self._app, agent_id):
@@ -622,10 +715,14 @@ class TUIWebSocketClient:
         title: str,
         diff_content: str,
         file_path: str,
+        tab_id: Optional[str] = None,
     ) -> None:
         """
         Monta el InlineApprovalWidget y envía la respuesta al servidor
         cuando el usuario decide. Se ejecuta en el hilo principal de Textual.
+
+        Con pestaña propietaria, el widget se monta inline en esa pestaña
+        (varias pestañas pueden pedir aprobación en paralelo).
         """
         # Si la auto-aprobación está activa globalmente en el cliente TUI, responder de inmediato
         if getattr(self._app, "_auto_approve_all", False):
@@ -681,17 +778,62 @@ class TUIWebSocketClient:
                 file_path=file_path or None,
                 callback=callback,
             )
-            if hasattr(self._app, "approval_container"):
-                self._app.approval_container.mount(widget)
-            else:
-                self._app.mount(widget)
-            self._app.chat_log.scroll_end(animate=False)
+            # Montar en la pestaña propietaria si hay (inline por pestaña),
+            # si no en el contenedor global legacy.
+            effective_tab = tab_id or self._tab_id
+            mounted_in_tab = False
+            if effective_tab and hasattr(self._app, "_approval_host"):
+                try:
+                    host, session = self._app._approval_host(effective_tab)
+                    try:
+                        self._app._track_approval(session, +1)
+                        _orig_callback = callback
+
+                        def _counted(result, _s=session, _cb=_orig_callback):
+                            try:
+                                self._app._track_approval(_s, -1)
+                            except Exception:
+                                pass
+                            return _cb(result)
+
+                        widget._callback = _counted
+                    except Exception:
+                        pass
+                    host.mount(widget)
+                    try:
+                        if hasattr(host, "scroll_end"):
+                            host.scroll_end(animate=False)
+                    except Exception:
+                        pass
+                    mounted_in_tab = True
+                except Exception as exc:
+                    logger.debug(f"[WS] Montaje en pestaña falló, fallback global: {exc}")
+            if not mounted_in_tab:
+                if hasattr(self._app, "approval_container"):
+                    self._app.approval_container.mount(widget)
+                else:
+                    self._app.mount(widget)
+                self._app.chat_log.scroll_end(animate=False)
             widget.focus()
         except Exception as exc:
             logger.error(f"[WS] Error montando widget de aprobación: {exc}")
 
     def _on_agent_done(self) -> None:
         """Limpia el estado de procesamiento cuando el agente termina."""
+        try:
+            session = self._tab_session()
+        except Exception:
+            session = None
+        if session is not None and hasattr(self._app, "_on_session_finished"):
+            try:
+                session.is_processing = False
+            except Exception:
+                pass
+            try:
+                self._app._on_session_finished(session.session_id)
+                return
+            except Exception as exc:
+                logger.debug(f"[WS] _on_session_finished falló: {exc}")
         self._app.is_processing = False
         self._app._stop_spinner()
         self._app._process_queue()

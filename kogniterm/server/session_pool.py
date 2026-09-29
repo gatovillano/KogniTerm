@@ -12,13 +12,14 @@ import asyncio
 import logging
 import queue
 import threading
+import time
 import uuid
 
 import os
 import re
 from datetime import datetime
 from io import StringIO
-from typing import Any, AsyncIterator, Callable, Dict, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 import contextvars
 import contextlib
 
@@ -314,7 +315,16 @@ class ServerUI(TerminalUI):
 
         Si se provee agent_id, se incluye en el evento para que la TUI pueda
         enrutar el output al panel/pestaña del subagente correspondiente.
+
+        Nunca propaga excepciones: un fallo al preparar los metadatos del
+        evento no debe abortar el turno del agente.
         """
+        try:
+            self._push_inner(event_type, data, agent_id)
+        except Exception as exc:  # pragma: no cover - defensivo
+            logger.error("Error preparando evento %s: %s", event_type, exc)
+
+    def _push_inner(self, event_type: str, data: Any, agent_id: str = None) -> None:
         event = {"type": event_type, "data": data, "ts": datetime.utcnow().isoformat()}
         if agent_id:
             event["agent_id"] = agent_id
@@ -332,7 +342,7 @@ class ServerUI(TerminalUI):
                 "tool": data.get("tool", ""),
                 "command": data.get("command", ""),
                 "output": data.get("content") or data.get("output") or "",
-                "timestamp": int(datetime.utcnow().timestamp() * 1000)
+                "timestamp": int(time.time() * 1000)
             })
 
         try:
@@ -964,11 +974,15 @@ class AgentSession:
         if hasattr(self, "command_executor") and self.command_executor:
             self.command_executor.write_input(text)
 
-    async def send(self, message: str, executor, images: Optional[List[str]] = None) -> None:
+    async def send(self, message: str, executor, images: Optional[List[str]] = None, user_message_id: Optional[str] = None) -> None:
         """
         Envía un mensaje al agente y lo ejecuta en un hilo worker.
         Los eventos se emiten en tiempo real a `self.ui._async_queue`.
         """
+        if user_message_id:
+            self.last_user_message_id = user_message_id
+            if hasattr(self, "ui") and self.ui:
+                self.ui.last_user_message_id = user_message_id
         async with self._agent_lock:
             self.last_activity = datetime.utcnow()
             if self.is_running:
@@ -1186,9 +1200,9 @@ class AgentSession:
                         "type": "image_url",
                         "image_url": {"url": img}
                     })
-                human_msg = HumanMessage(content=content_blocks)
+                human_msg = HumanMessage(content=content_blocks, id=user_message_id)
             else:
-                human_msg = HumanMessage(content=message)
+                human_msg = HumanMessage(content=message, id=user_message_id)
 
             self.agent_state.add_message(human_msg)
             if self.thread_manager:
@@ -1284,22 +1298,17 @@ class AgentSession:
                 if self.llm_service and hasattr(self.llm_service, "stop_generation_flag"):
                     self.llm_service.stop_generation_flag = False
 
-                is_first_iteration = True
+                # Procesar mensaje inicial del usuario si existe
+                if user_input:
+                    self.ui._push("user_message", {"text": user_input})
+                    self.agent_state.add_message(HumanMessage(content=user_input))
+
+                # Bucle principal: invocar agente -> manejar confirmaciones -> repetir si hay confirmaciones
+                # Cuando el agente termina su turno, verificar si hay mensajes pendientes y continuar
                 while True:
-                    next_pending = self._pop_pending_message()
-                    if next_pending:
-                        user_input = next_pending
-                        self.ui._push("user_message", {"text": user_input})
-                        self.agent_state.add_message(HumanMessage(content=user_input))
-                    elif is_first_iteration and not user_input:
-                        break
-                    elif not is_first_iteration and not next_pending:
-                        break
-
-                    is_first_iteration = False
-
-                    # 1. Invocar al agente
+                    # 1. Invocar al agente (primera vez con user_input, siguientes con None para procesar tool results)
                     final_state = self.manager.invoke_agent(user_input)
+                    user_input = None  # Solo la primera invocación usa el user_input original
 
                     self.agent_state.messages = final_state.get(
                         "messages", self.agent_state.messages
@@ -1341,8 +1350,8 @@ class AgentSession:
                         if not approved:
                             self.ui.print_warning_box("Comando cancelado por el usuario.")
 
-                        user_input = None
-                        continue  # Volver al inicio del bucle para que el agente procese el resultado
+                        # Volver al inicio del bucle para que el agente procese el resultado
+                        continue
 
                     # Caso B: Confirmación de Skill (file_operations, advanced_file_editor, etc.)
                     elif (
@@ -1394,11 +1403,21 @@ class AgentSession:
                         if not approved:
                             self.ui.print_warning_box("Acción cancelada por el usuario.")
 
-                        user_input = None
-                        continue  # Volver al inicio del bucle
+                        # Volver al inicio del bucle para que el agente procese el resultado
+                        continue
 
-                    # Sin confirmaciones pendientes: salir del loop
-                    break
+                    # Sin confirmaciones pendientes: el agente terminó su turno
+                    # Verificar si hay mensajes pendientes que llegaron mientras el agente estaba ocupado
+                    next_pending = self._pop_pending_message()
+                    if next_pending:
+                        user_input = next_pending
+                        self.ui._push("user_message", {"text": user_input})
+                        self.agent_state.add_message(HumanMessage(content=user_input))
+                        # Continuar el bucle para invocar al agente con el nuevo mensaje
+                        continue
+                    else:
+                        # No hay más mensajes pendientes, salir
+                        break
             except Exception as e:
                 logger.error(
                     f"[Session:{self.session_id}] Error crítico en _run_agent_loop: {e}",
@@ -1562,7 +1581,7 @@ class SessionPool:
     def broadcast_from_session(self, session_id: str, event_type: str, data: Any) -> None:
         """Adapta un evento interno de ServerUI al formato OpenCode Desktop y lo difunde."""
         opencode_events = []
-        now_ms = int(datetime.utcnow().timestamp() * 1000)
+        now_ms = int(time.time() * 1000)
         session = self._sessions.get(session_id)
         msg_id = getattr(session.ui, "current_message_id", session_id) if session and hasattr(session, "ui") else session_id
         if not msg_id:
@@ -1570,14 +1589,22 @@ class SessionPool:
 
         if event_type == "user_message":
             asst_msg_id = str(uuid.uuid4())
+            parent_id = (
+                getattr(session, "last_user_message_id", None)
+                or getattr(session.ui, "last_user_message_id", None)
+                if session
+                else None
+            )
             if session and hasattr(session, "ui"):
                 session.ui.current_message_id = asst_msg_id
+                session.ui.current_response = ""
+                session.ui.turn_start_time = now_ms
             msg_id = asst_msg_id
 
             opencode_events.append({
                 "id": str(uuid.uuid4()),
                 "type": "session.status",
-                "properties": {"sessionID": session_id, "status": {"type": "running"}},
+                "properties": {"sessionID": session_id, "status": {"type": "busy"}},
             })
             opencode_events.append({
                 "id": str(uuid.uuid4()),
@@ -1589,22 +1616,99 @@ class SessionPool:
                         "sessionID": session_id,
                         "role": "assistant",
                         "time": {"created": now_ms},
-                        "parentID": None,
+                        "parentID": parent_id,
+                        "tokens": {
+                            "input": 0,
+                            "output": 0,
+                            "reasoning": 0,
+                            "cache": {"read": 0, "write": 0},
+                        },
                         "modelID": "gemini-2.0-flash",
                         "providerID": "google",
                         "mode": "build",
                     },
                 },
             })
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": session_id,
+                    "part": {
+                        "id": f"text-{session_id}",
+                        "sessionID": session_id,
+                        "messageID": asst_msg_id,
+                        "type": "text",
+                        "text": "",
+                        "time": {"start": now_ms},
+                    },
+                },
+            })
         elif event_type in ("done", "live_stop"):
+            final_text = getattr(session.ui, "current_response", "") if session and hasattr(session, "ui") else ""
+            start_ms = getattr(session.ui, "turn_start_time", now_ms) if session and hasattr(session, "ui") else now_ms
+            parent_id = (
+                getattr(session, "last_user_message_id", None)
+                or getattr(session.ui, "last_user_message_id", None)
+                if session
+                else None
+            )
+            if final_text:
+                opencode_events.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "message.part.updated",
+                    "properties": {
+                        "sessionID": session_id,
+                        "part": {
+                            "id": f"text-{session_id}",
+                            "sessionID": session_id,
+                            "messageID": msg_id,
+                            "type": "text",
+                            "text": final_text,
+                            "time": {"start": start_ms, "end": now_ms},
+                        },
+                    },
+                })
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "message.updated",
+                "properties": {
+                    "sessionID": session_id,
+                    "info": {
+                        "id": msg_id,
+                        "sessionID": session_id,
+                        "role": "assistant",
+                        "time": {"created": start_ms, "completed": now_ms},
+                        "parentID": parent_id,
+                        "tokens": {
+                            "input": 0,
+                            "output": 0,
+                            "reasoning": 0,
+                            "cache": {"read": 0, "write": 0},
+                        },
+                        "modelID": "gemini-2.0-flash",
+                        "providerID": "google",
+                        "mode": "build",
+                        "finish": "stop",
+                    },
+                },
+            })
             opencode_events.append({
                 "id": str(uuid.uuid4()),
                 "type": "session.status",
                 "properties": {"sessionID": session_id, "status": {"type": "idle"}},
             })
-        elif event_type in ("stream", "chunk"):
-            text = data if isinstance(data, str) else (data.get("content", "") if isinstance(data, dict) else str(data))
+        elif event_type == "stream":
+            # ServerUI.print_stream emite tanto "chunk" como "stream"; ignoramos "stream" para evitar duplicar
+            pass
+        elif event_type in ("chunk", "message"):
+            text = (
+                data if isinstance(data, str)
+                else (data.get("text") or data.get("content", "") if isinstance(data, dict) else str(data))
+            )
             if text:
+                if session and hasattr(session, "ui"):
+                    session.ui.current_response = (getattr(session.ui, "current_response", "") or "") + text
                 opencode_events.append({
                     "id": str(uuid.uuid4()),
                     "type": "message.part.delta",

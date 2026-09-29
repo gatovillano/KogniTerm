@@ -537,19 +537,32 @@ export function createServerSession(
   const fetchMessages = async (sessionID: string, limit: number, before?: string, onAttempt?: () => void) => {
     if (messageApi && (await options?.protocol) !== "v1") {
       const request = (cursor?: string) =>
-        (options?.retry ?? retry)(() => {
+        (options?.retry ?? retry)(async () => {
           onAttempt?.()
-          return messageApi.list(cursor ? { sessionID, limit, cursor } : { sessionID, limit, order: "desc" })
+          const res = await messageApi.list(cursor ? { sessionID, limit, cursor } : { sessionID, limit, order: "desc" })
+          if (Array.isArray(res)) {
+            return { data: res, cursor: undefined }
+          }
+          return {
+            data: Array.isArray(res?.data) ? res.data : [],
+            cursor: res?.cursor,
+          }
         })
       const first = await request(before)
       const pages = [first]
-      while (pages.at(-1)?.cursor?.next && needsOlderTurnRoot(pages.flatMap((page) => page.data).toReversed())) {
-        const response = await request(pages.at(-1)!.cursor?.next ?? undefined)
+      while (pages.at(-1)?.cursor?.next && needsOlderTurnRoot(pages.flatMap((page) => page?.data ?? []).toReversed())) {
+        const response = await request(pages.at(-1)?.cursor?.next ?? undefined)
         pages.push(response)
-        if (!response.data.length) break
+        if (!response.data || !response.data.length) break
       }
-      const response = pages.at(-1)!
-      const source = pages.flatMap((page) => page.data).toReversed()
+      const response = pages.at(-1) ?? first
+      const rawSource = pages.flatMap((page) => page?.data ?? []).toReversed()
+      const source = rawSource.slice().sort((a, b) => {
+        const timeA = typeof a?.time?.created === "number" ? a.time.created : (typeof (a as any)?.time?.start === "number" ? (a as any).time.start : 0)
+        const timeB = typeof b?.time?.created === "number" ? b.time.created : (typeof (b as any)?.time?.start === "number" ? (b as any).time.start : 0)
+        if (timeA !== timeB) return timeA - timeB
+        return 0
+      })
       const normalized = normalizeSessionMessages(sessionID, source)
       return {
         session: normalized.messages.sort(compareMessages),
@@ -559,25 +572,25 @@ export function createServerSession(
         source,
         sourceMode: before ? ("older" as const) : ("latest" as const),
         projectSource: true,
-        cursor: response.cursor?.next ?? undefined,
-        complete: response.data.length === 0,
+        cursor: response?.cursor?.next ?? undefined,
+        complete: !response?.data?.length,
       }
     }
     const response = await (options?.retry ?? retry)(() => {
       onAttempt?.()
       return client.session.messages({ sessionID, limit, before })
     })
-    const items = (response.data ?? []).filter((item) => !!item?.info?.id)
+    const items = (Array.isArray(response?.data) ? response.data : []).filter((item: any) => !!item?.info?.id)
     return {
-      session: items.map((item) => cleanMessage(item.info)).sort(compareMessages),
-      part: items.map((item) => ({
+      session: items.map((item: any) => cleanMessage(item.info)).sort(compareMessages),
+      part: items.map((item: any) => ({
         id: item.info.id,
-        part: item.parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id)),
+        part: (item.parts ?? []).filter((part: any) => !!part?.id).sort((a: any, b: any) => cmp(a.id, b.id)),
       })),
       source: legacyMessageSource(items),
       sourceMode: before ? ("older" as const) : ("latest" as const),
-      cursor: response.response.headers.get("x-next-cursor") ?? undefined,
-      complete: !response.response.headers.get("x-next-cursor"),
+      cursor: response?.response?.headers?.get?.("x-next-cursor") ?? undefined,
+      complete: !response?.response?.headers?.get?.("x-next-cursor"),
     }
   }
 
@@ -586,20 +599,27 @@ export function createServerSession(
       const response = await (options?.retry ?? retry)(() => {
         onAttempt?.()
         return sessionApi.message({ sessionID, messageID })
+      }).catch((err) => {
+        console.warn(`fetchMessage failed for ${messageID}:`, err)
+        return null
       })
+      if (!response) return null
       const normalized = normalizeSessionMessages(sessionID, [response])
       const message = normalized.messages[0]
-      if (!message) throw new Error(`Message not found: ${messageID}`)
+      if (!message) return null
       return { message, parts: normalized.parts.get(messageID) ?? [] }
     }
     const response = await (options?.retry ?? retry)(() => {
       onAttempt?.()
       return client.session.message({ sessionID, messageID })
+    }).catch((err) => {
+      console.warn(`client.session.message failed for ${messageID}:`, err)
+      return null
     })
-    if (!response.data?.info?.id) throw new Error(`Message not found: ${messageID}`)
+    if (!response?.data?.info?.id) return null
     return {
       message: cleanMessage(response.data.info),
-      parts: response.data.parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id)),
+      parts: (response.data.parts ?? []).filter((part: any) => !!part?.id).sort((a: any, b: any) => cmp(a.id, b.id)),
     }
   }
 
@@ -750,7 +770,18 @@ export function createServerSession(
     setMeta("loading", sessionID, true)
     let applied = false
     try {
-      const page = await fetchMessages(sessionID, limit, before, () => resetMessageLoad(sessionID, load))
+      const page = await fetchMessages(sessionID, limit, before, () => resetMessageLoad(sessionID, load)).catch((err) => {
+        console.warn(`fetchMessages failed for session ${sessionID}:`, err)
+        return {
+          session: [],
+          part: [],
+          source: [],
+          sourceMode: "latest" as const,
+          projectSource: true,
+          cursor: undefined,
+          complete: true,
+        }
+      })
       const first = page.session.reduce<Message | undefined>(
         (oldest, message) => (!oldest || compareMessages(message, oldest) < 0 ? message : oldest),
         undefined,
@@ -781,15 +812,15 @@ export function createServerSession(
           const parent = await fetchMessage(sessionID, parentID, () =>
             resetMessageLoad(sessionID, load, messageLoadBaseline(load, parentID)),
           ).catch((error) => {
-            const cause = error instanceof Error && typeof error.cause === "object" ? error.cause : undefined
-            if (cause && "status" in cause && cause.status === 404) {
-              load.removedMessages.add(parentID)
-              return
-            }
-            throw error
+            console.warn(`Failed to fetch parent message ${parentID}:`, error)
+            load.removedMessages.add(parentID)
+            return undefined
           })
           if (!parent) continue
-          if (parent.message.role !== "user") throw new Error(`Assistant parent is not a user message: ${parentID}`)
+          if (parent.message.role !== "user") {
+            console.warn(`Assistant parent is not a user message: ${parentID}`)
+            continue
+          }
           parents.push(parent)
         }
       }
@@ -819,6 +850,8 @@ export function createServerSession(
         mode !== "prepend",
       )
       applied = true
+    } catch (e) {
+      console.error(`loadMessages failed unexpectedly for session ${sessionID}:`, e)
     } finally {
       if (!applied && generations.get(sessionID) === active && messageLoads.get(sessionID) === load) {
         for (const messageID of load.orphanParents) {
@@ -1195,10 +1228,36 @@ export function createServerSession(
           field: string
           delta: string
         }
-        const parts = data.part[props.messageID]
-        if (!parts) return
-        const result = Binary.search(parts, props.partID, (part) => part.id)
-        if (!result.found) return
+        let parts = data.part[props.messageID]
+        if (!parts) {
+          const initialPart: Part = {
+            id: props.partID,
+            sessionID: props.sessionID,
+            messageID: props.messageID,
+            type: "text",
+            text: "",
+          }
+          setData("part", props.messageID, [initialPart])
+          parts = [initialPart]
+        }
+        let result = Binary.search(parts, props.partID, (part) => part.id)
+        if (!result.found) {
+          const initialPart: Part = {
+            id: props.partID,
+            sessionID: props.sessionID,
+            messageID: props.messageID,
+            type: "text",
+            text: "",
+          }
+          setData(
+            "part",
+            props.messageID,
+            produce((draft) => {
+              if (draft) draft.splice(result.index, 0, initialPart)
+            }),
+          )
+          result = { found: true, index: result.index }
+        }
         trackPartChange(props.sessionID, props.messageID, props.partID)
         const load = messageLoads.get(props.sessionID)
         if (load) {

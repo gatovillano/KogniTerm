@@ -138,9 +138,10 @@ export const loadMcpResourcesQuery = (
       }
       return api.resource
         .catalog({ location: { directory } })
-        .then((result) =>
-          Object.fromEntries(result.data.resources.map((resource) => [`${resource.server}:${resource.uri}`, resource])),
-        )
+        .then((result) => {
+          const list = (result.data as any)?.resources ?? (Array.isArray(result.data) ? result.data : [])
+          return Object.fromEntries(list.map((resource: any) => [`${resource.server}:${resource.uri}`, resource]))
+        })
     },
     placeholderData: {},
   })

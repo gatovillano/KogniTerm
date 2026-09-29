@@ -249,8 +249,13 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
               if (route.type === "session") {
                 const s = session()
                 if (!s) return
+                // The fetch may resolve for a route we already left (e.g. the
+                // tab was just closed and navigation is still in flight).
+                if (route.sessionId !== s.id) return
                 const sessionId = s.parentID ?? s.id
                 const next = { server: route.server ?? server.key, sessionId }
+                // Never resurrect a tab the user just closed.
+                if (tabs.isClosing(tabKey({ type: "session", ...next }))) return
                 tabsStoreActions.addSessionTab(next)
               }
             })

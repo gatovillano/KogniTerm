@@ -63,7 +63,22 @@ class ToolRegistryAdapter:
         self._registry = registry or default_tool_registry
         self._custom_handlers: Dict[str, Callable[..., Any]] = {}
         self._custom_schemas: Dict[str, Dict[str, Any]] = {}
+        self._llm_service: Any = None
         self._register_bundled_task_tracker()
+
+    def bind_llm_service(self, llm_service: Any) -> None:
+        """Vincula el LLMService activo para exponer las herramientas de sus skills.
+
+        Sin este enlace el adapter solo conoce capabilities, task_tracker y MCP, por lo que
+        herramientas de skills (call_agents_parallel, refresh_tools, skill_factory, ...)
+        nunca llegan al esquema del modelo aunque esten cargadas en el SkillManager.
+        """
+        self._llm_service = llm_service
+
+    def _get_skill_manager(self):
+        if self._llm_service is None:
+            return None
+        return getattr(self._llm_service, "skill_manager", None)
 
     def _register_bundled_task_tracker(self) -> None:
         tt_fn, tt_schema = _load_bundled_task_tracker_and_schema()
@@ -108,6 +123,32 @@ class ToolRegistryAdapter:
         except Exception as exc:
             logger.debug(f"No se pudieron cargar herramientas MCP en get_schemas_for_litellm: {exc}")
 
+        # Integrar herramientas de skills cargadas en el SkillManager (code tools).
+        # Sin este bloque el modelo solo ve capabilities + task_tracker + MCP.
+        skill_manager = self._get_skill_manager()
+        if skill_manager is not None:
+            existing = {
+                s.get("function", {}).get("name")
+                for s in base_schemas
+                if isinstance(s, dict)
+            }
+            for tool in skill_manager.get_tools():
+                raw_name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
+                if not raw_name:
+                    continue
+                clean_name = sanitize_tool_name(raw_name)
+                if raw_name in existing or clean_name in existing:
+                    continue
+                try:
+                    schema = convert_langchain_tool_to_litellm(tool)
+                    name = schema.get("function", {}).get("name")
+                    if not name or name in existing:
+                        continue
+                    base_schemas.append(schema)
+                    existing.add(name)
+                except Exception as e:
+                    logger.debug(f"Error convirtiendo esquema para herramienta de skill {raw_name}: {e}")
+
         return base_schemas
 
     def get_handler(self, name: str) -> Optional[Callable[..., Any]]:
@@ -134,7 +175,59 @@ class ToolRegistryAdapter:
         except Exception:
             pass
 
+        # Búsqueda en herramientas de skills cargadas en el SkillManager
+        skill_manager = self._get_skill_manager()
+        if skill_manager is not None:
+            try:
+                skill_tool = skill_manager.get_tool(name)
+            except Exception:
+                skill_tool = None
+            if skill_tool is not None:
+                return skill_tool
+
         return None
+
+    def _inject_dependencies(self, handler: Callable[..., Any], args: Dict[str, Any]) -> Dict[str, Any]:
+        """Inyecta las dependencias que el LLM no conoce en los parámetros del esquema.
+
+        Las herramientas de skills declaran parámetros como llm_service, terminal_ui,
+        interrupt_queue o approval_handler que nunca aparecen en el tool schema. Sin esta
+        inyección se ejecutarían como None y fallarían al construir sus subagentes.
+        """
+        call_args = dict(args or {})
+        llm_service = self._llm_service
+        if llm_service is None:
+            return call_args
+
+        try:
+            params = inspect.signature(handler).parameters
+        except (TypeError, ValueError):
+            return call_args
+
+        skill_manager = getattr(llm_service, "skill_manager", None)
+
+        # terminal_ui e interrupt_queue viven en objetos distintos: el LLMService solo
+        # guarda interrupt_queue, mientras terminal_ui lo mantiene el SkillManager.
+        terminal_ui = getattr(llm_service, "terminal_ui", None) or getattr(
+            skill_manager, "terminal_ui", None
+        )
+        interrupt_queue = getattr(llm_service, "interrupt_queue", None) or getattr(
+            skill_manager, "interrupt_queue", None
+        )
+        approval_handler = getattr(skill_manager, "approval_handler", None)
+
+        candidates = {
+            "llm_service": llm_service,
+            "terminal_ui": terminal_ui,
+            "interrupt_queue": interrupt_queue,
+            "approval_handler": approval_handler,
+        }
+
+        for param_name, value in candidates.items():
+            if param_name in params and param_name not in call_args and value is not None:
+                call_args[param_name] = value
+
+        return call_args
 
     async def execute(self, name: str, args: Dict[str, Any]) -> Any:
         handler = self.get_handler(name)
@@ -152,25 +245,27 @@ class ToolRegistryAdapter:
                 return await handler(**filtered_args)
             return await asyncio.to_thread(handler, **filtered_args)
 
+        injected = self._inject_dependencies(handler, args)
+
         # Si es una herramienta LangChain (BaseTool / StructuredTool de MCP)
         if hasattr(handler, "ainvoke"):
             try:
-                raw_res = await handler.ainvoke(args)
+                raw_res = await handler.ainvoke(injected)
             except Exception:
-                raw_res = await asyncio.to_thread(handler.invoke, args)
+                raw_res = await asyncio.to_thread(handler.invoke, injected)
             if hasattr(raw_res, "content"):
                 return raw_res.content
             return raw_res
         elif hasattr(handler, "invoke"):
-            raw_res = await asyncio.to_thread(handler.invoke, args)
+            raw_res = await asyncio.to_thread(handler.invoke, injected)
             if hasattr(raw_res, "content"):
                 return raw_res.content
             return raw_res
 
         if inspect.iscoroutinefunction(handler):
-            return await handler(**args)
+            return await handler(**injected)
 
-        return await asyncio.to_thread(handler, **args)
+        return await asyncio.to_thread(handler, **injected)
 
 
 _default_adapter: Optional[ToolRegistryAdapter] = None

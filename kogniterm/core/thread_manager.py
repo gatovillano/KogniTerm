@@ -474,8 +474,11 @@ class ThreadManager:
         current_title = metadata.get("title", "")
         default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
         is_generic = current_title in default_titles or current_title == thread_id
+        # Un título "fallback" (primeras palabras de la petición) es solo
+        # provisional: el LLM debe poder sustituirlo por uno mejor.
+        is_fallback = metadata.get("title_source") == "fallback"
 
-        if not is_generic or metadata.get("title_source") == "llm":
+        if (not is_generic and not is_fallback) or metadata.get("title_source") == "llm":
             return
 
         # Verificar que tengamos al menos un HumanMessage y un AIMessage
@@ -489,7 +492,7 @@ class ThreadManager:
                 self._generate_title(thread_id, messages, llm_service)
             )
         except RuntimeError:
-            # Si no hay un bucle de eventos corriendo, se ignora
+            # Sin event loop en este hilo: lo agenda quien tenga uno.
             pass
 
 
@@ -510,8 +513,10 @@ class ThreadManager:
         current_title = metadata.get("title", "")
         default_titles = {"Nueva conversación", "Nueva Conversación", "Conversación sin título", "Conversación", ""}
         is_generic = current_title in default_titles or current_title == thread_id
+        # El título provisional ("fallback") puede ser sustituido por el LLM.
+        is_fallback = metadata.get("title_source") == "fallback"
 
-        if not is_generic or metadata.get("title_source") == "llm":
+        if (not is_generic and not is_fallback) or metadata.get("title_source") == "llm":
             return None
 
         # Verificar que tengamos al menos un HumanMessage y un AIMessage

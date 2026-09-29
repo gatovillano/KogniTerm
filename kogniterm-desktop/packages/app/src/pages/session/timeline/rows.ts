@@ -61,13 +61,23 @@ export namespace Timeline {
         return
       }
       if (projected?.role !== "assistant") return
-      const existing = turnByUserID.get(projected.parentID)
+      let existing = projected.parentID ? turnByUserID.get(projected.parentID) : undefined
+      if (!existing && turns.length > 0) {
+        existing = turns.at(-1)
+      }
       if (existing) {
-        existing.assistants.push(projected)
+        if (!existing.assistants.some((a) => a.id === projected.id)) {
+          existing.assistants.push(projected)
+        }
         return
       }
-      const user = getMessage(projected.parentID)
-      if (user?.role !== "user") return
+      const user = projected.parentID ? getMessage(projected.parentID) : undefined
+      if (user?.role !== "user") {
+        if (turns.length > 0 && !turns.at(-1)!.assistants.some((a) => a.id === projected.id)) {
+          turns.at(-1)!.assistants.push(projected)
+        }
+        return
+      }
       const turn = { user, assistants: [projected] }
       turns.push(turn)
       turnByUserID.set(user.id, turn)
@@ -80,6 +90,7 @@ export namespace Timeline {
       if (index >= 0) turns.splice(index, 0, turn)
       turnByUserID.set(user.id, turn)
     })
+    turns.sort((a, b) => compareMessages(a.user, b.user))
     const activeMessageID = turns.at(-1)?.user.id
     return {
       activeMessageID,

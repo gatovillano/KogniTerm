@@ -39,6 +39,12 @@ export default [
         },
         optimizeDeps: {
           include: ["lru_map", "@pierre/diffs", "@pierre/trees"],
+          // @opencode-ai/core expone .ts crudos con `export namespace`
+          // que esbuild pre-empaqueta mal (pantalla en blanco). Se excluye
+          // para que Vite los sirva por el pipeline normal de transform.
+          // @opencode-ai/session-ui tiene .tsx que esbuild compila con JSX
+          // clásico (React is not defined); debe procesarlo vite-plugin-solid.
+          exclude: ["@opencode-ai/core", "@opencode-ai/session-ui"],
         },
         worker: {
           format: "es",

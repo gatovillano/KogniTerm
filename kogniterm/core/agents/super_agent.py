@@ -310,6 +310,14 @@ class SuperAgentRunner:
         except Exception:
             pass
 
+        # Exponer las herramientas de skills al adapter que usa LLMBridge.
+        # Sin esto el SuperAgent solo ve capabilities + task_tracker + MCP.
+        try:
+            from kogniterm.core.ai_cli_bridge.tool_registry_adapter import get_default_adapter
+            get_default_adapter().bind_llm_service(self.llm_service)
+        except Exception:
+            pass
+
     def set_model(self, model: str) -> None:
         """Actualiza el modelo de SuperAgent y propaga al puente subyacente."""
         if hasattr(self, "agent") and self.agent:

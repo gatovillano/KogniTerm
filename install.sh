@@ -27,6 +27,15 @@ WEB_WRAPPER_PATH="$LOCAL_BIN/kogniterm-web"
 DESKTOP_WRAPPER_PATH="$LOCAL_BIN/kogniterm-desktop"
 GITHUB_REPO_URL="https://github.com/gatovillano/KogniTerm.git"
 
+# Servicio de KogniTerm Server (compartido por TUI, Web y Desktop)
+SERVICE_NAME="kogniterm-server"
+SERVER_HOST="127.0.0.1"
+SERVER_PORT="8765"
+SYSTEMD_UNIT_DIR="$HOME/.config/systemd/user"
+SYSTEMD_UNIT_PATH="$SYSTEMD_UNIT_DIR/$SERVICE_NAME.service"
+LAUNCHD_PLIST_DIR="$HOME/Library/LaunchAgents"
+LAUNCHD_PLIST_PATH="$LAUNCHD_PLIST_DIR/com.kogniterm.server.plist"
+
 # Limpiar pantalla y asegurar interactividad desde pipes (ej. curl | bash)
 clear
 
@@ -287,6 +296,253 @@ EOF
     fi
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# KogniTerm Server como servicio de inicio automático
+#
+# El backend es multi-cliente: lo comparten la TUI, la Web y Desktop. Si se
+# registra como servicio (systemd/launchd) arranca solo y queda disponible para
+# todos ellos. KogniTerm Desktop, aun así, lo levanta en segundo plano si lo
+# encuentra apagado.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Detecta el gestor de servicios disponible (systemd de usuario / launchd)
+detect_service_manager() {
+    case "$(uname -s)" in
+        Darwin)
+            echo "launchd"
+            ;;
+        Linux)
+            if command -v systemctl &>/dev/null && systemctl --user show-environment &>/dev/null 2>&1; then
+                echo "systemd"
+            else
+                echo "none"
+            fi
+            ;;
+        *)
+            echo "none"
+            ;;
+    esac
+}
+
+# ¿Responde el backend en /health?
+server_is_up() {
+    curl -fsS -m 3 "http://$SERVER_HOST:$SERVER_PORT/health" &>/dev/null
+}
+
+# Libera el puerto 8765 si hay un servidor arrancado manualmente, para que el
+# servicio pueda tomar el puerto sin conflictos.
+free_server_port() {
+    if server_is_up; then
+        echo -e "  ${YELLOW}•${RESET} Deteniendo la instancia actual del servidor para evitar conflicto de puerto..."
+        "$VENV_DIR/bin/kogniterm-server" stop --port "$SERVER_PORT" &>/dev/null
+        sleep 1
+    fi
+}
+
+service_install_systemd() {
+    mkdir -p "$SYSTEMD_UNIT_DIR"
+    cat << EOF > "$SYSTEMD_UNIT_PATH"
+[Unit]
+Description=KogniTerm Server (backend multi-cliente para TUI, Web y Desktop)
+Documentation=https://github.com/gatovillano/KogniTerm
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$REPO_DIR
+ExecStart=$VENV_DIR/bin/kogniterm-server --host $SERVER_HOST --port $SERVER_PORT
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+EOF
+    echo -e "  ${GREEN}✔${RESET} Unidad creada en: ${BOLD}$SYSTEMD_UNIT_PATH${RESET}"
+
+    systemctl --user daemon-reload &>/dev/null
+    free_server_port
+    if systemctl --user enable --now "$SERVICE_NAME" &>/dev/null; then
+        echo -e "  ${GREEN}✔${RESET} Servicio habilitado y arrancado."
+    else
+        echo -e "  ${YELLOW}⚠ No se pudo arrancar el servicio.${RESET}"
+        echo -e "  ${DIM}Revisa: journalctl --user -u $SERVICE_NAME${RESET}"
+        echo -e "  ${DIM}Puedes arrancar el backend manualmente con: kogniterm-server${RESET}"
+        return 1
+    fi
+
+    # Para que arranque también al iniciar el equipo, sin iniciar sesión
+    if command -v loginctl &>/dev/null; then
+        if loginctl show-user "$USER" --property=Linger 2>/dev/null | grep -q "Linger=yes"; then
+            echo -e "  ${GREEN}✔${RESET} Arranque automático previo al login: ya activo (linger)."
+        else
+            read -p "  ¿Arrancar también al encender el equipo, antes de iniciar sesión? (Y/n): " linger_opt
+            linger_opt="${linger_opt:-y}"
+            if [[ "$linger_opt" =~ ^[Yy]$ ]]; then
+                if loginctl enable-linger "$USER" 2>/dev/null || sudo -n loginctl enable-linger "$USER" 2>/dev/null; then
+                    echo -e "  ${GREEN}✔${RESET} Arranque automático previo al login habilitado (linger)."
+                else
+                    echo -e "  ${YELLOW}⚠ No se pudo habilitar 'linger'. Ejecuta: sudo loginctl enable-linger $USER${RESET}"
+                fi
+            fi
+        fi
+    fi
+}
+
+service_install_launchd() {
+    mkdir -p "$LAUNCHD_PLIST_DIR" "$KOGNITERM_DIR/logs"
+    cat << EOF > "$LAUNCHD_PLIST_PATH"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.kogniterm.server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$VENV_DIR/bin/kogniterm-server</string>
+        <string>--host</string>
+        <string>$SERVER_HOST</string>
+        <string>--port</string>
+        <string>$SERVER_PORT</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>$REPO_DIR</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>$KOGNITERM_DIR/logs/server-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>$KOGNITERM_DIR/logs/server-launchd.err</string>
+</dict>
+</plist>
+EOF
+    echo -e "  ${GREEN}✔${RESET} LaunchAgent creado en: ${BOLD}$LAUNCHD_PLIST_PATH${RESET}"
+
+    free_server_port
+    launchctl unload "$LAUNCHD_PLIST_PATH" &>/dev/null
+    if launchctl load -w "$LAUNCHD_PLIST_PATH" &>/dev/null; then
+        echo -e "  ${GREEN}✔${RESET} Servicio cargado y arrancado."
+    else
+        echo -e "  ${YELLOW}⚠ No se pudo cargar el LaunchAgent.${RESET}"
+        echo -e "  ${DIM}Revisa: launchctl list | grep kogniterm${RESET}"
+        echo -e "  ${DIM}Puedes arrancar el backend manualmente con: kogniterm-server${RESET}"
+        return 1
+    fi
+}
+
+service_install() {
+    local mgr
+    mgr="$(detect_service_manager)"
+    case "$mgr" in
+        systemd) service_install_systemd ;;
+        launchd) service_install_launchd ;;
+        *)
+            echo -e "  ${YELLOW}⚠ No se detectó systemd ni launchd en este sistema.${RESET}"
+            echo -e "  Arranca el servidor manualmente cuando lo necesites: ${CYAN}kogniterm-server${RESET}"
+            return 1
+            ;;
+    esac
+}
+
+service_uninstall() {
+    local mgr
+    mgr="$(detect_service_manager)"
+    case "$mgr" in
+        systemd)
+            systemctl --user disable --now "$SERVICE_NAME" &>/dev/null
+            rm -f "$SYSTEMD_UNIT_PATH"
+            systemctl --user daemon-reload &>/dev/null
+            systemctl --user reset-failed "$SERVICE_NAME" &>/dev/null
+            echo -e "  ${GREEN}✔${RESET} Servicio eliminado."
+            ;;
+        launchd)
+            launchctl unload -w "$LAUNCHD_PLIST_PATH" &>/dev/null
+            rm -f "$LAUNCHD_PLIST_PATH"
+            echo -e "  ${GREEN}✔${RESET} LaunchAgent eliminado."
+            ;;
+        *)
+            echo -e "  ${YELLOW}⚠ No hay servicio registrado en este sistema.${RESET}"
+            ;;
+    esac
+}
+
+service_status() {
+    local mgr
+    mgr="$(detect_service_manager)"
+    case "$mgr" in
+        systemd)
+            if systemctl --user is-enabled "$SERVICE_NAME" &>/dev/null; then
+                echo -e "  Servicio: ${GREEN}habilitado${RESET} (arranque automático)"
+            else
+                echo -e "  Servicio: ${YELLOW}no registrado${RESET}"
+            fi
+            systemctl --user is-active --quiet "$SERVICE_NAME" \
+                && echo -e "  Estado:    ${GREEN}activo${RESET}" \
+                || echo -e "  Estado:    ${YELLOW}detenido${RESET}"
+            ;;
+        launchd)
+            if [ -f "$LAUNCHD_PLIST_PATH" ]; then
+                echo -e "  Servicio: ${GREEN}registrado${RESET} (arranque automático)"
+            else
+                echo -e "  Servicio: ${YELLOW}no registrado${RESET}"
+            fi
+            launchctl list | grep -q "com.kogniterm.server" \
+                && echo -e "  Estado:    ${GREEN}activo${RESET}" \
+                || echo -e "  Estado:    ${YELLOW}detenido${RESET}"
+            ;;
+        *)
+            echo -e "  Servicio: ${YELLOW}no disponible en este sistema${RESET}"
+            ;;
+    esac
+
+    if server_is_up; then
+        echo -e "  Backend:   ${GREEN}respondiendo${RESET} en http://$SERVER_HOST:$SERVER_PORT"
+    else
+        echo -e "  Backend:   ${YELLOW}sin respuesta${RESET} en http://$SERVER_HOST:$SERVER_PORT"
+    fi
+    echo -e "  Logs:      ${DIM}$REPO_DIR/.kogniterm/logs/server.log${RESET}"
+}
+
+# Asistente interactivo de inicio automático
+configure_autostart() {
+    echo -e "\n${BOLD}${BLUE}--- Inicio automático de KogniTerm Server ---${RESET}"
+    local mgr
+    mgr="$(detect_service_manager)"
+
+    case "$mgr" in
+        systemd) echo "  Se detectó systemd (servicio a nivel de usuario)." ;;
+        launchd) echo "  Se detectó launchd (macOS)." ;;
+        *)
+            echo -e "  ${YELLOW}⚠ No se detectó un gestor de servicios en este sistema.${RESET}"
+            echo -e "  Puedes arrancar el backend manualmente con: ${CYAN}kogniterm-server${RESET}"
+            echo -e "  ${DIM}KogniTerm Desktop lo levantará igual en segundo plano cuando lo abras.${RESET}"
+            return 0
+            ;;
+    esac
+
+    echo "  El backend lo comparten la TUI, la Web y KogniTerm Desktop."
+    echo "  Como servicio, arrancará solo y quedará disponible para todos los clientes."
+    read -p "  ¿Deseas registrarlo para que inicie automáticamente? (Y/n): " auto_opt
+    auto_opt="${auto_opt:-y}"
+
+    if [[ "$auto_opt" =~ ^[Yy]$ ]]; then
+        if service_install; then
+            echo -e "  ${GREEN}✔${RESET} KogniTerm Server queda como servicio del sistema."
+            echo -e "  ${DIM}Para desinstalarlo más tarde: bash install.sh → opción 5.${RESET}"
+        fi
+    else
+        echo -e "  ${DIM}Omitido.${RESET} KogniTerm Desktop lo arrancará en segundo plano si lo necesita."
+    fi
+}
+
 # Instalación limpia desde cero
 install_from_scratch() {
     check_python
@@ -364,6 +620,8 @@ install_from_scratch() {
         configure_telegram
     fi
 
+    configure_autostart
+
     echo -e "\n${BOLD}${GREEN}========================================================================${RESET}"
     echo -e "${BOLD}${GREEN}       🎉 ¡KogniTerm ha sido instalado y configurado con éxito!${RESET}"
     echo -e "${BOLD}${GREEN}========================================================================${RESET}"
@@ -380,9 +638,10 @@ if [ -d "$VENV_DIR" ] && { [ -d "$REPO_DIR/.git" ] || [ -f "$REPO_DIR/pyproject.
     echo -e "  ${BOLD}2)${RESET} Configurar/Cambiar proveedor LLM y API Keys"
     echo -e "  ${BOLD}3)${RESET} Configurar/Activar Bot de Telegram"
     echo -e "  ${BOLD}4)${RESET} Reinstalar KogniTerm por completo (Instalación limpia)"
-    echo -e "  ${BOLD}5)${RESET} Salir"
+    echo -e "  ${BOLD}5)${RESET} Gestionar inicio automático de KogniTerm Server (servicio)"
+    echo -e "  ${BOLD}6)${RESET} Salir"
     echo ""
-    read -p "Selecciona una opción (1-5): " menu_opt
+    read -p "Selecciona una opción (1-6): " menu_opt
 
     case "$menu_opt" in
         1)
@@ -404,6 +663,22 @@ if [ -d "$VENV_DIR" ] && { [ -d "$REPO_DIR/.git" ] || [ -f "$REPO_DIR/pyproject.
             fi
             ;;
         5)
+            echo -e "\n${BOLD}${BLUE}--- Gestión del servicio KogniTerm Server ---${RESET}"
+            service_status
+            echo ""
+            read -p "¿Registrar/actualizar el servicio de inicio automático? (y/N): " svc_opt
+            if [[ "$svc_opt" =~ ^[Yy]$ ]]; then
+                configure_autostart
+            else
+                read -p "¿Eliminar el servicio si estuviera registrado? (y/N): " rm_opt
+                if [[ "$rm_opt" =~ ^[Yy]$ ]]; then
+                    service_uninstall
+                else
+                    echo -e "  ${DIM}Sin cambios.${RESET}"
+                fi
+            fi
+            ;;
+        6)
             echo -e "¡Hasta luego!"
             exit 0
             ;;
