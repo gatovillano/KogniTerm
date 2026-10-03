@@ -255,7 +255,7 @@ async function createWindow() {
   win = new BrowserWindow({
     width: 1280,
     height: 860,
-    backgroundColor: "#0d1117",
+    backgroundColor: "#080b11",
     title: "KogniTerm v3",
     webPreferences: {
       // Preload en CJS: el contexto sandboxed de Electron no admite ESM.

@@ -31,7 +31,7 @@ function readCollapsed(): Record<string, boolean> {
   }
 }
 
-/** Vista de conversaciones: lista centrada, agrupada por workspace/proyecto. */
+/** Vista de conversaciones: lista centrada minimalista, agrupada por workspace/proyecto. */
 export function ConversationsView(props: { onOpenChat: () => void }) {
   const [workspaces, setWorkspaces] = createSignal<Workspace[]>([]);
   const [threads, setThreads] = createSignal<ThreadInfo[]>([]);
@@ -43,8 +43,6 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   async function refresh() {
     setLoading(true);
     try {
-      // Los hilos se piden sin filtro: el backend ya incluye los workspaces de
-      // las sesiones activas.
       const [ws, th] = await Promise.all([api.listWorkspaces(), api.listThreads()]);
       setWorkspaces(ws.workspaces ?? []);
       setThreads(th.threads ?? []);
@@ -57,7 +55,6 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   }
   onMount(refresh);
 
-  /** Agrupa por workspace_dir, incluyendo los que aún no están registrados. */
   const groups = createMemo(() => {
     const filter = q().trim().toLowerCase();
     const byDir = new Map<string, ThreadInfo[]>();
@@ -68,7 +65,6 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
       if (arr) arr.push(t);
       else byDir.set(dir, [t]);
     }
-    // Orden: workspaces registrados primero y por nombre; luego el resto.
     const known = new Map(workspaces().map((w) => [w.path, w.name]));
     return [...byDir.entries()]
       .map(([dir, items]) => ({
@@ -84,9 +80,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
 
   const totalShown = createMemo(() => groups().reduce((n, g) => n + g.items.length, 0));
 
-  /** Render por grupos acotado: hay workspaces con cientos de conversaciones. */
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
-  /** Workspaces plegados (persistido para no perder el estado al recargar). */
   const [collapsed, setCollapsed] = createSignal<Record<string, boolean>>(readCollapsed());
   const PAGE = 15;
   const visibleItems = (g: { dir: string; items: ThreadInfo[] }) =>
@@ -104,7 +98,6 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
 
   function open(t: ThreadInfo) {
     tabs.openThread(t.id, t.title || "Conversación");
-    // Cargar el historial antes de saltar al chat evita ver la pestaña vacía.
     void loadThreadHistory(t.id);
     props.onOpenChat();
   }
@@ -136,59 +129,70 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   }
 
   return (
-    <div class="h-full overflow-y-auto bg-[#0d1117]">
-      {/* mx-auto centra la columna; el contenedor padre es un block a ancho completo */}
-      <div class="mx-auto w-full max-w-3xl px-5 py-8 text-left">
-        <div class="flex items-center gap-3 mb-1">
-          <h1 class="text-[17px] font-semibold text-white">Conversaciones</h1>
-          <span class="text-[12px] text-[#6e7681]">{totalShown()} en {groups().length} workspace(s)</span>
+    <div class="h-full overflow-y-auto bg-[#080b11] select-none">
+      <div class="mx-auto w-full max-w-3xl px-6 py-10 text-left">
+        <div class="flex items-center gap-3 mb-1.5">
+          <h1 class="text-[20px] font-semibold text-white tracking-tight">Conversaciones</h1>
+          <span class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.06] text-slate-400">
+            {totalShown()} en {groups().length} workspace(s)
+          </span>
           <div class="flex-1" />
-          <button onClick={refresh} class="text-[12px] text-[#8b949e] hover:text-white px-2" title="Recargar">
+          <button
+            onClick={refresh}
+            class="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all"
+            title="Recargar"
+          >
             ↻
           </button>
         </div>
-        <p class="text-[12px] text-[#6e7681] mb-5">
-          Las conversaciones persistidas por el backend KogniTerm, agrupadas por proyecto.
+        <p class="text-[13px] text-slate-400 mb-6">
+          Historial de sesiones persistidas en el backend de KogniTerm, organizadas por proyecto.
         </p>
 
-        <input
-          value={q()}
-          onInput={(e) => setQ(e.currentTarget.value)}
-          placeholder="Filtrar por título o ruta…"
-          class="w-full bg-[#161b22] border border-[#30363d] rounded-md px-3 py-2 text-[13px] text-white placeholder-[#6e7681] outline-none focus:border-[#1f6feb] mb-6"
-        />
+        {/* Barra de búsqueda curvada */}
+        <div class="relative mb-8">
+          <input
+            value={q()}
+            onInput={(e) => setQ(e.currentTarget.value)}
+            placeholder="Filtrar por título o directorio…"
+            class="w-full bg-[#111624] hover:bg-[#131929] focus:bg-[#131929] focus:ring-2 focus:ring-blue-500/30 rounded-full px-5 py-2.5 text-[13.5px] text-white placeholder-slate-500 outline-none transition-all shadow-[0_4px_20px_rgba(0,0,0,0.3)]"
+          />
+        </div>
 
         <Show when={err()}>
-          <p class="mb-4 text-[12px] text-red-300">{err()}</p>
+          <p class="mb-4 text-[12px] text-red-300 px-2">{err()}</p>
         </Show>
         <Show when={loading()}>
-          <p class="text-[13px] text-[#8b949e] py-6 text-center">Cargando conversaciones…</p>
+          <p class="text-[13px] text-slate-400 py-12 text-center animate-pulse">Cargando conversaciones…</p>
         </Show>
 
         <Show when={!loading() && groups().length === 0}>
-          <p class="text-[13px] text-[#8b949e] py-6 text-center">
-            No hay conversaciones guardadas todavía.
-          </p>
+          <div class="text-center py-16 text-slate-500">
+            <span class="text-3xl block mb-2 opacity-50">📂</span>
+            <p class="text-[14px]">No hay conversaciones guardadas todavía.</p>
+          </div>
         </Show>
 
-        <div class="space-y-2">
+        <div class="space-y-3">
           <For each={groups()}>
             {(g) => {
               const isCollapsed = () => !!collapsed()[g.dir];
               return (
-                <section class="rounded-lg border border-[#21262d] overflow-hidden">
-                  {/* Cabecera plegable */}
+                <section class="rounded-2xl bg-[#0f1422]/70 hover:bg-[#0f1422]/90 transition-all duration-200 overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.25)]">
+                  {/* Cabecera del grupo */}
                   <header
-                    class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none hover:bg-[#161b22] transition-colors"
+                    class="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none hover:bg-white/[0.03] transition-colors"
                     onClick={() => toggleCollapse(g.dir)}
                     title={isCollapsed() ? "Desplegar" : "Replegar"}
                   >
-                    <span class="text-[11px] text-[#6e7681] w-3 shrink-0">{isCollapsed() ? "▸" : "▾"}</span>
-                    <h2 class="text-[13px] font-semibold text-[#e6edf3] shrink-0">{g.name}</h2>
-                    <span class="text-[11px] text-[#6e7681] font-mono truncate" title={g.dir}>
+                    <span class="text-[11px] text-slate-400 w-3 shrink-0 transition-transform duration-200">
+                      {isCollapsed() ? "▸" : "▾"}
+                    </span>
+                    <h2 class="text-[13.5px] font-semibold text-white shrink-0">{g.name}</h2>
+                    <span class="text-[11.5px] text-slate-400 font-mono truncate" title={g.dir}>
                       {shortPath(g.dir)}
                     </span>
-                    <span class="text-[11px] text-[#6e7681] shrink-0 tabular-nums">· {g.items.length}</span>
+                    <span class="text-[11px] font-mono text-slate-500 shrink-0">· {g.items.length}</span>
                     <div class="flex-1" />
                     <button
                       onClick={(e) => {
@@ -196,7 +200,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                         void newThread(g.dir);
                       }}
                       disabled={busy() !== null}
-                      class="text-[11px] px-2 py-0.5 rounded border border-[#30363d] text-[#8b949e] hover:text-white hover:border-[#8b949e] disabled:opacity-50 shrink-0"
+                      class="text-[11.5px] px-3 py-1 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-slate-200 hover:text-white transition-all active:scale-95 disabled:opacity-50 shrink-0 font-medium"
                       title="Nueva conversación en este workspace"
                     >
                       ＋ nueva
@@ -204,36 +208,40 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                   </header>
 
                   <Show when={!isCollapsed()}>
-                    <div class="space-y-1.5 px-3 pb-3">
+                    <div class="space-y-1 px-3 pb-3 pt-1">
                       <For each={visibleItems(g)}>
                         {(t) => (
                           <div
-                            class={`group flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer transition-colors ${
+                            class={`group flex items-center gap-3 rounded-xl px-3.5 py-2.5 cursor-pointer transition-all duration-150 ${
                               tabs.isOpen(t.id)
-                                ? "border-[#1f6feb]/60 bg-[#161b22]"
-                                : "border-[#21262d] hover:border-[#30363d] hover:bg-[#161b22]"
+                                ? "bg-blue-600/15 text-white shadow-sm"
+                                : "hover:bg-white/[0.05] text-slate-300"
                             }`}
                             onClick={() => open(t)}
                           >
-                            <span class="text-[#6e7681] text-[12px] w-16 shrink-0 tabular-nums">
+                            <span class="text-slate-400 text-[11.5px] w-16 shrink-0 tabular-nums font-mono">
                               {relTime(t.updated_at ?? t.created_at)}
                             </span>
-                            <span class="text-[13px] text-[#e6edf3] truncate flex-1">{t.title || t.id}</span>
+                            <span class="text-[13px] text-slate-200 group-hover:text-white font-medium truncate flex-1">
+                              {t.title || t.id}
+                            </span>
                             <Show when={tabs.isOpen(t.id)}>
-                              <span class="text-[10px] px-1.5 py-0.5 rounded bg-[#1f6feb]/20 text-[#79c0ff] shrink-0">
+                              <span class="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/25 text-blue-300 font-medium shrink-0">
                                 abierta
                               </span>
                             </Show>
-                            <span class="text-[11px] text-[#6e7681] tabular-nums shrink-0">{t.message_count ?? 0}</span>
+                            <span class="text-[11px] text-slate-400 font-mono tabular-nums shrink-0">
+                              {t.message_count ?? 0}
+                            </span>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 void remove(t);
                               }}
-                              class="opacity-0 group-hover:opacity-100 text-[#8b949e] hover:text-red-300 px-1 shrink-0"
+                              class="w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[12px]"
                               title="Eliminar conversación"
                             >
-                              🗑
+                              ✕
                             </button>
                           </div>
                         )}
@@ -241,9 +249,9 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                       <Show when={g.items.length > PAGE}>
                         <button
                           onClick={() => setExpanded((e) => ({ ...e, [g.dir]: !e[g.dir] }))}
-                          class="w-full text-left px-3 py-1.5 rounded-md text-[12px] text-[#8b949e] hover:text-white hover:bg-[#161b22]"
+                          class="w-full text-center py-2 rounded-xl text-[12px] text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all mt-1"
                         >
-                          {expanded()[g.dir] ? "− ver menos" : `ver ${g.items.length - PAGE} más…`}
+                          {expanded()[g.dir] ? "− Ver menos" : `Ver ${g.items.length - PAGE} más…`}
                         </button>
                       </Show>
                     </div>
@@ -255,12 +263,14 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
         </div>
 
         <Show when={!loading() && workspaces().length > 0}>
-          <section class="mt-8 pt-5 border-t border-[#21262d]">
-            <h2 class="text-[12px] font-semibold text-[#8b949e] mb-2">Workspaces registrados</h2>
+          <section class="mt-10 pt-6">
+            <h2 class="text-[12px] font-semibold text-slate-400 uppercase tracking-wider mb-3">
+              Workspaces registrados
+            </h2>
             <div class="flex flex-wrap gap-2">
               <For each={workspaces()}>
                 {(w) => (
-                  <span class="text-[11px] font-mono px-2 py-1 rounded bg-[#161b22] border border-[#21262d] text-[#8b949e]">
+                  <span class="text-[11.5px] font-mono px-3 py-1 rounded-full bg-white/[0.04] text-slate-400">
                     {w.name}
                   </span>
                 )}

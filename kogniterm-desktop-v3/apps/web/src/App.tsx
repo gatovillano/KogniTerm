@@ -93,56 +93,82 @@ export function App() {
   }
 
   return (
-    <div class="h-screen w-screen flex flex-col bg-[#0d1117] text-[#e6edf3]">
-      {/* Topbar: estética v2 + estado LLM nativo */}
-      <div class="flex items-center gap-2 px-3 py-2 bg-[#010409] border-b border-[#21262d]">
-        <span class="text-[15px]">◈</span>
-        <span class="text-[13px] font-semibold">KogniTerm</span>
-        <span class="text-[11px] px-1.5 py-0.5 rounded bg-[#238636] text-white font-mono">v3 nativa</span>
-        <div class="flex-1" />
-        <Show when={llm()} fallback={<span class="text-[12px] text-red-300">{llmErr() || "…"}</span>}>
-          <span class="text-[12px] text-[#8b949e] font-mono hidden md:inline">
-            {llm()!.provider} · {llm()!.model} {llm()!.has_key ? "· key ✓" : "· sin key"}
+    <div class="h-screen w-screen flex flex-col bg-[#080b11] text-[#f1f5f9] select-none">
+      {/* Topbar: minimalista, sin bordes toscos, glassmorphic y botones curvos */}
+      <header class="glass-header z-30 flex items-center gap-3 px-4 py-2.5 transition-all">
+        <div class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-500 text-white shadow-[0_0_12px_rgba(99,102,241,0.4)] text-[13px]">
+            ◈
           </span>
-        </Show>
-        <PendingBadge tabId={tabs.store.activeId} />
-        <button
-          class={`text-[12px] px-2.5 py-1 rounded-md border font-medium ${
-            approvals.state.autoApprove[tabs.store.activeId]
-              ? "bg-amber-500/20 border-amber-500/60 text-amber-200"
-              : "bg-[#161b22] border-[#30363d] text-[#8b949e] hover:text-white"
-          }`}
-          title={
-            approvals.state.autoApprove[tabs.store.activeId]
-              ? "Auto-aprobación ACTIVA en esta pestaña: comandos y ediciones se ejecutan sin preguntar. Click para desactivar."
-              : "Activar auto-aprobación en esta pestaña (como Shift+Tab de la TUI): no pedirá confirmación."
-          }
-          onClick={() => approvals.setAuto(tabs.store.activeId, !approvals.state.autoApprove[tabs.store.activeId])}
-        >
-          {approvals.state.autoApprove[tabs.store.activeId] ? "⚡ auto ON" : "⚡ auto"}
-        </button>
-        <button
-          class={`text-[12px] px-2.5 py-1 rounded-md border font-medium ${
-            termOpen()
-              ? "bg-[#1f6feb]/20 border-[#1f6feb]/60 text-[#79c0ff]"
-              : "bg-[#161b22] border-[#30363d] text-[#8b949e] hover:text-white"
-          }`}
-          title="Mostrar/ocultar la terminal integrada (Ctrl+`)"
-          onClick={toggleTerm}
-        >
-          ▸ terminal
-        </button>
-        <button
-          class="text-[12px] px-2.5 py-1 rounded-md bg-[#238636] hover:bg-[#2ea043] text-white font-medium"
-          onClick={() => setModal({ view: "settings", tab: "provider" })}
-          title="Ajustes de proveedor, modelo, keys, conexión y MCP (Ctrl+,)"
-        >
-          ⚙ Ajustes
-        </button>
-        <button class="text-[12px] px-2 py-1 text-[#8b949e] hover:text-white" onClick={refreshLLM} title="Recargar config LLM">
-          ↻
-        </button>
-      </div>
+          <span class="text-[14px] font-semibold tracking-tight text-white">KogniTerm</span>
+          <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-semibold tracking-wider">
+            v3
+          </span>
+        </div>
+
+        <div class="flex-1 flex items-center justify-center">
+          <Show when={llm()} fallback={<span class="text-[12px] text-red-300 font-medium">{llmErr() || "…"}</span>}>
+            <div class="hidden md:flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/[0.04] text-[12px] text-slate-400 font-mono">
+              <span class="w-1.5 h-1.5 rounded-full bg-blue-400 pulse-beacon" />
+              <span>{llm()!.provider}</span>
+              <span class="text-slate-600">/</span>
+              <span class="text-slate-200">{llm()!.model}</span>
+              <span class="text-slate-600">·</span>
+              <span class={llm()!.has_key ? "text-emerald-400" : "text-amber-400/80"}>
+                {llm()!.has_key ? "key ✓" : "sin key"}
+              </span>
+            </div>
+          </Show>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <PendingBadge tabId={tabs.store.activeId} />
+          
+          <button
+            class={`text-[12px] px-3 py-1 rounded-full font-medium transition-all duration-200 active:scale-95 ${
+              approvals.state.autoApprove[tabs.store.activeId]
+                ? "bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+                : "bg-white/[0.05] text-slate-400 hover:text-white hover:bg-white/[0.09]"
+            }`}
+            title={
+              approvals.state.autoApprove[tabs.store.activeId]
+                ? "Auto-aprobación ACTIVA en esta pestaña: comandos y ediciones se ejecutan sin preguntar. Click para desactivar."
+                : "Activar auto-aprobación en esta pestaña (como Shift+Tab de la TUI): no pedirá confirmación."
+            }
+            onClick={() => approvals.setAuto(tabs.store.activeId, !approvals.state.autoApprove[tabs.store.activeId])}
+          >
+            {approvals.state.autoApprove[tabs.store.activeId] ? "⚡ auto ON" : "⚡ auto"}
+          </button>
+
+          <button
+            class={`text-[12px] px-3 py-1 rounded-full font-medium transition-all duration-200 active:scale-95 flex items-center gap-1.5 ${
+              termOpen()
+                ? "bg-blue-500/20 text-blue-300 shadow-[0_0_12px_rgba(59,130,246,0.25)]"
+                : "bg-white/[0.05] text-slate-400 hover:text-white hover:bg-white/[0.09]"
+            }`}
+            title="Mostrar/ocultar la terminal integrada (Ctrl+`)"
+            onClick={toggleTerm}
+          >
+            <span class="text-[10px]">▸</span> terminal
+          </button>
+
+          <button
+            class="text-[12px] px-3.5 py-1 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium shadow-[0_0_15px_rgba(99,102,241,0.3)] transition-all duration-200 active:scale-95 flex items-center gap-1.5"
+            onClick={() => setModal({ view: "settings", tab: "provider" })}
+            title="Ajustes de proveedor, modelo, keys, conexión y MCP (Ctrl+,)"
+          >
+            <span>⚙</span> Ajustes
+          </button>
+
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all duration-300 active:rotate-180 text-[13px]"
+            onClick={refreshLLM}
+            title="Recargar config LLM"
+          >
+            ↻
+          </button>
+        </div>
+      </header>
 
       <TabBar view={view()} onToggleView={() => setViewPersist(view() === "chat" ? "conversations" : "chat")} onShowChat={() => setViewPersist("chat")} />
 
@@ -150,8 +176,8 @@ export function App() {
         when={view() === "chat"}
         fallback={<ConversationsView onOpenChat={() => setViewPersist("chat")} />}
       >
-        <div class="flex-1 min-h-0 flex">
-          <div class="flex-1 min-w-0">
+        <div class="flex-1 min-h-0 flex relative overflow-hidden">
+          <div class="flex-1 min-w-0 h-full">
             {/* keyed: al cambiar de pestaña se remonta ChatView para que cada
                 una tenga su propio WebSocket y su historial. */}
             <Show when={tabs.store.activeId} keyed>
@@ -160,11 +186,13 @@ export function App() {
           </div>
           <Show when={termOpen()}>
             <div
-              class="w-1 cursor-col-resize flex-none bg-transparent hover:bg-[#1f6feb]/60 transition-colors"
+              class="w-1.5 cursor-col-resize flex-none bg-transparent hover:bg-blue-500/50 transition-all duration-200 z-10 relative flex items-center justify-center group"
               onPointerDown={startResize}
               title="Arrastra para redimensionar la terminal"
-            />
-            <div class="flex-none" style={{ width: `${termW() ?? 46}%` }}>
+            >
+              <div class="w-0.5 h-8 rounded-full bg-white/10 group-hover:bg-blue-400 group-hover:h-12 transition-all duration-200" />
+            </div>
+            <div class="flex-none h-full" style={{ width: `${termW() ?? 46}%` }}>
               <TerminalPanel tabId={tabs.store.activeId} />
             </div>
           </Show>

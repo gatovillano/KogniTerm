@@ -8,8 +8,7 @@ interface AgentSelectorProps {
 
 /**
  * Selector de agentes nativos en el input del chat.
- * Solo muestra motores conversacionales publicados por `GET /api/agents`, por
- * lo que el botón visible y el motor enviado al backend usan el mismo ID.
+ * Diseño minimalista con botón curvo, popover de cristal y animaciones fluidas.
  */
 export function AgentSelector(props: AgentSelectorProps) {
   const agentState = useAgents(props.tabId);
@@ -60,17 +59,15 @@ export function AgentSelector(props: AgentSelectorProps) {
         disabled={!agentState.selected()}
         onClick={() => (open() ? close() : setOpen(true))}
         title={buttonTitle()}
-        class={`flex h-[38px] max-w-[190px] items-center gap-2 rounded-md border px-2.5 text-[13px] transition-colors ${
+        class={`flex h-[36px] max-w-[200px] items-center gap-2 rounded-xl px-3 text-[12.5px] font-medium transition-all duration-200 active:scale-95 ${
           agentState.selected()
-            ? "border-[#30363d] bg-[#161b22] text-white hover:border-[#1f6feb]"
-            : "cursor-not-allowed border-[#21262d] bg-[#0d1117] text-[#6e7681]"
+            ? "bg-white/[0.06] hover:bg-white/[0.1] text-white"
+            : "cursor-not-allowed bg-white/[0.02] text-slate-500"
         }`}
       >
-        <span aria-hidden="true" class="text-[15px] leading-none text-[#58a6ff]">
-          ◍
-        </span>
-        <span class="truncate font-medium">{buttonLabel()}</span>
-        <span aria-hidden="true" class="text-[11px] text-[#6e7681]">
+        <span aria-hidden="true" class="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]" />
+        <span class="truncate">{buttonLabel()}</span>
+        <span aria-hidden="true" class="text-[10px] text-slate-400">
           ▾
         </span>
       </button>
@@ -81,10 +78,10 @@ export function AgentSelector(props: AgentSelectorProps) {
           aria-hidden="true"
           tabIndex={-1}
           onClick={close}
-          class="fixed inset-0 z-10 cursor-default bg-transparent"
+          class="fixed inset-0 z-40 cursor-default bg-transparent"
         />
-        <div class="absolute bottom-full left-0 z-20 mb-2 w-80 max-w-[86vw] overflow-hidden rounded-lg border border-[#30363d] bg-[#0d1117] shadow-xl">
-          <div class="border-b border-[#21262d] p-2">
+        <div class="absolute bottom-full left-0 z-50 mb-3 w-80 max-w-[86vw] overflow-hidden rounded-2xl glass-dropdown p-2 animate-scale-in">
+          <div class="p-1 mb-1">
             <input
               value={query()}
               onInput={(event) => setQuery(event.currentTarget.value)}
@@ -92,28 +89,31 @@ export function AgentSelector(props: AgentSelectorProps) {
                 if (event.key === "Escape") close();
               }}
               placeholder="Buscar agente…"
-              class="w-full rounded-md border border-[#30363d] bg-[#161b22] px-2.5 py-1.5 text-[13px] text-white outline-none placeholder:text-[#6e7681] focus:border-[#1f6feb]"
+              class="w-full rounded-full bg-white/[0.06] px-3.5 py-1.5 text-[12.5px] text-white outline-none placeholder:text-slate-500 focus:bg-white/[0.09] transition-all"
             />
           </div>
-          <div class="max-h-64 overflow-y-auto p-1.5">
-            <For each={filtered()} fallback={<p class="px-2.5 py-3 text-[12px] text-[#8b949e]">Sin resultados.</p>}>
+          <div class="max-h-64 overflow-y-auto space-y-1 p-0.5">
+            <For each={filtered()} fallback={<p class="px-3 py-4 text-[12px] text-slate-400 text-center">Sin resultados.</p>}>
               {(agent) => {
                 const active = () => agentState.selected()?.id === agent.id;
                 return (
                   <button
                     type="button"
                     onClick={() => choose(agent.id)}
-                    class={`flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors ${
-                      active() ? "bg-[#1f6feb]/20" : "hover:bg-[#161b22]"
+                    class={`flex w-full items-start gap-2.5 rounded-xl px-3 py-2 text-left transition-all duration-150 active:scale-[0.98] ${
+                      active() ? "bg-blue-600/20 text-white" : "hover:bg-white/[0.06] text-slate-300"
                     }`}
                   >
-                    <span aria-hidden="true" class={`mt-0.5 text-[13px] ${active() ? "text-[#79c0ff]" : "text-[#6e7681]"}`}>
-                      {active() ? "●" : "○"}
-                    </span>
+                    <span
+                      aria-hidden="true"
+                      class={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${
+                        active() ? "bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]" : "bg-slate-600"
+                      }`}
+                    />
                     <span class="min-w-0 flex-1">
-                      <span class="block truncate text-[13px] font-medium text-white">{agent.name}</span>
-                      <span class="block text-[12px] leading-snug text-[#8b949e]">{agent.description}</span>
-                      <span class="mt-0.5 block font-mono text-[11px] text-[#6e7681]">{agent.engine}</span>
+                      <span class="block truncate text-[13px] font-semibold text-white">{agent.name}</span>
+                      <span class="block text-[12px] leading-snug text-slate-400 line-clamp-2 mt-0.5">{agent.description}</span>
+                      <span class="mt-1 block font-mono text-[10.5px] text-slate-400">{agent.engine}</span>
                     </span>
                   </button>
                 );

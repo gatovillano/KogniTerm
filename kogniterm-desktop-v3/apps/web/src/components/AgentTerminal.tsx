@@ -15,8 +15,7 @@ interface AgentTerminalProps {
 
 /**
  * Terminal inline vinculada a la ejecución worker del agente.
- * Muestra los snapshots acumulados de `terminal_output` con render ANSI real
- * y envía teclas al worker mediante `terminal_input`, sin tocar el PTY lateral.
+ * Diseño minimalista con tarjeta curvada, barra de título elegante y sin bordes toscos.
  */
 export function AgentTerminal(props: AgentTerminalProps) {
   let hostRef: HTMLDivElement | undefined;
@@ -34,7 +33,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
     if (!scroller) return;
     const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
     if (distanceFromBottom < 140) {
-      scroller.scrollTo({ top: scroller.scrollHeight });
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
     }
   }
 
@@ -62,10 +61,9 @@ export function AgentTerminal(props: AgentTerminalProps) {
     try {
       fit.fit();
       const dims = fit.proposeDimensions();
-      // La PTY del worker usa 80 columnas por defecto; no reducir por debajo.
       if (dims) term.resize(Math.max(80, dims.cols), 16);
     } catch {
-      /* El tamaño falló una vez; no debe romper la ejecución. */
+      /* Fallback si el cálculo de dimensiones falla temporalmente */
     }
   }
 
@@ -77,12 +75,12 @@ export function AgentTerminal(props: AgentTerminalProps) {
       cursorBlink: true,
       convertEol: true,
       fontSize: 12,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       theme: {
-        background: "#000000",
-        foreground: "#e6edf3",
-        cursor: "#58a6ff",
-        selectionBackground: "#264f78",
+        background: "#05070d",
+        foreground: "#f1f5f9",
+        cursor: "#60a5fa",
+        selectionBackground: "#2563eb44",
       },
     });
     fit = new FitAddon();
@@ -92,7 +90,6 @@ export function AgentTerminal(props: AgentTerminalProps) {
     term.onData((data) => {
       if (props.active) props.onInput(data);
     });
-    // El efecto siguiente aplica el snapshot inicial y los cambios posteriores.
 
     const observer = new ResizeObserver(() => fitTerminal());
     if (hostRef) observer.observe(hostRef);
@@ -121,52 +118,59 @@ export function AgentTerminal(props: AgentTerminalProps) {
       wasInteractive = true;
       try {
         term?.focus();
-      } catch {
-        /* El foco es una mejora; no debe fallar la terminal. */
-      }
+      } catch {}
     } else if (!interactive) {
       wasInteractive = false;
     }
   });
 
   return (
-    <div class="w-full overflow-hidden rounded-lg border border-[#30363d] bg-black">
-      <div class="flex items-center gap-2 border-b border-[#21262d] bg-[#0d1117] px-3 py-1.5 text-[12px]">
-        <span
-          class={`h-1.5 w-1.5 rounded-full ${
-            props.active ? "bg-emerald-400" : "bg-[#6e7681]"
-          }`}
-        />
-        <span class="font-mono text-[#8b949e]">terminal del agente</span>
-        <span class="truncate font-mono text-[#e6edf3]" title={displayCommand()}>
+    <div class="w-full overflow-hidden rounded-2xl bg-[#05070d] shadow-[0_8px_32px_rgba(0,0,0,0.55)] transition-all">
+      {/* Cabecera estilizada con dots y comandos */}
+      <div class="flex items-center gap-2.5 bg-[#0b0f19] px-4 py-2 text-[12px] select-none">
+        <div class="flex items-center gap-1.5 mr-1">
+          <span class="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+        </div>
+        
+        <span class="text-[11px] font-mono text-slate-400">terminal</span>
+        <span class="truncate font-mono text-slate-200 text-[11.5px] max-w-sm" title={displayCommand()}>
           $ {displayCommand()}
         </span>
+
         <div class="flex-1" />
+
         <Show when={props.active && props.interactive}>
-          <span class="rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] text-amber-200">
+          <span class="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10.5px] font-medium text-amber-200 animate-pulse">
             interactiva: escribe aquí
           </span>
         </Show>
         <Show when={props.active && !props.interactive}>
-          <span class="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[11px] text-emerald-200">
+          <span class="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[10.5px] font-medium text-emerald-300">
             ejecutando
           </span>
         </Show>
         <Show when={!props.active}>
-          <span class="text-[11px] text-[#6e7681]">finalizada</span>
+          <span class="rounded-full bg-white/[0.05] px-2.5 py-0.5 text-[10.5px] text-slate-400">
+            finalizada
+          </span>
         </Show>
       </div>
-      <div ref={hostRef} class="h-56 w-full" />
-      <div class="flex items-center gap-2 border-t border-[#21262d] bg-[#0d1117] px-3 py-1 text-[11px] text-[#6e7681]">
+
+      <div ref={hostRef} class="h-56 w-full px-2 py-1" />
+
+      {/* Pie de terminal */}
+      <div class="flex items-center gap-2 bg-[#0b0f19] px-4 py-1.5 text-[11px] text-slate-400 select-none">
         <Show
           when={props.active}
-          fallback={<span>Salida completa de la ejecución del agente vinculada a este comando.</span>}
+          fallback={<span>Salida de ejecución vinculada al proceso del agente.</span>}
         >
-          <span>Las teclas van a la ejecución actual: contraseñas, confirmaciones, flechas y Ctrl+C.</span>
+          <span>Envío interactivo activo: flechas, contraseñas y Ctrl+C.</span>
           <div class="flex-1" />
           <button
-            class="rounded border border-[#30363d] px-2 py-0.5 text-[#8b949e] hover:text-white"
-            title="Enviar Ctrl+C a la ejecución actual"
+            class="rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-2.5 py-0.5 text-[11px] font-mono text-slate-200 hover:text-white transition-all active:scale-95"
+            title="Enviar señal Ctrl+C (interrumpir)"
             onClick={() => props.onInput("\x03")}
           >
             Ctrl+C

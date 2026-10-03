@@ -16,7 +16,7 @@ interface TermHandle {
 
 const handles = new Map<string, TermHandle>();
 
-/** Sidebar derecho: shell interactivo real por pestaña (passwords, flechas, Ctrl+C todo nativo). */
+/** Sidebar derecho: shell interactivo real por pestaña con diseño moderno y sin bordes. */
 export function TerminalPanel(props: { tabId: string }) {
   let hostRef: HTMLDivElement | undefined;
   const [status, setStatus] = createSignal("conectando…");
@@ -26,7 +26,6 @@ export function TerminalPanel(props: { tabId: string }) {
   function connect(handle: TermHandle) {
     const id = handle.ptyId;
     try {
-      // `directory` solo aplica al auto-crear el PTY (si ya existe, reengancha el mismo shell)
       const ws = new WebSocket(ptyWsUrl(id, handle.cwd));
       handle.ws = ws;
       setStatus("conectando…");
@@ -53,14 +52,14 @@ export function TerminalPanel(props: { tabId: string }) {
     if (!handle) {
       const term = new Terminal({
         fontSize: 12.5,
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
         cursorBlink: true,
         scrollback: 5000,
         theme: {
-          background: "#0d1117",
-          foreground: "#e6edf3",
-          cursor: "#58a6ff",
-          selectionBackground: "#264f78",
+          background: "#080b11",
+          foreground: "#f1f5f9",
+          cursor: "#60a5fa",
+          selectionBackground: "#2563eb44",
         },
       });
       const fit = new FitAddon();
@@ -74,7 +73,6 @@ export function TerminalPanel(props: { tabId: string }) {
     }
     const h = handle;
 
-    // resolver workspace de la sesión antes del primer connect
     void api
       .workspaceStatus(props.tabId)
       .then((s) => {
@@ -129,28 +127,55 @@ export function TerminalPanel(props: { tabId: string }) {
   }
 
   return (
-    <div class="flex flex-col h-full bg-[#0d1117] border-l border-[#21262d]">
-      <div class="flex items-center gap-2 px-3 py-1.5 border-b border-[#21262d] text-[12px]">
-        <span class="text-[#8b949e] font-mono">terminal</span>
-        <span
-          class={`w-1.5 h-1.5 rounded-full ${status() === "conectado" ? "bg-emerald-400" : status() === "conectando…" ? "bg-amber-400" : "bg-red-400"}`}
-        />
-        <span class="text-[#6e7681] font-mono truncate" title={cwd() ?? ptyId()}>
+    <div class="flex flex-col h-full bg-[#080b11] select-none">
+      {/* Cabecera minimalista sin bordes */}
+      <div class="flex items-center gap-2.5 px-4 py-2 bg-white/[0.02] text-[12px]">
+        <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.04]">
+          <span
+            class={`w-2 h-2 rounded-full transition-all duration-300 ${
+              status() === "conectado"
+                ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]"
+                : status() === "conectando…"
+                  ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]"
+                  : "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.7)]"
+            }`}
+          />
+          <span class="text-slate-300 font-mono text-[11px]">pty</span>
+        </div>
+
+        <span class="text-slate-400 font-mono text-[11px] truncate max-w-[200px]" title={cwd() ?? ptyId()}>
           {cwd() ?? ptyId()}
         </span>
+
         <div class="flex-1" />
-        <button class="text-[#8b949e] hover:text-white px-1" onClick={reconnect} title="Reconectar al mismo shell">
+
+        <button
+          class="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all"
+          onClick={reconnect}
+          title="Reconectar al mismo shell"
+        >
           ↻
         </button>
-        <button class="text-[#8b949e] hover:text-red-300 px-1" onClick={restart} title="Matar shell y empezar uno nuevo">
+        <button
+          class="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-red-300 hover:bg-red-500/10 transition-all text-[11px]"
+          onClick={restart}
+          title="Matar shell y empezar uno nuevo"
+        >
           ✕
         </button>
       </div>
-      <div ref={hostRef} class="flex-1 min-h-0 px-1" />
+
+      <div ref={hostRef} class="flex-1 min-h-0 px-2 py-1" />
+
       <Show when={status() !== "conectado"}>
-        <button onClick={reconnect} class="m-2 px-3 py-1.5 rounded-md bg-[#21262d] hover:bg-[#30363d] text-[12px] text-white">
-          Reconectar terminal ({status()})
-        </button>
+        <div class="p-3 flex justify-center">
+          <button
+            onClick={reconnect}
+            class="px-4 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[12px] text-white font-medium transition-all active:scale-95 shadow-sm"
+          >
+            Reconectar terminal ({status()})
+          </button>
+        </div>
       </Show>
     </div>
   );
