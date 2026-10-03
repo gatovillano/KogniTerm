@@ -415,16 +415,16 @@ class ColorPalette:
 
     @classmethod
     def set_theme(cls, theme_name: str):
-        """Cambia el tema actual."""
-        # Soporte para detección automática del tema default
-        if theme_name == "default":
-            try:
-                scheme = detect_terminal_theme()
-                if scheme == "light":
-                    theme_name = "light"
-            except Exception:
-                # Si falla la detección, permanecemos en default (dark)
-                pass
+        """Cambia el tema actual.
+
+        Los valores ``"default"`` y ``"auto"`` (o vacío/None) son
+        automáticos: resuelven al tema del sistema — ``"light"`` si el
+        sistema está en modo claro y ``"default"`` (oscuro) en caso
+        contrario.
+        """
+        # Detección automática: "default" actúa como auto por compatibilidad
+        resolved = resolve_theme_name(theme_name)
+        theme_name = resolved
 
         if theme_name not in _THEMES:
             # Fallback seguro
@@ -824,37 +824,235 @@ def set_kogniterm_theme(theme_name: str):
     """
     ColorPalette.set_theme(theme_name)
 
-def detect_terminal_theme() -> str:
-    """
-    Detecta si la terminal está en modo claro u oscuro.
-    
-    Returns:
-        str: 'light' o 'dark'
-    """
+def _detect_via_env() -> str | None:
+    """Detecta por variables de entorno. Retorna 'light'/'dark' o None."""
     import os
-    import sys
-    import select
-    
-    # 1. Intentar por variables de entorno (rápido)
+
+    # Override explícito
+    override = os.environ.get("KOGNITERM_THEME", "").strip().lower()
+    if override in ("light", "claro", "clara"):
+        return "light"
+    if override in ("dark", "default", "oscuro", "oscura"):
+        return "dark"
+
+    # COLORFGBG de la terminal (rxvt/xterm): "fg;bg"
     colorfgbg = os.environ.get("COLORFGBG")
     if colorfgbg:
         try:
             parts = colorfgbg.split(";")
             if len(parts) >= 2:
-                bg = int(parts[1])
-                # Típicamente 0-7 son oscuros, 8-15 son claros en paletas de 16 colores
-                if bg >= 7:
-                    return "light"
-                else:
-                    return "dark"
+                bg = int(parts[-1])
+                # En paletas de 16 colores, 0-7 suelen ser oscuros
+                return "light" if bg >= 7 else "dark"
         except (ValueError, IndexError):
             pass
 
-    # 2. Intentar por secuencias de escape OSC 11 (preciso pero requiere TTY)
-    if sys.stdin.isatty() and sys.stdout.isatty():
+    # GTK_THEME puede contener "dark" / "light"
+    gtk_theme = os.environ.get("GTK_THEME", "").lower()
+    if "dark" in gtk_theme:
+        return "dark"
+    if "light" in gtk_theme:
+        return "light"
+
+    return None
+
+
+def _detect_via_gnome() -> str | None:
+    """Detecta el esquema de color en GNOME / GTK (Linux)."""
+    import shutil
+    import subprocess
+
+    if shutil.which("gsettings") is None:
+        return None
+    # 1. color-scheme freedesktop (prefer-dark / prefer-light / default)
+    for schema, key in (
+        ("org.gnome.desktop.interface", "color-scheme"),
+        ("org.gnome.desktop.interface", "gtk-theme"),
+    ):
+        try:
+            out = subprocess.run(
+                ["gsettings", "get", schema, key],
+                capture_output=True, text=True, timeout=1,
+            )
+            if out.returncode == 0 and out.stdout:
+                val = out.stdout.strip().strip("'").lower()
+                if "prefer-dark" in val or "dark" in val:
+                    return "dark"
+                if "prefer-light" in val or "light" in val:
+                    return "light"
+                # 'default' en color-scheme suele seguir al gtk-theme;
+                # no concluir aquí, seguir con gtk-theme
+                if key == "color-scheme" and "default" in val:
+                    continue
+        except Exception:
+            continue
+    return None
+
+
+def _detect_via_kde() -> str | None:
+    """Detecta el esquema de color en KDE Plasma (Linux)."""
+    import os
+    from pathlib import Path
+
+    # kdeglobals: [General] ColorScheme=... (p.ej. BreezeLight / BreezeDark)
+    for cfg in (
+        Path.home() / ".config" / "kdeglobals",
+        Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "kdeglobals",
+    ):
+        try:
+            if cfg.exists():
+                text = cfg.read_text(encoding="utf-8", errors="ignore").lower()
+                # Buscar la línea de ColorScheme dentro de [General]
+                for line in text.splitlines():
+                    s = line.strip()
+                    if s.startswith("colorscheme"):
+                        if "light" in s:
+                            return "light"
+                        if "dark" in s:
+                            return "dark"
+        except Exception:
+            continue
+    # Plasma 6 guarda el modo en kdeglobals [General]:LookAndFeelPackage
+    return None
+
+
+def _detect_via_macos() -> str | None:
+    """Detecta el modo de apariencia en macOS."""
+    import platform
+    import shutil
+    import subprocess
+
+    if platform.system() != "Darwin":
+        return None
+    if shutil.which("defaults") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["defaults", "read", "-g", "AppleInterfaceStyle"],
+            capture_output=True, text=True, timeout=1,
+        )
+        # Si la clave existe y vale "Dark" -> oscuro; si no existe -> claro
+        if out.returncode == 0 and "dark" in out.stdout.lower():
+            return "dark"
+        if out.returncode == 0:
+            return "dark"  # cualquier valor presente implica modo oscuro
+        return "light"  # clave ausente = modo claro (comportamiento de macOS)
+    except Exception:
+        return None
+
+
+def _detect_via_windows() -> str | None:
+    """Detecta el modo de aplicación en Windows (registro)."""
+    import platform
+
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return "light" if int(value) == 1 else "dark"
+    except Exception:
+        return None
+
+
+def detect_system_theme() -> str:
+    """Detecta si el sistema está en modo claro u oscuro.
+
+    Combina señales del SO (GNOME/KDE/macOS/Windows) con las de la
+    terminal (variables de entorno). No realiza consultas OSC invasivas,
+    por lo que es seguro llamarla desde la TUI en ejecución.
+
+    Returns:
+        str: 'light' o 'dark'. Por defecto 'dark' (estética original).
+    """
+    import platform
+
+    for detector in (_detect_via_env, _detect_via_windows, _detect_via_macos):
+        try:
+            result = detector()
+            if result in ("light", "dark"):
+                return result
+        except Exception:
+            continue
+
+    if platform.system() == "Linux":
+        for detector in (_detect_via_gnome, _detect_via_kde):
+            try:
+                result = detector()
+                if result in ("light", "dark"):
+                    return result
+            except Exception:
+                continue
+
+    return "dark"
+
+
+def resolve_theme_name(theme_name: str | None) -> str:
+    """Resuelve el nombre efectivo de tema.
+
+    - ``None``/``""``/``"auto"``/``"default"``/``"sistema"`` → detecta el
+      sistema: ``"light"`` si está en claro, ``"default"`` si en oscuro.
+    - Cualquier otro nombre se devuelve normalizado (minúsculas).
+
+    Args:
+        theme_name: Nombre pedido por el usuario o la config.
+
+    Returns:
+        str: Nombre efectivo presente (o no) en ``_THEMES``.
+    """
+    if theme_name is None:
+        theme_name = "auto"
+    normalized = str(theme_name).strip().lower()
+    if normalized in ("", "auto", "default", "sistema", "system"):
+        try:
+            scheme = detect_system_theme()
+        except Exception:
+            scheme = "dark"
+        return "light" if scheme == "light" else "default"
+    return normalized
+
+
+def detect_terminal_theme(allow_osc_query: bool = True) -> str:
+    """
+    Detecta si la terminal está en modo claro u oscuro.
+
+    Combina la detección del sistema (SO + variables de entorno) con una
+    consulta OSC 11 opcional del color de fondo real de la terminal.
+
+    Args:
+        allow_osc_query: Si True y hay un TTY, pregunta el color de fondo
+            con OSC 11 (preciso pero invasivo: pone stdin en raw). Pasar
+            False desde la TUI en ejecución para no interferir con Textual.
+
+    Returns:
+        str: 'light' o 'dark'
+    """
+    import os
+    import sys
+
+    # 1. Detección no invasiva (SO + entorno): si es concluyente la usamos.
+    # Nota: detect_system_theme ya incluye COLORFGBG/GTK_THEME/SO.
+    # Solo la consideramos concluyente si vino de una señal explícita
+    # (no del fallback 'dark'), así que re-evaluamos aquí las señales
+    # explícitas primero y dejamos el SO como respaldo.
+    try:
+        env_result = _detect_via_env()
+        if env_result in ("light", "dark"):
+            return env_result
+    except Exception:
+        pass
+
+    # 2. Consulta OSC 11 del color de fondo real (solo fuera de la TUI)
+    if allow_osc_query and sys.stdin.isatty() and sys.stdout.isatty():
+        import select
         import termios
         import tty
-        
+
         fd = sys.stdin.fileno()
         try:
             old_settings = termios.tcgetattr(fd)
@@ -863,20 +1061,20 @@ def detect_terminal_theme() -> str:
                 # Query background color
                 sys.stdout.write("\x1b]11;?\x1b\\")
                 sys.stdout.flush()
-                
+
                 # Leer respuesta con timeout corto
                 response = ""
                 while True:
                     if select.select([sys.stdin], [], [], 0.05)[0]:
                         char = sys.stdin.read(1)
                         response += char
-                        if char in ("\x07", "\\"): # Terminadores OSC o ST
+                        if char in ("\x07", "\\"):  # Terminadores OSC o ST
                             break
                         if len(response) > 50:
                             break
                     else:
                         break
-                
+
                 if "rgb:" in response:
                     rgb_part = response.split("rgb:")[1].split("\x1b")[0].split("\x07")[0]
                     r, g, b = [int(x, 16) for x in rgb_part.split("/")]
@@ -888,5 +1086,57 @@ def detect_terminal_theme() -> str:
         except Exception:
             pass
 
+    # 3. Detección del SO (GNOME/KDE/macOS/Windows)
+    try:
+        system = detect_system_theme()
+        if system in ("light", "dark"):
+            # Si el entorno no dijo nada y no hubo OSC, el SO manda
+            if system == "light" or not allow_osc_query or not (
+                sys.stdin.isatty() and sys.stdout.isatty()
+            ):
+                # Evitar que el fallback 'dark' oculte una futura señal:
+                # solo devolvemos el SO si detectó algo distinto del fallback
+                # o si no hay más fuentes. Como detect_system_theme ya
+                # devuelve 'dark' por defecto, lo aceptamos aquí.
+                return system
+    except Exception:
+        pass
+
     # Por defecto asumimos oscuro (estética original de KogniTerm)
     return "dark"
+
+
+# ============================================================================
+# ESTILOS CONSCIENTES DEL TEMA (claro/oscuro)
+# ============================================================================
+
+def is_light_theme() -> bool:
+    """Indica si el tema actual es claro."""
+    return ColorPalette.CURRENT_THEME == "light"
+
+
+def get_thought_panel_style() -> str:
+    """Estilo del contenido de la burbuja de pensamiento del agente.
+
+    En tema oscuro se mantiene el gris atenuado original (``dim`` sobre
+    fondo casi negro). En tema claro se usa texto pizarra sin ``dim``
+    para mantener contraste alto sobre fondo casi blanco — con ``dim``
+    las letras quedaban casi invisibles.
+    """
+    if is_light_theme():
+        return ColorPalette.TEXT_MUTED
+    return f"dim {ColorPalette.GRAY_500}"
+
+
+def get_thought_panel_bg_style() -> str:
+    """Variante con fondo explícito para paneles que lo requieren (TUI)."""
+    if is_light_theme():
+        return f"{ColorPalette.TEXT_MUTED} on {ColorPalette.GRAY_100}"
+    return f"dim {ColorPalette.GRAY_500} on {ColorPalette.GRAY_900}"
+
+
+def get_thought_border_style() -> str:
+    """Color del borde de la burbuja de pensamiento según el tema."""
+    if is_light_theme():
+        return ColorPalette.GRAY_400
+    return ColorPalette.GRAY_700

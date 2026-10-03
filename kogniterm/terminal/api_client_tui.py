@@ -9,7 +9,7 @@ def _get_api_base_url() -> str:
         elif server_url.startswith("ws://"):
             return server_url.replace("ws://", "http://", 1)
         return server_url
-    return "http://127.0.0.1:8765"
+    return "http://127.0.0.1:8755"
 
 API_BASE_URL = _get_api_base_url()  # Sin /api, para coincidir con el backend real
 

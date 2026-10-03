@@ -41,6 +41,8 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       supportFetchAPI: true,
       stream: true,
+      corsEnabled: true,
+      bypassCSP: true,
     },
   },
 ])
@@ -209,15 +211,9 @@ export function createMainWindow(id: string = randomUUID()) {
   wireWindowRecovery(win, id)
   wireNavigationPolicy(win)
 
-  win.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-    const { requestHeaders } = details
-    upsertKeyValue(requestHeaders, "Access-Control-Allow-Origin", ["*"])
-    callback({ requestHeaders })
-  })
-
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     const { responseHeaders = {} } = details
-    addRendererHeaders(details.url, responseHeaders)
+    addRendererHeaders(details.url, responseHeaders, details.initiator)
     callback({ responseHeaders })
   })
 
@@ -533,10 +529,33 @@ function isTrustedRendererUrl(value?: string) {
   return isRendererUrl(value)
 }
 
-function addRendererHeaders(value: string, headers: Record<string, any>) {
-  upsertKeyValue(headers, "Access-Control-Allow-Origin", ["*"])
-  upsertKeyValue(headers, "Access-Control-Allow-Headers", ["*"])
-  if (isRendererUrl(value, true)) upsertKeyValue(headers, documentPolicyHeader, [jsCallStacksDocumentPolicy])
+function addRendererHeaders(value: string, headers: Record<string, any>, initiator?: string) {
+  if (isRendererUrl(value, true)) {
+    upsertKeyValue(headers, documentPolicyHeader, [jsCallStacksDocumentPolicy])
+  }
+
+  // Si la petición proviene del renderer o del esquema de la app, asegurar compatibilidad CORS
+  const isFromRenderer = !initiator || initiator.startsWith(`${rendererProtocol}://`) || initiator.includes("localhost") || initiator.includes("127.0.0.1")
+  if (isFromRenderer) {
+    const origin = initiator || `${rendererProtocol}://${rendererHost}`
+    const hasCreds = Object.keys(headers).some(
+      (k) => k.toLowerCase() === "access-control-allow-credentials" &&
+             String(headers[k]).toLowerCase().includes("true"),
+    )
+    const existingOriginKey = Object.keys(headers).find(
+      (k) => k.toLowerCase() === "access-control-allow-origin",
+    )
+
+    if (!existingOriginKey) {
+      upsertKeyValue(headers, "Access-Control-Allow-Origin", [origin])
+      upsertKeyValue(headers, "Access-Control-Allow-Credentials", ["true"])
+      upsertKeyValue(headers, "Access-Control-Allow-Headers", ["*"])
+      upsertKeyValue(headers, "Access-Control-Allow-Methods", ["GET, POST, PUT, DELETE, PATCH, OPTIONS"])
+    } else if (hasCreds && String(headers[existingOriginKey]).includes("*")) {
+      // Chromium prohíbe Access-Control-Allow-Origin: * cuando Access-Control-Allow-Credentials: true
+      upsertKeyValue(headers, "Access-Control-Allow-Origin", [origin])
+    }
+  }
 }
 
 function isRendererUrl(value?: string, html = false) {

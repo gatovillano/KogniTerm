@@ -30,7 +30,7 @@ GITHUB_REPO_URL="https://github.com/gatovillano/KogniTerm.git"
 # Servicio de KogniTerm Server (compartido por TUI, Web y Desktop)
 SERVICE_NAME="kogniterm-server"
 SERVER_HOST="127.0.0.1"
-SERVER_PORT="8765"
+SERVER_PORT="8755"
 SYSTEMD_UNIT_DIR="$HOME/.config/systemd/user"
 SYSTEMD_UNIT_PATH="$SYSTEMD_UNIT_DIR/$SERVICE_NAME.service"
 LAUNCHD_PLIST_DIR="$HOME/Library/LaunchAgents"
@@ -329,7 +329,7 @@ server_is_up() {
     curl -fsS -m 3 "http://$SERVER_HOST:$SERVER_PORT/health" &>/dev/null
 }
 
-# Libera el puerto 8765 si hay un servidor arrancado manualmente, para que el
+# Libera el puerto 8755 si hay un servidor arrancado manualmente, para que el
 # servicio pueda tomar el puerto sin conflictos.
 free_server_port() {
     if server_is_up; then

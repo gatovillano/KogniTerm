@@ -18,7 +18,7 @@ export interface HeartbeatsPanelProps {
 }
 
 export const HeartbeatsPanel: React.FC<HeartbeatsPanelProps> = ({
-  serverUrl = 'http://127.0.0.1:8765',
+  serverUrl = 'http://127.0.0.1:8755',
 }) => {
   const [jobs, setJobs] = useState<Heartbeat[]>([]);
   const [loading, setLoading] = useState(true);

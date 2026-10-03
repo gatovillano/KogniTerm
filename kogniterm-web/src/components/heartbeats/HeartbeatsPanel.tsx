@@ -99,7 +99,7 @@ export const HeartbeatsPanel: React.FC<HeartbeatsPanelProps> = ({
     } catch (err: any) {
       console.error('Error loading heartbeats:', err);
       setError(
-        err.message || 'No se pudo conectar con el servidor KogniTerm. Verifica que esté en ejecución en http://127.0.0.1:8765.'
+        err.message || 'No se pudo conectar con el servidor KogniTerm. Verifica que esté en ejecución en http://127.0.0.1:8755.'
       );
     } finally {
       setLoading(false);

@@ -28,7 +28,7 @@ class HeartbeatConfig(BaseModel):
 
 class ServerSettings(BaseModel):
     host: str = "0.0.0.0"
-    port: int = 8765
+    port: int = 8755
     channels: List[ChannelConfig] = [
         ChannelConfig(name="cli_local", type="cli", enabled=False),
         ChannelConfig(name="webhook_default", type="webhook", enabled=False, params={"url": "http://localhost:5000/hook"}),

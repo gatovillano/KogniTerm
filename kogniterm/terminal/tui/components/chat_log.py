@@ -1,4 +1,5 @@
 import logging
+import threading
 from textual.widgets import Static
 from textual.containers import VerticalScroll, Horizontal
 from kogniterm.terminal.themes import ColorPalette
@@ -15,11 +16,43 @@ from rich import box
 
 from .tool_output import ToolOutputWidget
 
+
+def _is_empty_renderable(r) -> bool:
+    """Detecta si un renderable de Rich no contiene contenido visible."""
+    if r is None:
+        return True
+    if isinstance(r, str):
+        return not r.strip()
+    if isinstance(r, Text):
+        return not r.plain.strip()
+    if isinstance(r, Padding):
+        return _is_empty_renderable(r.renderable)
+    if isinstance(r, Group):
+        return all(_is_empty_renderable(child) for child in r.renderables)
+    return False
+
+
+def _should_call_from_thread(widget) -> bool:
+    """Determina si se debe usar call_from_thread según el hilo actual."""
+    app = getattr(widget, "app", None)
+    if app is None or not getattr(app, "call_from_thread", None):
+        return False
+    app_thread_id = getattr(app, "_thread_id", None)
+    if app_thread_id is None:
+        return False
+    return threading.get_ident() != app_thread_id
+
+
 class MessageWidget(Static):
     """Widget para representar un mensaje individual en el chat."""
     def __init__(self, renderable, **kwargs):
         super().__init__(renderable, **kwargs)
         self.can_focus = False
+        self._raw_renderable = renderable
+
+    def update(self, renderable) -> None:
+        self._raw_renderable = renderable
+        super().update(renderable)
 
 class AnimatedSpinnerWidget(Static):
     """Widget que representa un spinner animado en el chat log."""
@@ -60,8 +93,8 @@ class ChatLogWidget(VerticalScroll):
             
             # Fallback a dimensiones de la aplicación
             if hasattr(self, "app") and self.app.size.width > 0:
-                # El chat log suele ocupar el 85% del ancho de la app
-                return max(int(self.app.size.width * 0.85) - 4, 40)
+                # El chat log suele ocupar el 94% del ancho de la app
+                return max(int(self.app.size.width * 0.94) - 4, 40)
                 
             return 78
         except:
@@ -93,13 +126,12 @@ class ChatLogWidget(VerticalScroll):
                 logger.warning("ChatLogWidget.write_message: _mount_msg falló: %s", e)
                 return None
 
-        try:
-            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
-                # call_from_thread will schedule the mount on the main thread
+        if _should_call_from_thread(self):
+            try:
                 self.app.call_from_thread(_mount_msg, renderable)
                 return None
-        except Exception as e:
-            logger.warning("ChatLogWidget.write_message: call_from_thread falló, intentando mount directo: %s", e)
+            except Exception as e:
+                logger.warning("ChatLogWidget.write_message: call_from_thread falló, intentando mount directo: %s", e)
 
         return _mount_msg(renderable)
 
@@ -108,7 +140,10 @@ class ChatLogWidget(VerticalScroll):
         self._last_tracker_widget = None
         self._active_thinking_widget = None
         if self._active_message_widget:
-            if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+            if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
+                isinstance(self._active_message_widget, MessageWidget)
+                and _is_empty_renderable(getattr(self._active_message_widget, "_raw_renderable", None))
+            ):
                 try:
                     self._active_message_widget.remove()
                 except Exception:
@@ -174,12 +209,12 @@ class ChatLogWidget(VerticalScroll):
                 logging.error(f"Error mounting user message: {e}")
                 pass
 
-        try:
-            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+        if _should_call_from_thread(self):
+            try:
                 self.app.call_from_thread(_mount_user_message)
                 return
-        except Exception:
-            pass
+            except Exception:
+                pass
 
         _mount_user_message()
 
@@ -196,7 +231,7 @@ class ChatLogWidget(VerticalScroll):
 
         def _mount_agent(md):
             try:
-                widget = MessageWidget(Padding(md, (1, 0, 1, 4)))
+                widget = MessageWidget(Padding(md, (1, 0, 1, 2)))
                 self.mount(widget)
                 self.scroll_end(animate=False)
             except Exception:
@@ -284,10 +319,10 @@ class ChatLogWidget(VerticalScroll):
             if isinstance(content, str):
                 if "\x1b" in content or "┃" in content or "╭" in content:
                     from rich.text import Text
-                    renderable = Padding(Text.from_ansi(content), (1, 0, 1, 4))
+                    renderable = Padding(Text.from_ansi(content), (1, 0, 1, 2))
                 else:
                     from rich.markdown import Markdown
-                    renderable = Padding(Markdown(content), (1, 0, 1, 4))
+                    renderable = Padding(Markdown(content), (1, 0, 1, 2))
             else:
                 renderable = content
             terminal_command = tool_name  # para el caso no-terminal, coincide con tool_name
@@ -349,6 +384,8 @@ class ChatLogWidget(VerticalScroll):
                         if self._active_message_widget:
                             if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
                                 self._active_message_widget.remove()
+                            elif isinstance(self._active_message_widget, MessageWidget) and _is_empty_renderable(getattr(self._active_message_widget, "_raw_renderable", None)):
+                                self._active_message_widget.remove()
                             else:
                                 self._active_message_widget = None
                         
@@ -382,20 +419,23 @@ class ChatLogWidget(VerticalScroll):
                 import logging
                 logging.exception("ChatLogWidget: Error in _mount_or_update for %s: %s", self.id, e)
 
-        try:
-            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+        if _should_call_from_thread(self):
+            try:
                 self.app.call_from_thread(_mount_or_update, renderable, is_terminal, is_spinner, tool_name, terminal_command)
                 return
-        except Exception as e:
-            import logging
-            logging.exception("ChatLogWidget: Error calling call_from_thread in write_stream: %s", e)
+            except Exception as e:
+                import logging
+                logging.exception("ChatLogWidget: Error calling call_from_thread in write_stream: %s", e)
 
         _mount_or_update(renderable, is_terminal, is_spinner, tool_name, terminal_command)
 
     def stop_stream(self):
         """Finaliza el streaming actual y elimina el spinner si estaba activo."""
         if self._active_message_widget:
-            if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+            if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
+                isinstance(self._active_message_widget, MessageWidget)
+                and _is_empty_renderable(getattr(self._active_message_widget, "_raw_renderable", None))
+            ):
                 try:
                     self._active_message_widget.remove()
                 except Exception:
@@ -405,42 +445,70 @@ class ChatLogWidget(VerticalScroll):
 
     def write_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = ""):
         """Escribe notificación de herramienta."""
+        if self._active_message_widget:
+            if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
+                isinstance(self._active_message_widget, MessageWidget)
+                and _is_empty_renderable(getattr(self._active_message_widget, "_raw_renderable", None))
+            ):
+                try:
+                    self._active_message_widget.remove()
+                except Exception:
+                    pass
         self._active_thinking_widget = None
         self._active_message_widget = None
         from rich.text import Text
-        from kogniterm.terminal.themes import ColorPalette, Icons
-        
+        from kogniterm.terminal.themes import (
+            ColorPalette,
+            Icons,
+            is_light_theme,
+        )
+
         line1 = Text()
         line1.append(f"{Icons.TOOL} ", style=f"bold {ColorPalette.SECONDARY}")
         line1.append(tool_name, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
-        
+
         lines = [line1]
         if action_desc:
             line2 = Text()
-            line2.append("   ↳ ", style=f"dim {ColorPalette.GRAY_600}")
+            # Consciente del tema: `dim` sobre fondo claro queda casi invisible
+            arrow_style = (
+                ColorPalette.TEXT_MUTED
+                if is_light_theme()
+                else f"dim {ColorPalette.GRAY_600}"
+            )
+            line2.append("   ↳ ", style=arrow_style)
             line2.append("Acción: ", style=f"bold italic {ColorPalette.TEXT_SECONDARY}")
             line2.append(action_desc, style=f"italic {ColorPalette.TEXT_SECONDARY}")
             lines.append(line2)
         
         def _mount_tool_notify(lines_group):
             try:
-                widget = MessageWidget(Padding(lines_group, (1, 0, 1, 4)))
+                widget = MessageWidget(Padding(lines_group, (1, 0, 1, 2)))
                 self.mount(widget)
                 self.scroll_end(animate=False)
             except Exception:
                 pass
 
-        try:
-            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+        if _should_call_from_thread(self):
+            try:
                 self.app.call_from_thread(_mount_tool_notify, Group(*lines))
                 return
-        except Exception:
-            pass
+            except Exception:
+                pass
 
         _mount_tool_notify(Group(*lines))
 
     def write_tool_output(self, content: str, tool_name: str, language: str = None):
         """Escribe la salida de una herramienta usando el ToolOutputWidget."""
+        if self._active_message_widget:
+            if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
+                isinstance(self._active_message_widget, MessageWidget)
+                and _is_empty_renderable(getattr(self._active_message_widget, "_raw_renderable", None))
+            ):
+                try:
+                    self._active_message_widget.remove()
+                except Exception:
+                    pass
         self._active_thinking_widget = None
         self._active_message_widget = None
         def _mount_tool_output(c, tname, lang):
@@ -452,12 +520,12 @@ class ChatLogWidget(VerticalScroll):
             except Exception:
                 return None
 
-        try:
-            if hasattr(self, "app") and getattr(self.app, "call_from_thread", None):
+        if _should_call_from_thread(self):
+            try:
                 self.app.call_from_thread(_mount_tool_output, content, tool_name, language)
                 return None
-        except Exception:
-            pass
+            except Exception:
+                pass
 
         return _mount_tool_output(content, tool_name, language)
 

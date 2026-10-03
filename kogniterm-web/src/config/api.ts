@@ -24,7 +24,7 @@ export const getBackendHost = (): string => {
   return '127.0.0.1';
 };
 
-export const BACKEND_PORT = 8765;
+export const BACKEND_PORT = 8755;
 
 export const getApiBaseUrl = (): string => {
   return `http://${getBackendHost()}:${BACKEND_PORT}`;

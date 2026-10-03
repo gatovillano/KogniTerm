@@ -57,10 +57,13 @@ Carga la URL de Vite en dev y `apps/web/dist` en prod.
 
 - [x] Tabs (sesiones múltiples, crear/cerrar/renombrar, persistencia localStorage)
 - [x] Chat streaming nativo por WS (`stream`, `message`, `done`, `tool_start/output`)
+- [x] Selector de agentes nativo en el input (`GET /api/agents`, `super_agent`, `bash_agent`, `code_agent`, `researcher_agent`)
 - [x] Modal Proveedor (9 proveedores TUI: google, openai, anthropic, openrouter, ollama, ollama_cloud, kilocode, inception, antigravity)
 - [x] Modal Modelo (lista desde `GET /models/available` filtrada por proveedor activo)
 - [x] Modal Keys (`POST /config/llm` con `provider` + `api_key`, password input)
-- [ ] Siguiente: theme, MCP, terminal, files (parity TUI completa)
+- [x] Terminal lateral con shell real por pestaña (`POST /api/pty`, WS `/api/pty/{id}/connect`)
+- [x] Terminal inline interactiva para comandos del agente (`terminal_output`, `set_terminal_cursor`, `terminal_input`)
+- [ ] Siguiente: theme, files (parity TUI completa)
 
 ## Diferencias con v2 (opencode)
 

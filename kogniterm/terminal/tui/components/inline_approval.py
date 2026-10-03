@@ -205,8 +205,8 @@ class InlineApprovalWidget(Widget):
 
     DEFAULT_CSS = """
     InlineApprovalWidget {
-        width: 85%;
-        max-width: 180;
+        width: 94%;
+        max-width: 220;
         min-width: 60;
         height: auto;
         margin: 1 0;

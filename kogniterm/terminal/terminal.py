@@ -252,7 +252,7 @@ def main():
                 else:
                     base_url = server_url
             else:
-                base_url = "http://127.0.0.1:8765"
+                base_url = "http://127.0.0.1:8755"
                 
             # Usamos un request síncrono para asegurar que se ejecute antes de salir
             httpx.post(f"{base_url}/api/sessions/{_DEFAULT_SESSION_ID}/close", timeout=2.0)

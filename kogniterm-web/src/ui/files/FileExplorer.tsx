@@ -10,7 +10,7 @@ export interface FileExplorerProps {
 
 export const FileExplorer: React.FC<FileExplorerProps> = ({
   workspacePath,
-  serverUrl = 'http://127.0.0.1:8765',
+  serverUrl = 'http://127.0.0.1:8755',
   onFileSelect,
 }) => {
   const [files, setFiles] = useState<FileItem[]>([]);

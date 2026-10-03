@@ -125,9 +125,11 @@ class ChatInput(TextArea):
         self.styles.overflow_x = "hidden"
         self.styles.overflow_y = "hidden"
         
-        # Forzar altura inicial y permitir expansión
-        self.styles.height = 1
-        self.styles.min_height = 1
+        # Forzar altura inicial y permitir expansión (aumentado levemente a 2 para chat_input)
+        is_splash = (kwargs.get("id") == "splash_chat_input" or getattr(self, "id", None) == "splash_chat_input")
+        default_height = 1 if is_splash else 2
+        self.styles.height = default_height
+        self.styles.min_height = default_height
         self.styles.max_height = 20
         
         # Usar historial persistente compartido
@@ -301,9 +303,12 @@ class ChatInput(TextArea):
 
     def _adjust_height(self):
         """Ajusta manualmente la altura basada en el número de líneas para corregir bug de Textual."""
-        line_count = self.document.line_count
-        # Altura mínima 1, máxima 20
-        target_height = max(1, min(20, line_count))
+        if getattr(self, "id", None) == "splash_chat_input":
+            target_height = 1
+        else:
+            line_count = self.document.line_count
+            # Altura mínima 2 (aumentado levemente), máxima 20
+            target_height = max(2, min(20, line_count))
         self.styles.height = target_height
         
         # Solo ajustamos nuestra propia altura. El contenedor (input_container) 

@@ -80,7 +80,12 @@ def build_native_renderable(thinking: str, response: str) -> Any:
     from rich.panel import Panel
     from rich.markdown import Markdown
     from rich.text import Text
-    from kogniterm.terminal.themes import ColorPalette, Icons
+    from kogniterm.terminal.themes import (
+        ColorPalette,
+        Icons,
+        get_thought_border_style,
+        get_thought_panel_bg_style,
+    )
 
     def _render_resp(resp_str: str) -> Any:
         if isinstance(resp_str, str) and (
@@ -94,9 +99,9 @@ def build_native_renderable(thinking: str, response: str) -> Any:
         thought_panel = Panel(
             thinking_content,
             title=f"{Icons.THINKING} KogniTerm Pensando...",
-            border_style=ColorPalette.GRAY_700,
-            style=f"dim {ColorPalette.GRAY_500} on {ColorPalette.GRAY_900}",
-            padding=(0, 4),
+            border_style=get_thought_border_style(),
+            style=get_thought_panel_bg_style(),
+            padding=(0, 2),
             expand=True
         )
         return Padding(thought_panel, (2, 0, 1, 0))
@@ -124,7 +129,7 @@ class TUIWebSocketClient:
 
     def __init__(self, app: "KogniTermTUI", server_url: str, session_id: str, tab_id: Optional[str] = None):
         self._app = app
-        self._server_url = server_url  # e.g. "ws://127.0.0.1:8765"
+        self._server_url = server_url  # e.g. "ws://127.0.0.1:8755"
         self._session_id = session_id
         # tab_id: pestaña TUI propietaria (multisesión). Si se indica, los
         # eventos del agente principal (sin agent_id) se enrutan al widget de

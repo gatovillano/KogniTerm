@@ -10,7 +10,7 @@ const isDev = process.env.NODE_ENV !== "production";
 const WEB_URL = process.env.VITE_WEB_URL ?? "http://localhost:4444";
 
 const HOST = process.env.KOGNITERM_HOST ?? "127.0.0.1";
-const PORT = process.env.KOGNITERM_PORT ?? "8765";
+const PORT = process.env.KOGNITERM_PORT ?? "8755";
 const HEALTH = `http://${HOST}:${PORT}/health`;
 const SERVICE_NAME = "kogniterm-server";
 
@@ -262,7 +262,7 @@ async function createWindow() {
       preload: join(__dirname, "..", "preload", "preload.cjs"),
       contextIsolation: true,
       // El renderer necesita saber a qué backend conectarse (KOGNITERM_PORT lo
-      // resuelve el proceso main). Sin esto, apuntaría siempre a 8765.
+      // resuelve el proceso main). Sin esto, apuntaría siempre a 8755.
       additionalArguments: [`--kogniterm-api=http://${HOST}:${PORT}`],
     },
   });

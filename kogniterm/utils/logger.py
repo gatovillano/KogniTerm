@@ -204,7 +204,7 @@ def enable_file_logging_only(
     return kogniterm_logger
 
 
-def configure_server_logging(port: int = 8765, level: int = logging.INFO):
+def configure_server_logging(port: int = 8755, level: int = logging.INFO):
     """Configures the logging system for the backend server.
     Redirects FastAPI/Uvicorn logs to a rotating file handler at .kogniterm/logs/server.log
     to prevent console outputs when running the server.

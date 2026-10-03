@@ -1400,6 +1400,7 @@ export function createServerSession(
         if (!items)
           optimistic.set(input.sessionID, new Map([[input.message.id, { ...input, parts, confirmedParts: [] }]]))
         setData("message", input.sessionID, (messages = []) => merge(messages, [input.message]).sort(compareMessages))
+        indexLegacyMessage(input.message)
         setData(
           "part_text_accum_delta",
           produce((draft) => {
@@ -1433,6 +1434,7 @@ export function createServerSession(
           return
         }
         setData("message", input.sessionID, (messages) => messages?.filter((message) => message.id !== input.messageID))
+        setData("session_message", input.sessionID, (messages) => messages?.filter((message) => message.id !== input.messageID))
         setData(produce((draft) => deleteMessageParts(draft, input.messageID)))
       },
     },

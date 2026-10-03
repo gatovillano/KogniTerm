@@ -6,7 +6,7 @@ Uso:
     python -m kogniterm.server.test_client [--ws | --sse | --rest] --message "Hola"
 
 Requiere que el servidor esté corriendo:
-    python -m kogniterm.server --host 0.0.0.0 --port 8765
+    python -m kogniterm.server --host 0.0.0.0 --port 8755
 """
 
 import argparse
@@ -16,8 +16,8 @@ import httpx
 import websockets
 
 
-API_BASE = "http://localhost:8765"
-WS_BASE  = "ws://localhost:8765"
+API_BASE = "http://localhost:8755"
+WS_BASE  = "ws://localhost:8755"
 
 
 async def test_health():

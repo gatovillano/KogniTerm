@@ -21,4 +21,10 @@ from kogniterm.ui.themes import (  # exportaciones explícitas
     get_status_icon,
     set_kogniterm_theme,
     detect_terminal_theme,
+    detect_system_theme,
+    resolve_theme_name,
+    is_light_theme,
+    get_thought_panel_style,
+    get_thought_panel_bg_style,
+    get_thought_border_style,
 )

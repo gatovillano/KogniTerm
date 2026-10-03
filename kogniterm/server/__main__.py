@@ -4,7 +4,7 @@ Entry point para lanzar el KogniTerm Server desde la línea de comandos.
 
 Uso:
     python -m kogniterm.server
-    python -m kogniterm.server --host 0.0.0.0 --port 8765
+    python -m kogniterm.server --host 0.0.0.0 --port 8755
     python -m kogniterm.server --reload   # modo desarrollo
     kogniterm-server                       # si se instala con pip install -e .
 """
@@ -63,7 +63,7 @@ def find_pid_by_port(port: int) -> list[int]:
     return []
 
 
-def stop_server(port: int = 8765):
+def stop_server(port: int = 8755):
     """Detiene las instancias del servidor KogniTerm que corren en el puerto especificado."""
     pid_file = Path.home() / ".kogniterm" / f"server_{port}.pid"
     pid = None
@@ -138,7 +138,7 @@ def main():
             prog="kogniterm-server stop",
             description="Detiene una instancia en ejecución de KogniTerm Server",
         )
-        parser.add_argument("--port", type=int, default=8765, help="Puerto del servidor a detener (default: 8765)")
+        parser.add_argument("--port", type=int, default=8755, help="Puerto del servidor a detener (default: 8755)")
         args = parser.parse_args(sys.argv[2:])
         stop_server(port=args.port)
         return
@@ -152,7 +152,7 @@ def main():
         description="KogniTerm Backend API — Servidor persistente multi-canal",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Host de escucha (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8765, help="Puerto (default: 8765)")
+    parser.add_argument("--port", type=int, default=8755, help="Puerto (default: 8755)")
     parser.add_argument("--reload", action="store_true", help="Hot-reload (solo desarrollo)")
     parser.add_argument("--workspace", "--cwd", default=None, help="Directorio de trabajo / workspace inicial")
     args = parser.parse_args()

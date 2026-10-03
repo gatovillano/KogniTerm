@@ -24,7 +24,7 @@ async def test_tui_server_fallback_and_reconnect():
     assert app._server_mode is True
     
     # Create the WS Client
-    client = TUIWebSocketClient(app, "ws://localhost:8765", "test_session")
+    client = TUIWebSocketClient(app, "ws://localhost:8755", "test_session")
     client._connected = True
     
     # Simulate connection loss using _handle_disconnect

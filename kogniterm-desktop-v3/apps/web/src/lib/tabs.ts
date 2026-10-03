@@ -2,12 +2,21 @@ import { createStore } from "solid-js/store";
 
 export interface ChatMsg {
   id: string;
-  role: "user" | "assistant" | "tool" | "system";
+  role: "user" | "assistant" | "tool" | "system" | "terminal";
   text: string;
+  agent?: string;
   /** Razonamiento del modelo (evento live_update.thinking), se muestra atenuado. */
   thinking?: string;
   /** Sigue llegando contenido: la burbuja muestra cursor y aún no se persiste. */
   pending?: boolean;
+  /** Terminal interactiva vinculada a la ejecución worker del agente, no al PTY lateral. */
+  terminalId?: string;
+  terminalTool?: string;
+  terminalCommand?: string;
+  terminalOutput?: string;
+  terminalActive?: boolean;
+  terminalInteractive?: boolean;
+  agentId?: string;
 }
 
 export interface Tab {
@@ -44,7 +53,15 @@ const [store, setStore] = createStore<{ tabs: Tab[]; activeId: string }>({
 
 function persist() {
   try {
-    localStorage.setItem("kogniterm-v3-tabs", JSON.stringify(store.tabs));
+    const serializable = store.tabs.map((tab) => ({
+      ...tab,
+      messages: tab.messages.map((message) =>
+        message.role === "terminal" && (message.terminalOutput?.length ?? 0) > 8000
+          ? { ...message, terminalOutput: message.terminalOutput?.slice(-8000) }
+          : message,
+      ),
+    }));
+    localStorage.setItem("kogniterm-v3-tabs", JSON.stringify(serializable));
   } catch {}
 }
 
@@ -132,6 +149,61 @@ export const tabs = {
   dropIfEmpty(tabId: string, msgId: string) {
     setStore("tabs", (t) => t.id === tabId, "messages", (ms) =>
       ms.filter((m) => !(m.id === msgId && m.role === "assistant" && !m.text.trim() && !m.thinking?.trim())),
+    );
+    persist();
+  },
+  /** Crea una terminal inline vinculada a la ejecución del agente. */
+  pushAgentTerminal(
+    tabId: string,
+    terminal: Pick<ChatMsg, "id" | "terminalId" | "terminalTool" | "terminalCommand" | "agentId"> & {
+      output?: string;
+    },
+  ) {
+    const message: ChatMsg = {
+      id: terminal.id,
+      role: "terminal",
+      text: "",
+      terminalId: terminal.terminalId,
+      terminalTool: terminal.terminalTool,
+      terminalCommand: terminal.terminalCommand,
+      terminalOutput: terminal.output ?? "",
+      terminalActive: true,
+      terminalInteractive: false,
+      agentId: terminal.agentId,
+    };
+    setStore("tabs", (t) => t.id === tabId, "messages", (ms) => [...ms, message]);
+  },
+  /** Actualiza el snapshot de salida sin persistir cada fragmento intermedio. */
+  setAgentTerminalSnapshot(tabId: string, terminalId: string, output: string) {
+    setStore(
+      "tabs",
+      (t) => t.id === tabId,
+      "messages",
+      (m) => m.role === "terminal" && m.terminalId === terminalId,
+      "terminalOutput",
+      output,
+    );
+  },
+  setAgentTerminalState(
+    tabId: string,
+    terminalId: string,
+    state: Pick<ChatMsg, "terminalActive" | "terminalInteractive">,
+  ) {
+    setStore(
+      "tabs",
+      (t) => t.id === tabId,
+      "messages",
+      (m) => m.role === "terminal" && m.terminalId === terminalId,
+      (m) => ({ ...m, ...state }),
+    );
+  },
+  closeAgentTerminals(tabId: string, agentId?: string) {
+    setStore(
+      "tabs",
+      (t) => t.id === tabId,
+      "messages",
+      (m) => m.role === "terminal" && (agentId == null || m.agentId === agentId),
+      (m) => ({ ...m, terminalActive: false, terminalInteractive: false }),
     );
     persist();
   },

@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 from kogniterm.core.agent_interaction import BaseAgentInteractionManager, AgentInteractionRegistry
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.agents.bash_agent import create_bash_agent, create_learning_agent, AgentState, get_system_message
+from kogniterm.core.agents.agent_catalog import (
+    DEFAULT_CHAT_AGENT,
+    SUPPORTED_CHAT_AGENTS,
+    create_agent_runner,
+    describe_agents,
+    normalize_agent_id,
+)
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import Dict, Any, Optional
 import os
@@ -33,17 +40,26 @@ class AgentInteractionManager(BaseAgentInteractionManager):
         self.agent_state = agent_state
         self.terminal_ui = terminal_ui # Guardar la instancia de TerminalUI
         self.interrupt_queue = interrupt_queue # Guardar la cola de interrupción
+        self.command_approval_handler = command_approval_handler
         self.bash_agent_app = create_bash_agent(llm_service, terminal_ui, interrupt_queue, command_approval_handler) # Pasar command_approval_handler
         self.super_agent_app = create_super_agent(llm_service, terminal_ui, interrupt_queue, command_approval_handler)
         self.learning_agent_app = create_learning_agent(llm_service, terminal_ui)
+        self.agent_runners = {
+            "super_agent": self.super_agent_app,
+            "bash_agent": self.bash_agent_app,
+        }
+        self.active_agent_name = DEFAULT_CHAT_AGENT
         
         main_agent = os.environ.get("KOGNITERM_MAIN_AGENT", "super_agent").lower().strip()
         if main_agent == "super_agent":
             self.active_agent_app = self.super_agent_app
+            self.active_agent_name = "super_agent"
             logger.info("AgentInteractionManager: Usando SuperAgent como agente principal.")
         else:
             self.active_agent_app = self.bash_agent_app
+            self.active_agent_name = "bash_agent"
             logger.info("AgentInteractionManager: Usando BashAgent como agente principal.")
+        self.agent_state.current_agent_mode = self.active_agent_name
         
         # Obtener el SYSTEM_MESSAGE dinámico para este llm_service
         current_system_message = get_system_message(self.llm_service)
@@ -71,16 +87,66 @@ class AgentInteractionManager(BaseAgentInteractionManager):
         if hasattr(self.llm_service, "register_model_change_listener"):
             self.llm_service.register_model_change_listener(self.set_model)
 
+    def available_agents(self) -> list[dict]:
+        """Catálogo nativo de motores conversacionales seleccionables."""
+        return describe_agents()
+
+    def active_agent(self) -> str:
+        """Identificador canónico del motor actualmente activo."""
+        return self.active_agent_name
+
+    def set_active_agent(self, agent_id: str | None) -> str:
+        """
+        Cambia el motor activo conservando el historial y las dependencias
+        compartidas de la sesión. Solo acepta agentes conversacionales reales.
+        """
+        normalized = normalize_agent_id(agent_id)
+        if normalized not in SUPPORTED_CHAT_AGENTS:
+            raise ValueError(f"Agente no soportado: {agent_id!r}")
+        if normalized == self.active_agent_name and normalized in self.agent_runners:
+            return normalized
+
+        runner = self.agent_runners.get(normalized)
+        if runner is None:
+            runner = create_agent_runner(
+                normalized,
+                llm_service=self.llm_service,
+                terminal_ui=self.terminal_ui,
+                interrupt_queue=self.interrupt_queue,
+                command_approval_handler=self.command_approval_handler,
+            )
+            self.agent_runners[normalized] = runner
+
+        model_name = getattr(self.llm_service, "model_name", None)
+        if model_name and hasattr(runner, "set_model"):
+            try:
+                runner.set_model(model_name)
+            except Exception:
+                logger.warning("No se pudo sincronizar el modelo con %s", normalized)
+
+        self.active_agent_app = runner
+        self.active_agent_name = normalized
+        self.agent_state.current_agent_mode = normalized
+        logger.info("AgentInteractionManager: agente activo cambiado a %s.", normalized)
+        return normalized
+
     def set_model(self, model: str) -> None:
-        """Actualiza el modelo del LLMService y de los runners de agentes activos."""
+        """Actualiza el modelo del LLMService y de todos los runners instanciados."""
         if self.llm_service and getattr(self.llm_service, "model_name", None) != model:
             self.llm_service.set_model(model)
-        if hasattr(self, "super_agent_app") and hasattr(self.super_agent_app, "set_model"):
-            self.super_agent_app.set_model(model)
-        if hasattr(self, "active_agent_app") and hasattr(self.active_agent_app, "set_model"):
-            self.active_agent_app.set_model(model)
-        if hasattr(self, "bash_agent_app") and hasattr(self.bash_agent_app, "set_model"):
-            self.bash_agent_app.set_model(model)
+        seen_runner_ids = set()
+        runners = [
+            self.super_agent_app,
+            self.bash_agent_app,
+            self.active_agent_app,
+            *self.agent_runners.values(),
+        ]
+        for runner in runners:
+            if runner is None or id(runner) in seen_runner_ids:
+                continue
+            seen_runner_ids.add(id(runner))
+            if hasattr(runner, "set_model"):
+                runner.set_model(model)
 
     def invoke_agent(self, user_input: Optional[str]) -> Dict[str, Any]:
         import os

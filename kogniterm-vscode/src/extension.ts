@@ -16,7 +16,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Crear cliente WebSocket
   const config = vscode.workspace.getConfiguration('kogniterm');
-  const serverUrl = config.get<string>('serverUrl', 'ws://127.0.0.1:8765/ws/chat');
+  const serverUrl = config.get<string>('serverUrl', 'ws://127.0.0.1:8755/ws/chat');
   
   client = new KogniTermClient(serverUrl, chatPanel, editorContext);
 

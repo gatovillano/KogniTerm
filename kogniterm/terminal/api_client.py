@@ -9,7 +9,7 @@ def _get_api_base_url() -> str:
         elif server_url.startswith("ws://"):
             return server_url.replace("ws://", "http://", 1)
         return server_url
-    return "http://localhost:8765"
+    return "http://localhost:8755"
 
 API_BASE_URL = _get_api_base_url()  # Ajusta si el backend corre en otro puerto o dirección
 

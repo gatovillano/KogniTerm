@@ -31,7 +31,7 @@
       "properties": {
         "kogniterm.serverUrl": {
           "type": "string",
-          "default": "ws://127.0.0.1:8765/ws/chat",
+          "default": "ws://127.0.0.1:8755/ws/chat",
           "description": "URL del servidor KogniTerm (WebSocket)"
         },
         "kogniterm.autoConnect": {

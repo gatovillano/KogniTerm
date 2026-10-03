@@ -203,21 +203,22 @@ def create_thought_bubble(
     """
     if isinstance(content, str):
         content = Markdown(content)
-        
+
     # Envolver el contenido en un Group con estilo dim/gris para que sea más opaco
     from rich.console import Group
+    from kogniterm.ui.themes import get_thought_panel_style, get_thought_border_style
     styled_content = Group(content)
-    
+
     panel = Panel(
         styled_content,
         title=f"{icon} {title}",
-        border_style=ColorPalette.GRAY_700,
-        style=f"dim {ColorPalette.GRAY_500}", # Aplicar estilo dim y gris algo más claro
-        padding=(0, 4), # Aumentado de 2 a 4 para alinear con el input
+        border_style=get_thought_border_style(),
+        style=get_thought_panel_style(),
+        padding=(0, 2), # Reducido a 2 para alinear con el input
         expand=False
     )
     
-    return Padding(panel, (1, 0)) # Margen horizontal eliminado para usar ancho total del track (85%)
+    return Padding(panel, (1, 0)) # Margen horizontal eliminado para usar ancho total del track (94%)
 
 
 

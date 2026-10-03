@@ -243,7 +243,8 @@ class MetaCommandProcessor:
                 theme_name = parts[1].lower()
             else:
                 from kogniterm.terminal.themes import _THEMES
-                theme_options = [(name, f"Theme {name}") for name in _THEMES.keys()]
+                theme_options = [("auto", "Auto (follow system light/dark)")]
+                theme_options += [(name, f"Theme {name}") for name in _THEMES.keys()]
                 theme_name = await self._show_radiolist(
                     title="🎨 Select Color Theme",
                     text="Choose a theme to customize KogniTerm's appearance:",

@@ -12,7 +12,7 @@ export default defineConfig({
     proxy: {
       // evita CORS en dev: /kapi -> backend nativo
       "/kapi": {
-        target: process.env.VITE_KOGNITERM_API ?? "http://127.0.0.1:8765",
+        target: process.env.VITE_KOGNITERM_API ?? "http://127.0.0.1:8755",
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/kapi/, ""),
       },

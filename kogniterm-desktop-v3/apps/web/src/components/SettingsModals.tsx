@@ -408,7 +408,7 @@ export function UnifiedSettingsModal(props: {
           <input
             value={connUrl()}
             onInput={(e) => setConnUrl(e.currentTarget.value)}
-            placeholder="http://127.0.0.1:8765  (vacío = proxy /kapi en dev)"
+            placeholder="http://127.0.0.1:8755  (vacío = proxy /kapi en dev)"
             class="w-full m-2 bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-2 text-[13px] font-mono text-white outline-none"
             style={{ width: "calc(100% - 16px)" }}
           />

@@ -127,11 +127,17 @@ class ToolExecutor:
         from ..utils.tool_utils import format_tool_action_target
         action_target = format_tool_action_target(tool_name, tool_args)
         if terminal_ui:
-            if is_tui:
+            if hasattr(terminal_ui, "print_tool_notification"):
                 terminal_ui.print_tool_notification(
-                    tool_name, action_target or action_desc, skill_name=skill_name
+                    tool_name,
+                    action_target or action_desc,
+                    skill_name=skill_name,
+                    tool_id=tool_id,
+                    tool_call_id=tool_id,
+                    args=tool_args,
+                    command=command_hint,
                 )
-            else:
+            if not is_tui:
                 suffix = f": [bold white]{action_target}[/bold white]" if action_target else ""
                 console.print(f"[cyan]🛠️  {tool_name}{suffix}[/cyan]")
         else:
@@ -182,30 +188,29 @@ class ToolExecutor:
                         full_tool_output += str(part)
                         current_time = time.time()
                         if (
-                            not is_tui
-                            and terminal_ui
+                            terminal_ui
                             and (current_time - last_ui_update > ui_update_interval)
                         ):
                             if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
                                 terminal_ui.update_terminal_output(
-                                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
+                                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint, is_final=False
                                 )
-                            elif is_terminal_tool and hasattr(terminal_ui, "update_tool_display"):
+                            elif hasattr(terminal_ui, "update_tool_display"):
                                 terminal_ui.update_tool_display(
-                                    tool_name, full_tool_output, command=command_hint
+                                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
                                 )
                             last_ui_update = current_time
             else:
                 full_tool_output = str(res) if res is not None else ""
 
-            # Emitir actualización final para la UI (solo para herramientas de terminal/comando)
+            # Emitir actualización final para la UI
             if is_terminal_tool and hasattr(terminal_ui, "update_terminal_output"):
                 terminal_ui.update_terminal_output(
-                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
+                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint, is_final=True
                 )
             elif is_terminal_tool and hasattr(terminal_ui, "update_tool_display"):
                 terminal_ui.update_tool_display(
-                    tool_name, full_tool_output, command=command_hint
+                    tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
                 )
             elif terminal_ui:
                 # Para herramientas de edición de archivos, mostrar el diff aplicado
@@ -213,6 +218,10 @@ class ToolExecutor:
                 ToolExecutor._render_file_edit_diff(
                     terminal_ui, tool_name, tool_args, full_tool_output
                 )
+                if hasattr(terminal_ui, "update_tool_display"):
+                    terminal_ui.update_tool_display(
+                        tool_name, full_tool_output, tool_call_id=tool_id, command=command_hint
+                    )
             # Post-procesamiento (Skills refresh, etc.)
             full_tool_output = ToolExecutor._handle_special_tools(tool_name, full_tool_output, llm_service)
 

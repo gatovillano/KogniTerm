@@ -523,7 +523,7 @@ async def test_long_title_is_truncated_with_dots():
         app._apply_session_title(session.session_id, largo)
         await pilot.pause()
         shown = btn.label.plain.strip()
-        assert len(shown) <= 20, shown
+        assert len(shown) <= 26, shown
         assert shown.endswith("..."), shown
         assert not shown.endswith("…"), "debe usar '...'"
 
@@ -586,7 +586,7 @@ async def test_send_long_message_shows_dots_in_tab():
         # Sin el spinner (no hay proceso), debe verse el título cortado con ...
         core = shown[2:].strip() if shown[:1] in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" else shown
         assert core.endswith("..."), f"sin puntos: {shown!r}"
-        assert len(core) <= 20, f"demasiado largo: {shown!r}"
+        assert len(core) <= 26, f"demasiado largo: {shown!r}"
 
 
 @pytest.mark.anyio

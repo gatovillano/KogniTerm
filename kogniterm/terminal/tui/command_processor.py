@@ -322,8 +322,9 @@ class TUICommandProcessor:
 
     async def _handle_theme(self):
         """Muestra modal para cambiar el tema visual."""
-        from kogniterm.terminal.themes import _THEMES
-        options = [(name, f"Tema {name.capitalize()}") for name in _THEMES.keys()]
+        from kogniterm.terminal.themes import _THEMES, detect_system_theme
+        options = [("auto", "Automático (según el sistema)")]
+        options += [(name, f"Tema {name.capitalize()}") for name in _THEMES.keys()]
         
         selected = await self.terminal_ui.ask_radiolist_async(
             title="🎨 Seleccionar Tema",
@@ -334,11 +335,19 @@ class TUICommandProcessor:
         if selected:
             self.app.apply_theme(selected)
             from kogniterm.terminal.config_manager import ConfigManager
+            from kogniterm.terminal.themes import ColorPalette
             cm = ConfigManager()
             cm.set_global_config("theme", selected)
             if cm.PROJECT_CONFIG_FILE.exists():
                 cm.set_project_config("theme", selected)
-            self.terminal_ui.print_message(f"✅ Tema actualizado: {selected}", style="green")
+            effective = ColorPalette.CURRENT_THEME
+            if selected == "auto":
+                self.terminal_ui.print_message(
+                    f"✅ Tema automático: sistema en {detect_system_theme()} → {effective}",
+                    style="green",
+                )
+            else:
+                self.terminal_ui.print_message(f"✅ Tema actualizado: {selected}", style="green")
 
     async def _handle_mcp(self, args: list):
         """Maneja la configuración y gestión de servidores MCP."""

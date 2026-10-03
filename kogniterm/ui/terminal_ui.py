@@ -143,7 +143,8 @@ class TerminalUI:
                     style = "bold cyan"
                     status_icon = "🔄"
                 else:
-                    style = "white"
+                    # Consciente del tema: "white" fijo es invisible en terminal clara
+                    style = ColorPalette.TEXT_PRIMARY
                     status_icon = "⏳"
 
                 table.add_row(status_icon, f"[{style}]{task_text}[/]")

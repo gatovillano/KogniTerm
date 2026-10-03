@@ -129,5 +129,10 @@ def test_is_terminal_tool_expanded():
     assert w4._is_terminal_tool() is True
 
 
-
+def test_tool_output_widget_full_width():
+    """Verifica que ToolOutputWidget configure 100% de ancho disponible sin restricciones a 85%."""
+    css = ToolOutputWidget.DEFAULT_CSS
+    assert "width: 100%;" in css
+    assert "max-width: 100%;" in css
+    assert "width: 85%;" not in css
 

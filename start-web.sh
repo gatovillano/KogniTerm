@@ -6,7 +6,7 @@ set -euo pipefail
 
 SHOW_LOGS=false
 FRONTEND_PORT=3000
-BACKEND_PORT=8765
+BACKEND_PORT=8755
 OPEN_BROWSER=true
 DETACH=false
 
@@ -25,7 +25,7 @@ for arg in "$@"; do
       echo "  --no-browser     No abre el navegador automáticamente"
       echo "  -d, --detach     Ejecuta en segundo plano y retorna a la terminal"
       echo "  --frontend-port=N Puerto del frontend (default: 3000)"
-      echo "  --backend-port=N  Puerto del backend (default: 8765)"
+      echo "  --backend-port=N  Puerto del backend (default: 8755)"
       echo "  --help           Muestra esta ayuda"
       exit 0
       ;;

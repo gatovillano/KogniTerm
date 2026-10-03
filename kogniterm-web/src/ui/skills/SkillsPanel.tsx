@@ -15,7 +15,7 @@ export interface SkillsPanelProps {
 }
 
 export const SkillsPanel: React.FC<SkillsPanelProps> = ({
-  serverUrl = 'http://127.0.0.1:8765',
+  serverUrl = 'http://127.0.0.1:8755',
 }) => {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(null);

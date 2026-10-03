@@ -135,6 +135,42 @@ export interface KogniTermThread {
   metadata?: Record<string, unknown>
 }
 
+export interface MCPServerItem {
+  name: string
+  transport: "stdio" | "sse"
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  disabled?: boolean
+  scope?: "global" | "project"
+  status?: "connected" | "disabled" | "error" | "failed" | "disconnected" | "pending"
+  error?: string
+  tools?: string[]
+}
+
+export interface MCPServerPayload {
+  name: string
+  config: {
+    transport: "stdio" | "sse"
+    command?: string
+    args?: string[]
+    env?: Record<string, string>
+    url?: string
+    headers?: Record<string, string>
+    disabled?: boolean
+    scope?: "global" | "project"
+  }
+  scope?: "global" | "project"
+}
+
+export interface MCPTestResult {
+  status: "ok" | "error"
+  message?: string
+  tools?: string[]
+}
+
 export interface KogniTermThreadMessage {
   id: string
   role: "user" | "assistant" | "system" | "tool"
@@ -216,6 +252,14 @@ export class KogniTermClient {
     subscribe: (opts?: { signal?: AbortSignal }) => AsyncIterable<unknown>
   }
 
+  public readonly mcp: {
+    list: (opts?: { signal?: AbortSignal }) => Promise<Record<string, MCPServerItem>>
+    save: (payload: MCPServerPayload, opts?: { signal?: AbortSignal }) => Promise<{ status: string; name: string }>
+    delete: (name: string, scope?: "global" | "project", opts?: { signal?: AbortSignal }) => Promise<{ status: string; name: string }>
+    toggle: (name: string, scope?: "global" | "project", opts?: { signal?: AbortSignal }) => Promise<{ status: string; name: string; disabled: boolean }>
+    test: (config: MCPServerPayload["config"], opts?: { signal?: AbortSignal }) => Promise<MCPTestResult>
+  }
+
   constructor(config: KogniTermClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "")
     this.fetcher = config.fetch ?? globalThis.fetch
@@ -256,6 +300,14 @@ export class KogniTermClient {
       subscribe: async function* () {
         // Yield empty placeholder stream if accessed directly; session WebSocket is the primary transport
       },
+    }
+
+    this.mcp = {
+      list: (opts) => this.listMcpServers(opts?.signal),
+      save: (payload, opts) => this.setMcpServer(payload, opts?.signal),
+      delete: (name, scope, opts) => this.deleteMcpServer(name, scope, opts?.signal),
+      toggle: (name, scope, opts) => this.toggleMcpServer(name, scope, opts?.signal),
+      test: (config, opts) => this.testMcpConnection(config, opts?.signal),
     }
   }
 
@@ -360,6 +412,48 @@ export class KogniTermClient {
     const res = await this.fetch("/api/skills", { signal })
     if (!res.ok) throw new Error(`List skills failed: ${res.statusText}`)
     return res.json()
+  }
+
+  async listMcpServers(signal?: AbortSignal): Promise<Record<string, MCPServerItem>> {
+    const res = await this.fetch("/api/mcp/servers", { signal })
+    if (!res.ok) throw new Error(`List MCP servers failed: ${res.statusText}`)
+    return res.json()
+  }
+
+  async setMcpServer(payload: MCPServerPayload, signal?: AbortSignal): Promise<{ status: string; name: string }> {
+    return this.postJson<{ status: string; name: string }>("/api/mcp/servers", payload, signal)
+  }
+
+  async deleteMcpServer(
+    name: string,
+    scope: "global" | "project" = "project",
+    signal?: AbortSignal,
+  ): Promise<{ status: string; name: string }> {
+    const res = await this.fetch(`/api/mcp/servers/${encodeURIComponent(name)}?scope=${encodeURIComponent(scope)}`, {
+      method: "DELETE",
+      signal,
+    })
+    if (!res.ok) throw new Error(`Delete MCP server failed: ${res.statusText}`)
+    return res.json()
+  }
+
+  async toggleMcpServer(
+    name: string,
+    scope: "global" | "project" = "project",
+    signal?: AbortSignal,
+  ): Promise<{ status: string; name: string; disabled: boolean }> {
+    return this.postJson<{ status: string; name: string; disabled: boolean }>(
+      `/api/mcp/servers/${encodeURIComponent(name)}/toggle?scope=${encodeURIComponent(scope)}`,
+      {},
+      signal,
+    )
+  }
+
+  async testMcpConnection(
+    config: MCPServerPayload["config"],
+    signal?: AbortSignal,
+  ): Promise<MCPTestResult> {
+    return this.postJson<MCPTestResult>("/api/mcp/test-connection", config, signal)
   }
 
   async listWorkspaces(signal?: AbortSignal): Promise<{ workspaces: KogniTermWorkspace[] }> {

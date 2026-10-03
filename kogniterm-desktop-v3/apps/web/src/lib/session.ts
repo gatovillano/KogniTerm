@@ -1,5 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 import { api, wsUrl } from "./api";
+import { agents } from "./agents";
 import { tabs, uid } from "./tabs";
 import { approvals } from "./approvals";
 
@@ -7,6 +8,10 @@ export type ConnState = "connecting" | "open" | "closed" | "error";
 
 const sockets = new Map<string, WebSocket>();
 const states = new Map<string, (s: ConnState) => void>();
+/** Terminal inline actualmente abierta por pestaña/agente del backend. */
+const activeAgentTerminals = new Map<string, { terminalId: string; agentId?: string }>();
+/** El worker pidió cursor interactivo antes de que existiera la terminal inline. */
+const interactiveAgentTerminals = new Set<string>();
 
 /** Responde aprobación por WS (como la TUI); fallback REST si el socket falla. */
 export async function replyApproval(tabId: string, requestId: string, approved: boolean): Promise<void> {
@@ -90,6 +95,16 @@ export function useSession(tabId: string) {
   function handleServerEvent(tabId: string, msg: any) {
     const type = msg?.type;
     const data = msg?.data;
+    if (type === "connected") {
+      const serverAgent = data?.config?.agent;
+      if (typeof serverAgent === "string" && serverAgent) agents.applyServerAgent(tabId, serverAgent);
+      return;
+    }
+    if (type === "agent_changed") {
+      const serverAgent = data?.agent;
+      if (typeof serverAgent === "string" && serverAgent) agents.applyServerAgent(tabId, serverAgent);
+      return;
+    }
     const textOf = (d: any): string =>
       typeof d === "string" ? d : (d?.text ?? d?.content ?? d?.message ?? (d ? JSON.stringify(d) : ""));
 
@@ -103,7 +118,7 @@ export function useSession(tabId: string) {
       return id;
     }
 
-    function closeStreaming() {
+    function closeStreaming(agentId?: string) {
       const tab = tabs.store.tabs.find((t) => t.id === tabId);
       const last = tab?.messages[tab.messages.length - 1];
       if (last && last.role === "assistant" && last.pending) {
@@ -111,6 +126,96 @@ export function useSession(tabId: string) {
         // si al final solo hubo razonamiento (sin respuesta), no dejamos burbuja vacía
         if (!last.text.trim() && !last.thinking?.trim()) tabs.dropIfEmpty(tabId, last.id);
       }
+      tabs.closeAgentTerminals(tabId, agentId);
+      for (const key of [...activeAgentTerminals.keys(), ...interactiveAgentTerminals]) {
+        if (
+          key.startsWith(`${encodeURIComponent(tabId)}::`) &&
+          (agentId == null || key === agentTerminalKey(agentId))
+        ) {
+          activeAgentTerminals.delete(key);
+          interactiveAgentTerminals.delete(key);
+        }
+      }
+    }
+
+    function agentTerminalKey(agentId?: string): string {
+      return `${encodeURIComponent(tabId)}::${encodeURIComponent(agentId ?? "main")}`;
+    }
+
+    /**
+     * Crea o actualiza la terminal inline vinculada a la ejecución del agente.
+     * Es una PTY distinta del shell lateral: su entrada debe ir al worker,
+     * no al PTY de usuario.
+     */
+    function upsertAgentTerminal(
+      agentId: string | undefined,
+      input: { terminalId?: string; tool?: string; command?: string; snapshot?: string },
+    ): string {
+      const key = agentTerminalKey(agentId);
+      const existing = activeAgentTerminals.get(key);
+      let terminalId = input.terminalId;
+      if (terminalId && existing && existing.terminalId !== terminalId) {
+        tabs.setAgentTerminalState(tabId, existing.terminalId, {
+          terminalActive: false,
+          terminalInteractive: false,
+        });
+      }
+      if (!terminalId) terminalId = existing?.terminalId;
+      if (!terminalId) {
+        terminalId = uid("term");
+        tabs.pushAgentTerminal(tabId, {
+          id: terminalId,
+          terminalId,
+          terminalTool: input.tool,
+          terminalCommand: input.command,
+          agentId,
+          output: input.snapshot ?? "",
+        });
+        tabs.setAgentTerminalState(tabId, terminalId, {
+          terminalActive: true,
+          terminalInteractive: interactiveAgentTerminals.has(key),
+        });
+      } else {
+        tabs.setAgentTerminalSnapshot(tabId, terminalId, input.snapshot ?? "");
+        tabs.setAgentTerminalState(tabId, terminalId, {
+          terminalActive: true,
+          terminalInteractive: tabs.store.tabs
+            .find((t) => t.id === tabId)
+            ?.messages.find((m) => m.role === "terminal" && m.terminalId === terminalId)?.terminalInteractive,
+        });
+      }
+      activeAgentTerminals.set(key, { terminalId, agentId });
+      return terminalId;
+    }
+
+    function markAgentTerminalsInteractive(agentId: string | undefined, interactive: boolean) {
+      if (agentId == null) {
+        for (const [key, entry] of activeAgentTerminals) {
+          if (key.startsWith(`${encodeURIComponent(tabId)}::`)) {
+            tabs.setAgentTerminalState(tabId, entry.terminalId, {
+              terminalActive: interactive,
+              terminalInteractive: interactive,
+            });
+            if (!interactive) {
+              activeAgentTerminals.delete(key);
+              interactiveAgentTerminals.delete(key);
+            } else {
+              interactiveAgentTerminals.add(key);
+            }
+          }
+        }
+        return;
+      }
+      const key = agentTerminalKey(agentId);
+      const entry = activeAgentTerminals.get(key);
+      if (interactive) interactiveAgentTerminals.add(key);
+      else interactiveAgentTerminals.delete(key);
+      if (!entry) return;
+      tabs.setAgentTerminalState(tabId, entry.terminalId, {
+        terminalActive: interactive,
+        terminalInteractive: interactive,
+      });
+      if (!interactive) activeAgentTerminals.delete(key);
     }
 
     if (type === "stream") {
@@ -119,12 +224,19 @@ export function useSession(tabId: string) {
     } else if (type === "live_update") {
       if (data && typeof data === "object") {
         const special = data.special_type;
-        if (special === "spinner" || special === "terminal") {
-          // Estado de herramientas: no es texto de respuesta.
-          // Para terminal ya existe el sidebar con el PTY real.
-          if (special === "spinner" && data.text) {
+        if (special === "spinner") {
+          if (data.text) {
             tabs.push(tabId, { id: uid("t"), role: "tool", text: `· ${data.text}` });
           }
+          return;
+        }
+        if (special === "terminal") {
+          // Snapshot acumulado del comando en ejecución. No pertenece al PTY lateral.
+          upsertAgentTerminal(msg.agent_id, {
+            tool: typeof data.tool === "string" ? data.tool : undefined,
+            command: typeof data.command === "string" ? data.command : undefined,
+            snapshot: typeof data.output === "string" ? data.output : "",
+          });
           return;
         }
         const response = typeof data.response === "string" ? data.response : "";
@@ -138,7 +250,7 @@ export function useSession(tabId: string) {
         if (t) tabs.setText(tabId, streamingMsg(), t);
       }
     } else if (type === "live_stop") {
-      closeStreaming();
+      closeStreaming(msg.agent_id);
     } else if (type === "message") {
       const text = textOf(data);
       if (text) {
@@ -157,14 +269,28 @@ export function useSession(tabId: string) {
     } else if (type === "tool_output") {
       tabs.push(tabId, { id: uid("t"), role: "tool", text: textOf(data) });
     } else if (type === "terminal_output") {
-      // El shell real vive en el sidebar (WS del PTY); no duplicamos la salida aquí.
+      // El shell lateral es otro PTY. Esta salida pertenece al worker que está
+      // ejecutando el comando aprobado y debe mostrarse aquí.
+      if (data && typeof data === "object") {
+        const toolCallId = typeof data.tool_call_id === "string" && data.tool_call_id ? data.tool_call_id : undefined;
+        upsertAgentTerminal(msg.agent_id, {
+          terminalId: toolCallId,
+          tool: typeof data.tool === "string" ? data.tool : undefined,
+          command: typeof data.command === "string" ? data.command : undefined,
+          snapshot: typeof data.content === "string" ? data.content : typeof data.output === "string" ? data.output : "",
+        });
+      }
+      return;
+    } else if (type === "set_terminal_cursor") {
+      const active = typeof data === "object" && data !== null ? Boolean(data.active) : Boolean(data);
+      markAgentTerminalsInteractive(msg.agent_id, active);
       return;
     } else if (type === "task_tracker" || type === "todo.updated") {
       return;
     } else if (type === "done") {
-      closeStreaming();
+      closeStreaming(msg.agent_id);
     } else if (type === "error") {
-      closeStreaming();
+      closeStreaming(msg.agent_id);
       tabs.push(tabId, { id: uid("s"), role: "system", text: `Error: ${textOf(data)}` });
     } else if (type === "info") {
       // acks del servidor (p.ej. "Aprobación procesada") — no ensucian el chat
@@ -211,12 +337,12 @@ export function useSession(tabId: string) {
     return false;
   }
 
-  function send(text: string) {
+  function send(text: string, agent?: string) {
     const clean = text.trim();
     if (!clean) return;
-    tabs.push(tabId, { id: uid("u"), role: "user", text: clean });
+    tabs.push(tabId, { id: uid("u"), role: "user", text: clean, agent });
     const ws = ensureSocket();
-    const payload = JSON.stringify({ type: "message", text: clean });
+    const payload = JSON.stringify({ type: "message", text: clean, ...(agent ? { agent } : {}) });
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(payload);
     } else if (ws) {
@@ -233,10 +359,19 @@ export function useSession(tabId: string) {
     else void api.interrupt(tabId).catch(() => {});
   }
 
+  /**
+   * Envía teclas o texto a la ejecución interactiva del agente.
+   * Va al worker de la sesión, no al PTY lateral.
+   */
+  function sendTerminalInput(text: string) {
+    if (!text) return;
+    sendRaw(JSON.stringify({ type: "terminal_input", text }));
+  }
+
   ensureSocket();
   onCleanup(() => {
     states.delete(tabId);
   });
 
-  return { conn, send, interrupt, reconnect: ensureSocket };
+  return { conn, send, sendTerminalInput, interrupt, reconnect: ensureSocket };
 }

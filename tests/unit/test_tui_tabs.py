@@ -55,7 +55,7 @@ async def test_websocket_client_routes_subagent_events():
     
     from kogniterm.terminal.tui.ws_client import TUIWebSocketClient
     
-    client = TUIWebSocketClient(app, "ws://localhost:8765", "test_session")
+    client = TUIWebSocketClient(app, "ws://localhost:8755", "test_session")
     
     # Test main agent panel retrieval
     assert client._get_chat_log(None) == app.chat_log

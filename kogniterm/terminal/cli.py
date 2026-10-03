@@ -657,7 +657,7 @@ class CLIHandler:
             print("  --no-browser       No abre el navegador automáticamente")
             print("  -d, --detach       Ejecuta en segundo plano y retorna a la terminal")
             print("  --frontend-port=N  Puerto del frontend (default: 3000)")
-            print("  --backend-port=N   Puerto del backend (default: 8765)")
+            print("  --backend-port=N   Puerto del backend (default: 8755)")
             print("  -h, --help         Muestra este mensaje de ayuda")
             return
 
@@ -1080,6 +1080,10 @@ def run_cli() -> bool:
         return True
     elif command == 'skills':
         handler.handle_skills(args)
+        return True
+    elif command == 'pay':
+        from kogniterm.terminal.pay_cli import handle_pay
+        handle_pay(args)
         return True
     elif command == 'upgrade':
         handler.handle_upgrade(args)

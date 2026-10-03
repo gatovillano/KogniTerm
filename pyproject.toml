@@ -57,3 +57,12 @@ include-package-data = true
 [tool.setuptools.packages.find]
 include = ["kogniterm*"]
 
+[tool.pytest.ini_options]
+# `importlib` evita el choque de nombres cuando dos directorios distintos
+# contienen un archivo con el mismo basename (p. ej. tests/test_payments.py y
+# tests/server/test_payments.py): sin esto pytest los importa como el mismo
+# módulo y aborta la collection con "import file mismatch".
+addopts = "--import-mode=importlib"
+testpaths = ["tests"]
+norecursedirs = ["node_modules", "venv", ".venv", "dist", "build", "scratch"]
+

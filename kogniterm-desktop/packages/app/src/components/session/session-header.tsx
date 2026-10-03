@@ -242,6 +242,11 @@ export function SessionHeader() {
     reviewVisible: isDesktop(),
     reviewOpened: view().reviewPanel.opened(),
     onReviewToggle: () => view().reviewPanel.toggle(),
+    fileTreeLabel: language.t("command.fileTree.toggle"),
+    fileTreeKeybind: command.keybindParts("fileTree.toggle"),
+    fileTreeVisible: isDesktop() && settings.visibility.fileTree(),
+    fileTreeOpened: layout.fileTree.opened(),
+    onFileTreeToggle: () => layout.fileTree.toggle(),
   }))
 
   const selectApp = (app: OpenApp) => {
@@ -524,6 +529,11 @@ type SessionHeaderV2ActionsState = {
   reviewVisible: boolean
   reviewOpened: boolean
   onReviewToggle: () => void
+  fileTreeLabel: string
+  fileTreeKeybind: string[]
+  fileTreeVisible: boolean
+  fileTreeOpened: boolean
+  onFileTreeToggle: () => void
 }
 
 function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
@@ -535,6 +545,33 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
         <Tooltip placement="bottom" value={props.state.statusLabel}>
           <StatusPopoverV2 />
         </Tooltip>
+      </Show>
+      <Show when={props.state.fileTreeVisible}>
+        <TooltipV2
+          class="shrink-0"
+          placement="bottom"
+          value={
+            <>
+              {props.state.fileTreeLabel}
+              <Show when={props.state.fileTreeKeybind.length > 0}>
+                <KeybindV2 keys={props.state.fileTreeKeybind} variant="neutral" />
+              </Show>
+            </>
+          }
+        >
+          <IconButtonV2
+            type="button"
+            variant="ghost-muted"
+            size="large"
+            class="!w-9 shrink-0"
+            state={props.state.fileTreeOpened ? "pressed" : undefined}
+            onClick={props.state.onFileTreeToggle}
+            aria-label={props.state.fileTreeLabel}
+            aria-expanded={props.state.fileTreeOpened}
+            aria-controls="file-tree-panel"
+            icon={<IconV2 name="filetree" />}
+          />
+        </TooltipV2>
       </Show>
       <Show when={props.state.reviewVisible}>
         <TooltipV2

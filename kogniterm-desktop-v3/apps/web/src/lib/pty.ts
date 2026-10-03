@@ -38,7 +38,7 @@ export function ptyWsUrl(ptyId: string, directory?: string): string {
   if (root0.startsWith("http")) {
     root = root0.replace(/^http/, "ws");
   } else {
-    root = (import.meta as any).env?.DEV ? "ws://127.0.0.1:8765" : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
+    root = (import.meta as any).env?.DEV ? "ws://127.0.0.1:8755" : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
   }
   const dir = directory ? `&directory=${encodeURIComponent(directory)}` : "";
   return `${root}/api/pty/${encodeURIComponent(ptyId)}/connect?client_type=desktop${dir}`;

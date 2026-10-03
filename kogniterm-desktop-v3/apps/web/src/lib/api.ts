@@ -21,7 +21,7 @@ export function apiRoot(): string {
   if (fromMain) return fromMain.replace(/\/$/, "");
   if (BUILD_API) return BUILD_API.replace(/\/$/, "");
   // file:// → backend local directo (el proxy /kapi solo existe en el dev server)
-  if (isFileProtocol()) return "http://127.0.0.1:8765";
+  if (isFileProtocol()) return "http://127.0.0.1:8755";
   return "/kapi";
 }
 
@@ -56,7 +56,7 @@ export function wsUrl(sessionId: string): string {
     root = root0.replace(/^http/, "ws");
   } else if (isFileProtocol() || (import.meta as any).env?.DEV) {
     // dev (el proxy no soporta WS) y Electron file:// → backend local directo
-    root = "ws://127.0.0.1:8765";
+    root = "ws://127.0.0.1:8755";
   } else {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     root = `${proto}//${location.host}`;
@@ -127,8 +127,21 @@ export interface ThreadMessage {
   images?: string[];
 }
 
+export interface NativeAgent {
+  id: string;
+  name: string;
+  description: string;
+  engine: string;
+}
+
+export interface AgentCatalogResponse {
+  agents: NativeAgent[];
+  default: string;
+}
+
 export const api = {
   health: () => req<{ status: string }>("/health"),
+  listAgents: () => req<AgentCatalogResponse>("/api/agents"),
   getModels: () => req<AvailableModels>("/models/available"),
   getLLM: () => req<LLMConfig>("/config/llm"),
   setLLM: (body: { model?: string; provider?: string; api_key?: string }) =>

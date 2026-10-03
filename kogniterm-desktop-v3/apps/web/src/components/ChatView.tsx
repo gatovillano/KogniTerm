@@ -1,13 +1,19 @@
 import { For, Show, createEffect, createSignal, onMount } from "solid-js";
 import { tabs } from "../lib/tabs";
 import { useSession } from "../lib/session";
+import { agents, useAgents } from "../lib/agents";
 import { loadThreadHistory } from "../lib/history";
+import { AgentTerminal } from "./AgentTerminal";
+import { AgentSelector } from "./AgentSelector";
 import { Markdown } from "./Markdown";
 
 export function ChatView(props: { tabId: string }) {
   const session = useSession(props.tabId);
+  const agentState = useAgents(props.tabId);
   const [draft, setDraft] = createSignal("");
+  const [agentStatus, setAgentStatus] = createSignal("");
   let scrollRef: HTMLDivElement | undefined;
+  let inputRef: HTMLInputElement | undefined;
 
   const tab = () => tabs.store.tabs.find((t) => t.id === props.tabId)!;
 
@@ -25,8 +31,21 @@ export function ChatView(props: { tabId: string }) {
     e?.preventDefault();
     const v = draft();
     if (!v.trim()) return;
+    const selected = agentState.selected();
+    if (!selected) {
+      setAgentStatus(
+        agentState.error()
+          ? `Agentes no disponibles: ${agentState.error()}`
+          : "Cargando el catálogo nativo de agentes…",
+      );
+    if (!agentState.catalog()) {
+      void agents.ensureAgents(true);
+    }
+    return;
+    }
+    setAgentStatus("");
     setDraft("");
-    session.send(v);
+    session.send(v, selected.id);
     if (tab().messages.length <= 2) {
       tabs.rename(props.tabId, v.slice(0, 32) || tab().title);
     }
@@ -54,7 +73,7 @@ export function ChatView(props: { tabId: string }) {
 
       {/* Una sola columna centrada: usuario y agente comparten bordes.
           El agente ancla a la izquierda de la columna, el usuario a la derecha. */}
-      <div ref={scrollRef} class="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} data-chat-scroll class="flex-1 overflow-y-auto px-4 py-4">
         <div class="w-full max-w-3xl mx-auto space-y-3">
           <Show when={tab().messages.length === 0}>
             <div class="text-center text-[#8b949e] text-[13px] mt-10">
@@ -66,19 +85,35 @@ export function ChatView(props: { tabId: string }) {
           <For each={tab().messages}>
             {(m) => (
               <Show
-                when={m.role !== "assistant"}
+                when={m.role !== "assistant" && m.role !== "terminal"}
                 fallback={
-                  /* Agente: sin fondo ni borde, anclado a la izquierda de la columna. */
-                  <div class="w-full text-[13px] leading-relaxed text-[#e6edf3]">
-                    <Show when={m.thinking?.trim()}>
-                      <details class="thinking mb-1.5">
-                        <summary>razonamiento</summary>
-                        <div class="mt-1">{m.thinking}</div>
-                      </details>
-                    </Show>
-                    <Markdown text={m.text} center />
-                    {m.pending && <span class="animate-pulse text-[#58a6ff]">▍</span>}
-                  </div>
+                  <Show
+                    when={m.role === "terminal"}
+                    fallback={
+                      /* Agente: sin fondo ni borde, anclado a la izquierda de la columna. */
+                      <div class="w-full text-[13px] leading-relaxed text-[#e6edf3]">
+                        <Show when={m.thinking?.trim()}>
+                          <details class="thinking mb-1.5">
+                            <summary>razonamiento</summary>
+                            <div class="mt-1">{m.thinking}</div>
+                          </details>
+                        </Show>
+                        <Markdown text={m.text} center />
+                        {m.pending && <span class="animate-pulse text-[#58a6ff]">▍</span>}
+                      </div>
+                    }
+                  >
+                    <AgentTerminal
+                      tabId={props.tabId}
+                      terminalId={m.terminalId ?? m.id}
+                      tool={m.terminalTool}
+                      command={m.terminalCommand}
+                      output={m.terminalOutput ?? ""}
+                      active={m.terminalActive}
+                      interactive={m.terminalInteractive}
+                      onInput={(text) => session.sendTerminalInput(text)}
+                    />
+                  </Show>
                 }
               >
                 <div class={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -91,6 +126,11 @@ export function ChatView(props: { tabId: string }) {
                           : "bg-[#161b22] text-red-300 border border-[#30363d] whitespace-pre-wrap"
                     }`}
                   >
+                    <Show when={m.role === "user" && m.agent}>
+                      <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/80">
+                        {agents.byId(m.agent)?.name ?? m.agent}
+                      </div>
+                    </Show>
                     {m.text}
                   </div>
                 </div>
@@ -101,16 +141,30 @@ export function ChatView(props: { tabId: string }) {
       </div>
 
       <form onSubmit={submit} class="p-3 border-t border-[#21262d]">
+        <Show when={agentStatus()}>
+          <p class="mb-2 text-[12px] text-amber-200">{agentStatus()}</p>
+        </Show>
         <div class="flex gap-2">
+          <AgentSelector tabId={props.tabId} onSelect={() => inputRef?.focus()} />
           <input
+            ref={inputRef}
             value={draft()}
-            onInput={(e) => setDraft(e.currentTarget.value)}
+            onInput={(e) => {
+              setDraft(e.currentTarget.value);
+              if (agentStatus()) setAgentStatus("");
+            }}
             placeholder="Escribe un mensaje… (Enter para enviar)"
             class="flex-1 bg-[#161b22] border border-[#30363d] rounded-md px-3 py-2 text-[13px] text-white placeholder-[#6e7681] outline-none focus:border-[#1f6feb]"
           />
           <button
             type="submit"
-            class="px-4 py-2 rounded-md bg-[#238636] hover:bg-[#2ea043] text-white text-[13px] font-medium"
+            disabled={!draft().trim() || !agentState.selected()}
+            title={
+              agentState.selected()
+                ? `Enviar con ${agentState.selected()?.name}`
+                : "Selecciona un agente disponible antes de enviar"
+            }
+            class="px-4 py-2 rounded-md bg-[#238636] hover:bg-[#2ea043] text-white text-[13px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
           >
             Enviar
           </button>

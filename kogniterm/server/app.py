@@ -65,7 +65,8 @@ from kogniterm.server.channel_adapters import (
     TelegramAdapter,
 )
 from kogniterm.server.pty_manager import pty_manager
-from kogniterm.server.payments import payment_service, PaymentProviderType
+from kogniterm.server.payments import get_payment_service
+from kogniterm.server.payments.api import router as payments_router
 
 logger = logging.getLogger("kogniterm.server.app")
 logging.basicConfig(
@@ -221,10 +222,36 @@ async def lifespan(app: FastAPI):
     # Inicializar scheduler de heartbeats
     heartbeat_scheduler.start()
 
+    # ── Pagos: barrido periódico de suscripciones vencidas ──────────────────
+    # Sin esto, un plan caducado seguiría otorgando entitlements hasta que
+    # alguien llamase a /reconcile. El barrido es idempotente y barato.
+    async def payments_reconciliation_loop():
+        try:
+            service = get_payment_service()
+        except Exception as exc:  # el servidor debe arrancar igual sin pagos
+            logger.warning(f"⚠️ Sistema de pagos no disponible: {exc}")
+            return
+        while True:
+            try:
+                await asyncio.sleep(900)  # 15 minutos
+                result = await loop.run_in_executor(None, service.reconcile_expirations)
+                if result["expired_count"]:
+                    logger.info(
+                        f"💳 {result['expired_count']} suscripción(es) expirada(s) "
+                        "degradada(s) a Free."
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(f"Error en la reconciliación de pagos: {exc}")
+
+    reconciliation_task = asyncio.create_task(payments_reconciliation_loop())
+
     logger.info("✅ KogniTerm Server listo.")
     yield
 
     logger.info("🛑 Cerrando KogniTerm Server...")
+    reconciliation_task.cancel()
     # Detener scheduler de heartbeats
     heartbeat_scheduler.stop()
 
@@ -282,7 +309,7 @@ ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         "KOGNITERM_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8765,http://127.0.0.1:8765,http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,oc://renderer,oc://kogniterm,null,file://,app://kogniterm,http://localhost:4444,http://127.0.0.1:4444",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8755,http://127.0.0.1:8755,http://localhost:8765,http://127.0.0.1:8765,http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,http://tauri.localhost,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,oc://renderer,oc://kogniterm,null,file://,app://kogniterm,http://localhost:4444,http://127.0.0.1:4444",
     ).split(",")
     if o.strip()
 ]
@@ -446,64 +473,8 @@ def create_app() -> FastAPI:
         return {"status": "triggered", "id": heartbeat_id}
 
     # ── Endpoints de Pagos y Suscripciones ──────────────────────────────────────
-
-    @application.get("/api/payments/plans", tags=["Payments"])
-    async def get_payment_plans():
-        """Obtiene la lista de planes de suscripción disponibles."""
-        return payment_service.get_plans()
-
-    @application.get("/api/payments/subscription/{user_id}", tags=["Payments"])
-    async def get_user_subscription(user_id: str):
-        """Obtiene la suscripción y saldo de créditos de un usuario."""
-        return payment_service.get_user_subscription(user_id)
-
-    @application.post("/api/payments/checkout", tags=["Payments"])
-    async def create_checkout(payload: Dict[str, Any] = Body(...)):
-        """
-        Crea una sesión de checkout (Stripe, MercadoPago o Mock).
-        Payload: {"user_id": "...", "plan_id": "...", "provider": "mock"|"stripe"|"mercadopago"}
-        """
-        user_id = payload.get("user_id", "default_user")
-        plan_id = payload.get("plan_id")
-        provider = payload.get("provider")
-        if not plan_id:
-            raise HTTPException(status_code=400, detail="El campo 'plan_id' es obligatorio.")
-        
-        provider_enum = PaymentProviderType(provider) if provider else None
-        try:
-            return payment_service.create_checkout_session(user_id=user_id, plan_id=plan_id, provider=provider_enum)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @application.post("/api/payments/mock-checkout/complete", tags=["Payments"])
-    async def complete_mock_checkout(payload: Dict[str, Any] = Body(...)):
-        """
-        Simula la aprobación exitosa de un pago en modo MOCK/Desarrollo.
-        Payload: {"transaction_id": "tx_..."}
-        """
-        tx_id = payload.get("transaction_id")
-        if not tx_id:
-            raise HTTPException(status_code=400, detail="transaction_id es requerido.")
-        try:
-            sub = payment_service.complete_transaction(tx_id=tx_id)
-            return {"status": "success", "subscription": sub}
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @application.post("/api/payments/webhook/{provider}", tags=["Payments"])
-    async def payment_webhook(provider: str, request: Request):
-        """
-        Endpoint genérico para recepción de Webhooks (Stripe / MercadoPago).
-        """
-        body_bytes = await request.body()
-        sig_header = request.headers.get("stripe-signature") or request.headers.get("x-signature")
-        try:
-            res = payment_service.process_webhook(provider, body_bytes, sig_header)
-            return res
-        except Exception as e:
-            logger.error(f"Error procesando webhook de {provider}: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
-        return {"status": "triggered", "id": heartbeat_id}
+    # El dominio vive en kogniterm/server/payments/ (router propio, ver api.py).
+    application.include_router(payments_router, prefix="/api/payments")
 
     # ── Gestión de Configuración (LLM) ──────────────────────────────────────
 
@@ -972,6 +943,13 @@ def create_app() -> FastAPI:
             "model": target_model or cm.get_config("default_model"),
             "provider": req.provider or "inferred/ignored",
         }
+
+    @application.get("/api/agents", tags=["Agentes"])
+    async def list_native_agents():
+        """Catálogo nativo de motores conversacionales seleccionables por mensaje."""
+        from kogniterm.core.agents.agent_catalog import DEFAULT_CHAT_AGENT, describe_agents
+
+        return {"agents": describe_agents(), "default": DEFAULT_CHAT_AGENT}
 
     # ── Gestión de Configuración (Adicionales) ──────────────────────────────
 
@@ -1687,9 +1665,20 @@ def create_app() -> FastAPI:
         if hasattr(session, "ui") and session.ui:
             session.ui.last_user_message_id = message_id
 
+        # Extraer agente solicitado si el cliente lo especifica (ej. Desktop/OpenCode)
+        requested_agent = req.get("agent") if isinstance(req, dict) else None
+
         # Lanzar el agente en background (fire-and-forget) solo si hay mensaje
         if message_text:
-            asyncio.create_task(session.send(message_text, pool._executor, images=images or None, user_message_id=message_id))
+            asyncio.create_task(
+                session.send(
+                    message_text,
+                    pool._executor,
+                    images=images or None,
+                    user_message_id=message_id,
+                    agent=requested_agent,
+                )
+            )
 
         res = {
             "id": message_id,
@@ -1809,7 +1798,15 @@ def create_app() -> FastAPI:
         elif pool._thread_manager:
             raw_msgs = pool._thread_manager.load_thread_messages(session_id) or []
 
-        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+
+        # Mapear salidas de herramientas desde ToolMessages históricos
+        tool_outputs_map = {}
+        for m in raw_msgs:
+            if isinstance(m, ToolMessage) or getattr(m, "type", None) == "tool":
+                t_id = getattr(m, "tool_call_id", None)
+                if t_id:
+                    tool_outputs_map[t_id] = m.content if isinstance(m.content, str) else str(m.content)
 
         formatted = []
         now_ms = int(time.time() * 1000)
@@ -1857,21 +1854,43 @@ def create_app() -> FastAPI:
                 m_id = getattr(m, "id", None) or f"asst-msg-{i}"
                 parts = []
                 content_items = []
-                # Si hay tool_calls, agregarlos
+                # Si hay tool_calls, agregarlos con sus salidas normalizadas
                 tool_calls = getattr(m, "tool_calls", None) or []
                 for tc in tool_calls:
                     tc_id = tc.get("id") or str(uuid.uuid4())
+                    raw_name = tc.get("name", "tool")
+                    is_bash = (
+                        raw_name in {"execute_command", "execute_command_tool", "run_command", "run_command_tool", "bash", "shell", "run_shell", "cmd_execution", "python_executor", "terminal"}
+                        or any(k in raw_name.lower() for k in ["command", "bash", "shell"])
+                    )
+                    tool_name = "bash" if is_bash else (
+                        "read" if raw_name in {"read_file", "view_file"} else (
+                            "write" if raw_name in {"write_file", "write_to_file"} else (
+                                "edit" if raw_name in {"edit_file", "replace_file_content", "advanced_file_editor", "file_update"} else (
+                                    "websearch" if raw_name in {"web_search", "search_web"} else raw_name
+                                )
+                            )
+                        )
+                    )
+                    tc_args = tc.get("args") or {}
+                    cmd = tc_args.get("command") if isinstance(tc_args, dict) else ""
+                    out = tool_outputs_map.get(tc_id, "")
                     tool_item = {
                         "id": f"tool-{tc_id}",
                         "sessionID": session_id,
                         "messageID": m_id,
                         "type": "tool",
                         "callID": tc_id,
-                        "tool": tc.get("name", "tool"),
+                        "tool": tool_name,
                         "state": {
                             "status": "completed",
-                            "input": tc.get("args", {}),
-                            "output": "",
+                            "input": tc_args,
+                            "output": out,
+                            "title": f"$ {cmd}" if cmd else tool_name,
+                            "metadata": {
+                                "command": cmd,
+                                "output": out,
+                            },
                             "time": {"start": msg_time, "end": msg_time},
                         },
                     }
@@ -2051,7 +2070,50 @@ def create_app() -> FastAPI:
     @application.get("/api/agent", tags=["Agentes (OpenCode Compat)"])
     @application.get("/agent", tags=["Agentes (OpenCode Compat)"])
     async def opencode_list_agents(request: Request):
-        agents = [{"id": "default", "name": "KogniTerm Agent", "description": "Default Agent", "mode": "chat"}]
+        agents = [
+            {
+                "id": "build",
+                "name": "build",
+                "description": "Agente principal de desarrollo y ejecución de tareas.",
+                "mode": "primary",
+                "native": True,
+            },
+            {
+                "id": "plan",
+                "name": "plan",
+                "description": "Planificación y análisis de arquitectura.",
+                "mode": "primary",
+                "native": True,
+            },
+            {
+                "id": "super_agent",
+                "name": "super_agent",
+                "description": "SuperAgent: terminal, código, herramientas y orquestación.",
+                "mode": "primary",
+                "native": True,
+            },
+            {
+                "id": "bash_agent",
+                "name": "bash_agent",
+                "description": "Comandos de shell y administración de sistema.",
+                "mode": "primary",
+                "native": True,
+            },
+            {
+                "id": "code_agent",
+                "name": "code_agent",
+                "description": "Edición y refactorización de código.",
+                "mode": "primary",
+                "native": True,
+            },
+            {
+                "id": "researcher_agent",
+                "name": "researcher_agent",
+                "description": "Investigación técnica profunda.",
+                "mode": "primary",
+                "native": True,
+            },
+        ]
         if request.url.path.startswith("/api/"):
             return {"data": agents}
         return agents
@@ -2460,6 +2522,191 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/api/"):
             return {"data": refs}
         return refs
+
+    def _resolve_opencode_dir(req: Request, d: Optional[str] = None) -> str:
+        if not d:
+            d = req.headers.get("x-opencode-directory") or req.headers.get("X-Opencode-Directory")
+        if d:
+            from urllib.parse import unquote
+            d = unquote(d)
+            return safe_abs_path(d)
+        return safe_abs_path(os.getcwd())
+
+    @application.get("/api/file", tags=["Archivos (OpenCode Compat)"])
+    @application.get("/file", tags=["Archivos (OpenCode Compat)"])
+    async def opencode_file_list(
+        request: Request,
+        path: str = "",
+        directory: Optional[str] = None
+    ):
+        """Lista archivos y directorios para el árbol de archivos de OpenCode/Desktop."""
+        workspace_path = _resolve_opencode_dir(request, directory)
+        subpath = path.strip().lstrip("/\\")
+        target_dir = safe_abs_path(os.path.join(workspace_path, subpath)) if subpath else workspace_path
+
+        if not (target_dir == workspace_path or target_dir.startswith(workspace_path + os.sep)):
+            raise HTTPException(status_code=400, detail="Path outside workspace")
+
+        if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
+            if request.url.path.startswith("/api/"):
+                return {"data": []}
+            return []
+
+        try:
+            from kogniterm.terminal.file_completer import is_ignored_path
+        except ImportError:
+            is_ignored_path = lambda p: p.startswith(".") and p not in {".env", ".gitignore"}
+
+        nodes = []
+        try:
+            with os.scandir(target_dir) as entries:
+                for entry in entries:
+                    if entry.name == ".git":
+                        continue
+                    is_dir = entry.is_dir()
+                    ignored = is_ignored_path(entry.name) or (entry.name.startswith(".") and entry.name not in {".env", ".gitignore", ".github", ".eslintrc", ".prettierrc"})
+                    rel_to_ws = os.path.relpath(entry.path, workspace_path).replace("\\", "/")
+                    nodes.append({
+                        "name": entry.name,
+                        "path": rel_to_ws,
+                        "absolute": safe_abs_path(entry.path),
+                        "type": "directory" if is_dir else "file",
+                        "ignored": bool(ignored)
+                    })
+        except Exception as e:
+            logger.error(f"Error listando archivos en {target_dir}: {e}")
+            if request.url.path.startswith("/api/"):
+                return {"data": []}
+            return []
+
+        nodes.sort(key=lambda x: (x["type"] != "directory", x["name"].lower()))
+        if request.url.path.startswith("/api/"):
+            return {"data": nodes}
+        return nodes
+
+    @application.get("/api/file/content", tags=["Archivos (OpenCode Compat)"])
+    @application.get("/file/content", tags=["Archivos (OpenCode Compat)"])
+    async def opencode_file_content(
+        request: Request,
+        path: str = "",
+        directory: Optional[str] = None
+    ):
+        """Lee el contenido de un archivo (formato OpenCode)."""
+        workspace_path = _resolve_opencode_dir(request, directory)
+        subpath = path.strip().lstrip("/\\")
+        file_path = safe_abs_path(path if os.path.isabs(path) else os.path.join(workspace_path, subpath))
+
+        if not (file_path == workspace_path or file_path.startswith(workspace_path + os.sep)):
+            raise HTTPException(status_code=400, detail="Path outside workspace")
+
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            res = {"type": "text", "content": content}
+        except UnicodeDecodeError:
+            import base64
+            with open(file_path, "rb") as f:
+                raw = f.read()
+            res = {"type": "binary", "content": base64.b64encode(raw).decode("ascii"), "encoding": "base64"}
+        except Exception as e:
+            logger.error(f"Error leyendo archivo {file_path}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+        if request.url.path.startswith("/api/"):
+            return {"data": res}
+        return res
+
+    @application.get("/api/file/status", tags=["Archivos (OpenCode Compat)"])
+    @application.get("/file/status", tags=["Archivos (OpenCode Compat)"])
+    async def opencode_file_status(request: Request, directory: Optional[str] = None):
+        """Retorna el estado de git de los archivos."""
+        workspace_path = _resolve_opencode_dir(request, directory)
+        files = []
+        try:
+            import subprocess
+            cmd = ["git", "-C", workspace_path, "status", "--porcelain", "-uall"]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if proc.returncode == 0:
+                for line in proc.stdout.splitlines():
+                    if len(line) >= 4:
+                        st = line[:2].strip()
+                        fpath = line[3:].strip()
+                        status_str = "modified"
+                        if "A" in st or "?" in st:
+                            status_str = "added"
+                        elif "D" in st:
+                            status_str = "deleted"
+                        files.append({
+                            "path": fpath,
+                            "added": 0,
+                            "removed": 0,
+                            "status": status_str
+                        })
+        except Exception:
+            pass
+
+        if request.url.path.startswith("/api/"):
+            return {"data": files}
+        return files
+
+    @application.get("/api/find/file", tags=["Archivos (OpenCode Compat)"])
+    @application.get("/find/file", tags=["Archivos (OpenCode Compat)"])
+    async def opencode_find_file(
+        request: Request,
+        query: str = "",
+        directory: Optional[str] = None,
+        type: Optional[str] = None,
+        limit: int = 50
+    ):
+        """Búsqueda difusa de archivos en el workspace."""
+        workspace_path = _resolve_opencode_dir(request, directory)
+        results = []
+        try:
+            from kogniterm.terminal.file_completer import is_ignored_path, fuzzy_match_files
+            exclude_extensions = {'.pyc', '.tmp', '.log', '.swp', '.bak', '.old', '.pyfly'}
+            items = []
+            for root, dirs, fnames in os.walk(workspace_path):
+                dirs[:] = [d for d in dirs if not is_ignored_path(d) and d != ".git"]
+                try:
+                    rel_root = os.path.relpath(root, workspace_path).replace("\\", "/")
+                except ValueError:
+                    continue
+                if type != "file":
+                    for d in dirs:
+                        rel_dir = f"{rel_root}/{d}" if rel_root != "." else d
+                        items.append(rel_dir)
+                if type != "directory":
+                    for f in fnames:
+                        if (f.startswith('.') and f not in {".env", ".gitignore"}) or any(f.endswith(ext) for ext in exclude_extensions):
+                            continue
+                        rel_path = f"{rel_root}/{f}" if rel_root != "." else f
+                        items.append(rel_path)
+                if len(items) > 5000:
+                    break
+
+            if query and query.strip():
+                matches = fuzzy_match_files(query, items, workspace_path, max_results=limit)
+                results = [m[1] for m in matches]
+            else:
+                results = items[:limit]
+        except Exception as e:
+            logger.error(f"Error en opencode_find_file: {e}")
+            results = []
+
+        if request.url.path.startswith("/api/"):
+            return {"data": results}
+        return results
+
+    @application.get("/api/find/symbol", tags=["Archivos (OpenCode Compat)"])
+    @application.get("/find/symbol", tags=["Archivos (OpenCode Compat)"])
+    async def opencode_find_symbol(request: Request, query: str = "", directory: Optional[str] = None):
+        """Búsqueda de símbolos (stub compat)."""
+        if request.url.path.startswith("/api/"):
+            return {"data": []}
+        return []
 
     @application.get("/api/permission/request", tags=["Permisos (OpenCode Compat)"])
     @application.get("/permission/request", tags=["Permisos (OpenCode Compat)"])
@@ -3269,18 +3516,18 @@ def create_app() -> FastAPI:
     # ── Canal WebSocket (bidireccional, streaming completo) ───────────────────
 
     @application.websocket("/ws/chat")
-    async def websocket_chat_compat(websocket: WebSocket, workspace_dir: Optional[str] = None):
+    async def websocket_chat_compat(websocket: WebSocket, workspace_dir: Optional[str] = None, agent: Optional[str] = None):
         """Crea una sesión nueva única por cada conexión desktop."""
         unique_id = f"desktop-{uuid.uuid4().hex[:8]}"
-        await websocket_chat(websocket, unique_id, workspace_dir=workspace_dir)
+        await websocket_chat(websocket, unique_id, workspace_dir=workspace_dir, agent=agent)
 
     @application.websocket("/ws/{session_id}")
-    async def websocket_chat(websocket: WebSocket, session_id: str, workspace_dir: Optional[str] = None):
+    async def websocket_chat(websocket: WebSocket, session_id: str, workspace_dir: Optional[str] = None, agent: Optional[str] = None):
         """
         Canal WebSocket bidireccional.
 
         Protocolo de mensajes cliente → servidor (JSON):
-          {"type": "message",    "text": "..."}    → enviar mensaje al agente
+          {"type": "message",    "text": "...", "agent": "code_agent"} → enviar mensaje al agente
           {"type": "interrupt"}                    → interrumpir ejecución actual
           {"type": "ping"}                         → keep-alive
 
@@ -3320,7 +3567,7 @@ def create_app() -> FastAPI:
             or "desktop"
         )
         is_new = session_id not in pool._sessions
-        session = pool.get_or_create(session_id, workspace_dir=workspace_dir, platform=client_type)
+        session = pool.get_or_create(session_id, workspace_dir=workspace_dir, platform=client_type, agent=agent)
 
         logger.info(
             f"[WS] Cliente conectado a sesión {session_id} ({'NUEVA' if is_new else 'EXISTENTE'}), plataforma={session.platform}"
@@ -3332,6 +3579,7 @@ def create_app() -> FastAPI:
         current_config = {
             "model": cm.get_config("default_model")
             or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash"),
+            "agent": session.active_agent or session._current_manager_agent(),
         }
 
         # Tarea A: relay de eventos del agente → cliente WS
@@ -3381,9 +3629,17 @@ def create_app() -> FastAPI:
                 if msg_type == "message":
                     text = data.get("text", "").strip()
                     images = data.get("images", [])
+                    agent_name = data.get("agent")
                     if not text and not images:
                         continue
-                    asyncio.create_task(session.send(text, pool._executor, images=images))
+                    asyncio.create_task(
+                        session.send(
+                            text,
+                            pool._executor,
+                            images=images,
+                            agent=agent_name if isinstance(agent_name, str) else None,
+                        )
+                    )
 
                 elif msg_type == "interrupt":
                     session.interrupt()
@@ -3465,7 +3721,7 @@ app = create_app()
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8765, reload: bool = False, workspace: Optional[str] = None):
+def run_server(host: str = "0.0.0.0", port: int = 8755, reload: bool = False, workspace: Optional[str] = None):
     """Lanza el servidor KogniTerm."""
     import sys
     import atexit

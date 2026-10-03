@@ -5,13 +5,23 @@ from kogniterm.server.session_pool import AgentSession, ServerUI
 from langchain_core.messages import HumanMessage, AIMessage
 
 @pytest.mark.asyncio
-async def test_agent_session_magic_command_clear():
+async def test_agent_session_magic_command_clear(tmp_path):
     loop = asyncio.get_event_loop()
     mock_llm = MagicMock()
     mock_llm.auto_save_interval = 60
     mock_thread_mgr = MagicMock()
-    
-    session = AgentSession("test-magic-clear", mock_llm, loop, thread_manager=mock_thread_mgr)
+    # Evita que AgentSession use la repr del MagicMock como ruta de workspace,
+    # lo que creaba carpetas "<MagicMock name='...' id='...'>" en la raiz del proyecto.
+    mock_thread_mgr.get_thread.return_value = None
+    mock_thread_mgr.workspace_dir = str(tmp_path)
+
+    session = AgentSession(
+        "test-magic-clear",
+        mock_llm,
+        loop,
+        thread_manager=mock_thread_mgr,
+        workspace_dir=str(tmp_path),
+    )
     session.ui._push = MagicMock()
     
     # Send /clear
@@ -21,13 +31,22 @@ async def test_agent_session_magic_command_clear():
     mock_thread_mgr.save_thread_messages.assert_called_with("test-magic-clear", [])
 
 @pytest.mark.asyncio
-async def test_agent_session_magic_command_help():
+async def test_agent_session_magic_command_help(tmp_path):
     loop = asyncio.get_event_loop()
     mock_llm = MagicMock()
     mock_llm.auto_save_interval = 60
     mock_thread_mgr = MagicMock()
-    
-    session = AgentSession("test-magic-help", mock_llm, loop, thread_manager=mock_thread_mgr)
+    # Ver comentario en test_agent_session_magic_command_clear.
+    mock_thread_mgr.get_thread.return_value = None
+    mock_thread_mgr.workspace_dir = str(tmp_path)
+
+    session = AgentSession(
+        "test-magic-help",
+        mock_llm,
+        loop,
+        thread_manager=mock_thread_mgr,
+        workspace_dir=str(tmp_path),
+    )
     session.ui._push = MagicMock()
     
     # Send /help
@@ -38,12 +57,21 @@ async def test_agent_session_magic_command_help():
     assert "done" in pushed_events
 
 @pytest.mark.asyncio
-async def test_agent_session_unrecognized_slash_command():
+async def test_agent_session_unrecognized_slash_command(tmp_path):
     loop = asyncio.get_event_loop()
     mock_llm = MagicMock()
     mock_thread_mgr = MagicMock()
-    
-    session = AgentSession("test-magic-unknown", mock_llm, loop, thread_manager=mock_thread_mgr)
+    # Ver comentario en test_agent_session_magic_command_clear.
+    mock_thread_mgr.get_thread.return_value = None
+    mock_thread_mgr.workspace_dir = str(tmp_path)
+
+    session = AgentSession(
+        "test-magic-unknown",
+        mock_llm,
+        loop,
+        thread_manager=mock_thread_mgr,
+        workspace_dir=str(tmp_path),
+    )
     session.ui._push = MagicMock()
     
     # Send unknown slash command

@@ -96,7 +96,6 @@ def _load_bundled_skill_module(skill_folder_name: str, module_filename: str = "t
 
 # Importar DiffRenderer para visualización mejorada de diffs
 from kogniterm.utils.diff_renderer import DiffRenderer
-from kogniterm.terminal.visual_components import create_terminal_output_panel
 
 # Importar temas para mejorar visuales
 try:
@@ -773,8 +772,7 @@ class CommandApprovalHandler:
                     self.terminal_ui.set_terminal_cursor(True, self.command_executor)
 
                     # Mostrar panel inmediatamente para feedback visual
-                    initial_panel = create_terminal_output_panel(command_to_execute, "", max_lines=15)
-                    self.terminal_ui.update_live(initial_panel)
+                    self.terminal_ui.update_terminal_output(command_to_execute, "")
                     
                     full_command_output = ""
 

@@ -500,9 +500,21 @@ class ServerUI(TerminalUI):
         self, tool_name: str, bajada: str = "", skill_name: str = "", **kwargs
     ) -> None:
         agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
+        tool_id = kwargs.get("tool_id") or kwargs.get("tool_call_id") or str(uuid.uuid4().hex[:8])
+        args = kwargs.get("args") or kwargs.get("tool_args") or {}
+        command = kwargs.get("command") or (args.get("command") if isinstance(args, dict) else "") or tool_name
         self._push(
             "tool_call",
-            {"name": tool_name, "description": bajada, "skill": skill_name},
+            {
+                "name": tool_name,
+                "tool": tool_name,
+                "description": bajada,
+                "skill": skill_name,
+                "tool_id": tool_id,
+                "tool_call_id": tool_id,
+                "args": args,
+                "command": command,
+            },
             agent_id=agent_id,
         )
 
@@ -512,6 +524,7 @@ class ServerUI(TerminalUI):
         logger.info(f"[{self.session_id}] ServerUI.update_terminal_output: {tool_name}")
         agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
         command_str = kwargs.get("command") or tool_name
+        is_final = kwargs.get("is_final", False)
         self._push(
             "terminal_output",
             {
@@ -519,6 +532,7 @@ class ServerUI(TerminalUI):
                 "tool": tool_name,
                 "command": command_str,
                 "tool_call_id": tool_call_id,
+                "is_final": is_final,
             },
             agent_id=agent_id,
         )
@@ -532,9 +546,15 @@ class ServerUI(TerminalUI):
     ) -> None:
         logger.info(f"[{self.session_id}] ServerUI.update_tool_display: {tool_name}")
         agent_id = kwargs.get("panel_id") or kwargs.get("agent_id")
+        command_str = kwargs.get("command") or tool_name
         self._push(
             "tool_result",
-            {"content": output, "tool": tool_name, "tool_call_id": tool_call_id},
+            {
+                "content": output,
+                "tool": tool_name,
+                "command": command_str,
+                "tool_call_id": tool_call_id,
+            },
             agent_id=agent_id,
         )
 
@@ -739,6 +759,7 @@ class AgentSession:
         thread_manager: Optional[ThreadManager] = None,
         workspace_dir: Optional[str] = None,
         platform: Optional[str] = "web",
+        agent: Optional[str] = None,
     ):
         self.session_id = session_id
         self.platform = (platform or "web").lower()
@@ -873,6 +894,9 @@ class AgentSession:
             interrupt_queue=self.interrupt_queue,
             command_approval_handler=self.command_approval_handler,
         )
+        self.active_agent = self._current_manager_agent()
+        self.requested_agent = agent
+
 
         # Lock para serializar invocaciones del agente por sesión
         self._agent_lock = asyncio.Lock()
@@ -896,6 +920,38 @@ class AgentSession:
             )
 
         logger.info(f"[Session:{session_id}] Inicializada.")
+
+    def _current_manager_agent(self) -> Optional[str]:
+        """Lee el motor activo sin cambiarlo; tolera managers antiguos en pruebas."""
+        manager = getattr(self, "manager", None)
+        active_agent = getattr(manager, "active_agent", None)
+        if callable(active_agent):
+            try:
+                return active_agent()
+            except Exception:
+                return None
+        return getattr(manager, "active_agent_name", None)
+
+    def apply_agent_selection(self, agent: Optional[str], *, notify: bool = True) -> Optional[str]:
+        """
+        Cambia el motor conversacional de la sesión al agente solicitado.
+
+        Debe llamarse cuando la sesión no está ejecutando un turno para no
+        cambiar el motor en mitad de una invocación.
+        """
+        if agent is None:
+            return self.active_agent
+        manager = getattr(self, "manager", None)
+        setter = getattr(manager, "set_active_agent", None)
+        if not callable(setter):
+            raise RuntimeError("El gestor de esta sesión no admite selección de agentes")
+        previous = self.active_agent or self._current_manager_agent()
+        normalized = setter(agent)
+        self.active_agent = normalized
+        if notify and normalized != previous:
+            self.ui._push("agent_changed", {"agent": normalized})
+        return normalized
+
 
     def update_workspace_dir(self, workspace_dir: str) -> None:
         """Actualiza dinámicamente el workspace_dir para esta sesión."""
@@ -974,7 +1030,7 @@ class AgentSession:
         if hasattr(self, "command_executor") and self.command_executor:
             self.command_executor.write_input(text)
 
-    async def send(self, message: str, executor, images: Optional[List[str]] = None, user_message_id: Optional[str] = None) -> None:
+    async def send(self, message: str, executor, images: Optional[List[str]] = None, user_message_id: Optional[str] = None, agent: Optional[str] = None) -> None:
         """
         Envía un mensaje al agente y lo ejecuta en un hilo worker.
         Los eventos se emiten en tiempo real a `self.ui._async_queue`.
@@ -988,6 +1044,12 @@ class AgentSession:
             if self.is_running:
                 self._pending_messages.append(message)
                 self.interrupt()
+                return
+
+            try:
+                self.apply_agent_selection(agent)
+            except (RuntimeError, ValueError) as exc:
+                self.ui._push("error", {"message": str(exc)})
                 return
 
             self.is_running = True
@@ -1298,12 +1360,7 @@ class AgentSession:
                 if self.llm_service and hasattr(self.llm_service, "stop_generation_flag"):
                     self.llm_service.stop_generation_flag = False
 
-                # Procesar mensaje inicial del usuario si existe
-                if user_input:
-                    self.ui._push("user_message", {"text": user_input})
-                    self.agent_state.add_message(HumanMessage(content=user_input))
-
-                # Bucle principal: invocar agente -> manejar confirmaciones -> repetir si hay confirmaciones
+                # Iniciar bucle principal: invocar agente -> manejar confirmaciones -> repetir si hay confirmaciones
                 # Cuando el agente termina su turno, verificar si hay mensajes pendientes y continuar
                 while True:
                     # 1. Invocar al agente (primera vez con user_input, siguientes con None para procesar tool results)
@@ -1443,6 +1500,7 @@ class AgentSession:
             "last_activity": self.last_activity.isoformat(),
             "message_count": self.message_count,
             "is_running": self.is_running,
+            "agent": self.active_agent or self._current_manager_agent(),
         }
 
     async def _try_generate_title(self):
@@ -1509,7 +1567,7 @@ class SessionPool:
 
         loop.call_soon_threadsafe(set_event)
 
-    def get_or_create(self, session_id: str, workspace_dir: Optional[str] = None, platform: Optional[str] = None) -> AgentSession:
+    def get_or_create(self, session_id: str, workspace_dir: Optional[str] = None, platform: Optional[str] = None, agent: Optional[str] = None) -> AgentSession:
         """Obtiene una sesión existente o crea una nueva (thread-safe)."""
         with self._lock:
             if session_id not in self._sessions:
@@ -1517,20 +1575,32 @@ class SessionPool:
                     raise RuntimeError(
                         "SessionPool no inicializado. Llama a initialize() primero."
                     )
-                self._sessions[session_id] = AgentSession(
+                session = AgentSession(
                     session_id=session_id,
                     llm_service=self._llm_service,
                     loop=self._loop,
                     thread_manager=self._thread_manager,
                     workspace_dir=workspace_dir,
                     platform=platform or "web",
+                    agent=agent,
                 )
+                self._sessions[session_id] = session
+                if agent is not None and not session.is_running:
+                    try:
+                        session.apply_agent_selection(agent)
+                    except ValueError as exc:
+                        logger.warning(f"[Session:{session_id}] Agente inicial no válido ({agent!r}): {exc}")
             else:
                 session = self._sessions[session_id]
                 if workspace_dir and session.workspace_dir != workspace_dir:
                     session.update_workspace_dir(workspace_dir)
                 if platform:
                     session.platform = platform.lower()
+                if agent is not None and not session.is_running:
+                    try:
+                        session.apply_agent_selection(agent)
+                    except ValueError as exc:
+                        logger.warning(f"[Session:{session_id}] Agente no válido ({agent!r}): {exc}")
             return self._sessions[session_id]
 
     def get(self, session_id: str) -> Optional[AgentSession]:
@@ -1601,6 +1671,40 @@ class SessionPool:
                 session.ui.turn_start_time = now_ms
             msg_id = asst_msg_id
 
+            if parent_id:
+                user_text = data.get("text", "") if isinstance(data, dict) else str(data)
+                user_created_ms = now_ms - 2
+                opencode_events.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "message.updated",
+                    "properties": {
+                        "sessionID": session_id,
+                        "info": {
+                            "id": parent_id,
+                            "sessionID": session_id,
+                            "role": "user",
+                            "time": {"created": user_created_ms},
+                            "agent": "build",
+                            "model": {"id": "gemini-2.0-flash", "providerID": "google"},
+                        },
+                    },
+                })
+                opencode_events.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "message.part.updated",
+                    "properties": {
+                        "sessionID": session_id,
+                        "part": {
+                            "id": f"part-u-{parent_id}",
+                            "sessionID": session_id,
+                            "messageID": parent_id,
+                            "type": "text",
+                            "text": user_text,
+                            "time": {"start": user_created_ms},
+                        },
+                    },
+                })
+
             opencode_events.append({
                 "id": str(uuid.uuid4()),
                 "type": "session.status",
@@ -1653,6 +1757,38 @@ class SessionPool:
                 if session
                 else None
             )
+            # Completar cualquier herramienta activa pendiente
+            if session and hasattr(session, "ui") and hasattr(session.ui, "active_tools_map"):
+                for t_id, t_info in list(session.ui.active_tools_map.items()):
+                    if t_info.get("status") != "completed":
+                        t_info["status"] = "completed"
+                        opencode_events.append({
+                            "id": str(uuid.uuid4()),
+                            "type": "message.part.updated",
+                            "properties": {
+                                "sessionID": session_id,
+                                "part": {
+                                    "id": f"tool-{t_id}",
+                                    "sessionID": session_id,
+                                    "messageID": msg_id,
+                                    "type": "tool",
+                                    "callID": t_id,
+                                    "tool": t_info.get("tool", "bash"),
+                                    "state": {
+                                        "status": "completed",
+                                        "input": t_info.get("input", {}),
+                                        "output": t_info.get("output", ""),
+                                        "title": f"$ {t_info.get('command')}" if t_info.get("command") else t_info.get("tool", "tool"),
+                                        "metadata": {
+                                            "command": t_info.get("command", ""),
+                                            "output": t_info.get("output", ""),
+                                        },
+                                        "time": {"start": t_info.get("start_time", start_ms), "end": now_ms},
+                                    },
+                                },
+                            },
+                        })
+                session.ui.active_tools_map.clear()
             if final_text:
                 opencode_events.append({
                     "id": str(uuid.uuid4()),
@@ -1720,6 +1856,197 @@ class SessionPool:
                         "delta": text,
                     },
                 })
+        elif event_type in ("tool_call", "tool_start") and isinstance(data, dict):
+            raw_tool_name = data.get("name") or data.get("tool") or "tool"
+            tool_call_id = str(data.get("tool_id") or data.get("tool_call_id") or uuid.uuid4().hex[:8])
+            command = data.get("command") or ""
+            args = data.get("args") or {}
+            if not command and isinstance(args, dict):
+                command = args.get("command") or args.get("cmd") or args.get("path") or ""
+
+            is_bash = (
+                raw_tool_name in {"execute_command", "execute_command_tool", "run_command", "run_command_tool", "bash", "shell", "run_shell", "cmd_execution", "python_executor", "terminal"}
+                or any(k in raw_tool_name.lower() for k in ["command", "bash", "shell"])
+            )
+            opencode_tool = "bash" if is_bash else (
+                "read" if raw_tool_name in {"read_file", "view_file"} else (
+                    "write" if raw_tool_name in {"write_file", "write_to_file"} else (
+                        "edit" if raw_tool_name in {"edit_file", "replace_file_content", "advanced_file_editor", "file_update"} else (
+                            "websearch" if raw_tool_name in {"web_search", "search_web"} else raw_tool_name
+                        )
+                    )
+                )
+            )
+
+            tool_input = dict(args) if isinstance(args, dict) else {}
+            if command:
+                tool_input["command"] = command
+            if "description" in data and not tool_input.get("description"):
+                tool_input["description"] = data["description"]
+
+            if session and hasattr(session, "ui"):
+                if not hasattr(session.ui, "active_tools_map"):
+                    session.ui.active_tools_map = {}
+                session.ui.active_tools_map[tool_call_id] = {
+                    "tool": opencode_tool,
+                    "raw_tool": raw_tool_name,
+                    "input": tool_input,
+                    "command": command,
+                    "start_time": now_ms,
+                    "output": "",
+                    "status": "running",
+                }
+                session.ui.last_tool_call_id = tool_call_id
+
+            part_id = f"tool-{tool_call_id}"
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": session_id,
+                    "part": {
+                        "id": part_id,
+                        "sessionID": session_id,
+                        "messageID": msg_id,
+                        "type": "tool",
+                        "callID": tool_call_id,
+                        "tool": opencode_tool,
+                        "state": {
+                            "status": "running",
+                            "input": tool_input,
+                            "title": data.get("description") or (f"$ {command}" if command else f"Ejecutando {opencode_tool}"),
+                            "metadata": {
+                                "command": command,
+                                "output": "",
+                            },
+                            "time": {"start": now_ms},
+                        },
+                    },
+                },
+            })
+        elif event_type in ("terminal_output", "tool_output") and isinstance(data, dict):
+            output_content = data.get("content") or data.get("output") or ""
+            tool_call_id = data.get("tool_call_id")
+            command = data.get("command") or ""
+            is_final = bool(data.get("is_final", False))
+
+            tool_info = None
+            if session and hasattr(session, "ui") and hasattr(session.ui, "active_tools_map"):
+                if tool_call_id and tool_call_id in session.ui.active_tools_map:
+                    tool_info = session.ui.active_tools_map[tool_call_id]
+                elif getattr(session.ui, "last_tool_call_id", None):
+                    tool_call_id = session.ui.last_tool_call_id
+                    tool_info = session.ui.active_tools_map.get(tool_call_id)
+
+            if not tool_call_id:
+                tool_call_id = str(uuid.uuid4().hex[:8])
+
+            if tool_info:
+                tool_name = tool_info.get("tool", "bash")
+                tool_input = tool_info.get("input", {})
+                start_ms = tool_info.get("start_time", now_ms)
+                if not command:
+                    command = tool_info.get("command", "")
+                tool_info["output"] = output_content
+                if is_final:
+                    tool_info["status"] = "completed"
+            else:
+                tool_name = "bash"
+                tool_input = {"command": command} if command else {}
+                start_ms = now_ms
+
+            status = "completed" if is_final else "running"
+            time_dict = {"start": start_ms}
+            if is_final:
+                time_dict["end"] = now_ms
+
+            part_id = f"tool-{tool_call_id}"
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": session_id,
+                    "part": {
+                        "id": part_id,
+                        "sessionID": session_id,
+                        "messageID": msg_id,
+                        "type": "tool",
+                        "callID": tool_call_id,
+                        "tool": tool_name,
+                        "state": {
+                            "status": status,
+                            "input": tool_input,
+                            "output": output_content,
+                            "title": f"$ {command}" if command else f"{tool_name} output",
+                            "metadata": {
+                                "command": command,
+                                "output": output_content,
+                            },
+                            "time": time_dict,
+                        },
+                    },
+                },
+            })
+        elif event_type == "tool_result" and isinstance(data, dict):
+            output_content = data.get("content") or data.get("output") or ""
+            tool_call_id = data.get("tool_call_id")
+            raw_tool = data.get("tool") or ""
+
+            tool_info = None
+            if session and hasattr(session, "ui") and hasattr(session.ui, "active_tools_map"):
+                if tool_call_id and tool_call_id in session.ui.active_tools_map:
+                    tool_info = session.ui.active_tools_map[tool_call_id]
+                elif getattr(session.ui, "last_tool_call_id", None):
+                    tool_call_id = session.ui.last_tool_call_id
+                    tool_info = session.ui.active_tools_map.get(tool_call_id)
+
+            if not tool_call_id:
+                tool_call_id = str(uuid.uuid4().hex[:8])
+
+            if tool_info:
+                tool_name = tool_info.get("tool", raw_tool or "tool")
+                tool_input = tool_info.get("input", {})
+                start_ms = tool_info.get("start_time", now_ms)
+                command = tool_info.get("command", "")
+                tool_info["status"] = "completed"
+                tool_info["output"] = output_content
+            else:
+                is_bash = (
+                    raw_tool in {"execute_command", "execute_command_tool", "run_command", "run_command_tool", "bash", "shell", "run_shell"}
+                    or any(k in raw_tool.lower() for k in ["command", "bash", "shell"])
+                )
+                tool_name = "bash" if is_bash else (raw_tool or "tool")
+                tool_input = {"command": data.get("command", "")} if is_bash else {}
+                command = data.get("command", "")
+                start_ms = now_ms
+
+            part_id = f"tool-{tool_call_id}"
+            opencode_events.append({
+                "id": str(uuid.uuid4()),
+                "type": "message.part.updated",
+                "properties": {
+                    "sessionID": session_id,
+                    "part": {
+                        "id": part_id,
+                        "sessionID": session_id,
+                        "messageID": msg_id,
+                        "type": "tool",
+                        "callID": tool_call_id,
+                        "tool": tool_name,
+                        "state": {
+                            "status": "completed",
+                            "input": tool_input,
+                            "output": output_content,
+                            "title": f"$ {command}" if command else tool_name,
+                            "metadata": {
+                                "command": command,
+                                "output": output_content,
+                            },
+                            "time": {"start": start_ms, "end": now_ms},
+                        },
+                    },
+                },
+            })
         elif event_type == "live_update" and isinstance(data, dict):
             thinking = data.get("thinking")
             response = data.get("response")

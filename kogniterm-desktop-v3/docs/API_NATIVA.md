@@ -79,20 +79,24 @@ IPC del renderer: `window.kogniterm.backendStatus()` / `startBackend()` / `stopB
 
 v3 filtra por `provider` activo (igual que `_handle_models` en TUI).
 
+- `GET /api/agents` → `{agents: [{id, name, description, engine}], default: "super_agent"}`.
+  Motores conversacionales: `super_agent`, `bash_agent`, `code_agent`, `researcher_agent`.
+
 ## WebSocket `/ws/{session_id}` (app.py:2877)
 
-Query: `?workspace_dir=&client_type=desktop&token=`.
+Query: `?workspace_dir=&agent=&client_type=desktop&token=`.
 
 Cliente → servidor:
 ```json
-{"type": "message", "text": "...", "images": []}
+{"type": "message", "text": "...", "images": [], "agent": "code_agent"}
 {"type": "interrupt"}
 {"type": "ping"}
 ```
 
 Servidor → cliente:
 ```json
-{"type": "connected", "data": {"config": {"model": "..."}, "is_new": true, ...}}
+{"type": "connected", "data": {"config": {"model": "...", "agent": "super_agent"}, "is_new": true, ...}}
+{"type": "agent_changed", "data": {"agent": "code_agent"}}
 {"type": "stream", "data": "chunk..."}
 {"type": "tool_start", "data": {...}}
 {"type": "tool_output", "data": {...}}
@@ -128,7 +132,7 @@ responde por WS, muestra modal bloqueante con mensaje/diff/archivo y botones
 Aceptar / Rechazar / Aceptar siempre (auto-aprobación en memoria por pestaña,
 como `accept_all` de la TUI). Sin esto, el agente queda colgado esperando.
 
-## Terminal integrada (PTY) — `lib/pty.ts`, `components/TerminalPanel.tsx`
+## Terminal lateral del usuario (shell PTY) — `lib/pty.ts`, `components/TerminalPanel.tsx`
 
 Sidebar derecho con shell real por pestaña (xterm.js). Todo lo nativo del shell
 funciona: passwords (`read -s`), flechas/historial, `Ctrl+C`, autocompletado,
@@ -145,6 +149,18 @@ resaltado de sintaxis, bracketed paste.
 - Id estable por pestaña: `v3-term-{sessionId}`.
 - El directorio se resuelve con `GET /api/workspace/status?session_id=...` → `{path}`
   y se pasa como `directory` al auto-crear.
+
+## Terminal inline del agente — `components/AgentTerminal.tsx`
+
+El shell lateral es otro PTY. Cuando el worker ejecuta un comando aprobado, v3 muestra la
+salida con ANSI en una xterm dentro del chat y envía la entrada al worker:
+
+- `terminal_output` `{content|output, tool, command, tool_call_id?}`: crea/actualiza la terminal del comando actual.
+- `live_update` con `special_type: terminal`: actualiza el mismo snapshot acumulado.
+- `set_terminal_cursor` `{active}`: marca la terminal como interactiva y le da foco al empezar.
+- `done`, `live_stop` y `error`: cierran la terminal activa.
+- Entrada: `{type: "terminal_input", "text": "..."}` por el WS de la sesión `/ws/{id}`.
+  Incluye contraseñas, confirmaciones, flechas, `Ctrl+C`.
 
 ## MCP (`components/MCPPanel.tsx`, pestaña 5 · MCP en Ajustes)
 

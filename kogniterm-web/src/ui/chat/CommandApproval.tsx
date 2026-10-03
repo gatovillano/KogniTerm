@@ -19,7 +19,7 @@ export const CommandApproval: React.FC<CommandApprovalProps> = ({
 
   const handleApproveAlways = async () => {
     try {
-      await fetch('http://127.0.0.1:8765/api/config/set', {
+      await fetch('http://127.0.0.1:8755/api/config/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'auto_approve', value: true, scope: 'project' }),

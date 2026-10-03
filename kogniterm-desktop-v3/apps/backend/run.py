@@ -18,7 +18,7 @@ import uvicorn
 def main():
     p = argparse.ArgumentParser(description="KogniTerm Desktop v3 backend (nativo)")
     p.add_argument("--host", default=os.environ.get("KOGNITERM_HOST", "127.0.0.1"))
-    p.add_argument("--port", type=int, default=int(os.environ.get("KOGNITERM_PORT", "8765")))
+    p.add_argument("--port", type=int, default=int(os.environ.get("KOGNITERM_PORT", "8755")))
     p.add_argument("--reload", action="store_true", default=False)
     args = p.parse_args()
 

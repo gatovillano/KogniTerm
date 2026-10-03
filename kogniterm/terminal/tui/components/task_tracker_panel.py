@@ -72,7 +72,8 @@ class TaskTrackerPanelWidget(Static):
                     style = "bold cyan"
                     status_icon = "🔄"
                 else:
-                    style = "white"
+                    # Consciente del tema: "white" fijo es invisible sobre fondo claro
+                    style = ColorPalette.TEXT_PRIMARY
                     status_icon = "⏳"
                     
                 table.add_row(status_icon, f"[{style}]{task_text}[/]")

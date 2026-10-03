@@ -62,6 +62,17 @@ export namespace Timeline {
       }
       if (projected?.role !== "assistant") return
       let existing = projected.parentID ? turnByUserID.get(projected.parentID) : undefined
+      if (!existing && projected.parentID) {
+        const user = getMessage(projected.parentID) ?? projectedUserMessages.find((u) => u.id === projected.parentID)
+        if (user?.role === "user") {
+          const turn = { user, assistants: [projected] }
+          const index = turns.findIndex((item) => compareMessages(user, item.user) < 0)
+          if (index < 0) turns.push(turn)
+          if (index >= 0) turns.splice(index, 0, turn)
+          turnByUserID.set(user.id, turn)
+          return
+        }
+      }
       if (!existing && turns.length > 0) {
         existing = turns.at(-1)
       }

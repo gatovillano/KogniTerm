@@ -1,7 +1,13 @@
 import type { ThemeRegistrationResolved } from "@pierre/diffs"
 
 export const OpenCodeTheme = {
-  name: "KogniTerm",
+  // NOTE: el nombre debe seguir siendo "OpenCode". El worker de markdown
+  // de @opencode-ai/session-ui (vendored) registra este objeto con shiki y
+  // pide el tema como "OpenCode" (codeToHtml/codeToTokens/ShikiStreamTokenizer).
+  // Renombrarlo rompe el parse de cualquier mensaje con bloques de codigo:
+  // el worker rechaza con "Theme `OpenCode` not found" y el componente
+  // Markdown cae al fallback de texto escapado (markdown crudo visible).
+  name: "OpenCode",
   bg: "var(--color-background-stronger)",
   fg: "var(--text-base)",
   colors: {

@@ -95,7 +95,9 @@ export function SessionSidePanel(props: {
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const shown = settings.visibility.fileTree
 
-  const reviewOpen = createMemo(() => isDesktop() && view().reviewPanel.opened())
+  const reviewOpen = createMemo(
+    () => isDesktop() && view().reviewPanel.opened() && !(settings.general.newLayoutDesigns() && !params.id),
+  )
   const fileOpen = createMemo(
     () =>
       isDesktop() &&
@@ -288,7 +290,7 @@ export function SessionSidePanel(props: {
   })
 
   return (
-    <Show when={isDesktop() && !(settings.general.newLayoutDesigns() && !params.id)}>
+    <Show when={isDesktop() && open()}>
       <aside
         id="review-panel"
         aria-label={language.t("session.panel.reviewAndFiles")}
@@ -768,7 +770,11 @@ export function SessionSidePanel(props: {
               >
                 <div
                   class="h-full flex flex-col overflow-hidden group/filetree"
-                  classList={{ "border-l border-border-weaker-base": reviewOpen() }}
+                  classList={{
+                    "border-l border-border-weaker-base": reviewOpen(),
+                    "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                    "bg-background-base": !settings.general.newLayoutDesigns(),
+                  }}
                 >
                   <Tabs
                     variant="pill"
@@ -798,7 +804,14 @@ export function SessionSidePanel(props: {
                       </Tabs.Trigger>
                     </Tabs.List>
                     <Show when={fileTreeTab() === "changes"}>
-                      <Tabs.Content value="changes" class="bg-background-stronger px-3 py-0">
+                      <Tabs.Content
+                        value="changes"
+                        class="px-3 py-0"
+                        classList={{
+                          "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                          "bg-background-stronger": !settings.general.newLayoutDesigns(),
+                        }}
+                      >
                         <Switch>
                           <Match when={props.hasReview() || !props.diffsReady()}>
                             <Show
@@ -821,11 +834,19 @@ export function SessionSidePanel(props: {
                               />
                             </Show>
                           </Match>
+                          <Match when={true}>{empty(props.empty())}</Match>
                         </Switch>
                       </Tabs.Content>
                     </Show>
                     <Show when={fileTreeTab() === "all"}>
-                      <Tabs.Content value="all" class="bg-background-stronger px-3 py-0">
+                      <Tabs.Content
+                        value="all"
+                        class="px-3 py-0"
+                        classList={{
+                          "bg-v2-background-bg-base": settings.general.newLayoutDesigns(),
+                          "bg-background-stronger": !settings.general.newLayoutDesigns(),
+                        }}
+                      >
                         <Switch>
                           <Match when={nofiles()}>{empty(language.t("session.files.empty"))}</Match>
                           <Match when={true}>

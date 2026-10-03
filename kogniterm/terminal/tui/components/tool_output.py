@@ -26,21 +26,26 @@ class ToolOutputWidget(Static):
     
     DEFAULT_CSS = """
     ToolOutputWidget {
-        width: 85%;
-        max-width: 180;
-        min-width: 60;
+        width: 100%;
+        max-width: 100%;
         height: auto;
         min-height: 5;
         max-height: 100%;
         border: solid #4b5563;
-        margin: 0 4 1 4;
+        margin: 0 0 1 0;
         padding: 0;
         background: #000000;
+        /* La terminal se mantiene oscura en ambos temas: el texto por
+           defecto debe ser claro siempre, si no hereda el color del Screen
+           (oscuro en tema claro) y queda invisible sobre negro. */
+        color: #f9fafb;
         scrollbar-gutter: stable;
         overflow-y: scroll;
         overflow-x: hidden;
     }
 
+    ChatLogWidget ToolOutputWidget,
+    .session-chat ToolOutputWidget,
     #chat_log ToolOutputWidget {
         width: 100%;
         max-width: 100%;

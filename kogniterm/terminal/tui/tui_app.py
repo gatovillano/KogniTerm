@@ -28,7 +28,7 @@ import threading
 logger = logging.getLogger(__name__)
 
 # URL del servidor KogniTerm (puede sobreescribirse con KOGNITERM_SERVER_URL)
-_DEFAULT_SERVER_URL = os.environ.get("KOGNITERM_SERVER_URL", "ws://127.0.0.1:8765")
+_DEFAULT_SERVER_URL = os.environ.get("KOGNITERM_SERVER_URL", "ws://127.0.0.1:8755")
 _DEFAULT_SESSION_ID = os.environ.get(
     "KOGNITERM_SESSION_ID", f"tui-{uuid.uuid4().hex[:8]}"
 )
@@ -254,6 +254,10 @@ class SessionTabButton(Button):
 
     def on_enter(self, event: events.Enter) -> None:
         try:
+            import os as _os
+
+            with open("/tmp/opencode/hover_dbg.log", "a") as _f:
+                _f.write(f"ENTER tab={self._tab_session_id}\n")
             app = self.app
             if hasattr(app, "_tab_hover_enter"):
                 app._tab_hover_enter(self._tab_session_id)
@@ -262,6 +266,10 @@ class SessionTabButton(Button):
 
     def on_leave(self, event: events.Leave) -> None:
         try:
+            import os as _os
+
+            with open("/tmp/opencode/hover_dbg.log", "a") as _f:
+                _f.write(f"LEAVE tab={self._tab_session_id}\n")
             app = self.app
             if hasattr(app, "_tab_hover_leave"):
                 app._tab_hover_leave(self._tab_session_id)
@@ -755,7 +763,7 @@ class KogniTermTUI(App):
         align-horizontal: center;
         background: #1e1e1e;
         border-top: none; /* Linea divisora erradicada */
-        margin-bottom: 9; /* Ajustado de 7 a 9 por el incremento del input_container */
+        margin-bottom: 8; /* Ajustado por dimensiones de input_container y padding inferior */
     }
 
 
@@ -768,8 +776,8 @@ class KogniTermTUI(App):
 
     #chat_log {
 
-        width: 85%;
-        max-width: 180;
+        width: 94%;
+        max-width: 220;
         min-width: 60;
         height: auto;
         max-height: 1fr;
@@ -788,14 +796,14 @@ class KogniTermTUI(App):
         layout: vertical;
         align: center bottom;
         background: transparent;
-        padding-bottom: 2;
+        padding-bottom: 1;
         display: none;
     }
 
     /* Contenedor para paneles paralelos con pestañas (call_agents_parallel) */
     #parallel_agents_container {
-        width: 85%;
-        max-width: 180;
+        width: 94%;
+        max-width: 220;
         min-width: 60;
         height: 24; /* Altura fija para contener las pestañas + contenido */
         align: center bottom;
@@ -826,27 +834,27 @@ class KogniTermTUI(App):
     }
 
     #queue_display {
-        width: 85%;
-        max-width: 180;
+        width: 94%;
+        max-width: 220;
         min-width: 60;
         height: auto;
         background: transparent;
         color: #d1d5db;
         border: none;
-        padding: 0 4;
+        padding: 0 2;
         margin-bottom: 0;
         display: none;
     }
 
     #input_container {
-        width: 85%;
-        max-width: 180;
+        width: 94%;
+        max-width: 220;
         min-width: 60;
         height: auto;
-        min-height: 3;
+        min-height: 4;
         background: #2a2a2a;
         margin: 0 0 1 0;
-        padding: 1 4 2 4;
+        padding: 1 2 1 2;
         layout: horizontal;
     }
 
@@ -871,8 +879,8 @@ class KogniTermTUI(App):
         outline: none !important;
     }
     StatusFooter {
-        width: 85%;
-        max-width: 180;
+        width: 94%;
+        max-width: 220;
         min-width: 60;
         height: 1;
         padding: 0;
@@ -896,15 +904,14 @@ class KogniTermTUI(App):
         display: block;
     }
     TerminalPanel {
-        width: 85%;
-        max-width: 180;
-        min-width: 60;
+        width: 100%;
+        max-width: 100%;
         border: solid #4b5563;
         background: #000000;
         height: auto;
         min-height: 0;
         max-height: 100%;
-        margin: 0 4 1 4;
+        margin: 0 0 1 0;
         padding: 0;
         content-align: left top;
         text-align: left;
@@ -993,8 +1000,8 @@ class KogniTermTUI(App):
     }
     .session-tab {
         width: auto;
-        min-width: 16;
-        max-width: 36;
+        min-width: 22;
+        max-width: 38;
         height: 1;
         margin: 0;
         padding: 0 1 0 2;
@@ -1052,8 +1059,8 @@ class KogniTermTUI(App):
         background: transparent;
     }
     .session-chat {
-        width: 85%;
-        max-width: 180;
+        width: 94%;
+        max-width: 220;
         min-width: 60;
         height: 1fr;
         padding: 0;
@@ -1083,8 +1090,8 @@ class KogniTermTUI(App):
         background: #1e1e1e;
     }
     #splash_inner {
-        width: 80%;
-        max-width: 100;
+        width: 90%;
+        max-width: 120;
         height: auto;
         align: center middle;
     }
@@ -1092,7 +1099,7 @@ class KogniTermTUI(App):
         width: 100%;
         content-align: center middle;
         text-align: center;
-        margin-bottom: 2;
+        margin-bottom: 1;
         background: transparent;
     }
     #splash_input_row {
@@ -1100,24 +1107,27 @@ class KogniTermTUI(App):
         height: 3;
         background: #2a2a2a;
         margin-bottom: 0;
-        padding: 1 4 0 4;
+        padding: 1 2 0 2;
         align-horizontal: left;
     }
     ToolOutputWidget {
-        width: 85%;
-        max-width: 180;
-        min-width: 60;
+        width: 100%;
+        max-width: 100%;
         height: auto;
         min-height: 5;
         max-height: 100%;
         border: solid #4b5563; /* gray */
-        margin: 0 4 1 4;
-        background: transparent !important;
+        margin: 0 0 1 0;
+        padding: 0;
+        background: #000000;
+        color: #f9fafb;
     }
 
     #tool_display {
         display: none;
     }
+    ChatLogWidget ToolOutputWidget,
+    .session-chat ToolOutputWidget,
     #chat_log ToolOutputWidget {
         width: 100%;
         max-width: 100%;
@@ -1140,9 +1150,9 @@ class KogniTermTUI(App):
     #splash_model_info {
         width: 100%;
         height: 2;
-        padding: 0 4;
+        padding: 0 2;
         background: #2a2a2a;
-        margin-bottom: 2;
+        margin-bottom: 1;
         content-align: left top;
     }
     #splash_shortcuts {
@@ -1191,8 +1201,9 @@ class KogniTermTUI(App):
         self._hover_tab_id = None
         self._marquee_tick = 0
         self._marquee_timer = None
-        self._marquee_width = 20
-        self._marquee_dwell = 4
+        self._marquee_width = 26
+        self._marquee_dwell = 6
+        self._marquee_interval = 0.15
         # Estado interno del spinner animado
         self._spinner_frame = 0
         self._spinner_timer = None
@@ -1492,6 +1503,12 @@ class KogniTermTUI(App):
         config_manager = ConfigManager()
         saved_theme = config_manager.get_config("theme") or "default"
         self.apply_theme(saved_theme, persist=False)
+
+        # Vigilar cambios del sistema claro/oscuro para el modo automático
+        try:
+            self._theme_watcher = self.set_interval(5.0, self._check_system_theme)
+        except Exception:
+            pass
 
         # Restaurar estado de auto-aprobación persistido
         try:
@@ -3302,24 +3319,55 @@ class KogniTermTUI(App):
         """Aplica un tema visual a la aplicación Textual.
 
         Args:
-            theme_name: Nombre del tema a aplicar.
+            theme_name: Nombre del tema a aplicar. ``"default"`` y ``"auto"``
+                son automáticos: usan ``light`` si el sistema está en modo
+                claro y ``default`` (oscuro) en caso contrario.
             persist: Si True, guarda el tema en config global. Usar False al
                      cargar al inicio para no sobreescribir la preferencia guardada.
         """
-        from kogniterm.terminal.themes import ColorPalette, set_kogniterm_theme
+        from kogniterm.terminal.themes import (
+            ColorPalette,
+            resolve_theme_name,
+            set_kogniterm_theme,
+        )
+
+        # 0. Resolver "auto"/"default" según el sistema (claro->light,
+        #    oscuro->default). Se persiste la preferencia original para
+        #    seguir en automático en el próximo arranque.
+        requested = (theme_name or "auto").strip().lower()
+        effective = resolve_theme_name(requested)
+
+        # Recordar la preferencia (no el tema efectivo) para el vigilante
+        # de cambio de tema del sistema: solo reacciona en automático.
+        self._theme_preference = requested
 
         # 1. Aplicar tema a nivel de lógica (paleta global)
-        set_kogniterm_theme(theme_name)
+        set_kogniterm_theme(effective)
         p = ColorPalette
 
-        # 2. Textual native dark mode (afecta a los widgets nativos)
-        self.dark = theme_name != "light"
+        # 2. Textual native dark mode (afecta a los widgets nativos).
+        #    Importante: usar el tema efectivo, no el pedido, porque
+        #    "default"/"auto" puede haber resuelto a "light".
+        self.dark = p.CURRENT_THEME != "light"
 
         # 3. Aplicar colores a contenedores principales
         bg_color = p.GRAY_900 if self.dark else p.PRIMARY_LIGHTEST
 
         self.screen.styles.background = bg_color
         self.styles.background = bg_color
+
+        # Color base del texto: varios widgets heredan el `color: white` del
+        # CSS y quedaban blancos sobre fondo claro. Se fija al tema actual.
+        # (ToolOutputWidget fija su propio color claro: su fondo es negro
+        # siempre, en ambos temas.)
+        self.screen.styles.color = p.TEXT_PRIMARY
+        self.styles.color = p.TEXT_PRIMARY
+        try:
+            self.query_one("#indexing_label").styles.color = (
+                "#9ca3af" if self.dark else p.TEXT_SECONDARY
+            )
+        except Exception:
+            pass
 
         try:
             chat_container = self.query_one("#chat_container")
@@ -3415,20 +3463,41 @@ class KogniTermTUI(App):
             except Exception:
                 pass
 
-        # 10. Persistir solo si el usuario eligió activamente el tema
+        # 10. Persistir solo si el usuario eligió activamente el tema.
+        # Se guarda la preferencia original ("auto"/"default" incluidos)
+        # para seguir en automático en el próximo arranque.
         if persist:
             from kogniterm.terminal.config_manager import ConfigManager
 
             cm = ConfigManager()
             # Guardar en config global
-            cm.set_global_config("theme", theme_name)
+            cm.set_global_config("theme", requested)
             # Si existe config local del proyecto, actualizarlo también para
             # evitar que override silenciosamente la preferencia del usuario
             if cm.PROJECT_CONFIG_FILE.exists():
-                cm.set_project_config("theme", theme_name)
+                cm.set_project_config("theme", requested)
 
         # 11. Forzar refresh
         self.refresh()
+
+    def _check_system_theme(self):
+        """Vigilante del tema del sistema (claro/oscuro).
+
+        Se ejecuta periódicamente; si la preferencia es automática
+        (``"auto"``/``"default"``) y el sistema cambió de modo, reaplica
+        el tema sin tocar la preferencia guardada. Con un tema explícito
+        no hace nada.
+        """
+        try:
+            if getattr(self, "_theme_preference", "auto") not in ("auto", "default"):
+                return
+            from kogniterm.terminal.themes import ColorPalette, resolve_theme_name
+
+            effective = resolve_theme_name(self._theme_preference)
+            if effective != ColorPalette.CURRENT_THEME:
+                self.apply_theme(self._theme_preference, persist=False)
+        except Exception:
+            pass
 
     def write_stream_to_chat(self, content: str):
         """Método para escribir streaming desde hilos externos."""
@@ -3586,6 +3655,8 @@ class KogniTermTUI(App):
 
         # Cambiar placeholder del input para indicar modo
         try:
+            from kogniterm.terminal.themes import ColorPalette as _P
+
             chat_input = self.query_one(ChatInput)
             if active:
                 chat_input.placeholder = "Terminal Interactiva (Escribe abajo o HAZ CLIC en el panel para modo directo)..."
@@ -3593,7 +3664,8 @@ class KogniTermTUI(App):
                 self.live_display.add_class("interactive")
             else:
                 chat_input.placeholder = "Escribe un mensaje..."
-                chat_input.styles.color = "white"
+                # Consciente del tema: "white" fijo es invisible sobre fondo claro
+                chat_input.styles.color = _P.TEXT_PRIMARY
                 self.live_display.remove_class("interactive")
         except:
             pass
@@ -4740,7 +4812,10 @@ class KogniTermTUI(App):
                     pass
             else:
                 chat_input.placeholder = "Escribe un mensaje..."
-                chat_input.styles.color = "white"
+                # Consciente del tema: "white" fijo es invisible sobre fondo claro
+                from kogniterm.terminal.themes import ColorPalette as _P2
+
+                chat_input.styles.color = _P2.TEXT_PRIMARY
                 try:
                     self.live_display.remove_class("interactive")
                 except Exception:
@@ -4970,8 +5045,9 @@ class KogniTermTUI(App):
 
     def _session_tab_label(self, session, idx: int, total: int) -> str:
         label = session.title or f"Sesión {idx + 1}"
-        # Si no cabe, se corta y se marca con "..." para que se note
-        max_len = 20
+        # Si no cabe, se corta y se marca con "..." para que se note.
+        # Mismo ancho que la ventana de la marquesina para no saltar de tamaño.
+        max_len = 26
         if len(label) > max_len:
             label = label[: max_len - 3].rstrip() + "..."
         return self._tab_prefix(session) + label
@@ -5023,7 +5099,9 @@ class KogniTermTUI(App):
     def _start_marquee_timer(self):
         try:
             if self._marquee_timer is None:
-                self._marquee_timer = self.set_interval(0.25, self._tick_tab_marquee)
+                self._marquee_timer = self.set_interval(
+                    self._marquee_interval, self._tick_tab_marquee
+                )
         except Exception:
             self._marquee_timer = None
 
@@ -5652,7 +5730,8 @@ class KogniTermTUI(App):
                     style = "bold cyan"
                     status_icon = "🔄"
                 else:
-                    style = "white"
+                    # Consciente del tema: "white" fijo es invisible sobre fondo claro
+                    style = ColorPalette.TEXT_PRIMARY
                     status_icon = "⏳"
 
                 table.add_row(status_icon, f"[{style}]{task_text}[/]")

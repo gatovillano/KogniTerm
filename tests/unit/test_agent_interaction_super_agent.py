@@ -30,3 +30,37 @@ def test_agent_interaction_manager_fallback_to_bash_agent():
     with patch.dict(os.environ, {"KOGNITERM_MAIN_AGENT": "bash_agent"}):
         aim = AgentInteractionManager(llm_service, state, terminal_ui, interrupt_queue)
         assert isinstance(aim.active_agent_app, BashAgentRunner)
+
+def test_agent_interaction_manager_switches_between_real_runners():
+    llm_service = MagicMock()
+    llm_service.model_name = "test-model"
+    terminal_ui = MagicMock()
+    interrupt_queue = MagicMock()
+    state = AgentState()
+    code_runner = MagicMock()
+    researcher_runner = MagicMock()
+
+    with (
+        patch.dict(os.environ, {"KOGNITERM_MAIN_AGENT": "super_agent"}),
+        patch("kogniterm.core.agents.deep_coder.create_deep_coder", return_value=code_runner),
+        patch("kogniterm.core.agents.deep_researcher.create_deep_researcher", return_value=researcher_runner),
+    ):
+        aim = AgentInteractionManager(llm_service, state, terminal_ui, interrupt_queue)
+        assert aim.active_agent() == "super_agent"
+
+        assert aim.set_active_agent("DeepCoder") == "code_agent"
+        assert aim.active_agent_app is code_runner
+        assert state.current_agent_mode == "code_agent"
+        code_runner.set_model.assert_called_with("test-model")
+
+        assert aim.set_active_agent("researcher_agent") == "researcher_agent"
+        assert aim.active_agent_app is researcher_runner
+        assert researcher_runner.set_model.called
+
+        # Repetir el mismo agente no debe reconstruir el motor.
+        runners_before = dict(aim.agent_runners)
+        assert aim.set_active_agent("researcher_agent") == "researcher_agent"
+        assert aim.agent_runners == runners_before
+
+        with pytest.raises(ValueError, match="Agente no soportado"):
+            aim.set_active_agent("planner")

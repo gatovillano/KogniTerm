@@ -96,3 +96,38 @@ async def test_spinner_does_not_remove_tool_output():
 
         tool_widgets_final = [w for w in chat_log.children if isinstance(w, ToolOutputWidget)]
         assert len(tool_widgets_final) == 1, "El ToolOutputWidget debe persistir tras la resolución del spinner"
+
+
+@pytest.mark.anyio
+async def test_command_execution_does_not_create_black_rectangle_or_orphan_widget():
+    """
+    Verifica que al ejecutar un comando con feedback inicial (update_terminal_output con "")
+    y posterior salida, no se generen widgets vacíos, rectángulos negros u orphans
+    entre la notificación de herramienta y el ToolOutputWidget.
+    """
+    llm_service = MagicMock()
+    llm_service.model_name = "test-model"
+    app = KogniTermTUI(llm_service=llm_service)
+
+    async with app.run_test() as pilot:
+        chat_log = app.chat_log
+
+        # 1. Notificación de herramienta
+        chat_log.write_tool_notification("execute_command", "python3 -c 'print(1)'")
+        await pilot.pause()
+
+        # 2. Feedback inicial al comenzar la ejecución (cadena vacía)
+        app.update_terminal_output("execute_command", "", command="python3 -c 'print(1)'")
+        await pilot.pause()
+
+        # 3. Flujo de salida del comando
+        app.update_terminal_output("execute_command", "1\n", command="python3 -c 'print(1)'")
+        await pilot.pause()
+
+        # Comprobación de widgets montados
+        tool_widgets = [w for w in chat_log.children if isinstance(w, ToolOutputWidget)]
+        message_widgets = [w for w in chat_log.children if isinstance(w, MessageWidget)]
+
+        assert len(tool_widgets) == 1, "Debe existir un único ToolOutputWidget"
+        assert len(message_widgets) == 1, "Solo debe existir el MessageWidget de la notificación de herramienta"
+        assert len(chat_log.children) == 2, f"Total de widgets debe ser 2, encontrados: {len(chat_log.children)}"

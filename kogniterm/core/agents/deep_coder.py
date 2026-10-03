@@ -30,7 +30,12 @@ from rich.syntax import Syntax
 from kogniterm.ui.terminal_ui import TerminalUI
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.agents.super_agent import SuperAgentRunner
-from kogniterm.ui.themes import ColorPalette, Icons
+from kogniterm.ui.themes import (
+    ColorPalette,
+    Icons,
+    get_thought_border_style,
+    get_thought_panel_bg_style,
+)
 
 console = Console()
 
@@ -279,7 +284,6 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
     full_response_content = ""
     full_thinking_content = ""
     final_ai_message = None
-    TUI_BG = ColorPalette.GRAY_900
 
     # Iniciar KeyboardHandler para detectar ESC (solo CLI)
     kh = None
@@ -308,8 +312,8 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
                     thought_panel = Panel(
                         thinking_content,
                         title=f"{Icons.THINKING} CodeAgent Pensando...",
-                        border_style=ColorPalette.GRAY_700,
-                        style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                        border_style=get_thought_border_style(),
+                        style=get_thought_panel_bg_style(),
                         padding=(0, 4),
                         expand=True
                     )
@@ -332,8 +336,8 @@ def call_deep_coder_node(state: AgentState, llm_service: LLMService, terminal_ui
                 thought_panel = Panel(
                     thinking_content,
                     title=f"{Icons.THINKING} CodeAgent Pensando...",
-                    border_style=ColorPalette.GRAY_700,
-                    style=f"dim {ColorPalette.GRAY_500} on {TUI_BG}",
+                    border_style=get_thought_border_style(),
+                    style=get_thought_panel_bg_style(),
                     padding=(0, 4),
                     expand=True
                 )
