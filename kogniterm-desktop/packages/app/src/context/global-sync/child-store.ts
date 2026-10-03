@@ -19,6 +19,7 @@ import { QueryOptionsApi } from "../server-sync"
 import { directoryKey, type DirectoryKey } from "./utils"
 import { NormalizedProviderListResponse } from "@opencode-ai/session-ui/context"
 import type { ServerScope } from "@/utils/server-scope"
+import { DEFAULT_FALLBACK_AGENT } from "../local-agent"
 
 export function createChildStoreManager(input: {
   owner: Owner
@@ -221,7 +222,7 @@ export function createChildStoreManager(input: {
               return pathQuery.data ?? EMPTY
             },
             status: "loading" as const,
-            agent: [],
+            agent: [DEFAULT_FALLBACK_AGENT],
             command: [],
             get reference() {
               return referenceQuery.isLoading ? [] : (referenceQuery.data ?? [])

@@ -81,6 +81,9 @@ export function createSessionComposerController(options?: { closeMs?: number | (
     if (store.responding === perm.id) return
 
     setStore("responding", perm.id)
+    if (response === "always") {
+      permission.enableAutoAccept(perm.sessionID, sdk().directory)
+    }
     sdk()
       .api.permission.reply({ sessionID: perm.sessionID, requestID: perm.id, reply: response })
       .catch((err: unknown) => {

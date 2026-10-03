@@ -862,6 +862,7 @@ class KogniTermTUI(App):
         width: 1fr;
         height: auto;
         min-height: 2;
+        max-height: 12;
         border: none !important;
         background: transparent !important;
         padding: 0;
@@ -904,8 +905,9 @@ class KogniTermTUI(App):
         display: block;
     }
     TerminalPanel {
-        width: 100%;
-        max-width: 100%;
+        width: 94%;
+        max-width: 220;
+        min-width: 60;
         border: solid #4b5563;
         background: #000000;
         height: auto;
@@ -1071,6 +1073,9 @@ class KogniTermTUI(App):
     }
 
     #live_display {
+        width: 94%;
+        max-width: 220;
+        min-width: 60;
         /* Alinear texto al centro */
         text-align: center;
         content-align: center middle;
@@ -2531,25 +2536,40 @@ class KogniTermTUI(App):
         self, selected_text: str, input_widget: Input, current_val: str
     ):
         """Aplica la completación al input y cierra el popup."""
-        if current_val.lstrip().startswith("%"):
+        cursor_pos = getattr(input_widget, "cursor_position", len(current_val))
+        if current_val.lstrip().startswith(("%", "/")):
             input_widget.value = selected_text + " "
+            input_widget.cursor_position = len(selected_text) + 1
         else:
-            words = current_val.split()
-            if words:
-                last_word = words[-1]
-                prefix = ""
-                if "@" in last_word:
-                    prefix = last_word.split("@")[0] + "@"
-                elif "#" in last_word:
-                    prefix = last_word.split("#")[0] + "#"
-                elif ":" in last_word:
-                    prefix = last_word.split(":")[0] + ":"
-                suffix = "" if selected_text.endswith("/") else " "
-                words[-1] = prefix + selected_text
-                input_widget.value = " ".join(words) + suffix
-        input_widget.cursor_position = len(input_widget.value)
-        input_widget.focus()
-        self.command_popup.display = False
+            before_cursor = current_val[:cursor_pos]
+            after_cursor = current_val[cursor_pos:]
+            idx = max(before_cursor.rfind(" "), before_cursor.rfind("\t"), before_cursor.rfind("\n"))
+            if idx == -1:
+                prefix_text = ""
+                word = before_cursor
+            else:
+                prefix_text = before_cursor[:idx + 1]
+                word = before_cursor[idx + 1:]
+            prefix = ""
+            for trig in ["@", "#", ":"]:
+                if trig in word:
+                    prefix = word.split(trig)[0] + trig
+                    break
+            if selected_text.endswith("/"):
+                input_widget.value = prefix_text + prefix + selected_text + after_cursor
+                input_widget.cursor_position = len(prefix_text) + len(prefix) + len(selected_text)
+            elif after_cursor.startswith(" "):
+                input_widget.value = prefix_text + prefix + selected_text + after_cursor
+                input_widget.cursor_position = len(prefix_text) + len(prefix) + len(selected_text) + 1
+            else:
+                input_widget.value = prefix_text + prefix + selected_text + " " + after_cursor
+                input_widget.cursor_position = len(prefix_text) + len(prefix) + len(selected_text) + 1
+        try:
+            input_widget.focus()
+        except Exception:
+            pass
+        if hasattr(self, "command_popup") and self.command_popup is not None:
+            self.command_popup.display = False
         self._completion_input = None
 
     def on_list_view_selected(self, event: ListView.Selected):

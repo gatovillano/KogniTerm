@@ -45,6 +45,7 @@ import { ScopedKey, type ServerScope } from "@/utils/server-scope"
 import { normalizeSessionInfo } from "@/utils/session"
 import type { ServerProtocol } from "@/utils/server-protocol"
 import type { ServerApi } from "@/utils/server"
+import { DEFAULT_FALLBACK_AGENT } from "../local-agent"
 
 type GlobalStore = {
   ready: boolean
@@ -268,7 +269,9 @@ export const loadAgentsQuery = (
       retry(async () => {
         if ((await protocol) === "v1" && legacy) return normalizeAgentList((await legacy.app.agents()).data ?? [])
         return sdk.list({ location: { directory } }).then((result) => normalizeAgentList(result.data))
-      }),
+      })
+        .then((items) => (items.length > 0 ? items : [DEFAULT_FALLBACK_AGENT]))
+        .catch(() => [DEFAULT_FALLBACK_AGENT]),
   })
 
 export const loadCommands = (
@@ -377,7 +380,8 @@ export async function bootstrapDirectory(input: {
       () =>
         input.queryClient
           .ensureQueryData(loadAgentsQuery(input.scope, input.directory, input.api.agent, input.sdk, input.protocol))
-          .then((data) => input.setStore("agent", data)),
+          .then((data) => input.setStore("agent", data.length > 0 ? data : [DEFAULT_FALLBACK_AGENT]))
+          .catch(() => input.setStore("agent", [DEFAULT_FALLBACK_AGENT])),
       () =>
         retry(async () => {
           if ((await input.protocol) !== "v1") return

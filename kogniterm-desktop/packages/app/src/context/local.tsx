@@ -8,7 +8,7 @@ import { useSettings } from "@/context/settings"
 import { useProviders } from "@/hooks/use-providers"
 import { resolveDefaultModel } from "@/hooks/provider-catalog"
 import { Persist, persisted } from "@/utils/persist"
-import { hasCustomAgent, resolveAgent } from "./local-agent"
+import { DEFAULT_FALLBACK_AGENT, hasCustomAgent, resolveAgent } from "./local-agent"
 import { cycleModelVariant, getConfiguredAgentVariant, resolveModelVariant } from "./model-variant"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
@@ -68,8 +68,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const settings = useSettings()
 
     const id = createMemo(() => params.id || undefined)
-    const list = createMemo(() => sync().data.agent.filter((item) => item.mode !== "subagent" && !item.hidden))
-    const agentsVisible = createMemo(() => settings.visibility.customAgents() || hasCustomAgent(list()))
+    const list = createMemo(() => {
+      const items = sync().data.agent.filter((item) => item.mode !== "subagent" && !item.hidden)
+      if (items.length === 0) return [DEFAULT_FALLBACK_AGENT]
+      return items
+    })
+    const agentsVisible = createMemo(() => settings.visibility.customAgents() || hasCustomAgent(list()) || list().length > 0)
     const connected = createMemo(() => new Set(providers.connected().map((item) => item.id)))
 
     const [saved, setSaved, , savedReady] = persisted(
@@ -93,7 +97,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         variant?: string | null
       }
     }>({
-      current: list()[0]?.name,
+      current: list()[0]?.name ?? DEFAULT_FALLBACK_AGENT.name,
       draft: undefined,
       last: undefined,
     })
@@ -118,11 +122,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     createEffect(() => {
       const items = list()
       if (items.length === 0) {
-        if (store.current !== undefined) setStore("current", undefined)
+        if (store.current !== undefined) setStore("current", DEFAULT_FALLBACK_AGENT.name)
         return
       }
       if (items.some((item) => item.name === store.current)) return
-      setStore("current", items[0]?.name)
+      setStore("current", items[0]?.name ?? DEFAULT_FALLBACK_AGENT.name)
     })
 
     const scope = createMemo<State | undefined>(() => {
@@ -183,7 +187,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       list,
       visible: agentsVisible,
       current() {
-        return pickAgent(agentsVisible() ? (scope()?.agent ?? store.current) : "build")
+        return pickAgent(scope()?.agent ?? store.current ?? "build") ?? DEFAULT_FALLBACK_AGENT
       },
       set(name: string | undefined) {
         const item = pickAgent(name)

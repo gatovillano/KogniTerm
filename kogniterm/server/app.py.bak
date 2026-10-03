@@ -444,6 +444,10 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="Error ejecutando heartbeat")
         return {"status": "triggered", "id": heartbeat_id}
 
+    # ── Endpoints de Pagos y Suscripciones ──────────────────────────────────────
+    # El dominio vive en kogniterm/server/payments/ (router propio, ver api.py).
+    application.include_router(payments_router, prefix="/api/payments")
+
     # ── Gestión de Configuración (LLM) ──────────────────────────────────────
 
     _cached_models_data = None

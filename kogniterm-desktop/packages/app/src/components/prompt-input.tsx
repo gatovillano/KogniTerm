@@ -82,6 +82,7 @@ import { createPromptInputTransientState } from "./prompt-input/transient-state"
 import { showToast } from "@/utils/toast"
 import { ImagePreview } from "@kogniterm/ui/image-preview"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
+import { PromptAutoApproveToggle } from "./prompt-auto-approve-toggle"
 
 export { createPromptInputHistory }
 export type { PromptInputControls, PromptInputHistory, PromptInputProps, PromptInputState, PromptInputSubmission }
@@ -1783,6 +1784,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     </Show>
                   </Show>
                 </Show>
+                <PromptAutoApproveToggle />
               </div>
             </div>
           </div>

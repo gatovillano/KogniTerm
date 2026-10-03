@@ -130,7 +130,7 @@ class ChatInput(TextArea):
         default_height = 1 if is_splash else 2
         self.styles.height = default_height
         self.styles.min_height = default_height
-        self.styles.max_height = 20
+        self.styles.max_height = 12
         
         # Usar historial persistente compartido
         self._history_manager = get_message_history()
@@ -296,28 +296,90 @@ class ChatInput(TextArea):
                 self.clear()
             else:
                 self.text = ""
+            self.cursor_location = (0, 0)
         else:
             self.text = val
-        self.cursor_location = (0, 0)
+            lines = self.document.lines
+            last_line = max(0, len(lines) - 1)
+            last_col = len(lines[last_line]) if lines else 0
+            self.cursor_location = (last_line, last_col)
         self._adjust_height()
 
-    def _adjust_height(self):
-        """Ajusta manualmente la altura basada en el número de líneas para corregir bug de Textual."""
-        if getattr(self, "id", None) == "splash_chat_input":
-            target_height = 1
-        else:
-            line_count = self.document.line_count
-            # Altura mínima 2 (aumentado levemente), máxima 20
-            target_height = max(2, min(20, line_count))
-        self.styles.height = target_height
-        
-        # Solo ajustamos nuestra propia altura. El contenedor (input_container) 
-        # tiene height: auto en CSS y se ajustará solo gracias al padding.
-        # Eliminamos el refresh(layout=True) para evitar parpadeos y pérdida de foco.
-        pass
+    @property
+    def cursor_position(self) -> int:
+        """Compatibilidad con Input.cursor_position (índice plano 0-based en el texto)."""
+        row, col = self.cursor_location
+        lines = self.document.lines
+        pos = sum(len(lines[i]) + 1 for i in range(min(row, len(lines)))) + col
+        return pos
 
-    def _on_text_area_changed(self, event: TextArea.Changed):
-        """Ajustar altura mientras se escribe."""
+    @cursor_position.setter
+    def cursor_position(self, pos: int):
+        """Mueve cursor_location a partir de un índice plano 0-based en el texto."""
+        text = self.text
+        pos = max(0, min(len(text), pos))
+        lines = self.document.lines
+        char_count = 0
+        for row_idx, line in enumerate(lines):
+            line_len = len(line)
+            if char_count + line_len >= pos:
+                col = pos - char_count
+                self.cursor_location = (row_idx, col)
+                return
+            char_count += line_len + 1
+        last_row = max(0, len(lines) - 1)
+        self.cursor_location = (last_row, len(lines[last_row]) if lines else 0)
+
+    def _get_visual_lines(self) -> int:
+        """Calcula el número de líneas visuales (considerando soft-wrap y saltos explícitos)."""
+        lines = 1
+        try:
+            wd = getattr(self, "wrapped_document", None)
+            if wd is not None and hasattr(wd, "height"):
+                lines = max(lines, wd.height)
+        except Exception:
+            pass
+        try:
+            doc = getattr(self, "document", None)
+            if doc is not None and hasattr(doc, "line_count"):
+                lines = max(lines, doc.line_count)
+        except Exception:
+            pass
+        return lines
+
+    def _adjust_height(self):
+        """Ajusta dinámicamente la altura según el texto escrito para hacerlo expansible."""
+        if getattr(self, "id", None) == "splash_chat_input":
+            self.styles.height = 1
+            return
+
+        visual_lines = self._get_visual_lines()
+        MAX_EXPAND_LINES = 12
+        target_height = max(2, min(MAX_EXPAND_LINES, visual_lines))
+        self.styles.height = target_height
+
+        # Si excede el máximo de expansión, permitir scroll vertical para ver todo el texto
+        if visual_lines > MAX_EXPAND_LINES:
+            self.styles.overflow_y = "auto"
+        else:
+            self.styles.overflow_y = "hidden"
+
+        try:
+            self.scroll_cursor_visible()
+        except Exception:
+            pass
+
+    def on_text_area_changed(self, event: TextArea.Changed):
+        """Ajustar altura automáticamente al escribir o borrar texto."""
+        self._adjust_height()
+
+    def on_resize(self, event: events.Resize):
+        """Recalcular altura cuando la ventana cambie de tamaño (afecta soft-wrap)."""
+        self._adjust_height()
+
+    def clear(self):
+        super().clear()
+        self.cursor_location = (0, 0)
         self._adjust_height()
 
 
