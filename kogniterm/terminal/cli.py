@@ -569,10 +569,199 @@ class CLIHandler:
         else:
             print("⚠️  Virtual environment not found. Skipping pip install.", flush=True)
             print("   You may need to manually reinstall the package.", flush=True)
-        
+
+        # ── Desktop (Electron): recompilar y refrescar el lanzador ──
+        # Sin esto el icono del lanzador (~/.local/bin/kogniterm-desktop →
+        # start.sh) seguía abriendo los bundles viejos de apps/web/dist y
+        # apps/electron/out, porque start.sh solo compila si faltan archivos.
+        try:
+            self._upgrade_desktop(repo_dir, venv_dir)
+        except Exception as e:
+            print(f"⚠️  No se pudo actualizar KogniTerm Desktop: {e}", flush=True)
+
         print("\n" + "="*80, flush=True)
         print("    🎉 KogniTerm has been successfully upgraded to the latest version!", flush=True)
         print("="*80 + "\n", flush=True)
+
+    def _upgrade_desktop(self, repo_dir: str, venv_dir: Optional[str] = None) -> None:
+        """Recompila kogniterm-desktop y refresca el icono del lanzador."""
+        import subprocess
+
+        desktop_dir = os.path.join(repo_dir, "kogniterm-desktop")
+        if not os.path.isdir(desktop_dir):
+            return
+        if not os.path.exists(os.path.join(desktop_dir, "package.json")):
+            return
+
+        # start.sh ejecutable (lo usa el lanzador)
+        try:
+            start_sh = os.path.join(desktop_dir, "start.sh")
+            if os.path.exists(start_sh):
+                os.chmod(start_sh, 0o755)
+        except Exception:
+            pass
+
+        npm = shutil.which("npm")
+        if not npm:
+            print("⚠️  npm no detectado: se omite la recompilación de Desktop.", flush=True)
+            print("   Instala Node.js/npm y ejecuta: kogniterm desktop --build", flush=True)
+            return
+
+        print("🖥️  Recompilando KogniTerm Desktop (web + electron)...", flush=True)
+        try:
+            subprocess.run([npm, "run", "build"], check=True, cwd=desktop_dir)
+            print("✅ KogniTerm Desktop recompilado.", flush=True)
+        except subprocess.CalledProcessError:
+            print("⚠️  Falló 'npm run build', intentando 'npm install' primero...", flush=True)
+            try:
+                subprocess.run([npm, "install"], check=True, cwd=desktop_dir)
+                subprocess.run([npm, "run", "build"], check=True, cwd=desktop_dir)
+                print("✅ KogniTerm Desktop recompilado.", flush=True)
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Error recompilando Desktop: {e}", flush=True)
+                print("   Puedes reintentarlo con: kogniterm desktop --build", flush=True)
+                return
+
+        self._refresh_desktop_entry(repo_dir, venv_dir)
+
+    def _refresh_desktop_entry(self, repo_dir: str, venv_dir: Optional[str] = None) -> None:
+        """Recrea el lanzador ~/.local/bin/kogniterm-desktop y el icono XDG/macOS.
+
+        Espeja install.sh:create_launchers/install_desktop_entry para que
+        `kogniterm upgrade` deje el lanzador igual que una instalación limpia.
+        """
+        import subprocess
+
+        home = os.path.expanduser("~")
+        local_bin = os.path.join(home, ".local", "bin")
+        desktop_wrapper = os.path.join(local_bin, "kogniterm-desktop")
+
+        # 1) Lanzador global (delega en `kogniterm desktop`)
+        if venv_dir and os.path.isdir(venv_dir):
+            try:
+                os.makedirs(local_bin, exist_ok=True)
+                activate = os.path.join(venv_dir, "bin", "activate")
+                with open(desktop_wrapper, "w", encoding="utf-8") as f:
+                    f.write(f'#!/usr/bin/env bash\nsource "{activate}"\nexec kogniterm desktop "$@"\n')
+                os.chmod(desktop_wrapper, 0o755)
+            except Exception as e:
+                print(f"⚠️  No se pudo recrear {desktop_wrapper}: {e}", flush=True)
+
+        # 2) Entrada del lanzador según SO
+        try:
+            if sys.platform == "darwin":
+                self._refresh_desktop_entry_macos(repo_dir, desktop_wrapper)
+            elif sys.platform.startswith("linux"):
+                self._refresh_desktop_entry_linux(repo_dir, desktop_wrapper)
+        except Exception as e:
+            print(f"⚠️  No se pudo refrescar el icono del lanzador: {e}", flush=True)
+
+    @staticmethod
+    def _find_desktop_icon(repo_dir: str) -> str:
+        candidates = [
+            os.path.join(repo_dir, "assets", "kogniterm-desktop.svg"),
+            os.path.join(repo_dir, "kogniterm-desktop", "apps", "electron", "assets", "icon.png"),
+            os.path.join(repo_dir, "kogniterm-desktop", "apps", "desktop", "src-tauri", "icons", "icon.png"),
+            os.path.join(repo_dir, "assets", "kogniterm_banner.png"),
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        return ""
+
+    def _refresh_desktop_entry_linux(self, repo_dir: str, desktop_wrapper: str) -> None:
+        import subprocess
+
+        home = os.path.expanduser("~")
+        apps_dir = os.path.join(home, ".local", "share", "applications")
+        icon_png_dir = os.path.join(home, ".local", "share", "icons", "hicolor", "512x512", "apps")
+        icon_svg_dir = os.path.join(home, ".local", "share", "icons", "hicolor", "scalable", "apps")
+        desktop_file = os.path.join(apps_dir, "kogniterm-desktop.desktop")
+        icon_name = "kogniterm-desktop"
+
+        os.makedirs(apps_dir, exist_ok=True)
+        os.makedirs(icon_png_dir, exist_ok=True)
+        os.makedirs(icon_svg_dir, exist_ok=True)
+
+        icon_src = self._find_desktop_icon(repo_dir)
+        icon_key = "utilities-terminal"
+        if icon_src:
+            try:
+                if icon_src.endswith(".svg"):
+                    shutil.copyfile(icon_src, os.path.join(icon_svg_dir, f"{icon_name}.svg"))
+                    icon_key = icon_name
+                elif icon_src.endswith(".png"):
+                    shutil.copyfile(icon_src, os.path.join(icon_png_dir, f"{icon_name}.png"))
+                    icon_key = icon_name
+            except Exception:
+                pass
+
+        with open(desktop_file, "w", encoding="utf-8") as f:
+            f.write(
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                "Version=1.0\n"
+                "Name=KogniTerm Desktop\n"
+                "GenericName=AI-Powered Terminal & Workspace\n"
+                "Comment=Terminal asistida por Inteligencia Artificial\n"
+                f"Exec={desktop_wrapper}\n"
+                f"Icon={icon_key}\n"
+                "Terminal=false\n"
+                "Categories=Development;System;Utility;TerminalEmulator;\n"
+                "StartupWMClass=kogniterm-desktop\n"
+                "Keywords=terminal;ai;kogniterm;shell;gemini;\n"
+            )
+        try:
+            os.chmod(desktop_file, 0o755)
+        except Exception:
+            pass
+        print(f"✅ Lanzador actualizado: {desktop_file}", flush=True)
+
+        if shutil.which("update-desktop-database"):
+            subprocess.run(["update-desktop-database", apps_dir],
+                           check=False, capture_output=True)
+        if shutil.which("gtk-update-icon-cache"):
+            subprocess.run(
+                ["gtk-update-icon-cache", "-f", "-t",
+                 os.path.join(home, ".local", "share", "icons", "hicolor")],
+                check=False, capture_output=True)
+
+    def _refresh_desktop_entry_macos(self, repo_dir: str, desktop_wrapper: str) -> None:
+        home = os.path.expanduser("~")
+        app_dir = os.path.join(home, "Applications", "KogniTerm Desktop.app")
+        macos_dir = os.path.join(app_dir, "Contents", "MacOS")
+        res_dir = os.path.join(app_dir, "Contents", "Resources")
+        os.makedirs(macos_dir, exist_ok=True)
+        os.makedirs(res_dir, exist_ok=True)
+
+        launcher = os.path.join(macos_dir, "kogniterm-desktop")
+        with open(launcher, "w", encoding="utf-8") as f:
+            f.write(f'#!/usr/bin/env bash\nexec "{desktop_wrapper}" "$@"\n')
+        os.chmod(launcher, 0o755)
+
+        with open(os.path.join(app_dir, "Contents", "Info.plist"), "w", encoding="utf-8") as f:
+            f.write(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                '<plist version="1.0">\n<dict>\n'
+                '    <key>CFBundleName</key>\n    <string>KogniTerm Desktop</string>\n'
+                '    <key>CFBundleDisplayName</key>\n    <string>KogniTerm Desktop</string>\n'
+                '    <key>CFBundleIdentifier</key>\n    <string>com.kogniterm.desktop</string>\n'
+                '    <key>CFBundleVersion</key>\n    <string>1.0</string>\n'
+                '    <key>CFBundleExecutable</key>\n    <string>kogniterm-desktop</string>\n'
+                '    <key>CFBundlePackageType</key>\n    <string>APPL</string>\n'
+                '    <key>LSMinimumSystemVersion</key>\n    <string>10.13</string>\n'
+                '</dict>\n</plist>\n'
+            )
+        icon_src = self._find_desktop_icon(repo_dir)
+        if icon_src:
+            try:
+                ext = icon_src.rsplit(".", 1)[-1]
+                shutil.copyfile(icon_src, os.path.join(res_dir, f"kogniterm-desktop.{ext}"))
+            except Exception:
+                pass
+        print(f"✅ App actualizada: {app_dir}", flush=True)
 
     def handle_desktop(self, args: List[str]):
         """Abre KogniTerm Desktop (app nativa: Electron + SolidJS + FastAPI)."""
@@ -895,6 +1084,97 @@ class CLIHandler:
         except Exception as e:
             print(f"❌ Error leyendo skill: {e}")
 
+    def handle_instructions(self, args: List[str]):
+        """Handles 'instructions' commands (global / workspace agent instructions)."""
+        cm = self.config_manager
+
+        def _get(scope: str):
+            if scope == "global":
+                return cm.load_global_config().get("agent_instructions", []) or []
+            return cm.load_project_config().get("agent_instructions", []) or []
+
+        def _save(scope: str, lst):
+            if scope == "global":
+                cm.set_global_config("agent_instructions", lst)
+            else:
+                cm.set_project_config("agent_instructions", lst)
+
+        if not args or args[0] in ("-h", "--help", "help"):
+            print("Usage: kogniterm instructions [list|add|remove|clear] [--global|--project]")
+            print("")
+            print("  list [--global|--project]          Lista instrucciones")
+            print("  add [--global|--project] <texto>   Añade instrucción (defecto: workspace)")
+            print("  remove [--global|--project] <nº>   Elimina la nº indicada")
+            print("  clear [--global|--project]         Borra todas de un ámbito")
+            print("")
+            print("Ejemplos:")
+            print("  kogniterm instructions list")
+            print("  kogniterm instructions add Responde siempre en español")
+            print("  kogniterm instructions add --global Usa type hints en Python")
+            return
+
+        # flags de ámbito
+        scope = "project"
+        rest = []
+        for tok in args[1:] if args[0] in ("list", "add", "remove", "rm", "clear") else args:
+            if tok in ("--global", "-g"):
+                scope = "global"
+            elif tok in ("--project", "--workspace", "-p", "-w"):
+                scope = "project"
+            else:
+                rest.append(tok)
+        cmd = args[0] if args[0] in ("list", "add", "remove", "rm", "clear") else "add"
+
+        if cmd == "list":
+            if "--global" in args or "-g" in args:
+                scopes = ["global"]
+            elif "--project" in args or "--workspace" in args or "-p" in args or "-w" in args:
+                scopes = ["project"]
+            else:
+                scopes = ["project", "global"]
+            empty = True
+            for sc in scopes:
+                lst = _get(sc)
+                label = "Global" if sc == "global" else "Workspace"
+                if lst:
+                    empty = False
+                    print(f"{label}:")
+                    for i, itm in enumerate(lst, 1):
+                        print(f"  {i}. {itm}")
+            if empty:
+                print("Sin instrucciones configuradas.")
+            return
+
+        if cmd == "add":
+            text = " ".join(rest).strip()
+            if not text:
+                print("❌ Usage: kogniterm instructions add [--global|--project] <texto>")
+                return
+            lst = _get(scope)
+            lst.append(text)
+            _save(scope, lst)
+            print(f"✅ Instrucción guardada en {scope} (#{len(lst)}).")
+            return
+
+        if cmd in ("remove", "rm"):
+            if not rest or not rest[0].isdigit():
+                print("❌ Usage: kogniterm instructions remove [--global|--project] <nº>")
+                return
+            idx = int(rest[0]) - 1
+            lst = _get(scope)
+            if idx < 0 or idx >= len(lst):
+                print(f"❌ Nº fuera de rango (1-{len(lst)}).")
+                return
+            removed = lst.pop(idx)
+            _save(scope, lst)
+            print(f"🗑️ Eliminada de {scope}: {removed}")
+            return
+
+        if cmd == "clear":
+            _save(scope, [])
+            print(f"🧹 Instrucciones de {scope} eliminadas.")
+            return
+
     def handle_cli(self, args: List[str]):
         """Inicia el modo interactivo CLI o ejecuta una consulta directamente sin abrir la TUI de Textual."""
         import queue
@@ -1007,6 +1287,9 @@ def run_cli() -> bool:
         return True
     elif command == 'skills':
         handler.handle_skills(args)
+        return True
+    elif command == 'instructions':
+        handler.handle_instructions(args)
         return True
     elif command == 'pay':
         from kogniterm.terminal.pay_cli import handle_pay

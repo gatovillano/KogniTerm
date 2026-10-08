@@ -221,6 +221,26 @@ update_kogniterm() {
         return 1
     fi
 
+    # Recompilar KogniTerm Desktop para que el lanzador abra la nueva versión.
+    # (start.sh solo compila si faltan los bundles, así que sin esto el icono
+    # seguía abriendo la build vieja tras el git pull.)
+    if [ -f "$REPO_DIR/kogniterm-desktop/package.json" ]; then
+        if command -v npm &>/dev/null; then
+            echo -e "  ${BLUE}🖥️  Recompilando KogniTerm Desktop...${RESET}"
+            if (cd "$REPO_DIR/kogniterm-desktop" && npm run build); then
+                echo -e "  ${GREEN}✔${RESET} KogniTerm Desktop recompilado."
+            else
+                echo -e "  ${YELLOW}⚠️ Falló 'npm run build', intentando 'npm install' primero...${RESET}"
+                (cd "$REPO_DIR/kogniterm-desktop" && npm install && npm run build) \
+                    && echo -e "  ${GREEN}✔${RESET} KogniTerm Desktop recompilado." \
+                    || echo -e "  ${YELLOW}⚠️ No se pudo recompilar Desktop. Ejecuta: kogniterm desktop --build${RESET}"
+            fi
+            chmod +x "$REPO_DIR/kogniterm-desktop/start.sh" 2>/dev/null || true
+        else
+            echo -e "  ${YELLOW}⚠️ npm no detectado: se omite la recompilación de Desktop.${RESET}"
+        fi
+    fi
+
     create_launchers
 
     echo -e "\n${BOLD}${GREEN}========================================================================${RESET}"
