@@ -448,7 +448,9 @@ def is_ignored_path(path_str: str) -> bool:
         if part in ('venv', '.venv', 'env', '.env', 'virtualenv', '.virtualenv',
                     'site-packages', 'node_modules', '__pycache__', 'build',
                     'dist', 'out', 'coverage', '.mypy_cache', '.pytest_cache',
-                    'kogniterm.egg-info', '.git', '.gemini', '.antigravity', '.pyfly'):
+                    'kogniterm.egg-info', '.git', '.gemini', '.antigravity', '.pyfly',
+                    '.kogniterm', '.ruff_cache', '.superpowers', '.codewhale',
+                    '.idea', '.vscode', '.turbo'):
             return True
         if 'venv' in part or 'virtualenv' in part or 'site-packages' in part:
             return True

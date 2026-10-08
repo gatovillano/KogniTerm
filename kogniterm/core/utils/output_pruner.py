@@ -137,3 +137,27 @@ def _save_full_log(output: str, tool_name: str) -> str:
     except Exception as e:
         logger.warning(f"No se pudo guardar el log de salida completo: {e}")
         return "~/.kogniterm/logs/output.log"
+
+
+def collapse_aged_tool_output(output: str, level: str = "reduced") -> str:
+    """Colapsa determinísticamente un output de herramienta ya podado.
+
+    Sin llamadas al LLM (seguro bajo RateLimit):
+    - "reduced": conserva head+tail + líneas de error (~1500 chars).
+    - "minimal": una sola línea resumen (~400 chars) con conteo.
+    """
+    if not output or not isinstance(output, str):
+        return output or ""
+    if level == "minimal":
+        head = output[:300].replace("\n", " ")[:300]
+        err_lines = [ln.strip()[:160] for ln in output.splitlines() if ERROR_PATTERNS.search(ln)][:3]
+        suffix = f" | errores: {' // '.join(err_lines)}" if err_lines else ""
+        return f"[output archivado: {len(output)} chars] {head}...{suffix}"
+    # reduced
+    if len(output) <= 1500:
+        return output
+    head = output[:700]
+    tail = output[-700:]
+    err_lines = [ln[:200] for ln in output.splitlines() if ERROR_PATTERNS.search(ln)][:5]
+    err_block = ("\n[errores detectados]\n" + "\n".join(err_lines)) if err_lines else ""
+    return f"{head}\n\n... [{len(output)} chars colapsados por antigüedad] ...\n\n{tail}{err_block}"

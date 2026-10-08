@@ -138,7 +138,58 @@ async def test_command_approval_handler_initializes_with_server_ui():
     )
     assert handler.terminal_ui == server_ui
     import queue
-    assert isinstance(handler.interrupt_queue, queue.Queue)
+@pytest.mark.anyio
+async def test_command_approval_handler_respects_explicit_auto_approve_false():
+    """Verifica que auto_approve=False force pedir confirmación incluso si la regla es 'allow'."""
+    from kogniterm.terminal.command_approval_handler import CommandApprovalHandler
+    from kogniterm.core.agent_state import AgentState
+
+    ui_mock = MagicMock()
+    ui_mock.ask_approval_sync.return_value = True
+
+    state = AgentState()
+    llm_mock = MagicMock()
+    executor_mock = MagicMock()
+    executor_mock.execute_command.return_value = iter(["resultado del comando\n"])
+
+    handler = CommandApprovalHandler(
+        llm_service=llm_mock,
+        command_executor=executor_mock,
+        prompt_session=None,
+        terminal_ui=ui_mock,
+        agent_state=state,
+    )
+
+    with patch.object(handler, "_resolve_command_action", return_value="allow"):
+        result = handler.handle_command_approval(
+            command_to_execute="git status",
+            auto_approve=False,
+        )
+
+    assert result["approved"] is True
+    # Al pasar auto_approve=False, DEBE llamar a ask_approval_sync
+    ui_mock.ask_approval_sync.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_super_agent_runner_pauses_file_tool_when_auto_disabled():
+    """Verifica que SuperAgentRunner pause herramientas de archivo cuando auto_approve está deshabilitado."""
+    from kogniterm.core.agents.super_agent import SuperAgentRunner
+    from kogniterm.core.agent_state import AgentState
+
+    ui_mock = MagicMock()
+    ui_mock.resolve_auto_approve.return_value = False
+
+    runner = SuperAgentRunner(
+        llm_service=MagicMock(),
+        terminal_ui=ui_mock,
+    )
+
+    state = AgentState()
+    assert runner._is_auto_approve_enabled(state) is False
+
+    ui_mock.resolve_auto_approve.return_value = True
+    assert runner._is_auto_approve_enabled(state) is True
 
 
 

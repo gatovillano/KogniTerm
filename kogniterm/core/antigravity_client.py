@@ -429,10 +429,15 @@ class AntigravityClient:
                                 valid_parts.append(p)
                                 
                         if not valid_parts:
-                            valid_parts.append({"text": "Procesando..."})
-                            
-                        turn["parts"] = valid_parts
-                        final_contents.append(turn)
+                            # Sin functionCalls válidas ni texto: descartar el turno
+                            # del modelo en lugar de inyectar "Procesando...",
+                            # que antes se enviaba como mensaje real a la API.
+                            # Dejar el siguiente turno "user" para procesarlo
+                            # en la siguiente iteración (ya filtrado abajo).
+                            pass
+                        else:
+                            turn["parts"] = valid_parts
+                            final_contents.append(turn)
                         
                         # Filtrar el siguiente turno "user" para dejar solo las respuestas válidas
                         next_valid_parts = []
@@ -455,16 +460,19 @@ class AntigravityClient:
                             merged.pop(i + 1)
                             n = len(merged)
                     else:
-                        # Si es el último turno de la secuencia, lo conservamos intacto (útil para pruebas y mapeos unitarios)
+                        # Sin siguiente turno "user" con respuestas.
+                        # Si es el último turno, conservarlo intacto (mapeos unitarios).
                         if i == n - 1:
                             final_contents.append(turn)
                         else:
-                            # Sin respuestas en el medio: eliminar llamadas a función del modelo
+                            # Sin respuestas en el medio: eliminar llamadas a función.
+                            # Si no queda texto, descartar el turno en lugar de
+                            # inyectar "Procesando..." como mensaje real a la API.
                             valid_parts = [p for p in parts if "functionCall" not in p]
-                            if not valid_parts:
-                                valid_parts.append({"text": "Procesando..."})
-                            turn["parts"] = valid_parts
-                            final_contents.append(turn)
+                            if valid_parts:
+                                turn["parts"] = valid_parts
+                                final_contents.append(turn)
+                            # Si valid_parts está vacío, se omite el turno.
                 else:
                     final_contents.append(turn)
             else:

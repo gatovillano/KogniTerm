@@ -100,6 +100,7 @@ class MCPManager:
 
     async def reload(self):
         """Sincroniza los servidores activos y carga sus herramientas."""
+        from kogniterm.core.mcp.env_utils import format_mcp_exception
         servers = self.config_manager.get_mcp_servers()
         self.active_tools.clear()
         self.server_statuses.clear()
@@ -117,8 +118,9 @@ class MCPManager:
                     "tools": [getattr(t, "name", str(t)) for t in tools]
                 }
             except Exception as e:
-                logger.error(f"Error al conectar con servidor MCP {name}: {e}")
-                self.server_statuses[name] = {"status": "error", "error": str(e), "tools": []}
+                err_msg = format_mcp_exception(e)
+                logger.error(f"Error al conectar con servidor MCP {name}: {err_msg}")
+                self.server_statuses[name] = {"status": "error", "error": err_msg, "tools": []}
 
         import inspect
         for cb in self._on_reload_callbacks:
@@ -133,57 +135,98 @@ class MCPManager:
     async def _load_server_tools(self, name: str, config_dict: Dict[str, Any]) -> List[Any]:
         """Carga las herramientas de un servidor MCP por stdio o sse sin cerrar la sesión."""
         from langchain_mcp_adapters.tools import load_mcp_tools
+        from kogniterm.core.mcp.env_utils import normalize_mcp_config, format_mcp_exception
 
         # Nunca dejar que la salida del subproceso MCP contamine la terminal.
         isolate_mcp_stderr()
 
-        transport = config_dict.get("transport", "stdio")
-        if transport == "stdio":
-            cmd = config_dict.get("command")
-            if not cmd:
-                raise ValueError("Comando principal no especificado")
-            conn = {
-                "transport": "stdio",
-                "command": cmd,
-                "args": config_dict.get("args", []),
-            }
-            if config_dict.get("env"):
-                conn["env"] = config_dict.get("env")
-            return await load_mcp_tools(session=None, connection=conn, server_name=name)
-        elif transport == "sse":
-            url = config_dict.get("url")
-            if not url:
-                raise ValueError("URL de SSE no especificada")
-            conn = {
-                "transport": "sse",
-                "url": url,
-            }
-            if config_dict.get("headers"):
-                conn["headers"] = config_dict.get("headers")
-            return await load_mcp_tools(session=None, connection=conn, server_name=name)
-        return []
+        # Normalizar y auto-detectar transporte, npx flags, PATH de Node, etc.
+        norm_cfg = normalize_mcp_config(config_dict)
+        transport = norm_cfg.get("transport", "stdio")
+
+        log_pos = 0
+        try:
+            log_pos = os.path.getsize(mcp_errlog_path())
+        except Exception:
+            pass
+
+        try:
+            if transport == "stdio":
+                cmd = norm_cfg.get("command")
+                if not cmd:
+                    raise ValueError("Comando principal no especificado")
+                conn = {
+                    "transport": "stdio",
+                    "command": cmd,
+                    "args": norm_cfg.get("args", []),
+                }
+                if norm_cfg.get("env"):
+                    conn["env"] = norm_cfg.get("env")
+                return await load_mcp_tools(session=None, connection=conn, server_name=name)
+            elif transport in ("sse", "http", "streamable_http", "websocket"):
+                url = norm_cfg.get("url")
+                if not url:
+                    raise ValueError(f"URL no especificada para transporte {transport}")
+                conn = {
+                    "transport": transport,
+                    "url": url,
+                }
+                if norm_cfg.get("headers"):
+                    conn["headers"] = norm_cfg.get("headers")
+                return await load_mcp_tools(session=None, connection=conn, server_name=name)
+            return []
+        except Exception as e:
+            # Inspeccionar si el subproceso escribió un error en stderr (ej. npm error 404)
+            recent_err = ""
+            try:
+                path = mcp_errlog_path()
+                if os.path.exists(path):
+                    with open(path, "r", encoding="utf-8", errors="replace") as f:
+                        f.seek(log_pos)
+                        new_content = f.read()
+                        err_lines = [
+                            l.strip()
+                            for l in new_content.splitlines()
+                            if l.strip() and not l.strip().startswith(("│", "╭", "╰", "FastMCP"))
+                        ]
+                        meaningful = [
+                            l for l in err_lines
+                            if "not found" in l.lower() or "error" in l.lower() or "failed" in l.lower()
+                        ]
+                        candidates = meaningful if meaningful else err_lines
+                        if candidates:
+                            recent_err = " — ".join(candidates[:2])
+            except Exception:
+                pass
+
+            base_err = format_mcp_exception(e)
+            if recent_err and recent_err not in base_err:
+                raise RuntimeError(f"{recent_err} ({base_err})") from e
+            raise RuntimeError(base_err) from e
 
     async def test_connection(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
         """Prueba la conexión con un servidor MCP sin guardar la configuración."""
+        from kogniterm.core.mcp.env_utils import normalize_mcp_config, format_mcp_exception
         try:
-            transport = config_dict.get("transport", "stdio")
+            norm_cfg = normalize_mcp_config(config_dict)
+            transport = norm_cfg.get("transport", "stdio")
             if transport == "stdio":
-                cmd = config_dict.get("command")
+                cmd = norm_cfg.get("command")
                 if not cmd:
                     return {"status": "error", "message": "Comando no especificado"}
-                tools = await self._load_server_tools("test", config_dict)
+                tools = await self._load_server_tools("test", norm_cfg)
                 tool_names = [getattr(t, "name", str(t)) for t in tools]
                 return {"status": "ok", "tools": tool_names}
-            elif transport == "sse":
-                url = config_dict.get("url")
+            elif transport in ("sse", "http", "streamable_http", "websocket"):
+                url = norm_cfg.get("url")
                 if not url:
-                    return {"status": "error", "message": "URL de SSE no especificada"}
-                tools = await self._load_server_tools("test", config_dict)
+                    return {"status": "error", "message": f"URL no especificada para transporte {transport}"}
+                tools = await self._load_server_tools("test", norm_cfg)
                 tool_names = [getattr(t, "name", str(t)) for t in tools]
                 return {"status": "ok", "tools": tool_names}
             return {"status": "error", "message": f"Transporte desconocido: {transport}"}
         except Exception as e:
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": format_mcp_exception(e)}
 
     def get_all_servers_status(self) -> Dict[str, Any]:
         """Devuelve el estado de todos los servidores MCP configurados."""

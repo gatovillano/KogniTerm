@@ -40,6 +40,7 @@ from kogniterm.core.llm import (
     extract_args as _core_extract_args,
     extract_balanced_content as _core_extract_balanced_content,
     generate_short_id as _core_generate_short_id,
+    content_for_token_count as _content_for_token_count,
     FallbackHandler,
 )
 
@@ -572,12 +573,26 @@ class LLMService:
         """Calcula el total aproximado de tokens en una lista de mensajes formateados para LiteLLM."""
         total_tokens = 0
         for msg in messages:
-            content = msg.get("content", "")
+            content = _content_for_token_count(msg.get("content", ""))
             if isinstance(content, str):
                 total_tokens += self._get_token_count(content)
             elif isinstance(content, list):
-                # Manejar contenido multimodal o estructurado
+                # Contenido multimodal: el base64 de image_url NO se cuenta como
+                # texto (provocaba presupuestos de millones de tokens y la purga
+                # eliminaba el turno con la imagen). Se estima por imagen.
                 total_tokens += self._get_token_count(json.dumps(content))
+                try:
+                    raw = msg.get("content", "")
+                    if isinstance(raw, list):
+                        n_images = sum(
+                            1 for p in raw
+                            if isinstance(p, dict) and p.get("type") == "image_url"
+                        )
+                        if n_images:
+                            # json.dumps ya contó el placeholder; ajustar a la estimación real
+                            total_tokens += n_images * 1500
+                except Exception:
+                    pass
             
             # Overhead por rol y estructura (aprox 4 tokens por mensaje)
             total_tokens += 4
@@ -729,7 +744,7 @@ class LLMService:
             return int(env_limit)
 
         model_lower = target_model.lower()
-        is_openrouter_or_openai = "openrouter" in model_lower or "openai" in model_lower or "kilocode" in model_lower or "inception" in model_lower or "mercury" in model_lower or "stepfun" in model_lower or ":free" in model_lower
+        is_openrouter_or_openai = "openrouter" in model_lower or "openai" in model_lower or "kilocode" in model_lower or "inception" in model_lower or "mercury" in model_lower or "stepfun" in model_lower or ":free" in model_lower or model_lower.startswith("opencode/") or model_lower.startswith("zen/")
 
         try:
             info = litellm.get_model_info(target_model)
@@ -781,7 +796,11 @@ class LLMService:
         # Inferir proveedor basado en el nombre del modelo
         provider = "google"
         model_lower = model_name.lower()
-        if "openrouter" in model_lower:
+        # El prefijo 'opencode/' debe ganar a la inferencia por nombre: los ids de
+        # Zen contienen 'gpt'/'claude'/'gemini' y seakingarían con OpenAI/Anthropic/Google.
+        if model_lower.startswith("opencode/") or model_lower.startswith("zen/"):
+            provider = "opencode"
+        elif "openrouter" in model_lower:
             provider = "openrouter"
         elif "openai" in model_lower or "gpt" in model_lower or model_lower.startswith("o1") or model_lower.startswith("o3"):
             provider = "openai"
@@ -872,6 +891,17 @@ class LLMService:
             litellm.api_base = os.environ.get("LITELLM_API_BASE") or "https://api.inceptionlabs.ai/v1"
             litellm.headers = {}
             logger.info(f"⚡ Cambiado a Inception Labs: {model_name}")
+
+        elif provider == "opencode":
+            key = cm.get_api_key("opencode") or os.environ.get("OPENCODE_API_KEY") or os.environ.get("LITELLM_API_KEY")
+            if key:
+                self.api_key = key
+                os.environ["LITELLM_API_KEY"] = key
+                os.environ["OPENCODE_API_KEY"] = key
+
+            litellm.api_base = os.environ.get("LITELLM_API_BASE") or os.environ.get("OPENCODE_API_BASE") or "https://opencode.ai/zen/v1"
+            litellm.headers = {}
+            logger.info(f"🧘 Cambiado a OpenCode Zen: {model_name}")
 
         elif provider == "antigravity":
             self.api_key = _ANTIGRAVITY_SESSION_TOKEN
@@ -1284,15 +1314,17 @@ class LLMService:
                 # Paso 2: Recalcular tokens tras el primer corte
                 total_prompt_tokens = self._get_messages_token_count(litellm_messages) + tools_token_overhead
                 
-                # Paso 3: Si aún supera max_allowed_prompt, descartar turnos de conversación antiguos hasta caber
+                # Paso 3: Si aún supera max_allowed_prompt, descartar turnos de conversación antiguos hasta caber.
+                # El último mensaje (turno actual, p.ej. con imágenes adjuntas) NUNCA se
+                # elimina: sin él el modelo responde a ciegas e inventa.
                 if total_prompt_tokens > max_allowed_prompt:
                     system_msgs = [m for m in litellm_messages if m.get("role") == "system"]
                     conv_msgs = [m for m in litellm_messages if m.get("role") != "system"]
-                    
-                    while conv_msgs and total_prompt_tokens > max_allowed_prompt:
+
+                    while len(conv_msgs) > 1 and total_prompt_tokens > max_allowed_prompt:
                         conv_msgs.pop(0)
                         total_prompt_tokens = self._get_messages_token_count(system_msgs + conv_msgs) + tools_token_overhead
-                    
+
                     litellm_messages = system_msgs + conv_msgs
                 
                 # Paso 4: Si aún después de vaciar la conversación el prompt supera el máximo permitido, truncar mensajes de sistema
@@ -1344,7 +1376,17 @@ class LLMService:
             completion_kwargs["headers"] = self.headers
         
         # Configuración específica para Gemini (Google AI Studio)
-        if self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower() and "antigravity" not in self.model_name.lower()):
+        # OpenCode Zen se comprueba antes: sus ids incluyen 'gemini'/'gpt'/'claude'.
+        if self.model_name.lower().startswith(("opencode/", "zen/")):
+            completion_kwargs["custom_llm_provider"] = "openai"
+            # Enviar el id puro (sin el prefijo 'opencode/') al gateway
+            pure = self.model_name.split("/", 1)[1]
+            completion_kwargs["model"] = pure
+            api_base = os.environ.get("OPENCODE_API_BASE") or "https://opencode.ai/zen/v1"
+            completion_kwargs["api_base"] = api_base
+            if self.api_key:
+                completion_kwargs["api_key"] = self.api_key
+        elif self.model_name.startswith("gemini/") or ("gemini" in self.model_name.lower() and "openrouter" not in self.model_name.lower() and "antigravity" not in self.model_name.lower()):
             completion_kwargs["custom_llm_provider"] = "gemini"
             if self.api_key:
                 os.environ["GEMINI_API_KEY"] = self.api_key
@@ -1407,64 +1449,80 @@ class LLMService:
                 completion_kwargs["tool_choice"] = "auto"
 
         # Validación estricta de secuencia para Mistral/OpenRouter
-        validated_messages = []
-        last_user_content = None
-        in_tool_sequence = False
-        
-        # Filtrar y validar secuencia
-        for i, msg in enumerate(raw_conv_messages):
-            role = msg["role"]
-            
-            if role == "user":
-                if msg["content"] != last_user_content:
-                    validated_messages.append(msg)
-                    last_user_content = msg["content"]
-                in_tool_sequence = False
-            
-            elif role == "assistant":
-                if msg.get("tool_calls"):
-                    # Verificar si el SIGUIENTE mensaje es una herramienta
-                    has_next_tool = False
-                    for j in range(i + 1, len(raw_conv_messages)):
-                        if raw_conv_messages[j]["role"] == "tool":
-                            has_next_tool = True
-                            break
-                        if raw_conv_messages[j]["role"] in ["user", "assistant"]:
-                            break
+        # NOTA: para Antigravity/Gemini se conserva la secuencia 1:1 ya
+        # construida arriba (litellm_messages) sin inyectar placeholders
+        # de tipo "Procesando...", que de lo contrario se enviaban como
+        # mensaje real a la API y contaminaban el historial.
+        is_gemini_family = (
+            "antigravity" in self.model_name.lower()
+            or "gemini" in self.model_name.lower()
+        )
+        if is_gemini_family:
+            # No revalidar ni sobrescribir: mantener litellm_messages tal cual.
+            pass
+        else:
+            validated_messages = []
+            last_user_content = None
+            in_tool_sequence = False
 
-                    if has_next_tool:
+            # Filtrar y validar secuencia
+            for i, msg in enumerate(raw_conv_messages):
+                role = msg["role"]
+
+                if role == "user":
+                    if msg["content"] != last_user_content:
                         validated_messages.append(msg)
-                        in_tool_sequence = True
-                    else:
-                        # Si no hay herramienta después, "neutralizamos" el mensaje quitando tool_calls
-                        # Esto evita el error 400 de Mistral
-                        msg_copy = msg.copy()
-                        msg_copy.pop("tool_calls", None)
-                        if not msg_copy.get("content"):
-                            msg_copy["content"] = "Procesando..." # No puede estar vacío
-                        validated_messages.append(msg_copy)
-                        in_tool_sequence = False
-                else:
-                    if not msg.get("content"):
-                        msg["content"] = "..." # Evitar asistentes vacíos
-                    validated_messages.append(msg)
+                        last_user_content = msg["content"]
                     in_tool_sequence = False
-                last_user_content = None
-            
-            elif role == "tool":
-                # Solo añadir si el ID existe y está en secuencia de herramientas (evitar huérfanos)
-                # El ID ya fue normalizado en el paso anterior mediante id_map
-                if msg.get("tool_call_id") and in_tool_sequence:
-                    validated_messages.append(msg)
-                last_user_content = None
 
-        # Unificar mensajes de sistema y combinar
-        final_messages = []
-        if system_contents:
-            final_messages.append({"role": "system", "content": "\n\n".join(system_contents)})
-        final_messages.extend(validated_messages)
+                elif role == "assistant":
+                    if msg.get("tool_calls"):
+                        # Verificar si el SIGUIENTE mensaje es una herramienta
+                        has_next_tool = False
+                        for j in range(i + 1, len(raw_conv_messages)):
+                            if raw_conv_messages[j]["role"] == "tool":
+                                has_next_tool = True
+                                break
+                            if raw_conv_messages[j]["role"] in ["user", "assistant"]:
+                                break
 
-        completion_kwargs["messages"] = final_messages
+                        if has_next_tool:
+                            validated_messages.append(msg)
+                            in_tool_sequence = True
+                        else:
+                            # Si no hay herramienta después, "neutralizamos" el mensaje quitando tool_calls
+                            # Esto evita el error 400 de Mistral.
+                            # Si además no hay contenido, se descarta el turno
+                            # (antes se inyectaba "Procesando...", que se enviaba
+                            # como mensaje real a la API).
+                            msg_copy = msg.copy()
+                            msg_copy.pop("tool_calls", None)
+                            if msg_copy.get("content"):
+                                validated_messages.append(msg_copy)
+                            in_tool_sequence = False
+                    else:
+                        if not msg.get("content"):
+                            # Turno de asistente vacío sin tool_calls: descartar
+                            # en lugar de inyectar texto ficticio.
+                            continue
+                        validated_messages.append(msg)
+                        in_tool_sequence = False
+                    last_user_content = None
+
+                elif role == "tool":
+                    # Solo añadir si el ID existe y está en secuencia de herramientas (evitar huérfanos)
+                    # El ID ya fue normalizado en el paso anterior mediante id_map
+                    if msg.get("tool_call_id") and in_tool_sequence:
+                        validated_messages.append(msg)
+                    last_user_content = None
+
+            # Unificar mensajes de sistema y combinar
+            final_messages = []
+            if system_contents:
+                final_messages.append({"role": "system", "content": "\n\n".join(system_contents)})
+            final_messages.extend(validated_messages)
+
+            completion_kwargs["messages"] = final_messages
         
         # Variables para todos los niveles de fallback (inicializadas fuera del try para evitar UnboundError)
         full_response_content = ""
@@ -2244,6 +2302,54 @@ class LLMService:
                 else:
                     friendly_message = f"¡Ups! 🌐 El proveedor del modelo (OpenRouter) está experimentando problemas técnicos temporales: '{error_msg}'. Por favor, intenta de nuevo en unos momentos."
             elif "RateLimitError" in error_type or "429" in error_msg:
+                low_msg = error_msg.lower()
+                input_limit_hit = any(
+                    s in low_msg for s in [
+                        "input token limit", "input_token", "too many tokens",
+                        "tpm", "tokens per minute", "context_length_exceeded",
+                        "maximum context length",
+                    ]
+                )
+                if input_limit_hit and context_retry_count < 2:
+                    # El prompt (historial + outputs de terminal) excede el límite
+                    # de input/TPM: compactar agresivamente y reintentar con backoff,
+                    # en lugar de devolver un callejón sin salida.
+                    wait_s = min(8.0, 1.5 * (context_retry_count + 1))
+                    logger.warning(
+                        f"⚠️ RateLimit por input/TPM (intento {context_retry_count + 1}). "
+                        f"Compactando historial y reintentando en {wait_s}s..."
+                    )
+                    try:
+                        hm = getattr(self, "history_manager", None)
+                        if hm is not None and hasattr(hm, "compact_aging_tool_outputs"):
+                            hm.KEEP_FULL_TOOL_OUTPUTS = 1
+                            compacted = hm.compact_aging_tool_outputs(
+                                list(self.conversation_history)
+                            )
+                            conv = [m for m in compacted if not isinstance(m, SystemMessage)]
+                            keep = conv[-6:] if len(conv) > 6 else conv
+                            sys_msgs = [m for m in compacted if isinstance(m, SystemMessage)]
+                            for m in keep:
+                                if isinstance(m, ToolMessage) and len(str(m.content or "")) > 600:
+                                    c = str(m.content)
+                                    keep[keep.index(m)] = ToolMessage(
+                                        content=c[:600] + "\n\n[Colapsado por RateLimit de input]",
+                                        tool_call_id=m.tool_call_id,
+                                    )
+                            self.conversation_history[:] = sys_msgs + keep
+                            self._save_history(self.conversation_history)
+                    except Exception as comp_err:
+                        logger.warning(f"No se pudo compactar tras RateLimit: {comp_err}")
+                    time.sleep(wait_s)
+                    yield from self._invoke_inner(
+                        history=self.conversation_history,
+                        system_message=system_message,
+                        interrupt_queue=interrupt_queue,
+                        save_history=save_history,
+                        include_tools=include_tools,
+                        context_retry_count=context_retry_count + 1,
+                    )
+                    return
                 friendly_message = "¡Vaya! 🚦 Hemos alcanzado el límite de velocidad del modelo. Esperemos un momento antes de intentarlo de nuevo."
             elif "APIConnectionError" in error_type:
                 friendly_message = "¡Vaya! 🔌 Parece que hay un problema de conexión con el servidor del modelo. Revisa tu conexión a internet."
@@ -2282,24 +2388,24 @@ class LLMService:
         
         for msg in history_source:
             content = msg.content or ""
-            # Si es un SystemMessage con algún resumen anterior, lo extraemos para consolidación
-            if isinstance(msg, SystemMessage) and ("Resumen de la conversación" in content or "Resumen forzado" in content):
-                # Extraer el contenido limpio del resumen
-                clean_content = content
-                if content.startswith("Resumen de la conversación anterior:"):
-                    clean_content = content[len("Resumen de la conversación anterior:"):].strip()
-                elif content.startswith("Resumen forzado de la conversación:"):
-                    clean_content = content[len("Resumen forzado de la conversación:"):].strip()
-                previous_summaries.append(clean_content)
+            # Resúmenes previos (canónicos o heredados) se consolidan, no se
+            # tratan como mensajes normales. Detección centralizada e
+            # insensible a mayúsculas en HistoryManager.is_summary_message.
+            prev_summary = HistoryManager.is_summary_message(msg)
+            if prev_summary is not None:
+                previous_summaries.append(prev_summary)
                 continue
                 
             role = "Sistema" if isinstance(msg, SystemMessage) else "Usuario" if isinstance(msg, HumanMessage) else "Asistente" if isinstance(msg, AIMessage) else "Herramienta"
             
             # Truncar localmente el contenido de mensajes individuales extremadamente largos (ej. outputs gigantes de herramientas)
             # para evitar que desplacen a otros mensajes del historial de resumen.
-            max_msg_content_len = 5000
+            # Límite deliberadamente bajo: el resumen NO debe auto-provocar un
+            # RateLimit de input cuando hay muchos comandos de terminal.
+            max_msg_content_len = int(os.getenv("KOGNITERM_SUMMARY_MSG_CHARS", "3000"))
             if len(content) > max_msg_content_len:
-                content = content[:2500] + f"\n\n... [Contenido largo de {len(content)} caracteres truncado para el proceso de resumen] ...\n\n" + content[-2500:]
+                head_n = max_msg_content_len // 2
+                content = content[:head_n] + f"\n\n... [Contenido largo de {len(content)} caracteres truncado para el proceso de resumen] ...\n\n" + content[-head_n:]
             
             # Si es un mensaje de asistente con llamadas a herramientas, incluirlas en el texto
             if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -2327,7 +2433,9 @@ class LLMService:
         flat_history = "\n\n".join(recent_messages_text)
         
         # Prevenir errores de contexto excedido en el modelo de resumen.
-        max_history_chars = 100000
+        # 30k chars (~8k tokens) por defecto: suficiente para resumir y sin
+        # disparar el propio RateLimit de input/TPM que intenta resolver.
+        max_history_chars = int(os.getenv("KOGNITERM_SUMMARY_MAX_CHARS", "30000"))
         if len(flat_history) > max_history_chars:
             prefix_goal = f"🎯 PROMPT / OBJETIVO INICIAL DEL USUARIO:\n{initial_user_prompt[:2000]}\n\n" if initial_user_prompt else ""
             flat_history = prefix_goal + "... [Mensajes intermedios antiguos truncados para resumen] ...\n\n" + flat_history[-max_history_chars:]
@@ -2349,14 +2457,19 @@ NUEVOS EVENTOS RECIENTES A INCORPORAR:
 
 INSTRUCCIONES PARA EL NUEVO RESUMEN CONSOLIDADO:
 - **Estructura obligatoria**:
-  1. 🎯 OBJETIVO Y TAREA PRINCIPAL INICIAL DEL USUARIO
-  2. ✅ ACCIONES Y HERRAMIENTAS EJECUTADAS (Archivos creados/modificados, comandos ejecutados)
-  3. 📌 ESTADO ACTUAL Y SIGUIENTES PASOS
-- **Mantener y expandir:** Integra la información del 'RESUMEN DE LA CONVERSACIÓN ANTERIOR' con los 'NUEVOS EVENTOS RECIENTES'. NO pierdas el objetivo inicial ni decisiones tomadas.
-- **Errores y soluciones:** Problemas relevantes encontrados y cómo se resolvieron.
+  1. 🎯 OBJETIVO Y TAREA PRINCIPAL INICIAL DEL USUARIO (qué pidió, en sus palabras)
+  2. 🗂️ PROYECTO Y CONTEXTO (repositorio/directorio, lenguaje, archivos clave tocados)
+  3. 💬 TEMAS TRATADOS (qué se preguntó, discutió o probó, con detalle suficiente para reconocer cada tema si el usuario lo menciona)
+  4. ✅ ACCIONES Y HERRAMIENTAS EJECUTADAS (archivos creados/modificados, comandos ejecutados y su resultado)
+  5. 🧠 DECISIONES TOMADAS Y MOTIVOS (qué se eligió y por qué; opciones descartadas)
+  6. ⚠️ ERRORES Y SOLUCIONES (problemas encontrados y cómo se resolvieron)
+  7. 📌 ESTADO ACTUAL Y SIGUIENTES PASOS (dónde quedó el trabajo, qué falta)
+  8. ❓ PREGUNTAS ABIERTAS (lo pendiente de responder o confirmar por el usuario)
+- **Mantener y expandir:** Integra la información del 'RESUMEN DE LA CONVERSACIÓN ANTERIOR' con los 'NUEVOS EVENTOS RECIENTES'. NO pierdas el objetivo inicial, los temas tratados ni decisiones tomadas.
+- **Preferencias del usuario:** conserva correcciones, gustos y restricciones que expresó ("no hagas X", "prefiero Y").
 
 IMPORTANTE: El resumen resultante debe ser sumamente completo y autónomo. Un nuevo asistente debe poder leer este único resumen y continuar trabajando perfectamente como si hubiera estado presente desde el inicio de la sesión.
-Limita el resumen consolidado a 5000 caracteres."""
+Limita el resumen consolidado a 6000 caracteres."""
         else:
             summarize_prompt = f"""Genera un resumen EXTENSO y DETALLADO de la conversación anterior que permita retomar el hilo sin perder contexto ni el objetivo original.
             
@@ -2368,14 +2481,18 @@ CONTEXTO DE LA CONVERSACIÓN:
 
 INSTRUCCIONES PARA EL RESUMEN:
 - **Estructura obligatoria**:
-  1. 🎯 OBJETIVO Y TAREA PRINCIPAL INICIAL DEL USUARIO
-  2. ✅ ACCIONES Y HERRAMIENTAS EJECUTADAS (Archivos creados/modificados, comandos ejecutados)
-  3. 📌 ESTADO ACTUAL Y SIGUIENTES PASOS
-- **Decisiones tomadas:** ¿Qué decisiones se han tomado hasta ahora?
-- **Errores y problemas:** Cualquier error de herramienta, fallo o problema encontrado, y las acciones tomadas para resolverlos.
+  1. 🎯 OBJETIVO Y TAREA PRINCIPAL INICIAL DEL USUARIO (qué pidió, en sus palabras)
+  2. 🗂️ PROYECTO Y CONTEXTO (repositorio/directorio, lenguaje, archivos clave tocados)
+  3. 💬 TEMAS TRATADOS (qué se preguntó, discutió o probó, con detalle suficiente para reconocer cada tema si el usuario lo menciona)
+  4. ✅ ACCIONES Y HERRAMIENTAS EJECUTADAS (archivos creados/modificados, comandos ejecutados y su resultado)
+  5. 🧠 DECISIONES TOMADAS Y MOTIVOS (qué se eligió y por qué; opciones descartadas)
+  6. ⚠️ ERRORES Y PROBLEMAS (cualquier error de herramienta, fallo o problema encontrado, y las acciones tomadas para resolverlos)
+  7. 📌 ESTADO ACTUAL Y SIGUIENTES PASOS (dónde quedó el trabajo, qué falta)
+  8. ❓ PREGUNTAS ABIERTAS (lo pendiente de responder o confirmar por el usuario)
+- **Preferencias del usuario:** conserva correcciones, gustos y restricciones que expresó ("no hagas X", "prefiero Y").
 
 IMPORTANTE: El resumen debe ser lo suficientemente detallado para que un asistente pueda retomar la conversación exactamente donde se dejó.
-Limita el resumen a 5000 caracteres."""
+Limita el resumen a 6000 caracteres."""
 
         litellm_messages_for_summary = [{"role": "user", "content": summarize_prompt}]
         
@@ -2498,6 +2615,20 @@ Limita el resumen a 5000 caracteres."""
             # devolvemos una cadena vacía para que el sistema sepa que no hubo resumen.
             return ""
 
+    def compress_history(self, messages: Optional[List[BaseMessage]] = None, force_truncate: bool = False) -> str:
+        """
+        Resume y compacta una lista de mensajes o el historial de conversación actual.
+        Método de conveniencia que delega en summarize_conversation_history.
+
+        Args:
+            messages: Lista opcional de mensajes a resumir. Si es None, utiliza el historial actual.
+            force_truncate: Si es True, recorta agresivamente el historial para que quepa en los límites de tokens del modelo.
+
+        Returns:
+            Texto con el resumen consolidado del historial.
+        """
+        return self.summarize_conversation_history(messages_to_summarize=messages, force_truncate=force_truncate)
+
     def force_summarize_history(self) -> str:
         """
         Fuerza un resumen del historial actual para mejorar la gestión de contexto.
@@ -2517,15 +2648,34 @@ Limita el resumen a 5000 caracteres."""
             if not summary:
                 return "No se pudo generar el resumen del historial."
             
-            # Crear nuevo historial con resumen
-            summary_message = SystemMessage(content=f"Resumen forzado de la conversación: {summary}")
-            new_history = [summary_message] + current_history[-20:]  # Mantener los últimos 20 mensajes
+            # Crear nuevo historial con resumen (marcador canónico para que las
+            # siguientes compresiones lo detecten y consoliden en cadena)
+            summary_message = SystemMessage(
+                content=f"{HistoryManager.SUMMARY_MARKER}\n\n{summary}"
+            )
+            try:
+                import os as _os
+                keep_n = int(_os.getenv("KOGNITERM_COMPRESS_KEEP_MSGS", "20"))
+            except Exception:
+                keep_n = 20
+            hm = getattr(self, "history_manager", None)
+            if hm is not None and hasattr(hm, "build_compressed_history"):
+                new_history = hm.build_compressed_history(
+                    list(current_history),
+                    summary,
+                    keep_recent=keep_n,
+                    base_system_message=None,
+                )
+                kept = len(new_history) - 1
+            else:
+                new_history = [summary_message] + current_history[-keep_n:]
+                kept = len(new_history) - 1
             
             # Actualizar historial
             self.conversation_history = new_history
             self._save_history(self.conversation_history)
             
-            return f"Historial resumido exitosamente. Se conservaron los últimos {len(new_history)-1} mensajes con un resumen del contexto anterior."
+            return f"Historial resumido exitosamente. Se conservaron los últimos {kept} mensajes con un resumen del contexto anterior."
             
         except Exception as e:
             logger.error(f"Error al forzar resumen del historial: {e}")

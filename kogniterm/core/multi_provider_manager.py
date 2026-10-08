@@ -151,7 +151,8 @@ class ProviderConfig:
                 "kilocode": "kilocode",
                 "ollama_cloud": "ollama_cloud",
                 "inception": "inception",
-                "inceptionlabs": "inception"
+                "inceptionlabs": "inception",
+                "opencode": "opencode",
             }
             cm_name = provider_map.get(self.name, self.name)
             cm_key = cm.get_api_key(cm_name)
@@ -322,6 +323,17 @@ DEFAULT_PROVIDERS = [
         priority=80,
         fallback_on_error_codes=["429", "503", "timeout"]
     ),
+    ProviderConfig(
+        name="opencode",
+        # OpenCode Zen es OpenAI-compatible → LiteLLM requiere prefijo 'openai'
+        model_prefix="openai",
+        api_key_env="OPENCODE_API_KEY",
+        # Debe terminar en /v1 para que LiteLLM añada /chat/completions
+        api_base="https://opencode.ai/zen/v1",
+        api_base_env="OPENCODE_API_BASE",
+        priority=90,
+        fallback_on_error_codes=["429", "503", "timeout"]
+    ),
 ]
 
 
@@ -448,7 +460,9 @@ class MultiProviderManager:
                 "antigravity": "antigravity",
                 "kilocode": "kilocode",
                 "inception": "inception",
-                "inceptionlabs": "inception"
+                "inceptionlabs": "inception",
+                "opencode": "opencode",
+                "zen": "opencode",
             }
             mapped_owner = prefix_map.get(owner, owner)
             return mapped_owner, pure
@@ -507,7 +521,13 @@ class MultiProviderManager:
         # 3. Si el proveedor destino es el propietario del modelo (o compatible nativo):
         is_native = False
         if owner_provider:
-            if owner_provider == provider.name or owner_provider == provider.model_prefix:
+            if owner_provider == provider.name:
+                is_native = True
+            # Los gateways (kilocode/inception/opencode) usan model_prefix='openai'
+            # solo para que LiteLLM enrute a /chat/completions. Eso NO significa que
+            # acepten cualquier modelo de OpenAI: cada uno tiene su propio catálogo,
+            # así que solo son nativos los ids con su prefijo.
+            elif owner_provider == provider.model_prefix and provider.name not in ("kilocode", "inception", "opencode"):
                 is_native = True
             elif provider.name in ["google", "antigravity"] and owner_provider in ["google", "gemini"]:
                 is_native = True
@@ -520,7 +540,7 @@ class MultiProviderManager:
 
             if provider.name.startswith("ollama"):
                 return pure_model
-            if provider.name in ("inception", "kilocode"):
+            if provider.name in ("inception", "kilocode", "opencode"):
                 return pure_model
             return f"{provider.model_prefix}/{pure_model}"
 
@@ -538,12 +558,13 @@ class MultiProviderManager:
             "ollama": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
             "ollama_cloud": "qwen2.5-coder:32b" if is_flagship else "qwen2.5-coder",
             "kilocode": "kilo/auto",
-            "inception": "mercury-2"
+            "inception": "mercury-2",
+            "opencode": "claude-sonnet-4-5"
         }
 
         default_model = provider_defaults.get(provider.name, "gpt-4o-mini")
 
-        if provider.name.startswith("ollama") or provider.name in ("kilocode", "inception"):
+        if provider.name.startswith("ollama") or provider.name in ("kilocode", "inception", "opencode"):
             return default_model
 
         return f"{provider.model_prefix}/{default_model}"
@@ -610,6 +631,10 @@ class MultiProviderManager:
                     return provider
             elif prefix in ("inception", "inceptionlabs"):
                 provider = next((p for p in available if p.name == "inception"), None)
+                if provider:
+                    return provider
+            elif prefix in ("opencode", "zen"):
+                provider = next((p for p in available if p.name == "opencode"), None)
                 if provider:
                     return provider
 
@@ -699,7 +724,7 @@ class MultiProviderManager:
                 # Sin custom_llm_provider, LiteLLM infiere "ollama" nativo y arma
                 # https://ollama.com/v1/api/generate, que devuelve 404 ("path not found").
                 completion_kwargs["custom_llm_provider"] = "openai"
-            elif provider.name in ("kilocode", "inception"):
+            elif provider.name in ("kilocode", "inception", "opencode"):
                 completion_kwargs["custom_llm_provider"] = "openai"
             elif provider.model_prefix == "gemini" or provider.name == "google":
                 completion_kwargs["custom_llm_provider"] = "gemini"

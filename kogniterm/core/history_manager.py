@@ -160,6 +160,26 @@ class HistoryManager:
     DEFAULT_MAX_SUMMARY_LENGTH = 5500
     SUMMARY_TRUNCATION_SUFFIX = "... [Resumen truncado para evitar bucles]"
     MAX_TOOL_MESSAGE_CONTENT_LENGTH_ASSUMED = 100000
+    # Marcador canónico para historiales comprimidos. TODOS los flujos
+    # (/compress terminal, /compact servidor, auto-resumen) deben usarlo para
+    # que los resúmenes previos se detecten y consoliden en cadena en lugar de
+    # tratarse como texto genérico y perder el hilo.
+    SUMMARY_MARKER = "📌 RESUMEN DE CONVERSACIÓN PREVIA (historial comprimido):"
+    # Marcadores heredados que también deben reconocerse (compatibilidad).
+    LEGACY_SUMMARY_MARKERS = (
+        "resumen de la conversación",
+        "resumen forzado",
+        "resumen de conversación previa",
+        "previous conversation summary",
+        "compressed history summary",
+        "compressed history",
+    )
+    # Compactación por antigüedad de ToolMessages (anti-RateLimit por terminal).
+    # Los últimos KEEP_FULL outputs se envían íntegros; los anteriores se colapsan
+    # de forma determinística (sin LLM) para que N comandos no multipliquen tokens.
+    KEEP_FULL_TOOL_OUTPUTS = int(os.getenv("KOGNITERM_KEEP_FULL_TOOL_OUTPUTS", "3"))
+    AGED_TOOL_MAX_CHARS = int(os.getenv("KOGNITERM_AGED_TOOL_CHARS", "1500"))
+    ARCHIVED_TOOL_MAX_CHARS = int(os.getenv("KOGNITERM_ARCHIVED_TOOL_CHARS", "400"))
     
     def __init__(self, history_file_path: str, max_history_messages: int = 100, max_history_chars: int = 150000, auto_save_interval: Optional[float] = None, thread_manager: Optional[Any] = None, llm_service: Optional[Any] = None):
         self.history_file_path = history_file_path
@@ -270,16 +290,21 @@ class HistoryManager:
         if msg_hash not in self._message_length_cache:
             try:
                 msg_litellm = self._to_litellm_message_for_len_calc(message)
+                # Los tokens estimados de imágenes van aparte (no en el JSON).
+                image_tokens = 0
+                if isinstance(msg_litellm, dict) and "_image_tokens" in msg_litellm:
+                    image_tokens = int(msg_litellm.pop("_image_tokens") or 0)
                 text = json.dumps(msg_litellm, ensure_ascii=False)
-                tokenizer = getattr(self, "_tokenizer", None)
-                if tokenizer is not None:
-                    tokens = tokenizer.encode(text)
-                    self._message_length_cache[msg_hash] = len(tokens)
+                if getattr(self, "_tokenizer", None) is not None:
+                    tokens = self._tokenizer.encode(text)
+                    self._message_length_cache[msg_hash] = len(tokens) + image_tokens
                 else:
                     # Fallback robusto: 1 token por cada ~3.5 caracteres
-                    self._message_length_cache[msg_hash] = max(1, int(len(text) / 3.5))
+                    self._message_length_cache[msg_hash] = max(1, int(len(text) / 3.5)) + image_tokens
             except Exception:
                 msg_litellm = self._to_litellm_message_for_len_calc(message)
+                if isinstance(msg_litellm, dict):
+                    msg_litellm.pop("_image_tokens", None)
                 text = json.dumps(msg_litellm, ensure_ascii=False)
                 self._message_length_cache[msg_hash] = max(1, int(len(text) / 3.5))
 
@@ -543,10 +568,10 @@ class HistoryManager:
         """
         Asegura que cada ToolMessage tenga su AIMessage correspondiente.
         Elimina ToolMessages huérfanos al final del historial.
-        
+
         Args:
             history: Historial en formato LangChain
-            
+
         Returns:
             Historial con pares de mensajes válidos
         """
@@ -579,6 +604,187 @@ class HistoryManager:
                 history = history[:-1]
         
         return history
+
+    def compact_aging_tool_outputs(self, history: List[BaseMessage]) -> List[BaseMessage]:
+        """Colapsa ToolMessages antiguos de forma determinística (sin LLM).
+
+        Estrategia anti `RateLimitError: input token limit exceeded` cuando el
+        agente ejecutó muchos comandos de terminal:
+        - Los últimos KEEP_FULL_TOOL_OUTPUTS ToolMessages se conservan íntegros.
+        - Los anteriores se reducen a AGED_TOOL_MAX_CHARS (head+tail+errores).
+        - Los más antiguos (más allá de max_history_messages) se archivan a
+          ARCHIVED_TOOL_MAX_CHARS como una línea resumen.
+        Preserva tool_call_id para no romper pares AIMessage-ToolMessage.
+        """
+        if not history:
+            return history
+        try:
+            from kogniterm.core.utils.output_pruner import collapse_aged_tool_output
+        except Exception:
+            return history
+
+        tool_indices = [i for i, m in enumerate(history) if isinstance(m, ToolMessage)]
+        if len(tool_indices) <= self.KEEP_FULL_TOOL_OUTPUTS:
+            return history
+
+        keep_full = self.KEEP_FULL_TOOL_OUTPUTS
+        aged_zone = tool_indices[:-keep_full] if keep_full > 0 else tool_indices
+        # Los más antiguos dentro de la zona aged -> minimal; resto -> reduced
+        minimal_cutoff = max(0, len(aged_zone) - self.max_history_messages)
+        result = list(history)
+        for rank, idx in enumerate(aged_zone):
+            msg = result[idx]
+            content = str(msg.content or "")
+            if rank < minimal_cutoff:
+                if len(content) > self.ARCHIVED_TOOL_MAX_CHARS:
+                    result[idx] = ToolMessage(
+                        content=collapse_aged_tool_output(content, level="minimal"),
+                        tool_call_id=msg.tool_call_id,
+                    )
+                    self._message_length_cache.pop(self._get_message_hash(msg), None)
+            else:
+                if len(content) > self.AGED_TOOL_MAX_CHARS:
+                    result[idx] = ToolMessage(
+                        content=collapse_aged_tool_output(content, level="reduced"),
+                        tool_call_id=msg.tool_call_id,
+                    )
+                    self._message_length_cache.pop(self._get_message_hash(msg), None)
+        return result
+
+    def extractive_fallback_summary(self, history: List[BaseMessage], max_chars: int = 4000) -> str:
+        """Resumen extractivo local sin LLM (funciona bajo RateLimit).
+
+        Lista objetivo inicial, herramientas ejecutadas y errores visibles.
+        Se usa cuando summarize_conversation_history devuelve "" por fallo
+        del proveedor, para poder comprimir igual y no reenviar el historial
+        completo que causó el RateLimit.
+        """
+        if not history:
+            return ""
+        initial_goal = ""
+        for m in history:
+            if isinstance(m, HumanMessage) and m.content:
+                initial_goal = str(m.content)[:500]
+                break
+        tool_lines: List[str] = []
+        errors: List[str] = []
+        for m in history:
+            if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+                for tc in m.tool_calls:
+                    try:
+                        args = tc.get("args", {})
+                        cmd = args.get("command", "") if isinstance(args, dict) else ""
+                        cmd = str(cmd)[:120]
+                    except Exception:
+                        cmd = ""
+                    tool_lines.append(f"- {tc.get('name', '?')}: {cmd}")
+            elif isinstance(m, ToolMessage) and m.content:
+                for ln in str(m.content).splitlines():
+                    low = ln.lower()
+                    if any(k in low for k in ("error", "exception", "traceback", "failed", "fatal", "denied")):
+                        errors.append(ln.strip()[:160])
+                        if len(errors) >= 8:
+                            break
+        parts = []
+        if initial_goal:
+            parts.append(f"🎯 OBJETIVO INICIAL: {initial_goal}")
+        if tool_lines:
+            seen: Set[str] = set()
+            uniq = [t for t in tool_lines if not (t in seen or seen.add(t))]
+            parts.append(f"✅ HERRAMIENTAS EJECUTADAS ({len(uniq)}):\n" + "\n".join(uniq[-30:]))
+        # Últimas respuestas del asistente como estado actual
+        ai_texts = [str(m.content)[:300] for m in history if isinstance(m, AIMessage) and m.content]
+        if ai_texts:
+            parts.append(f"📌 ÚLTIMO ESTADO: {ai_texts[-1]}")
+        if errors:
+            parts.append("⚠️ ERRORES VISIBLES:\n" + "\n".join(errors[:8]))
+        summary = "\n\n".join(parts)
+        if len(summary) > max_chars:
+            summary = summary[:max_chars] + "\n\n" + self.SUMMARY_TRUNCATION_SUFFIX
+        return summary or "Historial con múltiples comandos de terminal ejecutados."
+
+    @classmethod
+    def is_summary_message(cls, message: BaseMessage) -> Optional[str]:
+        """Detecta si un mensaje es un resumen previo (canónico o heredado).
+
+        Comparación insensible a mayúsculas para no depender del formato exacto.
+        Returns:
+            Contenido limpio del resumen o None si no es un resumen.
+        """
+        if not isinstance(message, SystemMessage):
+            return None
+        content = str(message.content or "")
+        low = content.lower()
+        if cls.SUMMARY_MARKER.lower() not in low and not any(
+            m in low for m in cls.LEGACY_SUMMARY_MARKERS
+        ):
+            return None
+        # Extraer el cuerpo tras el primer ':' si hay encabezado
+        for marker in (cls.SUMMARY_MARKER,) + tuple(cls.LEGACY_SUMMARY_MARKERS):
+            idx = low.find(marker)
+            if idx != -1:
+                body = content[idx + len(marker):].strip().lstrip(":").strip()
+                return body or content
+        return content
+
+    def build_compressed_history(
+        self,
+        full_history: List[BaseMessage],
+        summary: str,
+        keep_recent: int = 20,
+        base_system_message: Optional[BaseMessage] = None,
+    ) -> List[BaseMessage]:
+        """Ensambla [base?, resumen canónico, objetivo inicial?, recents seguros].
+
+        - Conserva el primer HumanMessage (objetivo) aunque sea antiguo.
+        - Los recents nunca empiezan a mitad de un par AI(tool_calls)+Tool:
+          retrocede hasta un HumanMessage o un AI sin tool_calls pendiente.
+        - Elimina duplicados del objetivo si ya está en recents.
+        """
+        history = list(full_history or [])
+        if not history:
+            return [base_system_message] if base_system_message else []
+
+        summary_msg = SystemMessage(content=f"{self.SUMMARY_MARKER}\n\n{summary}")
+
+        # Objetivo inicial: primer HumanMessage con contenido
+        initial_goal = None
+        for m in history:
+            if isinstance(m, HumanMessage) and str(m.content or "").strip():
+                initial_goal = m
+                break
+
+        # Ventana reciente segura por pares (máx. keep_recent mensajes)
+        recents: List[BaseMessage] = []
+        for m in reversed(history):
+            if isinstance(m, SystemMessage) and self.is_summary_message(m) is not None:
+                continue  # los resúmenes viejos ya están consolidados en `summary`
+            recents.append(m)
+            if len(recents) >= keep_recent:
+                break
+        recents.reverse()
+        # No empezar a mitad de par: si el primero es Tool huérfano o AI con
+        # tool_calls sin sus Tools a continuación, avanzar al siguiente turno.
+        while recents and isinstance(recents[0], ToolMessage):
+            recents.pop(0)
+        if recents and isinstance(recents[0], AIMessage) and recents[0].tool_calls:
+            expected = {tc.get("id") for tc in recents[0].tool_calls if tc.get("id")}
+            following_tools = {
+                m.tool_call_id for m in recents[1:] if isinstance(m, ToolMessage)
+            }
+            if expected and not (expected & following_tools):
+                recents.pop(0)
+                while recents and isinstance(recents[0], ToolMessage):
+                    recents.pop(0)
+
+        new_history: List[BaseMessage] = []
+        if base_system_message is not None:
+            new_history.append(base_system_message)
+        new_history.append(summary_msg)
+        if initial_goal is not None and initial_goal not in recents:
+            new_history.append(initial_goal)
+        new_history.extend(recents)
+        return new_history
 
     def _truncate_history(self, history: List[BaseMessage], max_messages: int, max_tokens: int) -> List[BaseMessage]:
         """
@@ -794,7 +1000,14 @@ class HistoryManager:
         if not summary:
             if console:
                 console.print("[red]No se pudo resumir el historial. Se procederá con el truncamiento estándar.[/red]")
-            return history
+            # Fallback determinístico: resumen extractivo local (funciona bajo
+            # RateLimit) para no devolver el historial íntegro que causó el exceso.
+            try:
+                summary = self.extractive_fallback_summary(messages_to_summarize)
+            except Exception:
+                summary = ""
+            if not summary:
+                return history
             
         # Preservar el prompt u objetivo inicial del usuario si existe
         initial_user_msg = None
@@ -803,7 +1016,7 @@ class HistoryManager:
                 initial_user_msg = m
                 break
 
-        summary_message = SystemMessage(content=f"🎯 RESUMEN DE LA CONVERSACIÓN Y ACCIONES ANTERIORES:\n{summary}")
+        summary_message = SystemMessage(content=f"{self.SUMMARY_MARKER}\n{summary}")
         
         if initial_user_msg and initial_user_msg not in messages_to_keep:
             new_history = [initial_user_msg, summary_message] + messages_to_keep
@@ -838,6 +1051,13 @@ class HistoryManager:
             
         if not isinstance(target_history, list):
             target_history = list(target_history)
+
+        # Paso 0 (nuevo): compactación por antigüedad de outputs de terminal.
+        # Barata y determinística: evita que N comandos × 8KB saturen el input.
+        try:
+            target_history = self.compact_aging_tool_outputs(list(target_history))
+        except Exception:
+            pass
 
         valid_tool_call_ids: Set[str] = {
             tc['id'] for msg in target_history 
@@ -912,9 +1132,26 @@ class HistoryManager:
         return filtered
 
     def _to_litellm_message_for_len_calc(self, message: BaseMessage) -> Dict[str, Any]:
-        """Convierte un mensaje de LangChain a formato LiteLLM para cálculo de longitud."""
+        """Convierte un mensaje de LangChain a formato LiteLLM para cálculo de longitud.
+
+        Los bloques image_url van sin el base64: contar esos bytes como texto
+        inflaba el presupuesto a millones de tokens y provocaba que la purga
+        eliminara el turno con la imagen (el modelo respondía a ciegas).
+        """
+        try:
+            from kogniterm.core.llm.message_converter import content_for_token_count
+        except Exception:
+            content_for_token_count = lambda c: c  # noqa: E731
         if isinstance(message, HumanMessage):
-            return {"role": "user", "content": message.content}
+            content = content_for_token_count(message.content)
+            if isinstance(message.content, list) and isinstance(content, list):
+                extra = sum(
+                    1500 for p in message.content
+                    if isinstance(p, dict) and p.get("type") == "image_url"
+                )
+                if extra:
+                    return {"role": "user", "content": content, "_image_tokens": extra}
+            return {"role": "user", "content": content}
         elif isinstance(message, AIMessage):
             msg = {"role": "assistant", "content": message.content}
             if message.tool_calls:

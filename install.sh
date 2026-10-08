@@ -23,11 +23,10 @@ VENV_DIR="$KOGNITERM_DIR/venv"
 LOCAL_BIN="$HOME/.local/bin"
 WRAPPER_PATH="$LOCAL_BIN/kogniterm"
 SERVER_WRAPPER_PATH="$LOCAL_BIN/kogniterm-server"
-WEB_WRAPPER_PATH="$LOCAL_BIN/kogniterm-web"
 DESKTOP_WRAPPER_PATH="$LOCAL_BIN/kogniterm-desktop"
 GITHUB_REPO_URL="https://github.com/gatovillano/KogniTerm.git"
 
-# Servicio de KogniTerm Server (compartido por TUI, Web y Desktop)
+# Servicio de KogniTerm Server (compartido por TUI y Desktop)
 SERVICE_NAME="kogniterm-server"
 SERVER_HOST="127.0.0.1"
 SERVER_PORT="8755"
@@ -94,7 +93,8 @@ configure_llm() {
     echo -e "  5) Ollama Local (servidor local)"
     echo -e "  6) Ollama Cloud (Ollama Models)"
     echo -e "  7) KiloCode Gateway (Routing inteligente)"
-    read -p "Opción (1-7): " prov_opt
+    echo -e "  8) OpenCode Zen (Modelos curados por OpenCode)"
+    read -p "Opción (1-8): " prov_opt
 
     case "$prov_opt" in
         1)
@@ -131,6 +131,11 @@ configure_llm() {
             PROV_KEY="kilocode"
             DEFAULT_MODEL="kilocode/kilo/auto"
             MODEL_PROMPT="kilocode/kilo/auto, kilocode/stepfun/step-3.7-flash:free"
+            ;;
+        8)
+            PROV_KEY="opencode"
+            DEFAULT_MODEL="opencode/claude-sonnet-4-5"
+            MODEL_PROMPT="opencode/claude-sonnet-4-5, opencode/gpt-5.5, opencode/gemini-3-flash"
             ;;
         *)
             echo -e "${YELLOW}Opción no válida. Omitiendo configuración de LLM.${RESET}"
@@ -223,6 +228,145 @@ update_kogniterm() {
     echo -e "${BOLD}${GREEN}========================================================================${RESET}\n"
 }
 
+# Instala el icono de KogniTerm Desktop en el lanzador del usuario.
+# Linux: entrada XDG en ~/.local/share/applications/kogniterm-desktop.desktop
+#        que ejecuta ~/.local/bin/kogniterm-desktop (delega en `kogniterm desktop`).
+# macOS: bundle .app mínimo en ~/Applications que ejecuta el mismo comando.
+install_desktop_entry() {
+    local os_type
+    os_type="$(uname -s)"
+
+    if [ "$os_type" = "Linux" ]; then
+        local apps_dir="$HOME/.local/share/applications"
+        local icon_dir_png="$HOME/.local/share/icons/hicolor/512x512/apps"
+        local icon_dir_svg="$HOME/.local/share/icons/hicolor/scalable/apps"
+        local desktop_file="$apps_dir/kogniterm-desktop.desktop"
+        local icon_name="kogniterm-desktop"
+        local icon_installed="false"
+
+        mkdir -p "$apps_dir" "$icon_dir_png" "$icon_dir_svg"
+
+        # Buscar un icono en el repo (svg preferido, luego png). Orden de búsqueda:
+        # 1) assets/kogniterm-desktop.svg 2) icon.png de Tauri/Electron 3) banner
+        local icon_src=""
+        local candidate
+        for candidate in \
+            "$REPO_DIR/assets/kogniterm-desktop.svg" \
+            "assets/kogniterm-desktop.svg" \
+            "$REPO_DIR/kogniterm-desktop/apps/desktop/src-tauri/icons/icon.png" \
+            "$REPO_DIR/kogniterm-desktop/apps/electron/assets/icon.png" \
+            "$REPO_DIR/assets/kogniterm_banner.png" \
+            "assets/kogniterm_banner.png"; do
+            if [ -f "$candidate" ]; then
+                icon_src="$candidate"
+                break
+            fi
+        done
+
+        if [ -n "$icon_src" ]; then
+            case "$icon_src" in
+                *.svg)
+                    cp -f "$icon_src" "$icon_dir_svg/$icon_name.svg" 2>/dev/null \
+                        && icon_installed="true"
+                    ;;
+                *.png)
+                    cp -f "$icon_src" "$icon_dir_png/$icon_name.png" 2>/dev/null \
+                        && icon_installed="true"
+                    ;;
+            esac
+            if [ "$icon_installed" = "true" ]; then
+                echo -e "  ${GREEN}✔${RESET} Icono instalado desde: ${BOLD}$icon_src${RESET}"
+            fi
+        fi
+
+        local icon_key="$icon_name"
+        if [ "$icon_installed" != "true" ]; then
+            # Sin icono propio: usar icono genérico de terminal del tema del sistema
+            icon_key="utilities-terminal"
+            echo -e "  ${DIM}Sin icono propio en el repo; usando icono del sistema ($icon_key).${RESET}"
+        fi
+
+        cat > "$desktop_file" << EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=KogniTerm Desktop
+GenericName=AI-Powered Terminal & Workspace
+Comment=Terminal asistida por Inteligencia Artificial
+Exec=$DESKTOP_WRAPPER_PATH
+Icon=$icon_key
+Terminal=false
+Categories=Development;System;Utility;TerminalEmulator;
+StartupWMClass=kogniterm-desktop
+Keywords=terminal;ai;kogniterm;shell;gemini;
+EOF
+        chmod +x "$desktop_file"
+        echo -e "  ${GREEN}✔${RESET} Acceso directo creado en: ${BOLD}$desktop_file${RESET}"
+
+        # Refrescar cachés del lanzador para que aparezca sin reiniciar sesión
+        if command -v update-desktop-database &>/dev/null; then
+            update-desktop-database "$apps_dir" &>/dev/null || true
+        fi
+        if command -v gtk-update-icon-cache &>/dev/null; then
+            gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" &>/dev/null || true
+        fi
+    elif [ "$os_type" = "Darwin" ]; then
+        # Bundle mínimo para que aparezca en Launchpad/Finder y lance `kogniterm desktop`
+        local app_dir="$HOME/Applications/KogniTerm Desktop.app"
+        local macos_dir="$app_dir/Contents/MacOS"
+        local res_dir="$app_dir/Contents/Resources"
+        mkdir -p "$macos_dir" "$res_dir"
+
+        cat > "$macos_dir/kogniterm-desktop" << EOF
+#!/usr/bin/env bash
+exec "$DESKTOP_WRAPPER_PATH" "\$@"
+EOF
+        chmod +x "$macos_dir/kogniterm-desktop"
+
+        cat > "$app_dir/Contents/Info.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>KogniTerm Desktop</string>
+    <key>CFBundleDisplayName</key>
+    <string>KogniTerm Desktop</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.kogniterm.desktop</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>kogniterm-desktop</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.13</string>
+</dict>
+</plist>
+EOF
+        # Icono para el bundle si hay uno disponible en el repo
+        local icon_src=""
+        local candidate
+        for candidate in \
+            "$REPO_DIR/assets/kogniterm-desktop.svg" \
+            "assets/kogniterm-desktop.svg" \
+            "$REPO_DIR/assets/kogniterm_banner.png"; do
+            if [ -f "$candidate" ]; then
+                icon_src="$candidate"
+                break
+            fi
+        done
+        if [ -n "$icon_src" ]; then
+            cp -f "$icon_src" "$res_dir/kogniterm-desktop.${icon_src##*.}" 2>/dev/null || true
+            echo -e "  ${GREEN}✔${RESET} Icono copiado al bundle desde: ${BOLD}$icon_src${RESET}"
+        fi
+        echo -e "  ${GREEN}✔${RESET} App creada en: ${BOLD}$app_dir${RESET}"
+    else
+        echo -e "  ${DIM}SO no soportado para icono de lanzador ($os_type); omitido.${RESET}"
+    fi
+}
+
 # Creación de lanzadores y accesos directos globales
 create_launchers() {
     echo -e "\n${BOLD}${BLUE}Creando lanzadores y accesos directos globales...${RESET}"
@@ -246,47 +390,31 @@ EOF
     chmod +x "$SERVER_WRAPPER_PATH"
     echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Server creado en: ${BOLD}${SERVER_WRAPPER_PATH}${RESET}"
 
-    # Lanzador para kogniterm-web
-    cat << EOF > "$WEB_WRAPPER_PATH"
+    # Lanzador para kogniterm-desktop (delega en `kogniterm desktop`)
+    cat << EOF > "$DESKTOP_WRAPPER_PATH"
 #!/usr/bin/env bash
 source "$VENV_DIR/bin/activate"
-exec kogniterm web "\$@"
+exec kogniterm desktop "\$@"
 EOF
-    chmod +x "$WEB_WRAPPER_PATH"
-    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Web creado en: ${BOLD}${WEB_WRAPPER_PATH}${RESET}"
+    chmod +x "$DESKTOP_WRAPPER_PATH"
+    echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Desktop creado en: ${BOLD}${DESKTOP_WRAPPER_PATH}${RESET}"
 
-    # Lanzador para kogniterm-desktop (Electron v2)
-    local desktop_dir=""
-    if [ -f "$REPO_DIR/kogniterm-desktop/packages/desktop/out/main/index.js" ]; then
-        desktop_dir="$REPO_DIR/kogniterm-desktop"
-    elif [ -f "$PWD/kogniterm-desktop/packages/desktop/out/main/index.js" ]; then
-        desktop_dir="$PWD/kogniterm-desktop"
-    fi
-
-    if [ -n "$desktop_dir" ]; then
-        cat << EOF > "$DESKTOP_WRAPPER_PATH"
-#!/usr/bin/env bash
-DESKTOP_PATH="$desktop_dir"
-if [ -f "\$DESKTOP_PATH/node_modules/.bin/electron" ]; then
-    ELECTRON_BIN="\$DESKTOP_PATH/node_modules/.bin/electron"
-elif command -v electron &>/dev/null; then
-    ELECTRON_BIN="electron"
-else
-    ELECTRON_BIN="npx electron"
-fi
-exec "\$ELECTRON_BIN" "\$DESKTOP_PATH/packages/desktop/out/main/index.js" "\$@"
-EOF
-        chmod +x "$DESKTOP_WRAPPER_PATH"
-        echo -e "  ${GREEN}✔${RESET} Lanzador global de KogniTerm Desktop creado en: ${BOLD}${DESKTOP_WRAPPER_PATH}${RESET}"
+    # Limpiar lanzador obsoleto de kogniterm-web (funcionalidad eliminada)
+    if [ -f "$LOCAL_BIN/kogniterm-web" ]; then
+        rm -f "$LOCAL_BIN/kogniterm-web"
+        echo -e "  ${DIM}Lanzador obsoleto eliminado: $LOCAL_BIN/kogniterm-web${RESET}"
     fi
 
     # Asegurar permisos ejecutables para scripts auxiliares
-    if [ -f "$REPO_DIR/start-web.sh" ]; then
-        chmod +x "$REPO_DIR/start-web.sh"
+    if [ -f "$REPO_DIR/kogniterm-desktop/start.sh" ]; then
+        chmod +x "$REPO_DIR/kogniterm-desktop/start.sh"
     fi
-    if [ -f "start-web.sh" ]; then
-        chmod +x "start-web.sh"
+    if [ -f "kogniterm-desktop/start.sh" ]; then
+        chmod +x "kogniterm-desktop/start.sh"
     fi
+
+    # Icono en el lanzador del usuario (ejecuta `kogniterm desktop`)
+    install_desktop_entry
 
     # Verificar si ~/.local/bin está en el PATH
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
@@ -299,7 +427,7 @@ EOF
 # ──────────────────────────────────────────────────────────────────────────────
 # KogniTerm Server como servicio de inicio automático
 #
-# El backend es multi-cliente: lo comparten la TUI, la Web y Desktop. Si se
+# El backend es multi-cliente: lo comparten la TUI y Desktop. Si se
 # registra como servicio (systemd/launchd) arranca solo y queda disponible para
 # todos ellos. KogniTerm Desktop, aun así, lo levanta en segundo plano si lo
 # encuentra apagado.
@@ -343,7 +471,7 @@ service_install_systemd() {
     mkdir -p "$SYSTEMD_UNIT_DIR"
     cat << EOF > "$SYSTEMD_UNIT_PATH"
 [Unit]
-Description=KogniTerm Server (backend multi-cliente para TUI, Web y Desktop)
+Description=KogniTerm Server (backend multi-cliente para TUI y Desktop)
 Documentation=https://github.com/gatovillano/KogniTerm
 After=network-online.target
 Wants=network-online.target
@@ -528,7 +656,7 @@ configure_autostart() {
             ;;
     esac
 
-    echo "  El backend lo comparten la TUI, la Web y KogniTerm Desktop."
+    echo "  El backend lo comparten la TUI y KogniTerm Desktop."
     echo "  Como servicio, arrancará solo y quedará disponible para todos los clientes."
     read -p "  ¿Deseas registrarlo para que inicie automáticamente? (Y/n): " auto_opt
     auto_opt="${auto_opt:-y}"
@@ -595,7 +723,7 @@ install_from_scratch() {
     fi
 
     if [ -d "$install_source/kogniterm-desktop" ]; then
-        echo -e "\n${BOLD}${BLUE}[3.5/4] Preparando KogniTerm Desktop v2 (Electron)...${RESET}"
+        echo -e "\n${BOLD}${BLUE}[3.5/4] Preparando KogniTerm Desktop (Electron)...${RESET}"
         if command -v npm &>/dev/null; then
             (cd "$install_source/kogniterm-desktop" && npm install && node node_modules/electron/install.js) &>/dev/null || true
             echo -e "  ${GREEN}✔${RESET} Dependencias de KogniTerm Desktop e instalador de Electron listos."

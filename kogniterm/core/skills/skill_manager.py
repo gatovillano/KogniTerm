@@ -891,7 +891,11 @@ class SkillManager:
             if not installed:
                 logger.info(f"Instalando dependencia faltante para skill: {dep}...")
                 try:
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
+                    import shutil
+                    if shutil.which("uv"):
+                        subprocess.check_call(["uv", "pip", "install", "--python", sys.executable, dep])
+                    else:
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", dep])
                     logger.info(f"✅ Dependencia '{dep}' instalada exitosamente.")
                 except Exception as e:
                     logger.error(f"❌ Error al instalar dependencia '{dep}': {e}")

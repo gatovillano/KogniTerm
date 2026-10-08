@@ -65,6 +65,46 @@ def test_update_llm_config_inception(monkeypatch, tmp_path):
     assert "mercury-2" in cfg["model"]
 
 
+def test_opencode_in_available_models(monkeypatch):
+    monkeypatch.setenv("OPENCODE_API_KEY", "test-key-xyz")
+    app = create_app()
+    client = TestClient(app)
+
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    response = client.get("/api/models/available", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    zen = next((p for p in data["providers"] if p["id"] == "opencode"), None)
+    assert zen is not None
+    assert zen["name"] == "OpenCode Zen"
+    assert "opencode/claude-sonnet-4-5" in zen["models"]
+
+
+def test_update_llm_config_opencode(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    app = create_app()
+    client = TestClient(app)
+
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    response = client.post(
+        "/api/config/llm",
+        headers=headers,
+        json={"provider": "opencode"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["model"] == "opencode/claude-sonnet-4-5"
+    assert data["provider"] == "opencode"
+
+    # El prefijo de Zen debe ganar a la inferencia por nombre del modelo
+    config_resp = client.get("/api/config/llm", headers=headers)
+    assert config_resp.status_code == 200
+    cfg = config_resp.json()
+    assert cfg["provider"] == "opencode"
+    assert cfg["model"] == "opencode/claude-sonnet-4-5"
+
+
 def test_set_key_endpoint(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     app = create_app()

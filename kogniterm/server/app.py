@@ -65,6 +65,7 @@ from kogniterm.server.channel_adapters import (
     TelegramAdapter,
 )
 from kogniterm.server.pty_manager import pty_manager
+from kogniterm.server.payments.router import router as payments_router
 
 logger = logging.getLogger("kogniterm.server.app")
 logging.basicConfig(
@@ -444,6 +445,9 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="Error ejecutando heartbeat")
         return {"status": "triggered", "id": heartbeat_id}
 
+    # ── Endpoints de Pagos y Suscripciones ──────────────────────────────────────
+    application.include_router(payments_router, prefix="/api/payments")
+
     # ── Gestión de Configuración (LLM) ──────────────────────────────────────
 
     _cached_models_data = None
@@ -480,6 +484,12 @@ def create_app() -> FastAPI:
         ollama_models = ["ollama/llama3", "ollama/mistral"]
         kilocode_models = ["kilocode/kilo/auto", "kilocode/openai/gpt-4o"]
         inception_models = ["inception/mercury-2", "inception/mercury-2.5"]
+        opencode_models = [
+            "opencode/claude-sonnet-4-5",
+            "opencode/gpt-5.5",
+            "opencode/gemini-3-flash",
+            "opencode/deepseek-v4-pro",
+        ]
         ollama_cloud_models = [
             "ollama_cloud/llama3:70b",
             "ollama_cloud/llama3:8b",
@@ -693,6 +703,39 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+        async def fetch_opencode():
+            nonlocal opencode_models
+            opencode_key = cm.get_api_key("opencode") or os.environ.get(
+                "OPENCODE_API_KEY"
+            )
+            if not opencode_key:
+                return
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        "https://opencode.ai/zen/v1/models",
+                        headers={"Authorization": f"Bearer {opencode_key}"},
+                        timeout=3.0,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        fetched = []
+                        model_list = (
+                            data
+                            if isinstance(data, list)
+                            else data.get("data", data.get("models", []))
+                        )
+                        for m in model_list:
+                            model_id = m.get("id", m.get("model", ""))
+                            if model_id and not model_id.startswith("opencode/"):
+                                model_id = f"opencode/{model_id}"
+                            if model_id:
+                                fetched.append(model_id)
+                        if fetched:
+                            opencode_models = sorted(fetched)
+            except Exception:
+                pass
+
         async def fetch_inception():
             nonlocal inception_models
             inception_key = (
@@ -737,6 +780,7 @@ def create_app() -> FastAPI:
             fetch_ollama(),
             fetch_kilocode(),
             fetch_inception(),
+            fetch_opencode(),
             fetch_ollama_cloud(),
             fetch_antigravity(),
             return_exceptions=True,
@@ -760,6 +804,11 @@ def create_app() -> FastAPI:
                     "id": "inception",
                     "name": "Inception Labs",
                     "models": inception_models,
+                },
+                {
+                    "id": "opencode",
+                    "name": "OpenCode Zen",
+                    "models": opencode_models,
                 },
             ]
         }
@@ -795,7 +844,10 @@ def create_app() -> FastAPI:
         # Detectar proveedor basado en el modelo
         provider = "google"
         model_lower = model.lower()
-        if "openrouter" in model_lower:
+        # El prefijo de Zen gana: sus ids contienen 'gpt'/'claude'/'gemini'.
+        if model_lower.startswith("opencode/") or model_lower.startswith("zen/"):
+            provider = "opencode"
+        elif "openrouter" in model_lower:
             provider = "openrouter"
         elif "gpt" in model_lower or "openai" in model_lower:
             provider = "openai"
@@ -847,6 +899,7 @@ def create_app() -> FastAPI:
                 "ollama_cloud": "ollama_cloud/llama3:70b",
                 "kilocode": "kilocode/kilo/auto",
                 "inception": "inception/mercury-2",
+                "opencode": "opencode/claude-sonnet-4-5",
                 "antigravity": "antigravity/gemini-3-flash",
                 "litellm": "google/gemini-1.5-flash",
             }
@@ -865,7 +918,9 @@ def create_app() -> FastAPI:
                 # Mapeo simple basado en el nombre del modelo
                 t_model = target_model or cm.get_config("default_model") or ""
                 model_lower = t_model.lower()
-                if "gemini" in model_lower or "google" in model_lower:
+                if model_lower.startswith("opencode/") or model_lower.startswith("zen/"):
+                    provider = "opencode"
+                elif "gemini" in model_lower or "google" in model_lower:
                     provider = "google"
                 elif "openai" in model_lower or "gpt" in model_lower:
                     provider = "openai"
@@ -1012,42 +1067,87 @@ def create_app() -> FastAPI:
 
     @application.post("/api/mcp/servers", tags=["MCP"])
     async def set_mcp_server(payload: dict = Body(...)):
-        """Crea o actualiza la configuración de un servidor MCP."""
+        """Crea o actualiza la configuración de un servidor MCP.
+        
+        Soporta formato KogniTerm ({name, config, scope}), formato Claude Desktop
+        ({mcpServers: {...}}), o JSON crudo en {raw_json, scope}.
+        """
+        from kogniterm.core.mcp.env_utils import normalize_mcp_config, parse_claude_or_mcp_json
+        from kogniterm.terminal.config_manager import ConfigManager
+        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        scope = payload.get("scope", "project")
+        cm = ConfigManager()
+
+        # Si viene raw_json o formato mcpServers directo
+        if "raw_json" in payload or "mcpServers" in payload:
+            target_data = payload.get("raw_json") if "raw_json" in payload else payload
+            parsed_servers = parse_claude_or_mcp_json(target_data, fallback_name=payload.get("name", "mcp-server"))
+            if not parsed_servers:
+                raise HTTPException(status_code=400, detail="No se encontraron servidores válidos en el JSON proporcionado")
+            saved_names = []
+            for s_name, s_conf in parsed_servers:
+                norm_conf = normalize_mcp_config(s_conf)
+                cm.set_mcp_server(s_name, norm_conf, scope=scope)
+                saved_names.append(s_name)
+            await MCPManager.get_instance().reload()
+            return {"status": "ok", "names": saved_names}
+
         name = payload.get("name")
         config = payload.get("config", {})
-        scope = payload.get("scope", "project")
         if not name:
             raise HTTPException(status_code=400, detail="El nombre del servidor es requerido")
-        
-        from kogniterm.terminal.config_manager import ConfigManager
-        cm = ConfigManager()
-        cm.set_mcp_server(name, config, scope=scope)
-        
-        from kogniterm.core.mcp.mcp_manager import MCPManager
+
+        norm_config = normalize_mcp_config(config)
+        cm.set_mcp_server(name, norm_config, scope=scope)
         await MCPManager.get_instance().reload()
         return {"status": "ok", "name": name}
 
     @application.delete("/api/mcp/servers/{name}", tags=["MCP"])
-    async def delete_mcp_server(name: str, scope: str = "project"):
+    async def delete_mcp_server(name: str, scope: str = "all"):
         """Elimina la configuración de un servidor MCP."""
         from kogniterm.terminal.config_manager import ConfigManager
         cm = ConfigManager()
-        cm.delete_mcp_server(name, scope=scope)
-        
+        removed = cm.delete_mcp_server(name, scope=scope)
+        # Compat: clientes antiguos envían scope=project aunque el servidor
+        # viva en global. Si no se encontró ahí, reintentar en todos lados
+        # antes de dar 404, para que el borrado funcione sin rebuild.
+        if not removed and scope != "all":
+            removed = cm.delete_mcp_server(name, scope="all")
+        if not removed:
+            raise HTTPException(status_code=404, detail=f"Servidor MCP '{name}' no encontrado")
+
         from kogniterm.core.mcp.mcp_manager import MCPManager
         await MCPManager.get_instance().reload()
         return {"status": "ok", "name": name}
 
     @application.post("/api/mcp/servers/{name}/toggle", tags=["MCP"])
-    async def toggle_mcp_server(name: str, scope: str = "project"):
+    async def toggle_mcp_server(name: str, scope: str = "all"):
         """Alterna el estado habilitado/deshabilitado de un servidor MCP."""
         from kogniterm.terminal.config_manager import ConfigManager
         cm = ConfigManager()
         servers = cm.get_mcp_servers()
         if name in servers:
-            conf = servers[name]
+            conf = dict(servers[name])
+            conf.pop("source", None)
             conf["disabled"] = not conf.get("disabled", False)
-            cm.set_mcp_server(name, conf, scope=scope)
+            # Resolver dónde está guardado realmente (project > global);
+            # si solo es externo, crear el override en project. Se ignora
+            # el scope del cliente si el servidor no vive ahí (clientes
+            # antiguos siempre mandan scope=project).
+            project_servers = cm.load_project_config().get("mcpServers", {}) or {}
+            global_servers = cm.load_global_config().get("mcpServers", {}) or {}
+            if scope in ("project", "global") and name in (
+                project_servers if scope == "project" else global_servers
+            ):
+                target_scope = scope
+            elif name in project_servers:
+                target_scope = "project"
+            elif name in global_servers:
+                target_scope = "global"
+            else:
+                target_scope = "project"
+            cm.set_mcp_server(name, conf, scope=target_scope)
             from kogniterm.core.mcp.mcp_manager import MCPManager
             await MCPManager.get_instance().reload()
             return {"status": "ok", "name": name, "disabled": conf["disabled"]}
@@ -1056,8 +1156,17 @@ def create_app() -> FastAPI:
     @application.post("/api/mcp/test-connection", tags=["MCP"])
     async def test_mcp_connection(config: dict = Body(...)):
         """Prueba la conexión con un servidor MCP sin guardar."""
+        from kogniterm.core.mcp.env_utils import normalize_mcp_config, parse_claude_or_mcp_json
         from kogniterm.core.mcp.mcp_manager import MCPManager
-        res = await MCPManager.get_instance().test_connection(config)
+
+        # Soporte si envían {raw_json: "..."}
+        if "raw_json" in config:
+            parsed = parse_claude_or_mcp_json(config["raw_json"])
+            if parsed:
+                _, config = parsed[0]
+
+        norm_config = normalize_mcp_config(config)
+        res = await MCPManager.get_instance().test_connection(norm_config)
         return res
 
     @application.get("/api/skills", tags=["Skills"])
@@ -1167,7 +1276,7 @@ def create_app() -> FastAPI:
             items = []
 
             for root, dirs, files in os.walk(workspace_path):
-                dirs[:] = [d for d in dirs if not is_ignored_path(d)]
+                dirs[:] = [d for d in dirs if not is_ignored_path(d) and not d.startswith('.')]
                 try:
                     rel_root = os.path.relpath(root, workspace_path)
                 except ValueError:
@@ -1183,9 +1292,9 @@ def create_app() -> FastAPI:
                     rel_path = os.path.join(rel_root, f) if rel_root != '.' else f
                     items.append(rel_path)
 
-                    if len(items) > 3000:
+                    if len(items) > 10000:
                         break
-                if len(items) > 3000:
+                if len(items) > 10000:
                     break
 
             if query and query.strip():
@@ -1706,20 +1815,55 @@ def create_app() -> FastAPI:
         
         if len(session.agent_state.messages) > 2:
             try:
-                summary = await asyncio.get_event_loop().run_in_executor(
-                    pool._executor,
-                    session.llm_service.compress_history,
-                    session.agent_state.messages
+                compress_func = (
+                    getattr(session.llm_service, "compress_history", None)
+                    or getattr(session.llm_service, "summarize_conversation_history", None)
                 )
-                if summary:
-                    from langchain_core.messages import SystemMessage
-                    session.agent_state.messages = [SystemMessage(content=f"Resumen de conversación previa: {summary}")]
-                    if session.thread_manager:
-                        session.thread_manager.save_thread_messages(session_id, session.agent_state.messages)
-                    
-                    if request.url.path.startswith("/api/"):
-                        return {"data": {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}}
-                    return {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}
+                if compress_func:
+                    summary = await asyncio.get_event_loop().run_in_executor(
+                        pool._executor,
+                        compress_func,
+                        session.agent_state.messages
+                    )
+                    summary_failed = (
+                        not summary
+                        or (isinstance(summary, str) and (summary.startswith("Error") or summary.startswith("Could not")))
+                    )
+                    if not summary_failed:
+                        from langchain_core.messages import SystemMessage
+                        from kogniterm.core.history_manager import HistoryManager
+                        import os as _os
+                        try:
+                            keep_n = int(_os.getenv("KOGNITERM_COMPRESS_KEEP_MSGS", "20"))
+                        except Exception:
+                            keep_n = 20
+                        hm = getattr(session, "history_manager", None) or getattr(session.llm_service, "history_manager", None)
+                        if hm is not None and hasattr(hm, "build_compressed_history"):
+                            try:
+                                built = hm.build_compressed_history(
+                                    list(session.agent_state.messages),
+                                    summary if isinstance(summary, str) else str(summary),
+                                    keep_recent=keep_n,
+                                    base_system_message=None,
+                                )
+                            except Exception:
+                                built = None
+                            if isinstance(built, list) and built:
+                                session.agent_state.messages = built
+                            else:
+                                session.agent_state.messages = [SystemMessage(content=f"{HistoryManager.SUMMARY_MARKER}\n\n{summary}")]
+                        else:
+                            session.agent_state.messages = [SystemMessage(content=f"{HistoryManager.SUMMARY_MARKER}\n\n{summary}")]
+                        if hasattr(session, "llm_service") and session.llm_service:
+                            session.llm_service.conversation_history = session.agent_state.messages
+                        if hasattr(session, "history_manager") and session.history_manager:
+                            session.history_manager.conversation_history = session.agent_state.messages
+                        if session.thread_manager:
+                            session.thread_manager.save_thread_messages(session_id, session.agent_state.messages)
+                        
+                        if request.url.path.startswith("/api/"):
+                            return {"data": {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}}
+                        return {"admittedSeq": 0, "id": str(uuid.uuid4()), "sessionID": session_id, "timeCreated": int(time.time() * 1000), "type": "compaction"}
             except Exception as e:
                 logger.error(f"Error compacting session {session_id}: {e}")
         
@@ -2116,6 +2260,8 @@ def create_app() -> FastAPI:
             connected.add("kilocode")
         if cm.get_api_key("inception") or os.environ.get("INCEPTION_API_KEY") or os.environ.get("INCEPTIONLABS_API_KEY"):
             connected.add("inception")
+        if cm.get_api_key("opencode") or os.environ.get("OPENCODE_API_KEY"):
+            connected.add("opencode")
         if cm.get_api_key("ollama_cloud") or os.environ.get("OLLAMA_CLOUD_API_KEY"):
             connected.add("ollama_cloud")
         return connected
@@ -2821,7 +2967,8 @@ def create_app() -> FastAPI:
 
         cm = ConfigManager()
         scope = "project" if directory else "global"
-        cm.set_mcp_server(server_name, internal_config, scope=scope)
+        from kogniterm.core.mcp.env_utils import normalize_mcp_config
+        cm.set_mcp_server(server_name, normalize_mcp_config(internal_config), scope=scope)
 
         await MCPManager.get_instance().reload()
         return Response(status_code=204)
@@ -3548,6 +3695,7 @@ def create_app() -> FastAPI:
             "model": cm.get_config("default_model")
             or os.environ.get("LITELLM_MODEL", "google/gemini-1.5-flash"),
             "agent": session.active_agent or session._current_manager_agent(),
+            "auto_approve": session.resolve_auto_approve(),
         }
 
         # Tarea A: relay de eventos del agente → cliente WS
@@ -3595,8 +3743,9 @@ def create_app() -> FastAPI:
                 msg_type = data.get("type", "message")
 
                 if msg_type == "message":
-                    text = data.get("text", "").strip()
-                    images = data.get("images", [])
+                    text = data.get("text", "").strip() if isinstance(data.get("text", ""), str) else ""
+                    raw_images = data.get("images", [])
+                    images = [i for i in raw_images if isinstance(i, str) and i.strip()][:10] if isinstance(raw_images, list) else []
                     agent_name = data.get("agent")
                     if not text and not images:
                         continue
@@ -3636,6 +3785,20 @@ def create_app() -> FastAPI:
                         await websocket.send_json(
                             {"type": "error", "data": "Falta ID de aprobación."}
                         )
+
+                elif msg_type == "set_auto_approve":
+                    # El cliente (desktop v3) declara su preferencia de auto-aprobación.
+                    # False = preguntar siempre, aunque la config global diga auto_approve.
+                    value = data.get("value")
+                    session.ui.set_client_auto_approve(
+                        None if value is None else bool(value)
+                    )
+                    await websocket.send_json(
+                        {
+                            "type": "auto_approve_changed",
+                            "data": {"value": session.ui.resolve_auto_approve()},
+                        }
+                    )
 
                 elif msg_type == "question_response":
                     request_id = data.get("id")

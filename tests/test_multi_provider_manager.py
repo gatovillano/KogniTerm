@@ -182,3 +182,53 @@ def test_resolve_model_for_inception():
     assert manager._resolve_model_for_provider(p_inception, "mercury") == "mercury"
 
 
+def test_opencode_zen_provider_configuration(monkeypatch):
+    from kogniterm.core.multi_provider_manager import DEFAULT_PROVIDERS
+
+    zen = next((p for p in DEFAULT_PROVIDERS if p.name == "opencode"), None)
+    assert zen is not None
+    assert zen.api_base == "https://opencode.ai/zen/v1"
+    assert zen.api_key_env == "OPENCODE_API_KEY"
+
+    monkeypatch.setenv("OPENCODE_API_KEY", "zen-key-123")
+    assert zen.get_api_key() == "zen-key-123"
+    assert zen.is_configured() is True
+
+
+def test_parse_model_name_opencode_zen():
+    from kogniterm.core.multi_provider_manager import MultiProviderManager
+
+    owner, pure = MultiProviderManager._parse_model_name("opencode/claude-sonnet-4-5")
+    assert owner == "opencode"
+    assert pure == "claude-sonnet-4-5"
+
+    # "zen" es alias de "opencode"
+    alias_owner, alias_pure = MultiProviderManager._parse_model_name("zen/gpt-5.5")
+    assert alias_owner == "opencode"
+    assert alias_pure == "gpt-5.5"
+
+
+def test_resolve_model_for_opencode_zen(monkeypatch):
+    from kogniterm.core.multi_provider_manager import MultiProviderManager, ProviderConfig
+
+    manager = MultiProviderManager()
+    p_zen = ProviderConfig(
+        name="opencode",
+        model_prefix="openai",
+        api_key_env="OPENCODE_API_KEY",
+        api_base="https://opencode.ai/zen/v1",
+    )
+
+    # El id se envía puro al gateway (sin 'opencode/') y sin namespace de LiteLLM
+    assert manager._resolve_model_for_provider(p_zen, "opencode/claude-sonnet-4-5") == "claude-sonnet-4-5"
+    assert manager._resolve_model_for_provider(p_zen, "zen/deepseek-v4-pro") == "deepseek-v4-pro"
+
+    # Cross-provider fallback: un modelo ajeno se traduce al default de Zen
+    assert manager._resolve_model_for_provider(p_zen, "gpt-4o") == "claude-sonnet-4-5"
+
+    # Con key configurada, el prefijo 'opencode' debe ganar a la inferencia por nombre
+    monkeypatch.setenv("OPENCODE_API_KEY", "zen-key-123")
+    assert manager._determine_ideal_provider("opencode/gpt-5.5").name == "opencode"
+    assert manager._determine_ideal_provider("zen/gemini-3-flash").name == "opencode"
+
+

@@ -1,5 +1,0 @@
-fastapi
-uvicorn[standard]
-httpx
-# El resto lo provee el repo raíz (kogniterm/*). Instalar repo en editable si hace falta:
-# pip install -e ../..

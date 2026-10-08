@@ -57,6 +57,64 @@ def custom_chdir(path):
 os.getcwd = custom_getcwd
 os.chdir = custom_chdir
 
+# ── Adjuntos multimodales ──────────────────────────────────────────────
+MAX_ATTACH_IMAGES = 10
+MAX_ATTACH_IMAGE_CHARS = 20_000_000  # ~15 MB binarios en base64
+MAX_ATTACH_FILE_BYTES = 15 * 1024 * 1024
+
+_IMAGE_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+}
+
+
+def normalize_attached_images(images: Optional[List[str]]) -> Optional[List[str]]:
+    """Normaliza la lista `images` del protocolo WS/REST al formato image_url.
+
+    Acepta dataURLs, URLs http(s) y rutas locales de ficheros de imagen
+    (estas últimas se leen y convierten a dataURL para que el modelo
+    multimodal pueda verlas aunque el cliente solo envíe una ruta).
+    Descarta entradas inválidas o que excedan los límites.
+    """
+    if not images:
+        return None
+    normalized: List[str] = []
+    for raw in images:
+        if not isinstance(raw, str):
+            continue
+        item = raw.strip()
+        if not item or len(item) > MAX_ATTACH_IMAGE_CHARS:
+            continue
+        if item.startswith("data:image/") or item.startswith("http://") or item.startswith("https://"):
+            normalized.append(item)
+        else:
+            # Posible ruta local: convertir a dataURL si es imagen válida.
+            try:
+                path = safe_abs_path(item)
+                if not path or not os.path.isfile(path):
+                    continue
+                if os.path.getsize(path) > MAX_ATTACH_FILE_BYTES:
+                    continue
+                ext = os.path.splitext(path)[1].lower()
+                mime = _IMAGE_MIMES.get(ext)
+                if not mime:
+                    continue
+                import base64
+
+                with open(path, "rb") as f:
+                    payload = base64.b64encode(f.read()).decode("ascii")
+                normalized.append(f"data:{mime};base64,{payload}")
+            except Exception:
+                continue
+        if len(normalized) >= MAX_ATTACH_IMAGES:
+            break
+    return normalized or None
+
 @contextlib.contextmanager
 def session_context(cwd, session_id=None, terminal_ui=None, llm_service=None, history_manager=None, workspace_context=None, vector_db_manager=None, platform=None):
     """Context manager for isolating session workspace, session ID, UI and context."""
@@ -265,6 +323,10 @@ class ServerUI(TerminalUI):
         self._pending_approvals_async = {}  # {request_id: (asyncio.Event, bool)}
         self._pending_questions = {}  # {request_id: (threading.Event, dict)}
         self._pending_lock = threading.Lock()
+        # Auto-aprobación efectiva de ESTA sesión/cliente.
+        # None = no fijada por el cliente (se usa la config global auto_approve).
+        # False = el cliente (desktop v3) desactivó el auto-approve: se respetan sus aprobaciones.
+        self._client_auto_approve: Optional[bool] = None
         # Búfer de estado en vivo para re-acoplamiento WebSocket
         self.current_thinking: str = ""
         self.current_response: str = ""
@@ -612,10 +674,40 @@ class ServerUI(TerminalUI):
         )
         return approved
 
+    def set_client_auto_approve(self, value: Optional[bool]) -> None:
+        """Fija/limpia la preferencia de auto-aprobación declarada por el cliente (WS).
+
+        None  -> el cliente no fija valor: manda la config global `auto_approve`.
+        False -> el cliente desactivó el auto-approve: se le pregunta siempre.
+        True  -> el cliente pidió auto-aprobar en esta sesión.
+        """
+        self._client_auto_approve = None if value is None else bool(value)
+        logger.info(f"[{self.session_id}] Auto-aprobación de cliente fijada a {self._client_auto_approve}")
+
+    def resolve_auto_approve(self) -> bool:
+        """Auto-aprobación efectiva: la del cliente si la fijó, si no la config global."""
+        if self._client_auto_approve is not None:
+            return self._client_auto_approve
+        try:
+            from kogniterm.terminal.config_manager import ConfigManager
+            return bool(ConfigManager().get_config("auto_approve"))
+        except Exception:
+            return False
+
     def ask_approval_sync(
         self, message: str, title: str = "Aprobación Requerida", **kwargs
     ) -> bool:
         """Emite un evento de aprobación y bloquea el hilo del worker esperando la respuesta."""
+        # Auto-aprobación declarada EXPLÍCITAMENTE por este cliente (desktop v3).
+        # No se mira la config global aquí a propósito: la TUI conectada por WS
+        # mantiene su propio flujo (recibe el evento y decide en su capa de UI),
+        # tal como antes de este cambio.
+        if self._client_auto_approve is True:
+            logger.info(
+                f"[{self.session_id}] Auto-aprobación del cliente activa: se resuelve sin preguntar."
+            )
+            return True
+
         request_id = str(uuid.uuid4())
         event = threading.Event()
 
@@ -1030,6 +1122,12 @@ class AgentSession:
         if hasattr(self, "command_executor") and self.command_executor:
             self.command_executor.write_input(text)
 
+    def resolve_auto_approve(self) -> bool:
+        """Retorna la auto-aprobación efectiva delegando a ServerUI."""
+        if hasattr(self, "ui") and self.ui and hasattr(self.ui, "resolve_auto_approve"):
+            return self.ui.resolve_auto_approve()
+        return False
+
     async def send(self, message: str, executor, images: Optional[List[str]] = None, user_message_id: Optional[str] = None, agent: Optional[str] = None) -> None:
         """
         Envía un mensaje al agente y lo ejecuta en un hilo worker.
@@ -1087,20 +1185,57 @@ class AgentSession:
                 if len(self.agent_state.messages) > 2:
                     self.ui.print_message("Comprimiendo historial de conversación...", style="cyan")
                     try:
+                        compress_func = (
+                            getattr(self.llm_service, "compress_history", None)
+                            or getattr(self.llm_service, "summarize_conversation_history", None)
+                        )
+                        if compress_func is None:
+                            raise AttributeError("'LLMService' no tiene método de compresión de historial disponible.")
                         loop = asyncio.get_event_loop()
                         summary = await loop.run_in_executor(
                             executor,
-                            self.llm_service.compress_history,
+                            compress_func,
                             self.agent_state.messages
                         )
-                        if summary:
+                        summary_failed = (
+                            not summary
+                            or (isinstance(summary, str) and (summary.startswith("Error") or summary.startswith("Could not")))
+                        )
+                        if not summary_failed:
                             from langchain_core.messages import SystemMessage
-                            self.agent_state.messages = [SystemMessage(content=f"Resumen de conversación previa: {summary}")]
+                            from kogniterm.core.history_manager import HistoryManager
+                            import os as _os
+                            try:
+                                keep_n = int(_os.getenv("KOGNITERM_COMPRESS_KEEP_MSGS", "20"))
+                            except Exception:
+                                keep_n = 20
+                            hm = getattr(self, "history_manager", None) or getattr(self.llm_service, "history_manager", None)
+                            if hm is not None and hasattr(hm, "build_compressed_history"):
+                                try:
+                                    built = hm.build_compressed_history(
+                                        list(self.agent_state.messages),
+                                        summary if isinstance(summary, str) else str(summary),
+                                        keep_recent=keep_n,
+                                        base_system_message=None,
+                                    )
+                                except Exception:
+                                    built = None
+                                new_history = built if isinstance(built, list) and built else [
+                                    SystemMessage(content=f"{HistoryManager.SUMMARY_MARKER}\n\n{summary}")
+                                ]
+                            else:
+                                new_history = [SystemMessage(content=f"{HistoryManager.SUMMARY_MARKER}\n\n{summary}")]
+                            self.agent_state.messages = new_history
+                            if hasattr(self, "llm_service") and self.llm_service:
+                                self.llm_service.conversation_history = self.agent_state.messages
+                            if hasattr(self, "history_manager") and self.history_manager:
+                                self.history_manager.conversation_history = self.agent_state.messages
                             if self.thread_manager:
                                 self.thread_manager.save_thread_messages(self.session_id, self.agent_state.messages)
                             self.ui.print_message("Historial comprimido exitosamente.", style="green")
                         else:
-                            self.ui.print_message("No se pudo comprimir el historial.", style="yellow")
+                            error_detail = f": {summary}" if summary else "."
+                            self.ui.print_message(f"No se pudo comprimir el historial{error_detail}", style="yellow")
                     except Exception as e:
                         self.ui.print_message(f"Error comprimiendo historial: {e}", style="red")
                 else:
@@ -1252,11 +1387,19 @@ class AgentSession:
                 return
 
             # 2. Flujo normal de agente
+            images = normalize_attached_images(images)
+            if images:
+                logger.info(
+                    "[Session:%s] %d imagen(es) adjunta(s) recibidas (%d chars base64 total).",
+                    self.session_id, len(images), sum(len(i) for i in images),
+                )
             self.ui._push("user_message", {"text": message, "images": images})
             if images:
                 content_blocks = []
                 if message:
                     content_blocks.append({"type": "text", "text": message})
+                else:
+                    content_blocks.append({"type": "text", "text": "[Imagen adjunta: analízala o descríbela.]"})
                 for img in images:
                     content_blocks.append({
                         "type": "image_url",
@@ -1389,7 +1532,11 @@ class AgentSession:
 
                         if command and self.command_approval_handler:
                             approval_result = self.command_approval_handler.handle_command_approval(
-                                command_to_execute=command
+                                command_to_execute=command,
+                                # El cliente puede haber desactivado el auto-approve aunque la
+                                # config global lo tenga activo (desktop v3). Se pasa explícito
+                                # para que el handler NO re-consulte ConfigManager.
+                                auto_approve=self.ui.resolve_auto_approve(),
                             )
                             approved = approval_result.get("approved", False)
                         else:
@@ -1444,6 +1591,7 @@ class AgentSession:
                                 },
                                 tool_name=tool_name,
                                 original_tool_args=self.agent_state.tool_args_pending_confirmation,
+                                auto_approve=self.ui.resolve_auto_approve(),
                             )
                             approved = approval_result.get("approved", False)
                         else:

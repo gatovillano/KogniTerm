@@ -794,7 +794,8 @@ class KogniTermTUI(App):
         height: auto;
         width: 100%;
         layout: vertical;
-        align: center bottom;
+        align-horizontal: center;
+        align-vertical: bottom;
         background: transparent;
         padding-bottom: 1;
         display: none;
@@ -862,7 +863,7 @@ class KogniTermTUI(App):
         width: 1fr;
         height: auto;
         min-height: 2;
-        max-height: 12;
+        max-height: 50;
         border: none !important;
         background: transparent !important;
         padding: 0;
@@ -1095,8 +1096,8 @@ class KogniTermTUI(App):
         background: #1e1e1e;
     }
     #splash_inner {
-        width: 90%;
-        max-width: 120;
+        width: 75%;
+        max-width: 90;
         height: auto;
         align: center middle;
     }
@@ -1109,7 +1110,9 @@ class KogniTermTUI(App):
     }
     #splash_input_row {
         width: 100%;
-        height: 3;
+        height: auto;
+        min-height: 4;
+        max-height: 6;
         background: #2a2a2a;
         margin-bottom: 0;
         padding: 1 2 0 2;
@@ -1140,9 +1143,9 @@ class KogniTermTUI(App):
     }
     ChatInput#splash_chat_input {
         width: 1fr;
-        height: 1;
+        height: auto;
         min-height: 1;
-        max-height: 1;
+        max-height: 3;
         border: none;
         padding: 0;
         background: transparent !important;

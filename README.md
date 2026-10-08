@@ -18,13 +18,13 @@
 ## ✨ Capacidades destacadas
 
 - 🧠 **Núcleo multi-agente** con orquestador, agente de código (DeepCoder), agente investigador (DeepResearcher) y agentes dinámicos bajo demanda.
-- 🌐 **Multi-proveedor LLM** vía [LiteLLM](https://github.com/BerriAI/litellm): Google, OpenAI, Anthropic, OpenRouter, Cohere, ZhipuAI, Ollama Cloud, Ollama local, KiloCode y un *provider* personalizado.
+- 🌐 **Multi-proveedor LLM** vía [LiteLLM](https://github.com/BerriAI/litellm): Google, OpenAI, Anthropic, OpenRouter, Cohere, ZhipuAI, Ollama Cloud, Ollama local, KiloCode, Inception Labs, [OpenCode Zen](https://opencode.ai/docs/zen/) y un *provider* personalizado.
 - 🛰 **Arquitectura cliente-servidor (FastAPI + WebSocket/SSE/REST)** que permite controlar la misma sesión desde la TUI local, un bot de Telegram, un webhook de Slack o un cliente HTTP propio.
 - 🔌 **Sistema de skills modular** con 25+ skills *bundled* (filesystem, memoria, web, código, PC, Python, RAG, etc.), descubrimiento dinámico, versionado, *migrator* y *skill-factory* para autoextensión en caliente.
 - 🧩 **Motor de parseo universal** que normaliza JSON, XML, bloques de código y Markdown para invocar herramientas aunque el modelo no soporte *tool calling*.
 - 🛡 **Human-in-the-loop** con aprobación explícita, *edición atómica*, *rollback* por transacción, *race-condition guard* y *command rules* por rol.
 - 🗂 **Indexado RAG semántico** (ChromaDB + fastembed/sentence-transformers) con `kogniterm index` para que los agentes "conozcan" tu repositorio.
-- 🧵 **Múltiples canales** paralelos: TUI, terminal, CLI, Telegram, webhooks y adaptadores Slack listos para producción.
+- 🧵 **Múltiples canales** paralelos: TUI, terminal, CLI, app Desktop (Electron), Telegram, webhooks y adaptadores Slack listos para producción.
 - 🔄 **Migración de skills** y *refreshing* en caliente sin reiniciar la sesión.
 
 ---
@@ -64,16 +64,23 @@ pipx install kogniterm
 pip install kogniterm
 ```
 
-### Opción C — KogniTerm Desktop (GUI Nativa + Lanzador del SO)
+### Opción C — KogniTerm Desktop (app nativa Electron)
 
-Para instalar la interfaz gráfica nativa de **KogniTerm Desktop** con acceso directo automático en el menú de aplicaciones de tu sistema (Linux / macOS):
+La interfaz gráfica oficial de **KogniTerm Desktop** (Electron + SolidJS + Tailwind + Vite)
+habla directamente con el mismo backend `kogniterm/server` que la TUI: sesiones, agentes,
+modelos, keys, terminal PTY y aprobaciones compartidos.
 
 ```bash
-cd kogniterm-desktop
-bash install-desktop.sh
+kogniterm desktop            # producción (compila si falta el build)
+kogniterm desktop --dev      # desarrollo (Vite + Electron Dev)
+kogniterm desktop --build    # fuerza la recompilación antes de iniciar
+kogniterm desktop --logs     # muestra los logs en la terminal actual
 ```
 
-El script se encargará de instalar el icono oficial multi-resolución en tu sistema y registrar la entrada en el lanzador (`~/.local/share/applications/kogniterm-desktop.desktop` en Linux o `/Applications/KogniTerm Desktop.app` en macOS).
+Requisitos: `node` + `npm` y el repo clonado (el backend lo provee tu instalación
+de KogniTerm: `~/.kogniterm/venv`, `~/.local/bin` o el venv del repo). Los logs quedan
+en `~/.kogniterm/logs/desktop.log`. Más detalles en `kogniterm-desktop/README.md` y
+`kogniterm-desktop/docs/API_NATIVA.md`.
 
 ### Opción D — Desde el código fuente (desarrollo)
 
@@ -98,7 +105,7 @@ kogniterm
 
 Al arrancar por primera vez, KogniTerm te guiará por un asistente interactivo para:
 
-1. Elegir tu **proveedor LLM** (Google, OpenAI, Anthropic, OpenRouter, Cohere, ZhipuAI, Ollama, LiteLLM, KiloCode u Ollama Cloud).
+1. Elegir tu **proveedor LLM** (Google, OpenAI, Anthropic, OpenRouter, Cohere, ZhipuAI, Ollama, LiteLLM, KiloCode, Inception Labs, OpenCode Zen u Ollama Cloud).
 2. Guardar la **API key** correspondiente (en `~/.kogniterm/.env` o vía `kogniterm keys`).
 3. Configurar opcionalmente el **bot de Telegram**.
 4. Seleccionar el **modelo por defecto** con `kogniterm models use …`.
@@ -347,12 +354,12 @@ Consulta `kogniterm/server/README.md` para el protocolo completo de WebSocket, S
 ## 🗂 Estructura del repositorio
 
 ```text
-kogniterm/
+kogniterm/                   # núcleo Python (TUI, agentes, servidor, skills)
 ├── main.py                  # shim (el entry-point real está en terminal/terminal.py)
 ├── terminal/                # Cliente TUI (Textual + Rich) y CLI
 │   ├── terminal.py          # entry-point principal
 │   ├── tui/                 # app, paneles, componentes
-│   ├── cli.py               # sub-comandos (keys, models, index, config…)
+│   ├── cli.py               # sub-comandos (keys, models, index, config, desktop…)
 │   ├── meta_command_processor.py
 │   └── command_approval_handler.py
 ├── core/                    # Cerebro: orquestación, agentes, LLM
@@ -379,6 +386,12 @@ kogniterm/
 ├── utils/                   # Logger, diff renderer, playwright manager
 ├── docs/                    # Arquitectura, análisis de deuda, registro de errores
 └── pyproject.toml           # build setuptools + entry-points
+
+kogniterm-desktop/           # app oficial (Electron + SolidJS + Vite → kogniterm/server)
+├── apps/backend/            # shim run.py → kogniterm.server.app:create_app
+├── apps/web/                # UI SolidJS (tabs, chat WS, agentes, terminal PTY, MCP)
+├── apps/electron/           # shell Electron (asegura backend, carga apps/web)
+└── start.sh                 # lanzador (también vía `kogniterm desktop`)
 ```
 
 ---

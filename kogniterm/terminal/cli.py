@@ -393,7 +393,7 @@ class CLIHandler:
             return
             
         command = args[0]
-        valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm", "ollama_cloud", "kilocode", "inception", "antigravity"]
+        valid_providers = ["openrouter", "google", "openai", "anthropic", "litellm", "ollama_cloud", "kilocode", "inception", "opencode", "antigravity"]
         # Permitir modo de Ollama: local o cloud
         valid_ollama_modes = ["local", "cloud"]
         
@@ -575,142 +575,69 @@ class CLIHandler:
         print("="*80 + "\n", flush=True)
 
     def handle_desktop(self, args: List[str]):
-        """Abre la versión desktop de KogniTerm."""
+        """Abre KogniTerm Desktop (app nativa: Electron + SolidJS + FastAPI)."""
         if "--help" in args or "-h" in args:
             print("Uso: kogniterm desktop [opciones]")
             print("\nOpciones:")
-            print("  --logs      Abre ventanas de terminal adicionales para mostrar los logs del servidor y de la app")
+            print("  --dev       Inicia la app en modo desarrollo (Vite + Electron Dev)")
+            print("  --build     Fuerza la recompilación antes de iniciar")
+            print("  --logs      Muestra los logs en la terminal actual en lugar de ejecutarse en segundo plano")
             print("  -h, --help  Muestra este mensaje de ayuda")
             return
 
         import subprocess
-        
+
         # Guardar el directorio de trabajo original (el actual de la terminal del usuario)
         original_cwd = os.getcwd()
-        
+
         # Determinar la ruta de kogniterm-desktop
         # 1. Prioridad: Directorio actual si contiene kogniterm-desktop
         cwd_desktop = os.path.join(original_cwd, "kogniterm-desktop")
-        
+
         # 2. Prioridad: Paquete kogniterm instalado / raíz del repositorio en desarrollo
         package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         package_desktop = os.path.join(package_root, "kogniterm-desktop")
-        
-        # 3. Prioridad: Directorio conocido del proyecto
-        known_desktop = "/home/gato/Proyectos/Gemini-Interpreter/kogniterm-desktop"
-        
-        # 4. Prioridad: Directorio de repo alternativo global (~/.kogniterm/repo)
+
+        # 3. Prioridad: Directorio de repo alternativo global (~/.kogniterm/repo)
         alt_desktop = os.path.expanduser("~/.kogniterm/repo/kogniterm-desktop")
-        
+
         if os.path.isdir(cwd_desktop):
             desktop_dir = cwd_desktop
-        elif os.path.isdir(known_desktop):
-            desktop_dir = known_desktop
         elif os.path.isdir(package_desktop):
             desktop_dir = package_desktop
         elif os.path.isdir(alt_desktop):
             desktop_dir = alt_desktop
         else:
-            print(f"❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
+            print("❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
             return
-                
-        is_dev = "--dev" in args
-        target_script = "start-dev.sh" if is_dev else "start.sh"
-        script_path = os.path.join(desktop_dir, target_script)
-        if not os.path.exists(script_path):
-            script_path = os.path.join(desktop_dir, "start-dev.sh")
-            target_script = "start-dev.sh"
-            
+
+        script_path = os.path.join(desktop_dir, "start.sh")
         if not os.path.exists(script_path):
             print(f"❌ Error: No se encontró el script de inicio en {script_path}")
             return
-            
+
         print("🚀 Iniciando KogniTerm Desktop...")
         # Asegurarse de que el script sea ejecutable
         try:
             os.chmod(script_path, 0o755)
         except Exception:
             pass
-            
+
         try:
-            # Ejecutar el script de producción (start.sh) o dev (start-dev.sh)
+            # Ejecutar el script de producción (start.sh)
             env = os.environ.copy()
             env["KOGNITERM_WORKSPACE"] = original_cwd
-            
-            cmd = [f"./{target_script}"]
+
+            cmd = ["./start.sh"]
+            cmd.extend(args)
+
             if "--logs" in args:
-                cmd.append("--logs")
-            if "--build" in args:
-                cmd.append("--build")
-                
-            subprocess.Popen(cmd, cwd=desktop_dir, env=env, start_new_session=True)
-            print("✨ KogniTerm Desktop lanzado en segundo plano.")
+                subprocess.run(cmd, cwd=desktop_dir, env=env)
+            else:
+                subprocess.Popen(cmd, cwd=desktop_dir, env=env, start_new_session=True)
+                print("✨ KogniTerm Desktop lanzado en segundo plano.")
         except Exception as e:
             print(f"❌ Error al iniciar KogniTerm Desktop: {e}")
-
-    def handle_web(self, args: List[str]):
-        """Abre la versión web de KogniTerm."""
-        if "--help" in args or "-h" in args:
-            print("Uso: kogniterm web [opciones]")
-            print("\nOpciones:")
-            print("  --logs             Muestra logs en tiempo real en la terminal")
-            print("  --no-browser       No abre el navegador automáticamente")
-            print("  -d, --detach       Ejecuta en segundo plano y retorna a la terminal")
-            print("  --frontend-port=N  Puerto del frontend (default: 3000)")
-            print("  --backend-port=N   Puerto del backend (default: 8755)")
-            print("  -h, --help         Muestra este mensaje de ayuda")
-            return
-
-        import subprocess
-        
-        original_cwd = os.getcwd()
-        
-        # Determinar la ruta de start-web.sh
-        # 1. Prioridad: Paquete kogniterm instalado / raíz del repositorio en desarrollo
-        package_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        package_script = os.path.join(package_root, "start-web.sh")
-        
-        # 2. Prioridad: Directorio actual si contiene start-web.sh
-        cwd_script = os.path.join(original_cwd, "start-web.sh")
-        
-        # 3. Prioridad: Directorio de repo alternativo global (~/.kogniterm/repo)
-        alt_script = os.path.expanduser("~/.kogniterm/repo/start-web.sh")
-        
-        if os.path.isfile(package_script):
-            script_path = package_script
-        elif os.path.isfile(cwd_script):
-            script_path = cwd_script
-        elif os.path.isfile(alt_script):
-            script_path = alt_script
-        else:
-            print("❌ Error: No se pudo encontrar el script start-web.sh.")
-            print(f"   Se buscó en: {package_script}")
-            print(f"   Y en: {cwd_script}")
-            print(f"   Y en: {alt_script}")
-            return
-            
-        print("🚀 Iniciando KogniTerm Web...")
-        try:
-            os.chmod(script_path, 0o755)
-        except Exception:
-            pass
-            
-        try:
-            env = os.environ.copy()
-            env["KOGNITERM_WORKSPACE"] = original_cwd
-            
-            cmd = [script_path] + args
-            
-            is_detached = "--detach" in args or "-d" in args
-            if is_detached:
-                subprocess.Popen(cmd, cwd=os.path.dirname(script_path), env=env)
-                print("✨ KogniTerm Web lanzado en segundo plano.")
-            else:
-                subprocess.run(cmd, cwd=os.path.dirname(script_path), env=env)
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            print(f"❌ Error al iniciar KogniTerm Web: {e}")
 
     def handle_skills(self, args: List[str]):
         """Handles 'skills' commands for installing/managing external skills."""
@@ -1088,11 +1015,8 @@ def run_cli() -> bool:
     elif command == 'upgrade':
         handler.handle_upgrade(args)
         return True
-    elif command == 'desktop':
+    elif command in ('desktop', 'desktopv3', 'desktop-v3'):
         handler.handle_desktop(args)
-        return True
-    elif command == 'web':
-        handler.handle_web(args)
         return True
     elif command == 'cli':
         handler.handle_cli(args)

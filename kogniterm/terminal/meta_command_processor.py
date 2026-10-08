@@ -752,27 +752,50 @@ Example: /autosave restore autosave_20250515_141530
                     border_style="green",
                     padding=(1, 2)
                 )
-                
-                # Create a new SystemMessage with the summary
-                summary_sys_msg = SystemMessage(content=f"📊 Previous conversation summary (compressed history):\n\n{summary}")
-                
-                # Get recent messages (last 10)
-                recent_messages = self.llm_service.conversation_history[-10:]
-                
-                # Clean up messages that could break LLM message sequence (repeated SystemMessages or orphaned ToolMessages)
-                while recent_messages and isinstance(recent_messages[0], (SystemMessage, ToolMessage)):
-                    recent_messages.pop(0)
-                
+
                 # Obtener mensaje de sistema base
                 base_system_message = get_system_message(self.llm_service)
-                
+
                 # NO preservamos el project_context_msg en el historial de mensajes.
-                # El servicio LLM (_prepare_payload) ya lo inyecta automáticamente 
+                # El servicio LLM (_prepare_payload) ya lo inyecta automáticamente
                 # en el System Message si no está presente, lo cual es más eficiente.
-                
-                # Nuevo historial: Base + Resumen + Recientes
-                new_history = [base_system_message, summary_sys_msg]
-                new_history.extend(recent_messages)
+
+                # Ensamblado centralizado: [base, resumen canónico, objetivo
+                # inicial, recents con pares AI/Tool intactos]. Evita los
+                # defectos anteriores: perder el objetivo inicial, cortar a
+                # mitad de un par herramienta-respuesta y usar marcadores que
+                # el resumidor no reconocía en la siguiente compresión.
+                from kogniterm.core.history_manager import HistoryManager
+                import os as _os
+                try:
+                    keep_n = int(_os.getenv("KOGNITERM_COMPRESS_KEEP_MSGS", "20"))
+                except Exception:
+                    keep_n = 20
+                hm = getattr(self.llm_service, "history_manager", None)
+                kept_recents = 0
+                if hm is not None and hasattr(hm, "build_compressed_history"):
+                    new_history = hm.build_compressed_history(
+                        self.llm_service.conversation_history,
+                        summary,
+                        keep_recent=keep_n,
+                        base_system_message=base_system_message,
+                    )
+                    # Cabecera: base + resumen (+ objetivo inicial si se añadió)
+                    header_len = 2
+                    if len(new_history) > 2 and isinstance(new_history[2], HumanMessage):
+                        header_len = 3
+                    kept_recents = max(0, len(new_history) - header_len)
+                else:
+                    # Fallback si no hay HistoryManager disponible
+                    summary_sys_msg = SystemMessage(
+                        content=f"{HistoryManager.SUMMARY_MARKER}\n\n{summary}"
+                    )
+                    recent_messages = self.llm_service.conversation_history[-keep_n:]
+                    while recent_messages and isinstance(recent_messages[0], (SystemMessage, ToolMessage)):
+                        recent_messages.pop(0)
+                    new_history = [base_system_message, summary_sys_msg]
+                    new_history.extend(recent_messages)
+                    kept_recents = len(recent_messages)
                 
                 self.llm_service.conversation_history = new_history
                 # Usar .copy() para que agent_state tenga su propia lista independiente
@@ -785,11 +808,11 @@ Example: /autosave restore autosave_20250515_141530
                     self.terminal_ui.clear_chat()
                     # In TUI, console.print writes to ChatLogWidget
                     self.terminal_ui.console.print(summary_panel)
-                    self.terminal_ui.print_message(f"🗜️ **History compressed successfully.** Kept the last {len(recent_messages)} messages for context.", style="green")
+                    self.terminal_ui.print_message(f"🗜️ **History compressed successfully.** Kept the last {kept_recents} messages for context.", style="green")
                 else:
                     # Classic terminal
                     self.terminal_ui.console.print(summary_panel)
-                    self.terminal_ui.console.print(Panel(Markdown(f"✅ **History compressed successfully.** Kept the last {len(recent_messages)} messages."), border_style="green"))
+                    self.terminal_ui.console.print(Panel(Markdown(f"✅ **History compressed successfully.** Kept the last {kept_recents} messages."), border_style="green"))
             return True
 
         if user_input.lower().strip() == '/summarize':
@@ -966,52 +989,27 @@ Example: /autosave restore autosave_20250515_141530
 
             # Función auxiliar para obtener modelos de KiloCode Gateway
             async def _fetch_kilocode_models():
-                try:
-                    api_key = os.getenv("KILOCODE_API_KEY")
-                    if not api_key:
-                        self.terminal_ui.print_message("⚠️ No se encontró KILOCODE_API_KEY en el entorno.", style="yellow")
-                        return []
-
-                    self.terminal_ui.print_message("⏳ Fetching models list from KiloCode Gateway...", style="dim")
-                    import httpx
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(
-                            "https://api.kilo.ai/api/gateway/models",
-                            headers={"Authorization": f"Bearer {api_key}"},
-                            timeout=30.0
-                        )
-                        if response.status_code == 200:
-                            data = response.json()
-                            models = []
-                            # KiloCode devuelve una lista directamente o con clave 'models' según la docs
-                            model_list = data if isinstance(data, list) else data.get('models', data.get('data', []))
-                            for m in model_list:
-                                # El ID puede venir como 'kilocode/xxx' o solo 'xxx'
-                                model_id = m.get('id', m.get('model', ''))
-                                if not model_id.startswith('kilocode/'):
-                                    model_id = f"kilocode/{model_id}"
-                                name = m.get('name', m.get('id', model_id))
-                                # Precio si está disponible
-                                pricing = m.get('pricing', {})
-                                price_str = ""
-                                if pricing:
-                                    prompt = float(pricing.get('prompt', 0)) * 1000000
-                                    completion = float(pricing.get('completion', 0)) * 1000000
-                                    price_str = f" [${prompt:.2f}/M in, ${completion:.2f}/M out]"
-                                # Context length
-                                context = m.get('context_length', m.get('context', 0))
-                                context_str = f" ({int(context/1024)}k ctx)" if context else ""
-                                label = f"{name}{context_str}{price_str}"
-                                models.append((model_id, label))
-
-                            models.sort(key=lambda x: x[1])
-                            return models
-                        else:
-                            self.terminal_ui.print_message(f"⚠️ Error fetching KiloCode models: {response.status_code}", style="yellow")
-                            return []
-                except Exception as e:
-                    self.terminal_ui.print_message(f"⚠️ Exception connecting to KiloCode Gateway: {e}", style="red")
+                from kogniterm.core.gateway_models import (
+                    resolve_gateway_api_key,
+                    fetch_gateway_models,
+                )
+                if not resolve_gateway_api_key("kilocode"):
+                    self.terminal_ui.print_message("⚠️ No se encontró KILOCODE_API_KEY.", style="yellow")
                     return []
+                self.terminal_ui.print_message("⏳ Fetching models list from KiloCode Gateway...", style="dim")
+                return await fetch_gateway_models("kilocode")
+
+            # Función auxiliar para obtener modelos de OpenCode Zen
+            async def _fetch_opencode_models():
+                from kogniterm.core.gateway_models import (
+                    resolve_gateway_api_key,
+                    fetch_gateway_models,
+                )
+                if not resolve_gateway_api_key("opencode"):
+                    self.terminal_ui.print_message("⚠️ No se encontró OPENCODE_API_KEY.", style="yellow")
+                    return []
+                self.terminal_ui.print_message("⏳ Fetching models list from OpenCode Zen...", style="dim")
+                return await fetch_gateway_models("opencode")
 
             # Función auxiliar para obtener modelos de Inception Labs
             async def _fetch_inception_models():
@@ -1167,14 +1165,16 @@ Example: /autosave restore autosave_20250515_141530
                         # But if no cloud key, the only one left is local.
                         # MEJORA: Si estamos aquí y el modelo no tiene prefijo cloud, preferir local.
                         current_provider = "ollama" if not cloud_key else "ollama_cloud"
-            elif "gpt" in current_model:
-                current_provider = "openai"
-            elif "claude" in current_model:
-                current_provider = "anthropic"
             elif "kilocode" in current_model:
                 current_provider = "kilocode"
             elif "inception" in current_model or "mercury" in current_model:
                 current_provider = "inception"
+            elif current_model.startswith("opencode/") or current_model.startswith("zen/"):
+                current_provider = "opencode"
+            elif "gpt" in current_model:
+                current_provider = "openai"
+            elif "claude" in current_model:
+                current_provider = "anthropic"
             
             target_list = []
 
@@ -1249,6 +1249,11 @@ Example: /autosave restore autosave_20250515_141530
                         ("inception/mercury-2", "Inception: Mercury 2"),
                         ("inception/mercury-2.5", "Inception: Mercury 2.5"),
                     ]
+            elif current_provider == "opencode":
+                target_list = await _fetch_opencode_models()
+                if not target_list:
+                    self.terminal_ui.print_message("⚠️ No models found in OpenCode Zen. Check your API Key or access.", style="yellow")
+                    target_list = []
             else:
                 target_list = await _fetch_openrouter_models()
 
@@ -1270,6 +1275,8 @@ Example: /autosave restore autosave_20250515_141530
                     try:
                         # Extraer el proveedor del modelo (ej: "openrouter" de "openrouter/google/gemini-...")
                         model_prefix = selected_model.split('/')[0] if '/' in selected_model else None
+                        if model_prefix == "zen":
+                            model_prefix = "opencode"
                         
                         if self.llm_service:
                             self.llm_service.set_model(selected_model)
@@ -1494,6 +1501,7 @@ Example: /autosave restore autosave_20250515_141530
                 ("ollama_cloud", "☁️  Ollama Cloud (Ollama Models)"),
                 ("kilocode", "⚡ KiloCode Gateway (Routing inteligente)"),
                 ("inception", "⚡ Inception Labs (Diffusion LLMs)"),
+                ("opencode", "🧘 OpenCode Zen (Modelos curados por OpenCode)"),
                 ("antigravity", "🛸 Google Antigravity (Dynamic Session OAuth2)"),
             ]
 
@@ -1524,6 +1532,7 @@ Example: /autosave restore autosave_20250515_141530
                     "ollama_cloud": "ollama/llama3",
                     "kilocode": "kilocode/kilo/auto",
                     "inception": "inception/mercury-2",
+                    "opencode": "opencode/claude-sonnet-4-5",
                     "antigravity": "antigravity/gemini-3-flash",
                 }
                 new_model = default_models.get(selected_provider)
@@ -1710,7 +1719,12 @@ Example: /autosave restore autosave_20250515_141530
         cm = ConfigManager()
         manager = MCPManager.get_instance()
 
-        parts = user_input.strip().split()
+        import shlex
+        try:
+            parts = shlex.split(user_input.strip())
+        except Exception:
+            parts = user_input.strip().split()
+
         subcmd = parts[1].lower() if len(parts) > 1 else None
 
         if subcmd in (None, "list"):
@@ -1798,9 +1812,33 @@ Example: /autosave restore autosave_20250515_141530
             return
 
         elif subcmd == "add":
+            if len(parts) < 3:
+                self.terminal_ui.print_message("Uso: /mcp add <nombre> <comando> [args...] o /mcp add '<json_claude>'", style="yellow")
+                return
+
+            from kogniterm.core.mcp.env_utils import normalize_mcp_config, parse_claude_or_mcp_json
+
+            # Detectar si el argumento es un bloque JSON
+            tail = user_input.strip()[len(parts[0]):].strip()
+            if tail.lower().startswith("add"):
+                tail = tail[3:].strip()
+
+            if tail.startswith("{") or (len(parts) > 2 and parts[2].startswith("{")):
+                json_str = tail if tail.startswith("{") else " ".join(parts[2:])
+                parsed = parse_claude_or_mcp_json(json_str, fallback_name="mcp-server")
+                if parsed:
+                    for s_name, s_conf in parsed:
+                        cm.set_mcp_server(s_name, normalize_mcp_config(s_conf))
+                    await manager.reload()
+                    if self.llm_service:
+                        self.llm_service.sync_tools()
+                    self.terminal_ui.print_message(f"✅ Servidor(es) MCP agregado(s) desde JSON y recargado(s).", style="green")
+                    return
+
             if len(parts) < 4:
                 self.terminal_ui.print_message("Uso: /mcp add <nombre> <comando> [args...]", style="yellow")
                 return
+
             name = parts[2]
             command = parts[3]
             server_args = parts[4:]
@@ -1810,11 +1848,12 @@ Example: /autosave restore autosave_20250515_141530
                 "args": server_args,
                 "disabled": False
             }
+            conf = normalize_mcp_config(conf)
             cm.set_mcp_server(name, conf)
             await manager.reload()
             if self.llm_service:
                 self.llm_service.sync_tools()
-            self.terminal_ui.print_message(f"✅ Servidor stdio '{name}' agregado y recargado.", style="green")
+            self.terminal_ui.print_message(f"✅ Servidor '{name}' agregado y recargado.", style="green")
             return
 
         elif subcmd == "test":
@@ -1964,6 +2003,7 @@ Example: /autosave restore autosave_20250515_141530
             "OLLAMA_CLOUD_API_KEY",
             "KILOCODE_API_KEY",
             "INCEPTION_API_KEY",
+            "OPENCODE_API_KEY",
             "BRAVE_API_KEY",
             "GITHUB_TOKEN"
         ]
@@ -2072,6 +2112,8 @@ Example: /autosave restore autosave_20250515_141530
                             self.llm_service.api_key = new_val
                         elif selected_key in ("INCEPTION_API_KEY", "INCEPTIONLABS_API_KEY") and ("inception" in self.llm_service.model_name or "mercury" in self.llm_service.model_name):
                             self.llm_service.api_key = new_val
+                        elif selected_key == "OPENCODE_API_KEY" and self.llm_service.model_name.lower().startswith(("opencode/", "zen/")):
+                            self.llm_service.api_key = new_val
                             
                         # Si estamos en modo servidor, enviar también la API key al servidor
                         is_server_mode = self.kogniterm_app and getattr(self.kogniterm_app, "_server_mode", False)
@@ -2085,7 +2127,8 @@ Example: /autosave restore autosave_20250515_141530
                                     "OPENROUTER_API_KEY": "openrouter",
                                     "OLLAMA_CLOUD_API_KEY": "ollama_cloud",
                                     "KILOCODE_API_KEY": "kilocode",
-                                    "INCEPTION_API_KEY": "inception"
+                                    "INCEPTION_API_KEY": "inception",
+                                    "OPENCODE_API_KEY": "opencode"
                                 }
                                 prov = provider_map.get(selected_key)
                                 if prov:

@@ -1,187 +1,74 @@
-# KogniTerm Desktop
+# KogniTerm Desktop — App nativa
 
-Una aplicación de escritorio moderna para KogniTerm construida con Tauri, React y FastAPI.
+App de escritorio oficial de KogniTerm: **Electron + SolidJS + Tailwind + Vite**
+contra el backend 100% `kogniterm/server/app.py` (sin dependencias `@opencode-ai/*`).
 
-## 🚀 Características
-
-- **Chat Inteligente**: Interfaz de chat con streaming en tiempo real
-- **Terminal Integrada**: Terminal XTerm.js completamente funcional
-- **Explorador de Archivos**: Navegación de archivos del proyecto
-- **Arquitectura Híbrida**: Frontend en Tauri/React + Backend en Python/FastAPI
-- **Diseño Premium**: UI moderna con Tailwind CSS y tema oscuro
-
-## 📋 Requisitos Previos
-
-- **Node.js** >= 18.x
-- **Python** >= 3.9
-- **Rust** (para Tauri)
-- **Dependencias del sistema** (Linux):
-  - `webkit2gtk-4.1`
-  - `librsvg2-dev`
-  - `build-essential`
-
-### Instalación de dependencias en Linux (Ubuntu/Debian)
+Se lanza con:
 
 ```bash
-sudo apt update
-sudo apt install libwebkit2gtk-4.1-dev \
-  build-essential \
-  curl \
-  wget \
-  file \
-  libssl-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev
+kogniterm desktop            # producción (compila si falta el build)
+kogniterm desktop --dev      # desarrollo (Vite + Electron Dev)
+kogniterm desktop --build    # fuerza la recompilación antes de iniciar
+kogniterm desktop --logs     # muestra los logs en la terminal actual
 ```
 
-### 1. Instalación Rápida en el Lanzador del Sistema (Linux / macOS)
-
-Ejecuta el script de instalación para registrar KogniTerm Desktop y su icono oficial en el menú de aplicaciones de tu SO:
-
-```bash
-bash install-desktop.sh
-```
-
-Esto instalará automáticamente:
-- **Linux**: El archivo `.desktop` en `~/.local/share/applications/kogniterm-desktop.desktop` y el icono de 512x512 en `~/.local/share/icons/hicolor/512x512/apps/kogniterm-desktop.png`.
-- **macOS**: La app compilada en `/Applications/KogniTerm Desktop.app`.
-
-### 2. Instalación Manual / Desarrollo Monorepo
-
-```bash
-cd KogniTerm/kogniterm-desktop
-npm install
-```
-
-### 3. Instalar dependencias de Python
-
-```bash
-cd apps/server
-pip install -r requirements.txt
-cd ../..
-```
-
-## 🚀 Desarrollo
-
-Para ejecutar la aplicación en modo desarrollo, necesitas **dos terminales**:
-
-### Terminal 1: Backend (Python/FastAPI)
-
-```bash
-cd apps/server
-python dev.py
-```
-
-El servidor estará disponible en `http://localhost:8000`
-
-### Terminal 2: Frontend (Tauri/React)
-
-```bash
-cd apps/desktop
-npm run tauri dev
-```
-
-Esto abrirá la aplicación desktop en modo desarrollo con hot-reload.
-
-## 📦 Build de Producción
-
-### Backend
-
-```bash
-cd apps/server
-# Crear un ejecutable con PyInstaller (opcional)
-pip install pyinstaller
-pyinstaller --onefile dev.py
-```
-
-### Frontend
-
-```bash
-cd apps/desktop
-npm run tauri build
-```
-
-Los binarios estarán en `apps/desktop/src-tauri/target/release/`
-
-## 🏗️ Estructura del Proyecto
+## Estructura
 
 ```
 kogniterm-desktop/
 ├── apps/
-│   ├── desktop/          # Aplicación Tauri + React
-│   │   ├── src/          # Código fuente React
-│   │   ├── src-tauri/    # Código Rust de Tauri
-│   │   └── package.json
-│   └── server/           # Backend FastAPI
-│       ├── kogniterm_server/
-│       │   ├── api/      # Endpoints REST
-│       │   └── core/     # Adaptador de KogniTerm
-│       └── requirements.txt
-├── package.json          # Configuración del monorepo
-└── turbo.json           # Configuración de Turbo
+│   ├── backend/        # shim que reutiliza kogniterm.server.app:create_app
+│   │   ├── run.py
+│   │   └── requirements.txt
+│   ├── web/            # SolidJS + Tailwind + Vite (Tabs + Chat + Provider/Model/Keys)
+│   └── electron/       # shell Electron (main/preload), carga apps/web
+├── docs/
+│   └── API_NATIVA.md
+└── scripts/
+    ├── dev-backend.sh
+    └── dev.sh
 ```
 
-## 🔧 Configuración
+## Backend nativo (reusado, no duplicado)
 
-### Variables de Entorno
+- `GET /health`, `GET /models/available`, `GET /config/llm`, `POST /config/llm`
+- `GET /sessions`, `POST /sessions`, `DELETE /sessions/{id}`
+- `WS /ws/{session_id}` — protocolo: cliente `{type:message|interrupt|ping}`,
+  servidor `{type:connected|stream|tool_start|tool_output|message|done|error|pong}`
+- Ver `docs/API_NATIVA.md` y `kogniterm/server/app.py`.
 
-Crea un archivo `.env` en la raíz del proyecto:
-
-```env
-# API Keys
-OPENROUTER_API_KEY=tu_api_key
-LITELLM_MODEL=openrouter/google/gemini-2.0-flash-exp:free
-
-# O usa Google AI Studio
-GOOGLE_API_KEY=tu_api_key
-GEMINI_MODEL=gemini-2.0-flash-exp
+```bash
+# backend (puerto 8755 por defecto)
+bash scripts/dev-backend.sh
+# o:
+python3 apps/backend/run.py --port 8755
 ```
 
-## 📚 Tecnologías Utilizadas
+## Web
 
-### Frontend
+```bash
+npm install
+npm run dev:web   # http://localhost:4444 → backend http://127.0.0.1:8755
+```
 
-- **Tauri** - Framework de aplicaciones desktop
-- **React** - Biblioteca UI
-- **TypeScript** - Tipado estático
-- **Tailwind CSS** - Framework de estilos
-- **XTerm.js** - Emulador de terminal
-- **React Markdown** - Renderizado de Markdown
-- **Lucide React** - Iconos
+Variables: `VITE_KOGNITERM_API=http://127.0.0.1:8755`, `VITE_KOGNITERM_WS=ws://127.0.0.1:8755`.
 
-### Backend
+## Electron
 
-- **FastAPI** - Framework web asíncrono
-- **Uvicorn** - Servidor ASGI
-- **WebSockets** - Comunicación en tiempo real
-- **KogniTerm Core** - Lógica de agentes
+```bash
+npm run dev:electron
+```
 
-### Build Tools
+Carga la URL de Vite en dev y `apps/web/dist` en prod.
 
-- **Turbo** - Monorepo build system
-- **Vite** - Build tool para React
-- **Cargo** - Build tool para Rust
+## Funcionalidades
 
-## 🤝 Contribuir
-
-Las contribuciones son bienvenidas. Por favor:
-
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
-
-## 📝 Licencia
-
-Este proyecto está bajo la licencia MIT. Ver `LICENSE` para más información.
-
-## 🐛 Reportar Bugs
-
-Si encuentras un bug, por favor abre un issue en [GitHub Issues](https://github.com/gatovillano/KogniTerm/issues).
-
-## 📧 Contacto
-
-Gato Villano - [@gatovillano](https://github.com/gatovillano)
-
-Proyecto: [https://github.com/gatovillano/KogniTerm](https://github.com/gatovillano/KogniTerm)
+- [x] Tabs (sesiones múltiples, crear/cerrar/renombrar, persistencia localStorage)
+- [x] Chat streaming nativo por WS (`stream`, `message`, `done`, `tool_start/output`)
+- [x] Selector de agentes nativo en el input (`GET /api/agents`, `super_agent`, `bash_agent`, `code_agent`, `researcher_agent`)
+- [x] Modal Proveedor (9 proveedores TUI: google, openai, anthropic, openrouter, ollama, ollama_cloud, kilocode, inception, antigravity)
+- [x] Modal Modelo (lista desde `GET /models/available` filtrada por proveedor activo)
+- [x] Modal Keys (`POST /config/llm` con `provider` + `api_key`, password input)
+- [x] Terminal lateral con shell real por pestaña (`POST /api/pty`, WS `/api/pty/{id}/connect`)
+- [x] Terminal inline interactiva para comandos del agente (`terminal_output`, `set_terminal_cursor`, `terminal_input`)
+- [ ] Siguiente: theme, files (parity TUI completa)

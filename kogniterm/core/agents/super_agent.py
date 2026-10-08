@@ -29,6 +29,25 @@ from kogniterm.terminal.terminal_ui import TerminalUI
 logger = logging.getLogger(__name__)
 
 
+PARALLEL_TOOL_INSTRUCTION = """
+**Ejecución en paralelo de herramientas (MUY IMPORTANTE)**:
+- El sistema ejecuta en PARALELO con `asyncio.gather` todas las llamadas a herramientas que emitas en un mismo turno (hasta 8 concurrentes, configurable con `KOGNITERM_MAX_PARALLEL_TOOLS`; desactivable con `KOGNITERM_NO_PARALLEL=1`). El LLM también lleva `parallel_tool_calls=true`.
+- Cuando necesites ejecutar VARIAS herramientas independientes entre sí (ej. leer varios archivos, buscar en codebase + listar directorio, lanzar varios `execute_command` de lectura/inspección, consultar varias memorias), DEBES emitir TODAS las llamadas juntas en UN SOLO bloque de `tool_calls`, sin esperar al resultado de una para pedir la siguiente.
+- Solo secuencia en turnos separados cuando haya una DEPENDENCIA REAL de datos (el argumento de B depende del resultado de A) o cuando una herramienta MODIFICA el mismo archivo que otra lee/escribe en el mismo turno.
+- No anuncies con texto que "ahora harás X" sin emitir las herramientas en ese mismo turno: emite texto + todas las `tool_calls` juntas.
+- Si mezclas lecturas seguras con escrituras/comandos que requieren confirmación, emite IGUAL todo el lote junto: el runner agrupa las confirmaciones pendientes y las pide en bloque sin perder el resto del lote.
+"""
+
+
+def _ensure_parallel_instruction(sys_content: str) -> str:
+    """Añade la instrucción de paralelismo si el system prompt no la trae ya."""
+    if not sys_content:
+        return PARALLEL_TOOL_INSTRUCTION.strip()
+    if "Ejecución en paralelo de herramientas" in sys_content:
+        return sys_content
+    return sys_content.rstrip() + "\n" + PARALLEL_TOOL_INSTRUCTION
+
+
 TERMINAL_TOOLS = {
     "execute_command", "execute_command_tool", "run_command", "run_command_tool",
     "bash", "cmd_execution", "python_executor", "python_executor_tool", "shell", "terminal"
@@ -135,13 +154,19 @@ class SuperAgent:
         if messages is None:
             messages = []
 
-        default_system = "Eres KogniTerm un agente de experto en terminal y edición de código. Responde claro, breve y ejecuta tools cuando ayuden."
+        default_system = (
+            "Eres KogniTerm un agente de experto en terminal y edición de código. "
+            "Responde claro, breve y ejecuta tools cuando ayuden."
+            + PARALLEL_TOOL_INSTRUCTION
+        )
         sys_content = system_prompt or default_system
+        sys_content = _ensure_parallel_instruction(sys_content)
 
         if not messages or messages[0].get("role") != "system":
             messages.insert(0, {"role": "system", "content": sys_content})
         elif system_prompt:
-            messages[0]["content"] = system_prompt
+            # Conservar la instrucción de paralelismo aunque venga un prompt personalizado.
+            messages[0]["content"] = _ensure_parallel_instruction(system_prompt)
 
         if task:
             messages.append({"role": "user", "content": task})
@@ -151,8 +176,11 @@ class SuperAgent:
             self.set_model(target_model)
 
         tools_used: List[str] = []
+        tool_results: List[Dict[str, Any]] = []
         full_content: List[str] = []
         error_msg: Optional[str] = None
+        _done_content = ""
+        pending_text_chunks: List[str] = []
 
         chat_kwargs: Dict[str, Any] = {
             "messages": messages,
@@ -175,47 +203,98 @@ class SuperAgent:
             if stop_check is not None:
                 chat_kwargs["stop_check"] = stop_check
 
-        async for event in self.llm_bridge.chat(**chat_kwargs):
-            ev_type = event.get("type")
-            if ev_type == "interrupted":
-                yield event
-                return
-            elif ev_type in ("content", "chunk"):
-                text = event.get("text", "")
-                if text:
-                    full_content.append(text)
-                    yield {"type": "chunk", "text": text}
-            elif ev_type == "reasoning":
-                yield {"type": "reasoning", "text": event.get("text", "")}
-            elif ev_type == "tool_calls_start":
-                yield event
-            elif ev_type == "tool_start":
-                name = event.get("name", "")
-                if name and name not in tools_used:
-                    tools_used.append(name)
-                yield {
-                    "type": "tool_start",
-                    "name": name,
-                    "args": event.get("args", {}),
-                    "id": event.get("id"),
-                }
-            elif ev_type == "tool_result":
-                yield {
-                    "type": "tool_result",
-                    "name": event.get("name", ""),
-                    "result": event.get("result"),
-                    "id": event.get("id"),
-                }
-            elif ev_type == "error":
-                error_msg = event.get("message")
-                yield {"type": "error", "message": error_msg}
-            elif ev_type == "done":
-                content = event.get("content", "")
-                if content and not full_content:
-                    full_content.append(content)
+        try:
+            max_continuations = int(os.environ.get("KOGNITERM_SUPERAGENT_CONTINUATIONS", "3"))
+        except ValueError:
+            max_continuations = 3
+        max_continuations = max(0, min(max_continuations, 10))
+        continuation = 0
+        output_text = ""
+        success = True
+        interrupted = False
 
-        output_text = "".join(full_content).strip()
-        success = error_msg is None
+        while True:
+            _done_content = ""
+            async for event in self.llm_bridge.chat(**chat_kwargs):
+                ev_type = event.get("type")
+                if ev_type == "interrupted":
+                    yield event
+                    interrupted = True
+                    break
+                elif ev_type in ("content", "chunk"):
+                    text = event.get("text", "")
+                    if text:
+                        full_content.append(text)
+                        yield {"type": "chunk", "text": text}
+                elif ev_type == "reasoning":
+                    yield {"type": "reasoning", "text": event.get("text", "")}
+                elif ev_type == "tool_calls_start":
+                    yield event
+                elif ev_type == "tool_start":
+                    name = event.get("name", "")
+                    if name and name not in tools_used:
+                        tools_used.append(name)
+                    yield {
+                        "type": "tool_start",
+                        "name": name,
+                        "args": event.get("args", {}),
+                        "id": event.get("id"),
+                    }
+                elif ev_type == "tool_result":
+                    tool_results.append({
+                        "name": event.get("name", ""),
+                        "result": event.get("result"),
+                        "id": event.get("id"),
+                    })
+                    yield {
+                        "type": "tool_result",
+                        "name": event.get("name", ""),
+                        "result": event.get("result"),
+                        "id": event.get("id"),
+                    }
+                elif ev_type == "error":
+                    error_msg = event.get("message")
+                    yield {"type": "error", "message": error_msg}
+                elif ev_type == "done":
+                    _done_content = (event.get("content") or "").strip()
+                    if _done_content and not full_content:
+                        full_content.append(_done_content)
+            if interrupted:
+                return
+
+            output_text = "".join(full_content).strip()
+            success = error_msg is None
+
+            # Si el texto es un placeholder vacío ("Acciones completadas (...)",
+            # "Respuesta finalizada.", procesos), tratarlo como turno sin respuesta
+            # final para forzar continuación.
+            try:
+                from kogniterm.core.ai_cli_bridge.llm_bridge import _is_placeholder_done
+                if _is_placeholder_done(output_text):
+                    output_text = ""
+            except Exception:
+                pass
+
+            # El agente debe continuar hasta tener una respuesta final:
+            # si no hubo texto tras herramientas o fue un turno vacío,
+            # se reintenta con un nudge (herramientas habilitadas) en lugar de detenerse.
+            if output_text or error_msg or continuation >= max_continuations:
+                break
+            continuation += 1
+            logger.info(
+                "SuperAgent sin respuesta final tras herramientas "
+                "(intento %s/%s). Continuando...",
+                continuation, max_continuations,
+            )
+            messages.append({
+                "role": "user",
+                "content": (
+                    "[SISTEMA ANTI-DETENCIÓN]: Ejecutaste herramientas pero no has "
+                    "presentado la respuesta final al usuario. Continúa: si necesitas "
+                    "más datos, emite MÁS tool_calls ahora; si el trabajo está "
+                    "completo, escribe el resumen final en texto. No te detengas en vacío."
+                ),
+            })
 
         if error_msg:
             output_text = (
@@ -226,7 +305,76 @@ class SuperAgent:
 
         if not output_text:
             if tools_used:
-                output_text = f"Acciones completadas ({', '.join(tools_used)})."
+                # El modelo ejecutó herramientas pero no produjo texto final.
+                # Antes se emitía "Acciones completadas (...)" y el turno se
+                # detenía ahí. En su lugar se pide un resumen final al modelo
+                # (solo texto, sin herramientas) usando el historial que ya
+                # contiene los resultados de las tools.
+                summary_text = ""
+                try:
+                    follow_messages = list(messages) + [{
+                        "role": "user",
+                        "content": (
+                            "Resume de forma clara y concisa el resultado del trabajo "
+                            "realizado a partir de los resultados de las herramientas. "
+                            "No emitas más llamadas a herramientas, solo texto final."
+                        ),
+                    }]
+                    follow_kwargs: Dict[str, Any] = {
+                        "messages": follow_messages,
+                        "tools": [],
+                        "max_steps": 1,
+                    }
+                    try:
+                        import inspect as _inspect
+                        _sig = _inspect.signature(self.llm_bridge.chat)
+                        if "model" in _sig.parameters and target_model is not None:
+                            follow_kwargs["model"] = target_model
+                        if "interrupt_queue" in _sig.parameters and interrupt_queue is not None:
+                            follow_kwargs["interrupt_queue"] = interrupt_queue
+                        if "stop_check" in _sig.parameters and stop_check is not None:
+                            follow_kwargs["stop_check"] = stop_check
+                    except Exception:
+                        if target_model is not None:
+                            follow_kwargs["model"] = target_model
+                    async for fev in self.llm_bridge.chat(**follow_kwargs):
+                        _ft = fev.get("type")
+                        if _ft in ("content", "chunk"):
+                            _tx = fev.get("text", "")
+                            if _tx:
+                                summary_text += _tx
+                                yield {"type": "chunk", "text": _tx}
+                        elif _ft == "done":
+                            _dc = (fev.get("content") or "").strip()
+                            if _dc and not summary_text:
+                                summary_text = _dc
+                                yield {"type": "chunk", "text": _dc}
+                            break
+                        elif _ft == "interrupted":
+                            break
+                        elif _ft == "error":
+                            logger.warning("Resumen final falló: %s", fev.get("message"))
+                            break
+                except Exception as exc:
+                    logger.warning("No se pudo generar resumen final: %s", exc)
+                summary_text = (summary_text or "").strip()
+                if summary_text:
+                    output_text = summary_text
+                    full_content.append(summary_text)
+                else:
+                    # Fallback: mostrar resultados reales (truncados) en lugar
+                    # de un placeholder genérico que detenía al agente.
+                    parts = []
+                    for tr in tool_results[-3:]:
+                        _r = tr.get("result")
+                        _s = json.dumps(_r, ensure_ascii=False) if isinstance(_r, (dict, list)) else str(_r or "")
+                        _s = _s.strip()
+                        if _s:
+                            parts.append(f"**{tr.get('name')}**: {_s[:1500]}")
+                    if parts:
+                        output_text = "He completado las acciones. Resultado:\n\n" + "\n\n".join(parts)
+                    else:
+                        output_text = f"Acciones completadas ({', '.join(tools_used)})."
             else:
                 output_text = "Respuesta finalizada."
 
@@ -474,6 +622,74 @@ class SuperAgentRunner:
         """Punto de entrada asíncrono para call-agents-parallel u orquestadores async."""
         return await self._run_async(state)
 
+    # Herramientas de modificación que requieren confirmación salvo auto-aprobación.
+    _FILE_MODIFICATION_TOOLS = (
+        "edit_file",
+        "replace_all_file",
+        "create_file",
+        "delete_file",
+        "advanced_file_editor",
+        "advanced_file_editor_tool",
+        "sophisticated_editor_tool",
+        "replace_file_content",
+        "file_update_tool",
+        "file_update",
+        "write_file",
+        "write_file_tool",
+        "file_write",
+        "write",
+        "append_file_tool",
+        "delete_file_tool",
+        "move_file_tool",
+        "copy_file_tool",
+        "python_executor",
+        "python_executor_tool",
+    )
+    _COMMAND_CONFIRM_TOOLS = ("execute_command", "run_shell")
+
+    def _tool_confirmation_kind(
+        self, t_name: str, t_args: Dict[str, Any]
+    ) -> Optional[str]:
+        """Devuelve 'command' / 'file' si la tool exige confirmación, None si es segura."""
+        if t_name in self._COMMAND_CONFIRM_TOOLS:
+            return "command"
+        if t_name in self._FILE_MODIFICATION_TOOLS:
+            return "file"
+        if t_name in ("file_operations", "file_operations_tool"):
+            op = (t_args.get("operation") or t_args.get("action") or "").lower()
+            if op not in ("read_file", "list_directory", "get_file_info", "search_files", "head_file", "tail_file"):
+                return "file"
+        return None
+
+    def _tool_needs_confirmation(
+        self, state: AgentState, t_name: str, t_args: Dict[str, Any]
+    ) -> Optional[str]:
+        """None si puede ejecutarse en paralelo sin pausa; 'command'/'file' si debe confirmarse."""
+        kind = self._tool_confirmation_kind(t_name, t_args)
+        if kind is None:
+            return None
+        if getattr(state, "autonomous_approvals", False):
+            return None
+        if kind == "file":
+            require_confirm = getattr(state, "require_tool_confirmation", False) or not self._is_auto_approve_enabled(state)
+            return "file" if require_confirm else None
+        return "command"
+
+    def _is_auto_approve_enabled(self, state: AgentState) -> bool:
+        """Determina si la auto-aprobación está activa (para comandos y herramientas)."""
+        if getattr(state, "autonomous_approvals", False):
+            return True
+        if self.terminal_ui and hasattr(self.terminal_ui, "resolve_auto_approve"):
+            try:
+                return bool(self.terminal_ui.resolve_auto_approve())
+            except Exception:
+                pass
+        try:
+            from kogniterm.terminal.config_manager import ConfigManager
+            return bool(ConfigManager().get_config("auto_approve"))
+        except Exception:
+            return False
+
     async def _run_async(self, state: AgentState) -> Dict[str, Any]:
         state.stop_requested = False
         if self.llm_service is not None and hasattr(self.llm_service, "stop_generation_flag"):
@@ -525,6 +741,7 @@ class SuperAgentRunner:
             except Exception as exc:
                 logger.debug(f"No se pudo generar system_message dinámico: {exc}")
                 system_prompt = "Eres KogniTerm, un asistente evolutivo de terminal de alta velocidad."
+        system_prompt = _ensure_parallel_instruction(system_prompt)
 
         # 4. Convertir mensajes al formato de LiteLLM
         llm_messages = _langchain_to_dict_messages(state.messages)
@@ -653,26 +870,93 @@ class SuperAgentRunner:
                             "args": fn_args,
                         })
                     state.add_message(AIMessage(content=raw_content or "", tool_calls=parsed_calls))
+                    # Pre-registrar args por id para el lote paralelo completo.
+                    try:
+                        args_by_id = getattr(state, "tool_args_by_id", None)
+                        if not isinstance(args_by_id, dict):
+                            state.tool_args_by_id = {}
+                            args_by_id = state.tool_args_by_id
+                        for pc in parsed_calls:
+                            if pc.get("id"):
+                                args_by_id[pc["id"]] = pc.get("args", {})
+                    except Exception:
+                        pass
+                    # Confirmación en bloque ANTES de ejecutar: el bridge emite
+                    # todos los tool_start antes del asyncio.gather, así que
+                    # cancelar aquí es seguro y no pierde el resto del lote.
+                    pending_cmds = []
+                    pending_files = []
+                    for pc in parsed_calls:
+                        kind = self._tool_needs_confirmation(state, pc.get("name", ""), pc.get("args", {}) or {})
+                        if kind == "command":
+                            pending_cmds.append(pc)
+                        elif kind == "file":
+                            pending_files.append(pc)
+                    if pending_cmds or pending_files:
+                        first = (pending_cmds + pending_files)[0]
+                        f_args = first.get("args", {}) or {}
+                        if pending_cmds:
+                            state.command_to_confirm = f_args.get("command", "")
+                        state.tool_pending_confirmation = first.get("name", "")
+                        state.tool_args_pending_confirmation = f_args
+                        state.tool_call_id_to_confirm = first.get("id", "")
+                        # Exponer el lote completo para aprobación en bloque en la UI.
+                        try:
+                            state.pending_confirmations = pending_cmds + pending_files
+                        except Exception:
+                            pass
+                        result: Dict[str, Any] = {
+                            "messages": state.messages,
+                            "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                        }
+                        if pending_cmds:
+                            result["command_to_confirm"] = state.command_to_confirm
+                        if pending_files:
+                            result["tool_pending_confirmation"] = state.tool_pending_confirmation
+                            result["tool_args_pending_confirmation"] = state.tool_args_pending_confirmation
+                        try:
+                            result["pending_confirmations"] = pending_cmds + pending_files
+                        except Exception:
+                            pass
+                        return result
 
                 elif ev_type == "tool_start":
                     t_name = event.get("name", "")
                     t_args = event.get("args", {})
                     t_id = event.get("id") or t_name
 
-                    # Asegurar que el AIMessage con este tool call esté registrado en state.messages
+                    # Asegurar que el AIMessage con este tool call esté registrado.
+                    # En lotes paralelos el AIMessage completo ya viene de
+                    # tool_calls_start: buscar en los últimos mensajes para
+                    # no duplicarlo (un tool_start por cada call del lote).
                     has_tc = False
-                    if state.messages and isinstance(state.messages[-1], AIMessage):
-                        last_tc = getattr(state.messages[-1], "tool_calls", [])
-                        if any(tc.get("id") == t_id for tc in last_tc):
-                            has_tc = True
+                    try:
+                        for m in reversed(state.messages[-5:]):
+                            if isinstance(m, AIMessage):
+                                last_tc = getattr(m, "tool_calls", []) or []
+                                if any(tc.get("id") == t_id for tc in last_tc):
+                                    has_tc = True
+                                    break
+                    except Exception:
+                        has_tc = False
                     if not has_tc:
                         state.add_message(AIMessage(
                             content="".join(accumulated_chunks) or "",
                             tool_calls=[{"id": t_id, "name": t_name, "args": t_args}]
                         ))
 
-                    # Almacenar args para uso en tool_result (mostrar diff post-edición)
+                    # Almacenar args por tool_call_id para uso en tool_result
+                    # (mostrar diff post-edición). Se mantiene last_tool_args
+                    # por compatibilidad, pero el mapa soporta llamadas en paralelo.
                     state.last_tool_args = t_args
+                    try:
+                        args_by_id = getattr(state, "tool_args_by_id", None)
+                        if not isinstance(args_by_id, dict):
+                            state.tool_args_by_id = {}
+                            args_by_id = state.tool_args_by_id
+                        args_by_id[t_id] = t_args
+                    except Exception:
+                        pass
 
                     if self.terminal_ui and hasattr(self.terminal_ui, "print_tool_notification"):
                         try:
@@ -689,44 +973,44 @@ class SuperAgentRunner:
                             state.delegation_context.metadata["completed"] = True
                             state.delegation_context.metadata["result"] = task_res
 
-                    # Pausa para confirmación de comandos de terminal (delegado a command_approval_handler en UI)
-                    if t_name in ("execute_command", "run_shell"):
-                        if not getattr(state, "autonomous_approvals", False):
-                            cmd = t_args.get("command", "")
-                            state.command_to_confirm = cmd
-                            state.tool_call_id_to_confirm = t_id
-                            return {
-                                "messages": state.messages,
-                                "command_to_confirm": state.command_to_confirm,
-                                "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
-                            }
-
-                    # Pausa para confirmación de modificaciones de archivo si aplica
-                    if t_name in (
-                        "edit_file",
-                        "replace_all_file",
-                        "delete_file",
-                        "advanced_file_editor",
-                        "file_update_tool",
-                    ):
-                        if getattr(state, "require_tool_confirmation", False) and not getattr(state, "autonomous_approvals", False):
-                            state.tool_pending_confirmation = t_name
-                            state.tool_args_pending_confirmation = t_args
-                            state.tool_call_id_to_confirm = t_id
-                            return {
-                                "messages": state.messages,
-                                "tool_pending_confirmation": state.tool_pending_confirmation,
-                                "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
-                                "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
-                            }
+                    # Pausa para confirmación (fallback si no hubo tool_calls_start):
+                    # el caso normal ya se resolvió en bloque arriba, antes del
+                    # asyncio.gather, para no romper el paralelismo del lote.
+                    confirm_kind = self._tool_needs_confirmation(state, t_name, t_args or {})
+                    if confirm_kind == "command":
+                        state.command_to_confirm = (t_args or {}).get("command", "")
+                        state.tool_call_id_to_confirm = t_id
+                        return {
+                            "messages": state.messages,
+                            "command_to_confirm": state.command_to_confirm,
+                            "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                        }
+                    if confirm_kind == "file":
+                        state.tool_pending_confirmation = t_name
+                        state.tool_args_pending_confirmation = t_args
+                        state.tool_call_id_to_confirm = t_id
+                        return {
+                            "messages": state.messages,
+                            "tool_pending_confirmation": state.tool_pending_confirmation,
+                            "tool_args_pending_confirmation": state.tool_args_pending_confirmation,
+                            "tool_call_id_to_confirm": state.tool_call_id_to_confirm,
+                        }
 
                 elif ev_type == "tool_result":
                     t_name = event.get("name", "")
                     t_res = event.get("result", "")
                     t_id = event.get("id") or t_name
 
-                    # Recuperar args del tool_start almacenados en state
-                    t_args = getattr(state, "last_tool_args", {}) or {}
+                    # Recuperar args del tool_start almacenados en state (por id, para paralelo)
+                    t_args = {}
+                    try:
+                        args_by_id = getattr(state, "tool_args_by_id", None)
+                        if isinstance(args_by_id, dict) and t_id in args_by_id:
+                            t_args = args_by_id.pop(t_id) or {}
+                        else:
+                            t_args = getattr(state, "last_tool_args", {}) or {}
+                    except Exception:
+                        t_args = getattr(state, "last_tool_args", {}) or {}
 
                     # Sincronizar ToolMessage en el historial de state.messages para conservar contexto
                     res_str = json.dumps(t_res, ensure_ascii=False) if isinstance(t_res, (dict, list)) else str(t_res)

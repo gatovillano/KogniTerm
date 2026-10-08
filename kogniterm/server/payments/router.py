@@ -1,0 +1,104 @@
+"""
+Router de FastAPI para exponer los endpoints REST del sistema de pagos y suscripciones de KogniTerm.
+"""
+
+from typing import List, Dict, Any
+from fastapi import APIRouter, HTTPException, Request, Depends, Header, status
+
+from kogniterm.server.payments.models import (
+    PlanInfo,
+    SubscriptionDetails,
+    CreateCheckoutSessionRequest,
+    CreateCheckoutSessionResponse,
+    PaymentMethodDetails,
+    PaymentHistoryItem,
+    UsageQuotaInfo,
+)
+from kogniterm.server.payments.service import payment_service
+from kogniterm.server.session_pool import pool
+
+router = APIRouter(tags=["Pagos y Suscripciones"])
+
+
+def _extract_user_id(request: Request) -> str:
+    """Extrae el ID de usuario desde las cabeceras o usa la IP/Cliente por defecto."""
+    user_id = request.headers.get("X-User-ID") or request.headers.get("X-Session-ID")
+    if not user_id:
+        user_id = f"user_{request.client.host if request.client else 'anonymous'}"
+    return user_id
+
+
+@router.get("/plans", response_model=List[PlanInfo], summary="Obtener catálogo de planes")
+async def get_plans():
+    """Retorna la lista de planes de suscripción disponibles (Free, Pro Monthly, Pro Yearly, Enterprise)."""
+    return payment_service.list_plans()
+
+
+@router.get("/plans/{plan_id}", response_model=PlanInfo, summary="Detalle de un plan")
+async def get_plan_details(plan_id: str):
+    """Obtiene la información y características de un plan por su ID."""
+    plan = payment_service.get_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Plan '{plan_id}' no encontrado.")
+    return plan
+
+
+@router.get("/subscription", response_model=SubscriptionDetails, summary="Obtener suscripción activa")
+async def get_subscription(request: Request):
+    """Obtiene el estado de la suscripción actual del usuario."""
+    user_id = _extract_user_id(request)
+    return payment_service.get_user_subscription(user_id)
+
+
+@router.post("/checkout", response_model=CreateCheckoutSessionResponse, summary="Crear sesión de checkout")
+async def create_checkout(req: CreateCheckoutSessionRequest, request: Request):
+    """Crea una sesión de Checkout de Stripe o simulación para contratar/cambiar de plan."""
+    user_id = _extract_user_id(request)
+    try:
+        return payment_service.create_checkout_session(user_id, req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al procesar el pago: {str(e)}")
+
+
+@router.post("/subscription/cancel", response_model=SubscriptionDetails, summary="Cancelar suscripción")
+async def cancel_subscription(request: Request, at_period_end: bool = True):
+    """Cancela la suscripción actual del usuario (por defecto al final del periodo activo)."""
+    user_id = _extract_user_id(request)
+    return payment_service.cancel_subscription(user_id, at_period_end=at_period_end)
+
+
+@router.get("/payment-methods", response_model=List[PaymentMethodDetails], summary="Obtener métodos de pago")
+async def get_payment_methods(request: Request):
+    """Lista las tarjetas o métodos de pago asociados al usuario."""
+    user_id = _extract_user_id(request)
+    return payment_service.get_payment_methods(user_id)
+
+
+@router.get("/history", response_model=List[PaymentHistoryItem], summary="Historial de facturación")
+async def get_payment_history(request: Request):
+    """Obtiene el historial de compras y recibos de pago."""
+    user_id = _extract_user_id(request)
+    return payment_service.get_payment_history(user_id)
+
+
+@router.get("/quota", response_model=UsageQuotaInfo, summary="Obtener cuota de uso y límites")
+async def get_quota_usage(request: Request):
+    """Devuelve las métricas de consumo de tokens y límites del plan contratado."""
+    user_id = _extract_user_id(request)
+    active_sessions = len(pool.list_all())
+    return payment_service.get_usage_quota(user_id, active_sessions_count=active_sessions)
+
+
+@router.post("/webhook", summary="Webhook de eventos de pasarela de pago")
+async def payment_webhook(request: Request, stripe_signature: str = Header(None, alias="Stripe-Signature")):
+    """Recibe y procesa los eventos asíncronos emitidos por Stripe o pasarela externa."""
+    body = await request.body()
+    try:
+        result = payment_service.handle_webhook_event(body, stripe_signature or "")
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Webhook processing error: {str(e)}")

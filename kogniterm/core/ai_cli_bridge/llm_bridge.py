@@ -92,6 +92,18 @@ _CONTINUATION_PATTERNS = [
 ]
 
 
+def _is_placeholder_done(text: str) -> bool:
+    """Detecta respuestas vacías o placeholders que no son una respuesta final real."""
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    if t.startswith("acciones completadas") or t.startswith("respuesta finalizada") or t.startswith("procesando"):
+        return True
+    if t in ("...", "…", "sin respuesta", "respuesta vacía", "ok", "listo"):
+        return True
+    return False
+
+
 def _detect_continuation_intent(text: str) -> bool:
     """Detecta si el texto del asistente promete una acción o siguiente paso sin haber adjuntado herramientas."""
     if not text:
@@ -139,7 +151,7 @@ class LLMBridge:
             kwargs["custom_llm_provider"] = "ollama"
         elif provider.name == "ollama_cloud":
             kwargs["custom_llm_provider"] = "openai"
-        elif provider.name in ("kilocode", "inception"):
+        elif provider.name in ("kilocode", "inception", "opencode"):
             kwargs["custom_llm_provider"] = "openai"
         elif provider.name == "antigravity":
             kwargs["custom_llm_provider"] = "antigravity"
@@ -165,6 +177,9 @@ class LLMBridge:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+            # Habilitar llamadas a herramientas en paralelo (OpenAI-style).
+            # litellm.drop_params=True lo descarta en proveedores que no lo soporten.
+            kwargs["parallel_tool_calls"] = True
         return kwargs
 
     async def execute_tool_call(self, tool_name: str, args: Dict[str, Any]) -> Any:
@@ -214,6 +229,7 @@ class LLMBridge:
             tool_calls_dict: Dict[int, Dict[str, Any]] = {}
             in_think_tag = False
             in_func_tag = False
+            reasoning_buffer = ""
 
             try:
                 if provider_kwargs.get("custom_llm_provider") == "antigravity":
@@ -272,6 +288,7 @@ class LLMBridge:
                         or getattr(delta, "thinking_content", None)
                     )
                     if reasoning_text:
+                        reasoning_buffer += reasoning_text
                         yield {"type": "reasoning", "text": reasoning_text}
 
                     raw_content = getattr(delta, "content", "") or ""
@@ -303,6 +320,7 @@ class LLMBridge:
                             if "</think>" in curr_text:
                                 think_parts = curr_text.split("</think>", 1)
                                 if think_parts[0]:
+                                    reasoning_buffer += think_parts[0]
                                     yield {"type": "reasoning", "text": think_parts[0]}
                                 in_think_tag = False
                                 remainder = think_parts[1]
@@ -311,6 +329,7 @@ class LLMBridge:
                                     final_accumulated_content += remainder
                                     yield {"type": "content", "text": remainder}
                             else:
+                                reasoning_buffer += curr_text
                                 yield {"type": "reasoning", "text": curr_text}
                         else:
                             if "</think>" in curr_text:
@@ -372,6 +391,18 @@ class LLMBridge:
                 # Fallback: verificar si el LLM devolvió tool calls en texto o XML
                 text_calls, clean_text = _parse_text_tool_calls(accumulated_content)
                 if text_calls:
+                    pass
+                elif reasoning_buffer:
+                    # El modelo puede emitir el llamado a herramienta dentro
+                    # de su pensamiento/ razonamiento ("thinking"). Extraerlo
+                    # también y ejecutarlo.
+                    text_calls, _ = _parse_text_tool_calls(reasoning_buffer)
+                    if text_calls:
+                        logger.info(
+                            "LLMBridge: Tool calls detectadas dentro del razonamiento "
+                            "(%s). Se ejecutarán.", len(text_calls)
+                        )
+                if text_calls:
                     for i, tc in enumerate(text_calls):
                         tool_calls_dict[i] = {
                             "id": f"call_text_{step_count}_{i}",
@@ -395,6 +426,26 @@ class LLMBridge:
                             "DEBES invocar INMEDIATAMENTE en este turno la herramienta correspondiente (`execute_command`, "
                             "`advanced_file_editor`, etc.) para realizar la acción. "
                             "Si la tarea ya está 100% terminada y verificada, presenta la respuesta final al usuario sin prometer acciones futuras."
+                        ),
+                    })
+                    continue
+                elif nudge_count < max_nudges and not tool_calls_dict and _is_placeholder_done(accumulated_content):
+                    # El modelo terminó sin texto útil (o con un placeholder como
+                    # "Acciones completadas") después de usar herramientas. Forzar
+                    # resumen real en lugar de detener el flujo con un placeholder.
+                    nudge_count += 1
+                    logger.info(
+                        f"LLMBridge: Placeholder/vacío sin herramientas en paso {step_count} "
+                        f"('{accumulated_content[:80]}...'). Enviando auto-nudge ({nudge_count}/{max_nudges})."
+                    )
+                    messages.append({"role": "assistant", "content": accumulated_content or "(sin texto)"})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[SISTEMA ANTI-DETENCIÓN]: No has entregado una respuesta final real al usuario. "
+                            "Si necesitas ejecutar otra acción, emite la herramienta ahora. "
+                            "Si el trabajo está terminado, escribe el resultado final completo para el usuario "
+                            "(qué se hizo, archivos afectados y cómo verificarlo)."
                         ),
                     })
                     continue
@@ -437,12 +488,55 @@ class LLMBridge:
                     t_args = {}
 
                 yield {"type": "tool_start", "name": t_name, "args": t_args, "id": t_id}
+
+            # --- Ejecución en paralelo de las tool calls del mismo turno ---
+            # Si el modelo emitió varias llamadas independientes en un bloque,
+            # se ejecutan concurrentemente con asyncio.gather en lugar de en serie.
+            # El orden de los resultados/mensajes se preserva según el índice original.
+            # Desactivar con KOGNITERM_NO_PARALLEL=1 si se necesita depuración secuencial.
+            async def _run_single(tc: Dict[str, Any]) -> Dict[str, Any]:
+                t_id = tc["id"]
+                t_name = tc["function"]["name"]
+                try:
+                    t_args = json.loads(tc["function"]["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    t_args = {}
                 try:
                     result = await self.execute_tool_call(t_name, t_args)
-                    yield {"type": "tool_result", "name": t_name, "result": result, "id": t_id}
                     result_str = json.dumps(result, ensure_ascii=False) if not isinstance(result, str) else result
+                    return {"ok": True, "id": t_id, "name": t_name, "result_str": result_str, "raw": result}
                 except Exception as exc:
-                    result_str = f"Error ejecutando herramienta '{t_name}': {exc}"
+                    err_str = f"Error ejecutando herramienta '{t_name}': {exc}"
+                    return {"ok": False, "id": t_id, "name": t_name, "result_str": err_str, "raw": None}
+
+            no_parallel = os.environ.get("KOGNITERM_NO_PARALLEL", "").strip().lower() in ("1", "true", "yes")
+            try:
+                max_parallel = int(os.environ.get("KOGNITERM_MAX_PARALLEL_TOOLS", "8"))
+            except ValueError:
+                max_parallel = 8
+            max_parallel = max(1, min(max_parallel, 16))
+
+            if no_parallel or len(formatted_tool_calls) <= 1:
+                parallel_results = [await _run_single(tc) for tc in formatted_tool_calls]
+            else:
+                semaphore = asyncio.Semaphore(max_parallel)
+
+                async def _run_limited(tc: Dict[str, Any]) -> Dict[str, Any]:
+                    async with semaphore:
+                        return await _run_single(tc)
+
+                parallel_results = list(await asyncio.gather(*(_run_limited(tc) for tc in formatted_tool_calls)))
+
+            for res in parallel_results:
+                if _is_interrupted():
+                    yield {"type": "interrupted", "message": "Generación interrumpida por el usuario."}
+                    return
+                t_id = res["id"]
+                t_name = res["name"]
+                result_str = res["result_str"]
+                if res["ok"]:
+                    yield {"type": "tool_result", "name": t_name, "result": res["raw"], "id": t_id}
+                else:
                     yield {"type": "error", "message": result_str, "id": t_id}
 
                 messages.append(

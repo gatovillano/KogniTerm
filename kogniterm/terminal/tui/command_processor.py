@@ -1,9 +1,13 @@
 import json
 import logging
-from typing import Optional
+from kogniterm.core.gateway_models import (
+    GATEWAY_DISPLAY_NAMES,
+    get_gateway_models_with_fallback,
+)
 from kogniterm.terminal.api_client_tui import get_available_models, set_llm_config, get_llm_config
 
 logger = logging.getLogger(__name__)
+
 
 class TUICommandProcessor:
     def __init__(self, tui_app):
@@ -56,23 +60,29 @@ class TUICommandProcessor:
             except Exception as e:
                 logger.debug(f"Servidor no disponible para get_llm_config ({e}), usando modo local.")
                 if self.app.llm_service:
-                    model_cur = getattr(self.app.llm_service, "model_name", "")
-                    if model_cur.startswith("openrouter/"):
+                    model_cur = getattr(self.app.llm_service, "model_name", "") or ""
+                    # Los prefijos explícitos se evalúan primero: un id de
+                    # KiloCode/Inception/Zen puede contener "gpt" o "claude".
+                    if model_cur.startswith(("opencode/", "zen/")):
+                        active_provider = "opencode"
+                    elif "kilocode" in model_cur:
+                        active_provider = "kilocode"
+                    elif "inception" in model_cur or "mercury" in model_cur:
+                        active_provider = "inception"
+                    elif model_cur.startswith("openrouter/"):
                         active_provider = "openrouter"
                     elif model_cur.startswith("antigravity/"):
                         active_provider = "antigravity"
                     elif model_cur.startswith("gemini/"):
                         active_provider = "google"
+                    elif model_cur.startswith("ollama_cloud/"):
+                        active_provider = "ollama_cloud"
                     elif model_cur.startswith("ollama/"):
                         active_provider = "ollama"
                     elif "gpt" in model_cur:
                         active_provider = "openai"
                     elif "claude" in model_cur:
                         active_provider = "anthropic"
-                    elif "kilocode" in model_cur:
-                        active_provider = "kilocode"
-                    elif "inception" in model_cur or "mercury" in model_cur:
-                        active_provider = "inception"
 
             options = []
 
@@ -152,19 +162,10 @@ class TUICommandProcessor:
                         ("ollama/mistral", "Mistral"),
                         ("ollama/codellama", "CodeLlama"),
                     ]
-                elif active_provider == "kilocode":
-                    p_display_name = "KiloCode Gateway"
-                    local_models = [
-                        ("kilocode/kilo/auto", "Kilo Auto (Smart Routing)"),
-                        ("kilocode/anthropic/claude-sonnet-4", "Claude Sonnet 4"),
-                        ("kilocode/openai/gpt-4o", "GPT-4o"),
-                    ]
-                elif active_provider == "inception":
-                    p_display_name = "Inception Labs"
-                    local_models = [
-                        ("inception/mercury-2", "Mercury 2"),
-                        ("inception/mercury-2.5", "Mercury 2.5"),
-                    ]
+                elif active_provider in ("kilocode", "inception", "opencode"):
+                    p_display_name = GATEWAY_DISPLAY_NAMES.get(active_provider, active_provider)
+                    # Gateways OpenAI-compatible: el catálogo real viene de su API /models.
+                    local_models = await get_gateway_models_with_fallback(active_provider)
 
                 for m_id, label in local_models:
                     options.append((m_id, f"[{p_display_name}] {label}"))
@@ -222,6 +223,7 @@ class TUICommandProcessor:
             ("ollama_cloud", "Ollama Cloud"),
             ("kilocode", "KiloCode Gateway"),
             ("inception", "Inception Labs"),
+            ("opencode", "OpenCode Zen"),
             ("antigravity", "Google Antigravity (Session OAuth2)"),
         ]
         
@@ -241,6 +243,7 @@ class TUICommandProcessor:
                 "ollama_cloud": "ollama/llama3",
                 "kilocode": "kilocode/kilo/auto",
                 "inception": "inception/mercury-2",
+                "opencode": "opencode/claude-sonnet-4-5",
                 "antigravity": "antigravity/gemini-3-flash",
             }
             fallback_model = default_models.get(selected)
@@ -279,7 +282,8 @@ class TUICommandProcessor:
             ("anthropic", "ANTHROPIC_API_KEY"),
             ("openrouter", "OPENROUTER_API_KEY"),
             ("kilocode", "KILOCODE_API_KEY"),
-            ("inception", "INCEPTION_API_KEY")
+            ("inception", "INCEPTION_API_KEY"),
+            ("opencode", "OPENCODE_API_KEY")
         ]
         
         selected_provider = await self.terminal_ui.ask_radiolist_async(
@@ -431,11 +435,13 @@ class TUICommandProcessor:
                 "args": server_args,
                 "disabled": False
             }
+            from kogniterm.core.mcp.env_utils import normalize_mcp_config
+            conf = normalize_mcp_config(conf)
             cm.set_mcp_server(name, conf)
             await manager.reload()
             if self.app.llm_service:
                 self.app.llm_service.sync_tools()
-            self.terminal_ui.print_message(f"✅ Servidor stdio '{name}' agregado.", style="green")
+            self.terminal_ui.print_message(f"✅ Servidor '{name}' agregado.", style="green")
             return
 
         # Modo Interactivo: Si no hay argumentos o subcomando no reconocido
@@ -507,6 +513,8 @@ class TUICommandProcessor:
                 "args": server_args,
                 "disabled": False
             }
+            from kogniterm.core.mcp.env_utils import normalize_mcp_config
+            conf = normalize_mcp_config(conf)
             cm.set_mcp_server(name, conf)
             await manager.reload()
             if self.app.llm_service:

@@ -1,25 +1,20 @@
 {
   "name": "kogniterm-desktop",
-  "version": "2.0.0",
-  "description": "KogniTerm Desktop Application",
+  "version": "3.0.0",
+  "description": "KogniTerm Desktop — app nativa de KogniTerm. Electron + SolidJS + FastAPI kogniterm/server.",
   "private": true,
   "type": "module",
   "packageManager": "npm@11.11.0",
   "workspaces": [
-    "packages/*"
+    "apps/web",
+    "apps/electron"
   ],
   "scripts": {
-    "dev": "turbo run dev",
-    "dev:desktop": "npm --workspace=@kogniterm/desktop run dev",
-    "dev:app": "npm --workspace=@kogniterm/app run dev",
-    "build": "turbo run build",
-    "typecheck": "turbo run typecheck",
-    "lint": "turbo run lint",
-    "clean": "turbo run clean && rm -rf node_modules"
-  },
-  "devDependencies": {
-    "turbo": "^2.10.2",
-    "typescript": "^5.8.2"
+    "dev:backend": "bash scripts/dev-backend.sh",
+    "dev:web": "npm --workspace=@kogniterm/web run dev",
+    "dev:electron": "npm --workspace=@kogniterm/electron run dev",
+    "build": "npm --workspace=@kogniterm/web run build && npm --workspace=@kogniterm/electron run build",
+    "typecheck": "npm --workspace=@kogniterm/web run typecheck"
   },
   "license": "MIT"
 }

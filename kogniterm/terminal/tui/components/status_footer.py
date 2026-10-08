@@ -125,12 +125,12 @@ class ChatInput(TextArea):
         self.styles.overflow_x = "hidden"
         self.styles.overflow_y = "hidden"
         
-        # Forzar altura inicial y permitir expansión (aumentado levemente a 2 para chat_input)
+        # Forzar altura inicial y permitir expansión
         is_splash = (kwargs.get("id") == "splash_chat_input" or getattr(self, "id", None) == "splash_chat_input")
         default_height = 1 if is_splash else 2
         self.styles.height = default_height
         self.styles.min_height = default_height
-        self.styles.max_height = 12
+        self.styles.max_height = 50
         
         # Usar historial persistente compartido
         self._history_manager = get_message_history()
@@ -303,7 +303,7 @@ class ChatInput(TextArea):
             last_line = max(0, len(lines) - 1)
             last_col = len(lines[last_line]) if lines else 0
             self.cursor_location = (last_line, last_col)
-        self._adjust_height()
+        self.call_after_refresh(self._adjust_height)
 
     @property
     def cursor_position(self) -> int:
@@ -350,16 +350,17 @@ class ChatInput(TextArea):
     def _adjust_height(self):
         """Ajusta dinámicamente la altura según el texto escrito para hacerlo expansible."""
         if getattr(self, "id", None) == "splash_chat_input":
-            self.styles.height = 1
+            visual_lines = self._get_visual_lines()
+            self.styles.height = max(1, min(5, visual_lines))
             return
 
         visual_lines = self._get_visual_lines()
-        MAX_EXPAND_LINES = 12
+        MAX_EXPAND_LINES = 50
         target_height = max(2, min(MAX_EXPAND_LINES, visual_lines))
         self.styles.height = target_height
 
         # Si excede el máximo de expansión, permitir scroll vertical para ver todo el texto
-        if visual_lines > MAX_EXPAND_LINES:
+        if visual_lines > 50:
             self.styles.overflow_y = "auto"
         else:
             self.styles.overflow_y = "hidden"
@@ -371,16 +372,16 @@ class ChatInput(TextArea):
 
     def on_text_area_changed(self, event: TextArea.Changed):
         """Ajustar altura automáticamente al escribir o borrar texto."""
-        self._adjust_height()
+        self.call_after_refresh(self._adjust_height)
 
     def on_resize(self, event: events.Resize):
         """Recalcular altura cuando la ventana cambie de tamaño (afecta soft-wrap)."""
-        self._adjust_height()
+        self.call_after_refresh(self._adjust_height)
 
     def clear(self):
         super().clear()
         self.cursor_location = (0, 0)
-        self._adjust_height()
+        self.call_after_refresh(self._adjust_height)
 
 
     def on_mount(self):

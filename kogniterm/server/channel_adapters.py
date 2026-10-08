@@ -48,6 +48,13 @@ class ChannelAdapter:
         session = self._get_session()
         # Procesar eventos en background mientras el agente trabaja
         process_task = asyncio.create_task(self._process_events(session))
+        # Ceder el control para que _process_events registre su cola en
+        # ServerUI._queues ANTES de que session.send() emita eventos vía
+        # loop.call_soon_threadsafe. Sin esto, los primeros eventos
+        # (user_message, primeros chunks) se pierden porque se difunden
+        # a una lista de colas que aún no incluye al consumidor.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
         await session.send(message, pool._executor)
         # Esperar a que se terminen de procesar todos los eventos de la cola de respuesta.
         # El timeout es generoso (10 min) para no cortar generaciones largas del LLM
@@ -491,36 +498,50 @@ class TelegramAdapter(ChannelAdapter):
         self._current_chat_id: Optional[int] = None
         self._chat_sessions: Dict[int, str] = {}  # chat_id -> session_id
         self._stream_texts: Dict[int, str] = {}   # chat_id -> texto acumulado del stream
+        self._full_texts: Dict[int, str] = {}    # chat_id -> texto total del turno (no se resetea con tools)
         self._draft_ids: Dict[int, int] = {}      # chat_id -> draft_id (estable)
         self._draft_last_sent_text: Dict[int, str] = {}   # último texto HTML enviado
         self._draft_last_sent_at: Dict[int, float] = {}   # monotonic() del último envío
         self._draft_overflow: Dict[int, bool] = {}        # True cuando len > 4096
+        self._draft_disabled: bool = False       # True si sendMessageDraft no existe (404) para no spamear
         self._thinking_active: Dict[int, bool] = {}       # chat_id -> pensando actualmente
         self._stream_active: Dict[int, bool] = {}         # chat_id -> streaming de respuesta activo
         self._last_typing_sent: Dict[int, float] = {}     # chat_id -> monotonic() del último typing action
+        self._locks: Dict[int, asyncio.Lock] = {}  # chat_id -> lock para serializar turnos del mismo chat
 
     async def start(self):
         """Inicia el bot de Telegram en modo non-blocking."""
-        from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
-        
-        self.app = ApplicationBuilder().token(self.token).build()
+        try:
+            from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+            
+            self.app = ApplicationBuilder().token(self.token).build()
 
-        # Handlers
-        self.app.add_handler(CommandHandler("start", self._handle_start))
-        self.app.add_handler(CommandHandler("stop", self._handle_stop))
-        self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self._handle_message))
-        self.app.add_handler(CallbackQueryHandler(self._handle_callback_query))
+            # Handlers
+            self.app.add_handler(CommandHandler("start", self._handle_start))
+            self.app.add_handler(CommandHandler("stop", self._handle_stop))
+            self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self._handle_message))
+            self.app.add_handler(CallbackQueryHandler(self._handle_callback_query))
 
-        await self.app.initialize()
-        await self.app.start()
-        await self.app.updater.start_polling()
-        logger.info(f"Telegram bot iniciado para sesión {self.session_id}")
+            await self.app.initialize()
+            await self.app.start()
+            await self.app.updater.start_polling()
+            logger.info(f"Telegram bot iniciado para sesión {self.session_id}")
+        except Exception as e:
+            logger.error(f"❌ Error al iniciar Telegram bot para sesión {self.session_id}: {e}")
 
     async def stop(self):
         if self.app:
-            await self.app.updater.stop()
-            await self.app.stop()
-            await self.app.shutdown()
+            try:
+                if getattr(self.app, "updater", None) and getattr(self.app.updater, "running", False):
+                    await self.app.updater.stop()
+            except Exception as e:
+                logger.warning(f"Error al detener updater de Telegram: {e}")
+            try:
+                if getattr(self.app, "running", False):
+                    await self.app.stop()
+                    await self.app.shutdown()
+            except Exception as e:
+                logger.warning(f"Error al detener app de Telegram: {e}")
 
     async def _handle_start(self, update, context):
         import html
@@ -543,24 +564,49 @@ class TelegramAdapter(ChannelAdapter):
                 logger.warning(f"[TelegramAdapter] No se pudo enviar chat action typing: {e}")
 
     async def _handle_message(self, update, context):
-        self._current_chat_id = update.effective_chat.id
+        chat_id = update.effective_chat.id
+        self._current_chat_id = chat_id
         user_text = update.message.text
         import logging
         logging.getLogger("kogniterm.server.channel_adapters").info(
-            f"Mensaje recibido de Telegram: {user_text} (chat_id={self._current_chat_id})"
+            f"Mensaje recibido de Telegram: {user_text} (chat_id={chat_id})"
         )
         # Asignar un session_id único por chat_id
-        chat_id = self._current_chat_id
         if chat_id not in self._chat_sessions:
             # Usa el chat_id como session_id (str)
             self._chat_sessions[chat_id] = f"telegram_{chat_id}"
-        self.session_id = self._chat_sessions[chat_id]
-        # Forzar que el _session se reinicialice para este chat
-        self._session = None
-        # Enviar indicador de escribiendo inmediatamente
-        await self._send_typing_if_needed(chat_id)
-        # Enviar al agente
-        await self.send_message(user_text)
+        sid = self._chat_sessions[chat_id]
+        # Serializar turnos del mismo chat sin bloquear otros chats.
+        # No se usa self.session_id/self._session (estado compartido del
+        # adaptador) para evitar que dos chats concurrentes se pisen.
+        lock = self._locks.get(chat_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[chat_id] = lock
+        async with lock:
+            # Enviar indicador de escribiendo inmediatamente
+            await self._send_typing_if_needed(chat_id)
+            # Enviar al agente con bombeo dedicado a esta sesión
+            await self._send_for_session(sid, user_text)
+
+    async def _send_for_session(self, sid: str, user_text: str) -> None:
+        """Bombea los eventos de una sesión concreta sin tocar estado compartido."""
+        await pool.wait_until_ready()
+        session = pool.get_or_create(sid, platform="telegram")
+        process_task = asyncio.create_task(self._process_events(session))
+        # Garantizar suscripción antes de producir eventos (ver send_message).
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await session.send(user_text, pool._executor)
+        try:
+            await asyncio.wait_for(process_task, timeout=600.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"[TelegramAdapter] Timeout esperando eventos finales de la sesión {sid}")
+            process_task.cancel()
+            try:
+                await process_task
+            except asyncio.CancelledError:
+                pass
 
     async def _handle_callback_query(self, update, context):
         query = update.callback_query
@@ -618,6 +664,67 @@ class TelegramAdapter(ChannelAdapter):
             except Exception as e:
                 logger.warning(f"No se pudo actualizar el markup de expiración en Telegram: {e}")
 
+    TG_MAX_CHARS: int = 4000
+
+    async def _send_text_safe(self, chat_id: int, markdown_text: str) -> None:
+        """Envía texto a Telegram troceando y con fallback a plano.
+
+        Evita que un mensaje largo (>4096) o con HTML inválido se pierda
+        silenciosamente: trocea por líneas y si Telegram rechaza el HTML,
+        reintenta como texto plano.
+        """
+        import html as _html
+        cleaned = self._clean_text_for_telegram(markdown_text)
+        if not cleaned:
+            return
+        # Trocear el markdown en bloques seguros antes de convertir a HTML,
+        # para no romper etiquetas a la mitad.
+        chunks: list[str] = []
+        rest = cleaned
+        while rest:
+            head, rest = split_markdown(rest, max_chars=self.TG_MAX_CHARS)
+            if not head:
+                break
+            chunks.append(head)
+        if not chunks:
+            return
+        for chunk in chunks:
+            html_msg = markdown_to_telegram_html(chunk)
+            if len(html_msg) > 4096:
+                # El HTML expande el texto; último recurso: enviar plano troceado
+                plain = _html.unescape(chunk)
+                for i in range(0, len(plain), self.TG_MAX_CHARS):
+                    await self._send_typing_if_needed(chat_id)
+                    try:
+                        await self.app.bot.send_message(
+                            chat_id=chat_id, text=plain[i:i + self.TG_MAX_CHARS]
+                        )
+                    except Exception as exc:
+                        logger.error(f"[TelegramAdapter] Fallo enviando chunk plano a {chat_id}: {exc}")
+                continue
+            await self._send_typing_if_needed(chat_id)
+            try:
+                await self.app.bot.send_message(chat_id=chat_id, text=html_msg, parse_mode='HTML')
+            except Exception as exc:
+                logger.warning(f"[TelegramAdapter] Fallo envío HTML a {chat_id} ({exc}); reintentando como texto plano.")
+                try:
+                    plain = _html.unescape(chunk)
+                    await self.app.bot.send_message(
+                        chat_id=chat_id, text=plain[:4096] if len(plain) > 4096 else plain
+                    )
+                except Exception as exc2:
+                    logger.error(f"[TelegramAdapter] Fallo envío plano a {chat_id}: {exc2}")
+
+    def _reset_turn_state(self, chat_id: int) -> None:
+        self._draft_ids[chat_id] = None
+        self._stream_texts[chat_id] = ""
+        self._full_texts[chat_id] = ""
+        self._draft_overflow[chat_id] = False
+        self._draft_last_sent_text[chat_id] = ""
+        self._draft_last_sent_at[chat_id] = 0.0
+        self._thinking_active[chat_id] = False
+        self._stream_active[chat_id] = False
+
     async def send_to_channel(self, event: dict, session_id: Optional[str] = None) -> None:
         import logging
         logger = logging.getLogger("kogniterm.server.channel_adapters")
@@ -653,6 +760,8 @@ class TelegramAdapter(ChannelAdapter):
         # Inicializar estructuras para este chat_id si no existen
         if chat_id not in self._stream_texts:
             self._stream_texts[chat_id] = ""
+        if chat_id not in self._full_texts:
+            self._full_texts[chat_id] = ""
         if chat_id not in self._draft_ids:
             self._draft_ids[chat_id] = None
         if chat_id not in self._thinking_active:
@@ -665,13 +774,18 @@ class TelegramAdapter(ChannelAdapter):
                 self._stream_active[chat_id] = True
                 if self._draft_ids[chat_id] is None:
                     self._draft_ids[chat_id] = self._make_draft_id(chat_id)
-                self._stream_texts[chat_id] = ""
+                # NOTA: no se limpia _stream_texts/_full_texts aquí a mitad de
+                # turno (p. ej. tras una tool) porque se perdería lo acumulado.
+                # Solo se inicializan al arrancar el turno (done/error los vacía).
                 self._draft_overflow[chat_id] = False
                 self._draft_last_sent_text[chat_id] = ""
                 self._draft_last_sent_at[chat_id] = 0.0
 
-            # Acumular chunks sin limpiar para no perder espacios internos
-            self._stream_texts[chat_id] += d
+            # Acumular chunks sin limpiar para no perder espacios internos.
+            # _full_texts conserva TODO el turno aunque haya tools en medio.
+            chunk = d if isinstance(d, str) else str(d)
+            self._stream_texts[chat_id] += chunk
+            self._full_texts[chat_id] += chunk
             await self._send_typing_if_needed(chat_id)
             await self._enqueue_draft(chat_id, self._stream_texts[chat_id])
             
@@ -699,65 +813,84 @@ class TelegramAdapter(ChannelAdapter):
                 await self._enqueue_draft(chat_id, html_thinking, is_html=True)
 
         elif t == "done":
-            logger.info(f"[TelegramAdapter] Evento 'done' recibido para chat_id {chat_id}. Longitud de stream acumulado: {len(self._stream_texts[chat_id])}")
-            if self._stream_texts[chat_id]:
-                final_text = self._clean_text_for_telegram(self._stream_texts[chat_id])
-                if final_text:
-                    logger.info(f"[TelegramAdapter] Enviando texto final a Telegram (chat_id={chat_id}, len={len(final_text)}): {final_text[:50]}...")
-                    html_msg = markdown_to_telegram_html(final_text)
-                    await self.app.bot.send_message(chat_id=chat_id, text=html_msg, parse_mode='HTML')
-                else:
-                    logger.info(f"[TelegramAdapter] final_text quedó vacío después de limpiar para chat_id {chat_id}.")
-                    # Borrar borrador explicitamente
-                    if self._draft_ids[chat_id] is not None:
-                        await self._send_message_draft(chat_id, self._draft_ids[chat_id], "")
+            full = self._full_texts.get(chat_id, "") or self._stream_texts.get(chat_id, "")
+            logger.info(f"[TelegramAdapter] Evento 'done' recibido para chat_id {chat_id}. Longitud acumulada: {len(full)}")
+            if full.strip():
+                logger.info(f"[TelegramAdapter] Enviando texto final a Telegram (chat_id={chat_id}, len={len(full)}).")
+                await self._send_text_safe(chat_id, full)
             else:
+                logger.info(f"[TelegramAdapter] Sin texto acumulado para chat_id {chat_id} (respuesta ya enviada por eventos 'message' o vacía).")
                 # Borrar borrador llamando a sendMessageDraft con texto vacío
                 if self._draft_ids[chat_id] is not None:
                     await self._send_message_draft(chat_id, self._draft_ids[chat_id], "")
-            
+
             # Resetear estado del stream y del draft
-            self._draft_ids[chat_id] = None
-            self._stream_texts[chat_id] = ""
-            self._draft_overflow[chat_id] = False
-            self._draft_last_sent_text[chat_id] = ""
-            self._draft_last_sent_at[chat_id] = 0.0
-            self._thinking_active[chat_id] = False
-            self._stream_active[chat_id] = False
+            self._reset_turn_state(chat_id)
 
         elif t == "error":
             # Borrar borrador
             if self._draft_ids[chat_id] is not None:
                 await self._send_message_draft(chat_id, self._draft_ids[chat_id], "")
-
             # Resetear estado de stream y del draft
-            self._draft_ids[chat_id] = None
-            self._stream_texts[chat_id] = ""
-            self._draft_overflow[chat_id] = False
-            self._draft_last_sent_text[chat_id] = ""
-            self._draft_last_sent_at[chat_id] = 0.0
-            self._thinking_active[chat_id] = False
-            self._stream_active[chat_id] = False
+            self._reset_turn_state(chat_id)
             
             err_msg = d.get('message', d) if isinstance(d, dict) else d
             cleaned_err = self._clean_text_for_telegram(err_msg)
             if cleaned_err:
-                logger.info(f"[TelegramAdapter] Enviando mensaje de error a Telegram (chat_id={chat_id}): {cleaned_err[:50]}...")
+                logger.info(f"[TelegramAdapter] Enviando mensaje de error a Telegram (chat_id={chat_id}).")
                 import html
-                escaped_err = f"❌ <b>Error:</b> {html.escape(cleaned_err)}"
-                await self.app.bot.send_message(chat_id=chat_id, text=escaped_err, parse_mode='HTML')
+                escaped_err = f"❌ <b>Error:</b> {html.escape(cleaned_err[:3500])}"
+                try:
+                    await self.app.bot.send_message(chat_id=chat_id, text=escaped_err, parse_mode='HTML')
+                except Exception:
+                    await self.app.bot.send_message(chat_id=chat_id, text=f"Error: {cleaned_err[:3500]}")
 
         elif t in ("tool_start", "tool_call"):
-            tool_name = d.get('tool') or d.get('name') or 'herramienta'
+            tool_name = (d.get('tool') or d.get('name') or 'herramienta') if isinstance(d, dict) else str(d)
             logger.info(f"[TelegramAdapter] Enviando inicio de herramienta a Telegram (chat_id={chat_id}): {tool_name}")
             import html
-            escaped_tool = f"⚙️ <code>{html.escape(tool_name)}</code>..."
+            escaped_tool = f"⚙️ <code>{html.escape(str(tool_name))}</code>..."
             await self._send_typing_if_needed(chat_id)
-            await self.app.bot.send_message(chat_id=chat_id, text=escaped_tool, parse_mode='HTML')
+            try:
+                await self.app.bot.send_message(chat_id=chat_id, text=escaped_tool, parse_mode='HTML')
+            except Exception as exc:
+                logger.warning(f"[TelegramAdapter] Fallo aviso de tool a {chat_id}: {exc}")
 
-            # Resetear banderas de stream/pensamiento al ejecutar herramienta
+            # NO resetear _stream_texts/_full_texts ni _stream_active aquí:
+            # hacerlo descartaba el stream previo a la tool y el mensaje final
+            # en 'done' llegaba incompleto. Solo se cierra el estado de
+            # "pensando" del draft.
             self._thinking_active[chat_id] = False
-            self._stream_active[chat_id] = False
+
+        elif t in ("tool_result", "tool_output", "terminal_output"):
+            # Estos eventos SÍ se producen en el server pero antes se ignoraban
+            # en Telegram -> el usuario los percibía como "mensajes perdidos".
+            if isinstance(d, dict):
+                content = d.get("content") or d.get("output") or ""
+                tool = d.get("tool") or d.get("command") or ""
+            else:
+                content, tool = str(d), ""
+            content = self._clean_text_for_telegram(content)
+            if content:
+                if len(content) > 3500:
+                    content = content[:3500] + "\n... (salida truncada)"
+                prefix = f"📤 `{tool}`\n" if tool else "📤 "
+                await self._send_text_safe(chat_id, prefix + content)
+
+        elif t == "question_required":
+            qid = d.get("id", "") if isinstance(d, dict) else ""
+            question = d.get("question", "") if isinstance(d, dict) else str(d)
+            options = d.get("options", []) if isinstance(d, dict) else []
+            await self._send_text_safe(chat_id, f"❓ **Consulta del agente**\n\n{question}")
+            # Las opciones libres se responden escribiendo; no se pierden.
+
+        elif t in ("chunk", "live_stop", "user_message", "agent_panel_show",
+                   "agent_panel_hide", "set_terminal_cursor", "task_tracker",
+                   "todo.updated", "thread_title_updated", "agent_changed",
+                   "clear_chat"):
+            # Eventos internos/duplicados: 'chunk' duplica a 'stream'/'message'
+            # y el resto es estado de UI web. Se ignoran sin pérdida visible.
+            pass
 
         elif t == "approval_required":
             request_id = d.get("id")
@@ -796,14 +929,16 @@ class TelegramAdapter(ChannelAdapter):
         elif t == "message":
             # Limpiar el mensaje antes de enviarlo
             msg_text = d.get('text', d) if isinstance(d, dict) else d
-            cleaned = self._clean_text_for_telegram(msg_text)
-            if cleaned:
-                logger.info(f"[TelegramAdapter] Enviando mensaje de texto a Telegram (chat_id={chat_id}): {cleaned[:50]}...")
-                html_msg = markdown_to_telegram_html(cleaned)
-                await self._send_typing_if_needed(chat_id)
-                await self.app.bot.send_message(chat_id=chat_id, text=html_msg, parse_mode='HTML')
+            if msg_text:
+                logger.info(f"[TelegramAdapter] Enviando mensaje de texto a Telegram (chat_id={chat_id}).")
+                await self._send_text_safe(chat_id, str(msg_text))
+
+        else:
+            logger.warning(f"[TelegramAdapter] Tipo de evento no gestionado '{t}' para chat_id {chat_id}: se registra para no perderlo silenciosamente.")
 
     async def _enqueue_draft(self, chat_id: int, text: str, is_html: bool = False) -> None:
+        if self._draft_disabled:
+            return
         if self._draft_overflow.get(chat_id, False):
             return
 
@@ -838,6 +973,8 @@ class TelegramAdapter(ChannelAdapter):
 
     async def _send_message_draft(self, chat_id: int, draft_id: int, text: str) -> None:
         import aiohttp
+        if self._draft_disabled:
+            return
         try:
             token = self.token
             url = f"https://api.telegram.org/bot{token}/sendMessageDraft"
@@ -849,7 +986,12 @@ class TelegramAdapter(ChannelAdapter):
             }
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=2.0) as resp:
-                    if resp.status != 200:
+                    if resp.status == 404:
+                        # La Bot API no expone sendMessageDraft: desactivar
+                        # borradores y seguir con typing + mensaje final.
+                        self._draft_disabled = True
+                        logger.info("[TelegramAdapter] sendMessageDraft no disponible (404); borradores desactivados, se usará mensaje final.")
+                    elif resp.status != 200:
                         logger.error(f"[TelegramAdapter] Error al enviar borrador: HTTP {resp.status} - {await resp.text()}")
                     else:
                         await resp.text()

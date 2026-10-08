@@ -618,10 +618,15 @@ class ThreadManager:
                         kwargs["api_key"] = api_key
                     if api_base:
                         kwargs["api_base"] = api_base
-                    if (
-                        "kilocode" in llm_service.model_name.lower()
-                        or "inception" in llm_service.model_name.lower()
-                        or "mercury" in llm_service.model_name.lower()
+                    model_lower = llm_service.model_name.lower()
+                    if model_lower.startswith(("opencode/", "zen/")):
+                        kwargs["custom_llm_provider"] = "openai"
+                        kwargs["model"] = model_lower.split("/", 1)[1]
+                        kwargs["api_base"] = os.environ.get("OPENCODE_API_BASE") or "https://opencode.ai/zen/v1"
+                    elif (
+                        "kilocode" in model_lower
+                        or "inception" in model_lower
+                        or "mercury" in model_lower
                         or (api_base and ("kilo.ai" in api_base or "inceptionlabs.ai" in api_base))
                     ):
                         kwargs["custom_llm_provider"] = "openai"

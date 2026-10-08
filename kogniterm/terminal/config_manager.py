@@ -114,31 +114,93 @@ class ConfigManager:
         else:
             self.set_project_config(key_name, key)
 
-    def get_mcp_servers(self) -> Dict[str, Any]:
-        """Obtiene la configuración de servidores MCP combinando global y proyecto."""
+    def get_mcp_servers(self, include_external: bool = True) -> Dict[str, Any]:
+        """Obtiene la configuración de servidores MCP combinando fuentes externas (Claude Code, etc.), global y proyecto."""
+        external_servers: Dict[str, Any] = {}
+        if include_external:
+            try:
+                from kogniterm.core.mcp.external_sync import discover_external_mcp_servers
+                external_servers = discover_external_mcp_servers(os.getcwd())
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).debug("Error descubriendo servidores MCP externos: %s", e)
+
         global_servers = self.load_global_config().get("mcpServers", {}) or {}
         project_servers = self.load_project_config().get("mcpServers", {}) or {}
-        return {**global_servers, **project_servers}
+
+        # Precedencia: external < global < project
+        merged = {**external_servers, **global_servers, **project_servers}
+
+        # Filtrar servidores eliminados explícitamente en KogniTerm
+        active_servers = {}
+        for s_name, s_conf in merged.items():
+            if isinstance(s_conf, dict) and s_conf.get("deleted"):
+                continue
+            active_servers[s_name] = s_conf
+
+        return active_servers
 
     def set_mcp_server(self, name: str, server_config: Dict[str, Any], scope: str = "project"):
         """Guarda o actualiza la configuración de un servidor MCP."""
         key = "mcpServers"
         current_config = self.load_global_config() if scope == "global" else self.load_project_config()
-        mcp_servers = current_config.get(key, {})
-        mcp_servers[name] = server_config
+        mcp_servers = dict(current_config.get(key, {}))
+        
+        # Si tenía marca de eliminado, removerla
+        conf_to_save = dict(server_config)
+        conf_to_save.pop("deleted", None)
+        
+        mcp_servers[name] = conf_to_save
         if scope == "global":
             self.set_global_config(key, mcp_servers)
         else:
             self.set_project_config(key, mcp_servers)
 
-    def delete_mcp_server(self, name: str, scope: str = "project"):
-        """Elimina un servidor MCP de la configuración."""
+    def delete_mcp_server(self, name: str, scope: str = "all") -> bool:
+        """Elimina un servidor MCP de la configuración.
+
+        scope: 'project' | 'global' | 'all' (por defecto 'all' para que el
+        servidor desaparezca de la lista combinada sin importar dónde esté
+        guardado). Retorna True si se eliminó/ocultó algo, False si no existía.
+        """
         key = "mcpServers"
-        current_config = self.load_global_config() if scope == "global" else self.load_project_config()
-        mcp_servers = current_config.get(key, {})
-        if name in mcp_servers:
-            del mcp_servers[name]
-            if scope == "global":
+        scopes = ["global", "project"] if scope == "all" else [scope]
+
+        # ¿Viene de una fuente externa (Claude Code/Desktop, .mcp.json, Cursor)?
+        is_external = False
+        try:
+            from kogniterm.core.mcp.external_sync import discover_external_mcp_servers
+            external = discover_external_mcp_servers(os.getcwd())
+            is_external = name in external
+        except Exception:
+            is_external = False
+
+        found = is_external  # ocultar un externo ya cuenta como "encontrado"
+        for sc in scopes:
+            current_config = self.load_global_config() if sc == "global" else self.load_project_config()
+            mcp_servers = dict(current_config.get(key, {}) or {})
+
+            if name in mcp_servers:
+                # Si ya es solo una marca de borrado, no hay nada más que quitar
+                if isinstance(mcp_servers[name], dict) and mcp_servers[name].get("deleted"):
+                    found = True
+                else:
+                    del mcp_servers[name]
+                    found = True
+
+            # Si el servidor es externo, marcamos deleted: True en project
+            # (tiene la precedencia más alta en el merge) para que no reaparezca.
+            # Con scope="all" la marca va a project; con scope explícito se
+            # respeta ese scope para no sorprender a la TUI.
+            if is_external:
+                if scope == "all" and sc == "project":
+                    mcp_servers[name] = {"deleted": True}
+                elif scope != "all":
+                    mcp_servers[name] = {"deleted": True}
+
+            if sc == "global":
                 self.set_global_config(key, mcp_servers)
             else:
                 self.set_project_config(key, mcp_servers)
+
+        return found

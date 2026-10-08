@@ -9,6 +9,25 @@ from ..utils.tool_utils import normalize_tool_parameters_schema, sanitize_tool_n
 
 logger = logging.getLogger(__name__)
 
+# Estimación de tokens por imagen adjunta para presupuestos de contexto.
+# El base64 NO debe contarse como texto (infla millones de tokens y hace que
+# la purga elimine el turno actual). Los proveedores cobran ~250-2000 tokens
+# por imagen según resolución; 1500 es una cota prudente.
+IMAGE_TOKEN_ESTIMATE = 1500
+
+
+def content_for_token_count(content: Any) -> Any:
+    """Devuelve el contenido apto para conteo: bloques image_url sin el base64."""
+    if isinstance(content, list):
+        out = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                out.append({"type": "image_url", "image_url": {"url": "[imagen adjunta]"}})
+            else:
+                out.append(part)
+        return out
+    return content
+
 def convert_langchain_tool_to_litellm(tool: BaseTool, model_name: str = "") -> dict:
     """Convierte una herramienta de LangChain (BaseTool) a un formato compatible con LiteLLM."""
     args_schema = {"type": "object", "properties": {}}

@@ -34,7 +34,10 @@ def _is_empty_renderable(r) -> bool:
 
 def _should_call_from_thread(widget) -> bool:
     """Determina si se debe usar call_from_thread según el hilo actual."""
-    app = getattr(widget, "app", None)
+    try:
+        app = widget.app
+    except Exception:
+        return False
     if app is None or not getattr(app, "call_from_thread", None):
         return False
     app_thread_id = getattr(app, "_thread_id", None)
@@ -72,6 +75,220 @@ class AnimatedSpinnerWidget(Static):
         from rich.text import Text
         self.update(Text(f" {frame} {self.text}", style="bold cyan"))
 
+
+def _reasoning_summary(text: str) -> tuple:
+    """Replica opencode `reasoningSummary`: separa `**Titulo**\\n\\nbody`.
+
+    OpenCode usa ese primer bloque en negrita como metadata del header
+    para estilarlo independiente del cuerpo markdown.
+    """
+    import re as _re
+    content = (text or "").strip()
+    m = _re.match(r"^\*\*([^*\n]+)\*\*(?:\r?\n\r?\n|$)", content)
+    if not m:
+        return None, content
+    title = m.group(1).strip()
+    return title, content[m.end():].rstrip()
+
+
+def _extract_thinking_text(r) -> str:
+    """Desenvuelve Panel/Padding/Group hasta obtener el markdown en texto plano.
+
+    Los agentes emiten `Panel(Markdown(thinking_text), title="💭 Pensando...")`
+    (ver super_agent.py). Para el modo colapsado necesitamos el str,
+    no el renderable expandido.
+    """
+    from rich.panel import Panel
+    from rich.padding import Padding
+    from rich.console import Group
+    from rich.markdown import Markdown as RichMarkdown
+    seen = 0
+    while r is not None and seen < 8:
+        seen += 1
+        if isinstance(r, str):
+            return r
+        if isinstance(r, Text):
+            return r.plain
+        if isinstance(r, RichMarkdown):
+            return r.markup or ""
+        if isinstance(r, Panel):
+            r = r.renderable
+            continue
+        if isinstance(r, Padding):
+            r = r.renderable
+            continue
+        if isinstance(r, Group):
+            parts = [_extract_thinking_text(sub) for sub in r.renderables]
+            return "\n".join(p for p in parts if p)
+        return str(r)
+    return ""
+
+
+class ThinkingWidget(Static):
+    """Pensamiento del LLM colapsado por defecto, estilo OpenCode.
+
+    Patrón tomado de `ReasoningPart` en
+    `packages/tui/src/routes/session/index.tsx` (sst/opencode):
+    - `thinking_mode` por defecto `hide` (colapsado): una sola línea,
+      el layout nunca salta. Click para abrir el bloque markdown completo.
+    - Header siempre visible: spinner `Thinking...` en streaming,
+      `Thought` (+ título/duración) al finalizar.
+    - Cuerpo solo renderizado/visible cuando se expande.
+
+    Implementado con Textual `Collapsible` (collapsed=True) + `Markdown`
+    interno actualizable en streaming. Click/Enter lo despliega (toggle
+    nativo de Collapsible), igual que `onMouseUp={toggle}` en OpenCode.
+    """
+
+    DEFAULT_CSS = """
+    ThinkingWidget {
+        width: 100%;
+        height: auto;
+        margin: 0 0 1 0;
+        padding: 0 0 0 2;
+        color: #9ca3af;
+        background: transparent;
+        border: none;
+    }
+    ThinkingWidget Collapsible {
+        width: 100%;
+        height: auto;
+        color: #9ca3af;
+        background: transparent;
+        border: none;
+    }
+    ThinkingWidget Markdown {
+        background: transparent;
+        border: none;
+        color: #9ca3af;
+    }
+    ThinkingWidget #thinking-body {
+        width: 100%;
+        height: auto;
+        padding: 0 0 0 2;
+        color: #9ca3af;
+        background: transparent;
+        border: none;
+    }
+    """
+
+    _DOTS = [".", "..", "..."]
+
+    def __init__(self, body: str = "", **kwargs):
+        from textual.widgets import Collapsible, Markdown as MdWidget
+        import time as _time
+        self._body_text: str = body or ""
+        self._started_at: float = _time.monotonic()
+        self._is_done: bool = False
+        self._title_text: str = ""
+        self._dot_idx: int = 2
+        self._dot_timer = None
+        self._inner = MdWidget(self._body_text or "…")
+        try:
+            self._inner.styles.background = "transparent"
+        except Exception:
+            pass
+        title = self._build_title()
+        super().__init__(**kwargs)
+        try:
+            self.styles.background = "transparent"
+        except Exception:
+            pass
+        self._collapsible = Collapsible(
+            self._inner,
+            title=title,
+            collapsed=True,
+            collapsed_symbol="▶",
+            expanded_symbol="▼",
+        )
+
+    def compose(self):
+        yield self._collapsible
+
+    def on_mount(self) -> None:
+        try:
+            self._dot_timer = self.set_interval(0.4, self._tick_dots)
+        except Exception:
+            pass
+
+    def on_unmount(self) -> None:
+        try:
+            if self._dot_timer is not None:
+                self._dot_timer.stop()
+        except Exception:
+            pass
+
+    def _tick_dots(self) -> None:
+        if self._is_done:
+            try:
+                if self._dot_timer is not None:
+                    self._dot_timer.stop()
+            except Exception:
+                pass
+            return
+        self._dot_idx = (self._dot_idx + 1) % len(self._DOTS)
+        self._refresh_title()
+
+    def _dots(self) -> str:
+        try:
+            return self._DOTS[self._dot_idx % len(self._DOTS)]
+        except Exception:
+            return "..."
+
+    def _build_title(self) -> str:
+        summary_title, _ = _reasoning_summary(self._body_text)
+        if not self._is_done:
+            base = f"💭 Thinking{self._dots()}"
+            if summary_title:
+                base = f"💭 Thinking: {summary_title}{self._dots()}"
+            return base
+        import time as _time
+        elapsed = max(0.0, _time.monotonic() - self._started_at)
+        dur = f" · {elapsed:.1f}s" if elapsed >= 0.5 else ""
+        if summary_title:
+            return f"💭 Thought: {summary_title}{dur}"
+        return f"💭 Thought{dur}"
+
+    def _refresh_title(self) -> None:
+        try:
+            self._collapsible.title = self._build_title()
+        except Exception:
+            pass
+
+    def update_thinking(self, new_body: str, is_done: bool = False) -> None:
+        """Actualiza el cuerpo markdown manteniendo colapsado (como OpenCode)."""
+        self._body_text = new_body or ""
+        try:
+            self._inner.update(self._body_text or "…")
+        except Exception:
+            pass
+        if is_done:
+            self.finalize()
+        else:
+            self._refresh_title()
+
+    def finalize(self) -> None:
+        """Congela el header a `Thought` y fuerza colapsado."""
+        self._is_done = True
+        try:
+            if self._dot_timer is not None:
+                self._dot_timer.stop()
+        except Exception:
+            pass
+        try:
+            self._inner.update(self._body_text or "…")
+        except Exception:
+            pass
+        try:
+            self._collapsible.collapsed = True
+        except Exception:
+            pass
+        self._refresh_title()
+
+    @property
+    def body_text(self) -> str:
+        return self._body_text
+
 class ChatLogWidget(VerticalScroll):
     """
     Widget para mostrar el historial del chat usando un contenedor vertical
@@ -99,6 +316,15 @@ class ChatLogWidget(VerticalScroll):
             return 78
         except:
             return 78
+
+    def _finalize_thinking(self):
+        """Congela el thinking activo a 'Thought' colapsado sin eliminarlo."""
+        w = self._active_thinking_widget
+        if isinstance(w, ThinkingWidget):
+            try:
+                w.finalize()
+            except Exception:
+                pass
 
     def write(self, renderable):
         """Redirige a write_message para compatibilidad con RichLog."""
@@ -137,6 +363,7 @@ class ChatLogWidget(VerticalScroll):
 
     def write_user_message(self, text: str):
         """Escribe un mensaje de usuario con línea vertical izquierda."""
+        self._finalize_thinking()
         self._last_tracker_widget = None
         self._active_thinking_widget = None
         if self._active_message_widget:
@@ -220,6 +447,7 @@ class ChatLogWidget(VerticalScroll):
 
     def write_agent_message(self, text: str):
         """Escribe un mensaje de agente."""
+        self._finalize_thinking()
         if text is None: text = ""
         
         if not isinstance(text, str):
@@ -350,16 +578,49 @@ class ChatLogWidget(VerticalScroll):
         def _mount_or_update(r, terminal_flag, spinner_flag, t_name, t_command=""):
             try:
                 is_new_widget = False
-                was_at_bottom = self.scroll_y >= self.max_scroll_y - 1
+                try:
+                    was_at_bottom = self.scroll_y >= self.max_scroll_y - 1
+                except Exception:
+                    was_at_bottom = True
                 is_thinking = _check_is_thinking(r)
+                thinking_body = _extract_thinking_text(r) if is_thinking else ""
 
                 if not is_thinking:
+                    # Finalizar el pensamiento activo (estilo OpenCode: pasa de
+                    # "Thinking..." a "Thought" colapsado) antes de soltarlo.
                     if self._active_thinking_widget is not None:
+                        try:
+                            if isinstance(self._active_thinking_widget, ThinkingWidget):
+                                self._active_thinking_widget.finalize()
+                        except Exception:
+                            pass
                         self._active_thinking_widget = None
                         self._active_message_widget = None
 
-                if is_thinking and self._active_thinking_widget and (not getattr(self, "is_mounted", False) or getattr(self._active_thinking_widget, "parent", None) is not None):
-                    self._active_thinking_widget.update(r)
+                if is_thinking:
+                    # Patrón OpenCode ReasoningPart: colapsado por defecto,
+                    # una sola línea durante todo el streaming; click -> expandir.
+                    active = self._active_thinking_widget
+                    if isinstance(active, ThinkingWidget):
+                        try:
+                            active.update_thinking(thinking_body, is_done=False)
+                        except Exception:
+                            pass
+                    else:
+                        # Limpiar spinner vacío si lo hubiera antes del thinking
+                        if self._active_message_widget is not None and isinstance(self._active_message_widget, AnimatedSpinnerWidget):
+                            try:
+                                self._active_message_widget.remove()
+                            except Exception:
+                                pass
+                        new_widget = ThinkingWidget(thinking_body)
+                        self._active_thinking_widget = new_widget
+                        self._active_message_widget = new_widget
+                        try:
+                            self.mount(new_widget)
+                        except Exception:
+                            pass
+                        is_new_widget = True
                 elif spinner_flag:
                     if self._active_message_widget is None or not isinstance(self._active_message_widget, AnimatedSpinnerWidget):
                         if self._active_message_widget:
@@ -404,13 +665,9 @@ class ChatLogWidget(VerticalScroll):
                                 self._active_message_widget = None
                         new_widget = MessageWidget(r)
                         self._active_message_widget = new_widget
-                        if is_thinking:
-                            self._active_thinking_widget = new_widget
                         self.mount(new_widget)
                         is_new_widget = True
                     else:
-                        if is_thinking and self._active_thinking_widget is None:
-                            self._active_thinking_widget = self._active_message_widget
                         self._active_message_widget.update(r)
                 
                 if is_new_widget or was_at_bottom:
@@ -431,6 +688,12 @@ class ChatLogWidget(VerticalScroll):
 
     def stop_stream(self):
         """Finaliza el streaming actual y elimina el spinner si estaba activo."""
+        # El pensamiento NO se elimina: se finaliza a "Thought" colapsado (OpenCode).
+        if isinstance(self._active_thinking_widget, ThinkingWidget):
+            try:
+                self._active_thinking_widget.finalize()
+            except Exception:
+                pass
         if self._active_message_widget:
             if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
                 isinstance(self._active_message_widget, MessageWidget)
@@ -445,6 +708,7 @@ class ChatLogWidget(VerticalScroll):
 
     def write_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = ""):
         """Escribe notificación de herramienta."""
+        self._finalize_thinking()
         if self._active_message_widget:
             if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
                 isinstance(self._active_message_widget, MessageWidget)
@@ -500,6 +764,7 @@ class ChatLogWidget(VerticalScroll):
 
     def write_tool_output(self, content: str, tool_name: str, language: str = None):
         """Escribe la salida de una herramienta usando el ToolOutputWidget."""
+        self._finalize_thinking()
         if self._active_message_widget:
             if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
                 isinstance(self._active_message_widget, MessageWidget)
