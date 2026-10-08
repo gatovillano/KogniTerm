@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -283,6 +283,7 @@ async function createWindow() {
     height: 860,
     backgroundColor: "#080b11",
     title: "KogniTerm",
+    autoHideMenuBar: true,
     webPreferences: {
       // Preload en CJS: el contexto sandboxed de Electron no admite ESM.
       preload: join(__dirname, "..", "preload", "preload.cjs"),
@@ -292,6 +293,9 @@ async function createWindow() {
       additionalArguments: [`--kogniterm-api=http://${HOST}:${PORT}`],
     },
   });
+
+  // Sin barra de menú superior (File Edit View Window).
+  win.setMenu(null);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalUrl(url) || /^(mailto|tel):/i.test(url)) {
@@ -361,6 +365,8 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Quita el menú de aplicación por defecto (File Edit View Window).
+  Menu.setApplicationMenu(null);
   // La ventana abre igual aunque el backend tarde o falle: la UI muestra el error.
   void ensureBackend();
   await createWindow();
