@@ -4,6 +4,29 @@ Este archivo documenta los cambios importantes en cada versión de KogniTerm.
 
 ---
 
+## [Unreleased] - 2026-10-08
+
+### 🐛 Corrección — Diff con widget coloreado en modo servidor
+
+#### Problema
+En modo servidor, el diff aplicado se mostraba en texto plano (bloque markdown ` ```diff `) en lugar del widget del panel de diff coloreado que se usa en modo local. Causa: `command_approval_handler.py`, `tool_executor.py`, `code_agent.py` y `super_agent.py` derivaban a `print_message(markdown)` cuando la UI era `ServerUI`, y `ServerUI.update_live` aplanaba el `Panel`/`Table` de Rich a texto sin color vía `extract_thinking_and_response`.
+
+#### Cambios Realizados
+- **`kogniterm/server/session_pool.py`**: nuevo `ServerUI.print_diff_applied(diff_content, file_path, operation)` que emite el evento estructurado `diff_applied`.
+- **`command_approval_handler.py` / `tool_executor.py` / `code_agent.py` / `super_agent.py`**: en modo servidor llaman a `print_diff_applied()` en lugar de `print_message(markdown)`.
+- **`kogniterm/terminal/tui/ws_client.py`**: nuevo helper `build_diff_panel()` que reconstruye el `Panel` coloreado con `DiffRenderer` (mismo widget que en modo local); nuevo handler del evento `diff_applied` y fallback que convierte mensajes legacy con cerca ` ```diff ` al panel. El panel se monta como `MessageWidget` (nunca `ToolOutputWidget`) y se fija en historial con `stop_stream()`.
+
+#### Archivos Modificados
+- `kogniterm/server/session_pool.py`
+- `kogniterm/terminal/command_approval_handler.py`
+- `kogniterm/core/agents/tool_executor.py`
+- `kogniterm/core/agents/code_agent.py`
+- `kogniterm/core/agents/super_agent.py`
+- `kogniterm/terminal/tui/ws_client.py`
+- `docs/Cambios.md`
+
+---
+
 ## [0.5.0] - 2025-05-22
 ## [0.5.1] - 2025-05-22 (hotfix)
 
