@@ -573,7 +573,17 @@ class SuperAgentRunner:
                 or not getattr(self.terminal_ui, "is_tty", True)
             )
 
-            if is_server_or_non_tty and hasattr(self.terminal_ui, "print_message"):
+            if hasattr(self.terminal_ui, "print_diff_applied"):
+                # Modo servidor: evento estructurado para widget de diff coloreado
+                try:
+                    self.terminal_ui.print_diff_applied(diff_content, file_path, tool_name)
+                except TypeError:
+                    self.terminal_ui.print_message(
+                        f"### ✅ Cambios aplicados en `{file_path}`\n"
+                        f"**Operación:** `{tool_name}`\n\n"
+                        f"```diff\n{diff_content}\n```"
+                    )
+            elif is_server_or_non_tty and hasattr(self.terminal_ui, "print_message"):
                 self.terminal_ui.print_message(
                     f"### ✅ Cambios aplicados en `{file_path}`\n"
                     f"**Operación:** `{tool_name}`\n\n"

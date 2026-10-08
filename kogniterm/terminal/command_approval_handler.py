@@ -218,6 +218,20 @@ class CommandApprovalHandler:
             or not getattr(self.terminal_ui, "is_tty", True)
         )
 
+        if is_server_or_non_tty and hasattr(self.terminal_ui, "print_diff_applied"):
+            # Modo servidor: evento estructurado para widget de diff coloreado
+            try:
+                agent_id = getattr(self.terminal_ui, "session_id", None)
+                self.terminal_ui.print_diff_applied(
+                    diff_content, safe_file_path, operation_label,
+                    agent_id=None,
+                )
+            except TypeError:
+                self.terminal_ui.print_diff_applied(
+                    diff_content, safe_file_path, operation_label,
+                )
+            return
+
         if is_server_or_non_tty and hasattr(self.terminal_ui, "print_message"):
             self.terminal_ui.print_message(
                 f"### ✅ Cambios aplicados en `{safe_file_path}`\n"

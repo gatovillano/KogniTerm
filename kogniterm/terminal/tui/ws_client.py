@@ -75,6 +75,46 @@ async def probe_server(server_url: str) -> bool:
         return False
 
 
+def build_diff_panel(diff_content: str, file_path: str = "", operation: str = "") -> Any:
+    """Reconstruye el Panel de diff coloreado (mismo widget que en modo local)."""
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.console import Group
+    from kogniterm.utils.diff_renderer import DiffRenderer
+    try:
+        from kogniterm.terminal.themes import ColorPalette
+        subtitle_style = f"dim {ColorPalette.TEXT_SECONDARY}"
+        border_style = ColorPalette.SUCCESS
+    except Exception:
+        subtitle_style = "dim"
+        border_style = "green"
+    safe_path = (file_path or "").strip() or "archivo_desconocido"
+    op_label = (operation or "").strip() or "file_update"
+    renderer = DiffRenderer()
+    diff_table = renderer.render_diff_from_string(diff_content or "", safe_path)
+    subtitle = Text(f"Operación: {op_label}", style=subtitle_style)
+    return Panel(
+        Group(subtitle, Text(""), diff_table),
+        title=f"✅ Diff aplicado: {safe_path}",
+        border_style=border_style,
+        expand=True,
+    )
+
+
+def _extract_diff_fence(text: str) -> "tuple[str, str, str] | None":
+    """Si el mensaje es el markdown de diff del servidor, extrae (diff, path, op)."""
+    import re
+    if not isinstance(text, str) or "```diff" not in text:
+        return None
+    m = re.search(r"```diff\s*\n(.*?)```", text, re.DOTALL)
+    if not m:
+        return None
+    diff_content = m.group(1).strip("\n")
+    path_m = re.search(r"Cambios aplicados en `([^`]+)`", text)
+    op_m = re.search(r"Operaci[oó]n:?[`\s]*([^\n`]+)", text)
+    return diff_content, (path_m.group(1).strip() if path_m else ""), (op_m.group(1).strip().strip("`") if op_m else "")
+
+
 def build_native_renderable(thinking: str, response: str) -> Any:
     from rich.padding import Padding
     from rich.panel import Panel
@@ -328,11 +368,65 @@ class TUIWebSocketClient:
             else:
                 text = str(data) if data else ""
             if text:
-                self._app.call_from_thread(
-                    self._main_ui().print_message,
-                    text,
-                    panel_id=agent_id
-                )
+                # Compat: markdown ```diff del servidor antiguo -> widget coloreado
+                parsed = _extract_diff_fence(text)
+                if parsed and parsed[0]:
+                    diff_content, file_path, operation = parsed
+                    try:
+                        panel = build_diff_panel(diff_content, file_path, operation)
+                    except Exception:
+                        panel = None
+                    if panel is not None:
+                        chat_log = self._get_chat_log(agent_id)
+
+                        def _mount_diff_md(cl=chat_log, p=panel):
+                            cl.write_stream(p)
+                            try:
+                                cl.stop_stream()
+                            except Exception:
+                                pass
+
+                        self._app.call_from_thread(_mount_diff_md)
+                    else:
+                        self._app.call_from_thread(
+                            self._main_ui().print_message,
+                            text,
+                            panel_id=agent_id
+                        )
+                else:
+                    self._app.call_from_thread(
+                        self._main_ui().print_message,
+                        text,
+                        panel_id=agent_id
+                    )
+
+        elif event_type == "diff_applied":
+            # Diff estructurado del servidor -> Panel coloreado (igual que modo local)
+            agent_id = event.get("agent_id")
+            payload = data if isinstance(data, dict) else {}
+            diff_content = payload.get("diff_content", "")
+            file_path = payload.get("file_path", "")
+            operation = payload.get("operation", "")
+            if diff_content:
+                try:
+                    panel = build_diff_panel(diff_content, file_path, operation)
+                except Exception as exc:
+                    logger.warning(f"[WS] No se pudo construir panel de diff: {exc}")
+                    panel = None
+                if panel is not None:
+                    chat_log = self._get_chat_log(agent_id)
+
+                    def _mount_diff(cl=chat_log, p=panel):
+                        cl.write_stream(p)
+                        # Fijar en historial: el siguiente stream debe crear widget nuevo
+                        try:
+                            cl.stop_stream()
+                        except Exception:
+                            pass
+
+                    self._app.call_from_thread(_mount_diff)
+            else:
+                logger.debug("[WS] diff_applied sin contenido, ignorado")
 
         elif event_type == "tool_call":
             # El agente comenzó a usar una herramienta

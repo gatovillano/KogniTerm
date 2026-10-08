@@ -94,28 +94,17 @@ async def test_write_user_message_resets_tracker_reference():
 @pytest.mark.anyio
 async def test_update_task_tracker_routes_to_correct_log():
     """
-    Verifica que update_task_tracker rutea correctamente los planes de cada agente
-    al ChatLogWidget que corresponde según su ID, y el resto al chat_log principal.
-    Usa pestañas dinámicas (nueva arquitectura).
+    El dock replegable sobre el input recibe los planes de todos los
+    agentes (ya no se inyectan paneles en el flujo del chat).
     """
     llm_service = MagicMock()
     llm_service.model_name = "test-model"
     app = KogniTermTUI(llm_service=llm_service)
 
     async with app.run_test() as pilot:
-        # Crear pestañas dinámicas para los agentes (nueva arquitectura)
-        coder_log = app.add_agent_tab("agent_panel_coder_0", "Coder")
-        researcher_log = app.add_agent_tab("agent_panel_researcher_1", "Researcher")
-        await pilot.pause()
-
         main_log = app.chat_log
-
-        coder_log.write_task_tracker = MagicMock()
-        researcher_log.write_task_tracker = MagicMock()
         main_log.write_task_tracker = MagicMock()
 
-        # Planes para: Coder → agent_panel_coder_0, Researcher → agent_panel_researcher_1,
-        # MainAgent → sin coincidencia → chat_log
         agent_plans = {
             "Coder": [{"task": "escribir tests", "status": "in-progress"}],
             "Researcher": [{"task": "buscar papers", "status": "pending"}],
@@ -125,19 +114,18 @@ async def test_update_task_tracker_routes_to_correct_log():
         app.update_task_tracker(agent_plans)
         await pilot.pause()
 
-        assert coder_log.write_task_tracker.called, \
-            "El plan de 'Coder' debe rutearse al panel del Coder"
-        assert researcher_log.write_task_tracker.called, \
-            "El plan de 'Researcher' debe rutearse al panel del Researcher"
-        assert main_log.write_task_tracker.called, \
-            "El plan de 'MainAgent' (sin coincidencia) debe ir al chat_log principal"
+        dock = app.query_one("#task_tracker_dock")
+        assert dock.display is True, "El dock debe mostrarse con tareas pendientes"
+        assert dock.expanded is False, "El dock arranca replegado"
+        assert dock.get_summary()["total"] == 3
+        assert main_log.write_task_tracker.called is False, \
+            "Ya no debe inyectarse el tracker en el flujo del chat"
 
 
 @pytest.mark.anyio
 async def test_update_task_tracker_all_plans_to_main_log_when_no_match():
     """
-    Cuando el nombre del agente no coincide con ningún widget específico,
-    todo debe ir al chat_log principal.
+    Sin coincidencia de agente, todo va igualmente al dock sobre el input.
     """
     llm_service = MagicMock()
     llm_service.model_name = "test-model"
@@ -154,5 +142,29 @@ async def test_update_task_tracker_all_plans_to_main_log_when_no_match():
         app.update_task_tracker(agent_plans)
         await pilot.pause()
 
-        assert main_log.write_task_tracker.called, \
-            "Sin coincidencia de ID, el plan debe ir al chat_log principal"
+        dock = app.query_one("#task_tracker_dock")
+        assert dock.display is True
+        assert dock.get_summary()["total"] == 1
+        assert main_log.write_task_tracker.called is False
+
+
+@pytest.mark.anyio
+async def test_task_tracker_dock_toggle_action():
+    """Ctrl+K / click pliega y despliega el panel sobre el input."""
+    llm_service = MagicMock()
+    llm_service.model_name = "test-model"
+    app = KogniTermTUI(llm_service=llm_service)
+
+    async with app.run_test() as pilot:
+        app.update_task_tracker({"A": [{"task": "t1", "status": "pending"}]})
+        await pilot.pause()
+        dock = app.query_one("#task_tracker_dock")
+        assert dock.expanded is False
+
+        app.action_toggle_task_tracker()
+        await pilot.pause()
+        assert dock.expanded is True
+
+        app.action_toggle_task_tracker()
+        await pilot.pause()
+        assert dock.expanded is False

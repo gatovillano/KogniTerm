@@ -84,6 +84,12 @@ class CompleteCheckoutResponse(BaseModel):
     subscription: SubscriptionDetails = Field(..., description="Detalles de la suscripción actualizada")
 
 
+class SwitchPlanRequest(BaseModel):
+    plan_id: str = Field(..., description="Nuevo plan objetivo")
+    provider: Optional[PaymentProvider] = Field(default=None, description="Proveedor preferido para el cambio")
+    prorate: bool = Field(default=True, description="Si se debe prorratear el cambio inmediatamente")
+
+
 class PaymentMethodDetails(BaseModel):
     id: str
     brand: str

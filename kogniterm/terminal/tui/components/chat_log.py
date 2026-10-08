@@ -59,6 +59,16 @@ class MessageWidget(Static):
 
 class AnimatedSpinnerWidget(Static):
     """Widget que representa un spinner animado en el chat log."""
+    DEFAULT_CSS = """
+    AnimatedSpinnerWidget {
+        width: 100%;
+        height: auto;
+        margin: 0;
+        padding: 1 0 1 2;
+        background: transparent;
+        border: none;
+    }
+    """
     def __init__(self, text: str = "Procesando", **kwargs):
         super().__init__(**kwargs)
         self.text = text
@@ -73,7 +83,7 @@ class AnimatedSpinnerWidget(Static):
         self.frame_idx = (self.frame_idx + 1) % len(self.frames)
         frame = self.frames[self.frame_idx]
         from rich.text import Text
-        self.update(Text(f" {frame} {self.text}", style="bold cyan"))
+        self.update(Text(f"{frame} {self.text}", style=ColorPalette.TEXT_MUTED))
 
 
 def _reasoning_summary(text: str) -> tuple:
@@ -125,26 +135,19 @@ def _extract_thinking_text(r) -> str:
 
 
 class ThinkingWidget(Static):
-    """Pensamiento del LLM colapsado por defecto, estilo OpenCode.
+    """Pensamiento del LLM colapsado por defecto, minimalista.
 
-    Patrón tomado de `ReasoningPart` en
-    `packages/tui/src/routes/session/index.tsx` (sst/opencode):
-    - `thinking_mode` por defecto `hide` (colapsado): una sola línea,
-      el layout nunca salta. Click para abrir el bloque markdown completo.
-    - Header siempre visible: spinner `Thinking...` en streaming,
-      `Thought` (+ título/duración) al finalizar.
-    - Cuerpo solo renderizado/visible cuando se expande.
-
-    Implementado con Textual `Collapsible` (collapsed=True) + `Markdown`
-    interno actualizable en streaming. Click/Enter lo despliega (toggle
-    nativo de Collapsible), igual que `onMouseUp={toggle}` en OpenCode.
+    Una sola línea precedida por una flecha monocromática (`→`),
+    igual que los indicadores de ejecución de herramientas:
+    `→ Thinking...` en streaming, `→ Thought · 1.2s` al finalizar.
+    Click/Enter despliega el bloque markdown completo.
     """
 
     DEFAULT_CSS = """
     ThinkingWidget {
         width: 100%;
         height: auto;
-        margin: 0 0 1 0;
+        margin: 1 0 1 0;
         padding: 0 0 0 2;
         color: #9ca3af;
         background: transparent;
@@ -198,8 +201,8 @@ class ThinkingWidget(Static):
             self._inner,
             title=title,
             collapsed=True,
-            collapsed_symbol="▶",
-            expanded_symbol="▼",
+            collapsed_symbol="→",
+            expanded_symbol="→",
         )
 
     def compose(self):
@@ -238,16 +241,16 @@ class ThinkingWidget(Static):
     def _build_title(self) -> str:
         summary_title, _ = _reasoning_summary(self._body_text)
         if not self._is_done:
-            base = f"💭 Thinking{self._dots()}"
+            base = f"Thinking{self._dots()}"
             if summary_title:
-                base = f"💭 Thinking: {summary_title}{self._dots()}"
+                base = f"Thinking: {summary_title}{self._dots()}"
             return base
         import time as _time
         elapsed = max(0.0, _time.monotonic() - self._started_at)
         dur = f" · {elapsed:.1f}s" if elapsed >= 0.5 else ""
         if summary_title:
-            return f"💭 Thought: {summary_title}{dur}"
-        return f"💭 Thought{dur}"
+            return f"Thought: {summary_title}{dur}"
+        return f"Thought{dur}"
 
     def _refresh_title(self) -> None:
         try:
@@ -707,7 +710,7 @@ class ChatLogWidget(VerticalScroll):
         self._active_thinking_widget = None
 
     def write_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = ""):
-        """Escribe notificación de herramienta."""
+        """Notificación de herramienta: una sola línea `→ tool · acción`, monocromática."""
         self._finalize_thinking()
         if self._active_message_widget:
             if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
@@ -721,33 +724,19 @@ class ChatLogWidget(VerticalScroll):
         self._active_thinking_widget = None
         self._active_message_widget = None
         from rich.text import Text
-        from kogniterm.terminal.themes import (
-            ColorPalette,
-            Icons,
-            is_light_theme,
-        )
 
-        line1 = Text()
-        line1.append(f"{Icons.TOOL} ", style=f"bold {ColorPalette.SECONDARY}")
-        line1.append(tool_name, style=f"bold {ColorPalette.SECONDARY_LIGHT}")
-
-        lines = [line1]
+        line = Text()
+        line.append("→ ", style=ColorPalette.TEXT_MUTED)
+        line.append(tool_name or "tool", style=ColorPalette.TEXT_MUTED)
         if action_desc:
-            line2 = Text()
-            # Consciente del tema: `dim` sobre fondo claro queda casi invisible
-            arrow_style = (
-                ColorPalette.TEXT_MUTED
-                if is_light_theme()
-                else f"dim {ColorPalette.GRAY_600}"
-            )
-            line2.append("   ↳ ", style=arrow_style)
-            line2.append("Acción: ", style=f"bold italic {ColorPalette.TEXT_SECONDARY}")
-            line2.append(action_desc, style=f"italic {ColorPalette.TEXT_SECONDARY}")
-            lines.append(line2)
-        
-        def _mount_tool_notify(lines_group):
+            desc = " ".join(str(action_desc).split())
+            if len(desc) > 120:
+                desc = desc[:117] + "…"
+            line.append(f" · {desc}", style=ColorPalette.TEXT_MUTED)
+
+        def _mount_tool_notify(tool_line):
             try:
-                widget = MessageWidget(Padding(lines_group, (1, 0, 1, 2)))
+                widget = MessageWidget(Padding(tool_line, (1, 0, 1, 2)))
                 self.mount(widget)
                 self.scroll_end(animate=False)
             except Exception:
@@ -755,12 +744,12 @@ class ChatLogWidget(VerticalScroll):
 
         if _should_call_from_thread(self):
             try:
-                self.app.call_from_thread(_mount_tool_notify, Group(*lines))
+                self.app.call_from_thread(_mount_tool_notify, line)
                 return
             except Exception:
                 pass
 
-        _mount_tool_notify(Group(*lines))
+        _mount_tool_notify(line)
 
     def write_tool_output(self, content: str, tool_name: str, language: str = None):
         """Escribe la salida de una herramienta usando el ToolOutputWidget."""

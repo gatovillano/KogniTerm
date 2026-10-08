@@ -513,6 +513,27 @@ class ServerUI(TerminalUI):
     def stop_live(self, agent_id: str = None, **kwargs) -> None:
         self._push("live_stop", {}, agent_id=agent_id)
 
+    def print_diff_applied(
+        self, diff_content: str, file_path: str = "", operation: str = "edit_file",
+        agent_id: str = None,
+    ) -> None:
+        """Emite el diff como evento estructurado para que la TUI lo renderice con el widget coloreado.
+
+        El cliente WS (`ws_client`) reconstruye el `Panel` con `DiffRenderer`
+        y lo monta como `MessageWidget` (mismo widget que en modo local),
+        en lugar de mostrar markdown ```diff en texto plano.
+        """
+        logger.info(f"[{self.session_id}] ServerUI.print_diff_applied: {file_path}")
+        self._push(
+            "diff_applied",
+            {
+                "diff_content": diff_content or "",
+                "file_path": file_path or "",
+                "operation": operation or "",
+            },
+            agent_id=agent_id,
+        )
+
     def print_message(
         self, message: str, style: str = "", agent_id: str = None, **kwargs
     ) -> None:
@@ -1044,6 +1065,209 @@ class AgentSession:
             self.ui._push("agent_changed", {"agent": normalized})
         return normalized
 
+    # ── /instructions: instrucciones personalizadas Global / Workspace ──
+    def _instructions_paths(self):
+        """Devuelve (global_path, project_path) absolutos para agent_instructions."""
+        import json as _json  # noqa: F401 (documenta dependencia)
+        global_path = os.path.join(os.path.expanduser("~"), ".kogniterm", "config.json")
+        ws = getattr(self, "workspace_dir", None) or _original_getcwd()
+        project_path = os.path.join(safe_abs_path(ws), ".kogniterm", "config.json")
+        return global_path, project_path
+
+    @staticmethod
+    def _read_agent_instructions(path: str) -> list:
+        import json
+        try:
+            if not os.path.exists(path):
+                return []
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+            lst = data.get("agent_instructions", []) or []
+            return list(lst) if isinstance(lst, list) else []
+        except Exception:
+            return []
+
+    @staticmethod
+    def _write_agent_instructions(path: str, lst: list) -> None:
+        import json
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            data = {}
+            if os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f) or {}
+                except Exception:
+                    data = {}
+            data["agent_instructions"] = list(lst)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass
+        except Exception as e:
+            raise e
+
+    def _handle_instructions_command(self, message: str) -> None:
+        """Procesa /instructions con subcomandos de texto (sin diálogos).
+
+        Sintaxis:
+          /instructions                          → lista ambas
+          /instructions list [--global|--project]
+          /instructions add [--global|--project] <texto>
+          /instructions remove [--global|--project] <n>
+          /instructions clear [--global|--project]
+        Sin flag de ámbito: add/remove/clear operan en Workspace por defecto.
+        """
+        import shlex
+        try:
+            parts = shlex.split(message.strip())
+        except Exception:
+            parts = message.strip().split()
+        args = parts[1:] if len(parts) > 1 else []
+        global_path, project_path = self._instructions_paths()
+
+        def _scope_from_args(a: list) -> tuple[str, list]:
+            scope = "project"
+            rest = []
+            for tok in a:
+                tl = tok.lower()
+                if tl in ("--global", "-g", "global"):
+                    scope = "global"
+                elif tl in ("--project", "--workspace", "-p", "-w", "project", "workspace"):
+                    scope = "project"
+                else:
+                    rest.append(tok)
+            return scope, rest
+
+        def _fmt_list(lst: list) -> str:
+            if not lst:
+                return "_vacío_"
+            return "\n".join(f"  {i}. {itm}" for i, itm in enumerate(lst, 1))
+
+        if not args or args[0].lower() in ("list", "ls", "show"):
+            rest = args[1:] if args else []
+            scope, _ = _scope_from_args(rest)
+            if not args:
+                gl = self._read_agent_instructions(global_path)
+                pl = self._read_agent_instructions(project_path)
+                if not gl and not pl:
+                    self.ui.print_message(
+                        "📝 **Sin instrucciones configuradas.**\n\nUsa:\n"
+                        "• `/instructions add <texto>` → Workspace\n"
+                        "• `/instructions add --global <texto>` → Global",
+                        style="yellow",
+                    )
+                    return
+                out = "📝 **Instrucciones del agente:**"
+                if pl:
+                    out += f"\n\n**Workspace** (`{project_path}`):\n{_fmt_list(pl)}"
+                if gl:
+                    out += f"\n\n**Global** (`{global_path}`):\n{_fmt_list(gl)}"
+                self.ui.print_message(out, style="cyan")
+                return
+            lst = self._read_agent_instructions(global_path if scope == "global" else project_path)
+            label = "Global" if scope == "global" else "Workspace"
+            if not lst:
+                self.ui.print_message(f"📝 **Instrucciones ({label}):** vacío.", style="yellow")
+                return
+            self.ui.print_message(f"📝 **Instrucciones ({label}):**\n{_fmt_list(lst)}", style="cyan")
+            return
+
+        sub = args[0].lower()
+        if sub in ("add", "añadir", "append", "new"):
+            scope, rest = _scope_from_args(args[1:])
+            # Compat: /instructions add-global <texto> / add-project <texto>
+            text = " ".join(rest).strip()
+            if not text:
+                self.ui.print_message("Uso: `/instructions add [--global|--project] <texto>`", style="yellow")
+                return
+            path = global_path if scope == "global" else project_path
+            lst = self._read_agent_instructions(path)
+            lst.append(text)
+            try:
+                self._write_agent_instructions(path, lst)
+            except Exception as e:
+                self.ui.print_message(f"❌ Error guardando instrucción: {e}", style="red")
+                return
+            label = "Global" if scope == "global" else "Workspace"
+            self.ui.print_message(f"✅ Instrucción guardada en **{label}** (#{len(lst)}).", style="green")
+            return
+
+        if sub in ("add-global", "addglobal"):
+            text = " ".join(args[1:]).strip()
+            if not text:
+                self.ui.print_message("Uso: `/instructions add-global <texto>`", style="yellow")
+                return
+            lst = self._read_agent_instructions(global_path)
+            lst.append(text)
+            self._write_agent_instructions(global_path, lst)
+            self.ui.print_message(f"✅ Instrucción guardada en **Global** (#{len(lst)}).", style="green")
+            return
+
+        if sub in ("add-project", "addproject", "add-workspace", "addworkspace"):
+            text = " ".join(args[1:]).strip()
+            if not text:
+                self.ui.print_message("Uso: `/instructions add-project <texto>`", style="yellow")
+                return
+            lst = self._read_agent_instructions(project_path)
+            lst.append(text)
+            self._write_agent_instructions(project_path, lst)
+            self.ui.print_message(f"✅ Instrucción guardada en **Workspace** (#{len(lst)}).", style="green")
+            return
+
+        if sub in ("remove", "rm", "del", "delete", "quitar", "eliminar"):
+            scope, rest = _scope_from_args(args[1:])
+            if not rest or not rest[0].isdigit():
+                self.ui.print_message("Uso: `/instructions remove [--global|--project] <nº>`", style="yellow")
+                return
+            idx = int(rest[0]) - 1
+            path = global_path if scope == "global" else project_path
+            lst = self._read_agent_instructions(path)
+            if idx < 0 or idx >= len(lst):
+                self.ui.print_message(f"❌ Nº fuera de rango (1-{len(lst)}).", style="red")
+                return
+            removed = lst.pop(idx)
+            self._write_agent_instructions(path, lst)
+            label = "Global" if scope == "global" else "Workspace"
+            self.ui.print_message(f"🗑️ Eliminada de **{label}**: {removed}", style="green")
+            return
+
+        if sub in ("clear", "clean", "limpiar"):
+            scope, _ = _scope_from_args(args[1:])
+            path = global_path if scope == "global" else project_path
+            self._write_agent_instructions(path, [])
+            label = "Global" if scope == "global" else "Workspace"
+            self.ui.print_message(f"🧹 Instrucciones de **{label}** eliminadas.", style="green")
+            return
+
+        if sub in ("help", "-h", "--help", "?"):
+            self.ui.print_message(
+                "📝 **/instructions** — instrucciones personalizadas del agente.\n\n"
+                "• `/instructions` → listar Workspace + Global\n"
+                "• `/instructions list [--global|--project]`\n"
+                "• `/instructions add <texto>` → Workspace\n"
+                "• `/instructions add --global <texto>` → Global\n"
+                "• `/instructions remove <nº>` / `clear`\n\n"
+                "Las instrucciones se inyectan en el system prompt (Workspace + Global).",
+                style="cyan",
+            )
+            return
+
+        # Texto directo tras /instructions <texto> → atajo a add (Workspace)
+        if sub.startswith("-"):
+            self.ui.print_message("Uso: `/instructions add [--global|--project] <texto>`", style="yellow")
+            return
+        scope, rest = _scope_from_args(args)
+        text = " ".join(rest).strip()
+        if text:
+            lst = self._read_agent_instructions(project_path)
+            lst.append(text)
+            self._write_agent_instructions(project_path, lst)
+            self.ui.print_message(f"✅ Instrucción guardada en **Workspace** (#{len(lst)}).", style="green")
+            return
+        self.ui.print_message("Uso: `/instructions [list|add|remove|clear] [--global|--project]`", style="yellow")
 
     def update_workspace_dir(self, workspace_dir: str) -> None:
         """Actualiza dinámicamente el workspace_dir para esta sesión."""
@@ -1253,6 +1477,7 @@ class AgentSession:
                     "• `/plan` : Estado del modo planificación.\n"
                     "• `/init` o `/index` : Re-indexar archivos del workspace.\n"
                     "• `/session` o `/resume` : Gestionar hilos y sesiones guardadas.\n"
+                    "• `/instructions [list|add|remove|clear]` : Instrucciones del agente (Workspace/Global).\n"
                     "• `/theme` : Tema visual.\n"
                     "• `/help` : Mostrar este menú de ayuda."
                 )
@@ -1288,6 +1513,9 @@ class AgentSession:
                 processed = True
             elif msg_lower in ("%plan", "/plan"):
                 self.ui.print_message("📋 **Modo Planificación:** Activo por defecto en KogniTerm Agent. Los cambios complejos generarán un `implementation_plan.md` antes de ejecutarse.", style="cyan")
+                processed = True
+            elif msg_lower == "/instructions" or msg_lower == "%instructions" or msg_lower.startswith(("/instructions ", "%instructions ")):
+                self._handle_instructions_command(message)
                 processed = True
             elif msg_lower.startswith(("/session", "%session")):
                 if self.thread_manager:

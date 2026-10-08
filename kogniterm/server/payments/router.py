@@ -10,6 +10,9 @@ from kogniterm.server.payments.models import (
     SubscriptionDetails,
     CreateCheckoutSessionRequest,
     CreateCheckoutSessionResponse,
+    CompleteCheckoutRequest,
+    CompleteCheckoutResponse,
+    SwitchPlanRequest,
     PaymentMethodDetails,
     PaymentHistoryItem,
     UsageQuotaInfo,
@@ -60,6 +63,30 @@ async def create_checkout(req: CreateCheckoutSessionRequest, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al procesar el pago: {str(e)}")
+
+
+@router.post("/checkout/complete", response_model=CompleteCheckoutResponse, summary="Completar checkout mock/sesión")
+async def complete_checkout(req: CompleteCheckoutRequest, request: Request):
+    """Completa una sesión de checkout mock o valida el paso a plan pagado en modo simulación."""
+    user_id = req.user_id or _extract_user_id(request)
+    try:
+        return payment_service.complete_checkout_session(user_id, req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al completar el checkout: {str(e)}")
+
+
+@router.post("/subscription/switch", response_model=SubscriptionDetails, summary="Cambiar de plan")
+async def switch_plan(req: "SwitchPlanRequest", request: Request):
+    """Cambia el plan del usuario a otro plan del catálogo, creando checkout si es necesario."""
+    user_id = _extract_user_id(request)
+    try:
+        return payment_service.switch_plan(user_id, req)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al cambiar de plan: {str(e)}")
 
 
 @router.post("/subscription/cancel", response_model=SubscriptionDetails, summary="Cancelar suscripción")

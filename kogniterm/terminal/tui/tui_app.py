@@ -847,6 +847,25 @@ class KogniTermTUI(App):
         display: none;
     }
 
+    #task_tracker_dock {
+        width: 94%;
+        max-width: 220;
+        min-width: 60;
+        height: auto;
+        max-height: 18;
+        background: #22262e;
+        color: #e5e7eb;
+        border: solid #4b5563;
+        padding: 0 1;
+        margin-bottom: 1;
+        display: none;
+        overflow-y: auto;
+    }
+    #task_tracker_dock:focus {
+        border: solid #4b5563;
+        outline: none;
+    }
+
     #input_container {
         width: 94%;
         max-width: 220;
@@ -1345,6 +1364,7 @@ class KogniTermTUI(App):
         ("ctrl+pagedown", "next_session", "Sesión siguiente"),
         ("alt+left", "prev_session", "Sesión anterior"),
         ("alt+right", "next_session", "Sesión siguiente"),
+        ("ctrl+k", "toggle_task_tracker", "Desplegar tareas"),
     ]
 
     # ── Propiedades de compatibilidad multisesión ─────────────────────
@@ -1450,7 +1470,18 @@ class KogniTermTUI(App):
             # se puebla dinámicamente por call_agents_parallel)
             yield TabbedContent(id="parallel_agents_container")
 
-            # Nota: tracker_container se yield fuera de bottom_container (ver abajo)
+            # Panel de tareas replegable anclado sobre el input.
+            # Replegado: tira indicadora de 1 línea; al presionarla
+            # (click / Enter / Ctrl+K) se despliega con tareas y estado.
+            try:
+                from kogniterm.terminal.tui.components.task_tracker_panel import (
+                    TaskTrackerPanelWidget,
+                )
+
+                self.task_tracker_dock = TaskTrackerPanelWidget(id="task_tracker_dock")
+                yield self.task_tracker_dock
+            except Exception:
+                self.task_tracker_dock = None
 
             with Horizontal(id="input_container"):
                 self.chat_input = ChatInput(id="chat_input")
@@ -5712,87 +5743,84 @@ class KogniTermTUI(App):
         )
 
     def update_task_tracker(self, agent_plans: dict):
-        """Muestra el estado de las tareas en el flujo de chat usando un panel verde."""
+        """Actualiza el dock replegable de tareas anclado sobre el input.
+
+        Ya no inyecta paneles en el flujo del chat: el dock muestra una
+        tira indicadora replegada (1 línea) y al presionarla se despliega
+        con las tareas y su estado.
+        """
         if not agent_plans:
+            try:
+                dock = self.query_one("#task_tracker_dock")
+                dock.update_tasks({})
+            except Exception:
+                pass
             return
 
-        from rich.table import Table
-        from rich.text import Text
-        from rich.console import Group
-        from rich.panel import Panel
-        from kogniterm.terminal.themes import ColorPalette
-        from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
+        try:
+            dock = self.query_one("#task_tracker_dock")
+        except Exception:
+            dock = getattr(self, "task_tracker_dock", None)
+        if dock is not None and hasattr(dock, "update_tasks"):
+            try:
+                dock.update_tasks(agent_plans)
+                return
+            except Exception:
+                logger.warning("update_task_tracker: dock falló", exc_info=True)
+        # Fallback legacy si el dock no existe (p.ej. tests viejos): chat log.
+        try:
+            from kogniterm.terminal.tui.components.chat_log import ChatLogWidget
 
-        # Obtener todos los ChatLogWidgets en la aplicación
-        all_logs = list(self.query(ChatLogWidget))
+            target = self.chat_log
+            if target is not None and hasattr(target, "write_task_tracker"):
+                from rich.console import Group
+                from rich.panel import Panel
+                from rich.table import Table
+                from rich.text import Text
+                from kogniterm.terminal.themes import ColorPalette
 
-        # Agrupar los bloques de tareas por su ChatLogWidget destino
-        log_to_blocks = {}
+                blocks = []
+                for agent_name, tasks in agent_plans.items():
+                    if not tasks:
+                        continue
+                    header = Text.from_markup(
+                        f"[bold {ColorPalette.SECONDARY}]● {agent_name}[/bold {ColorPalette.SECONDARY}]"
+                    )
+                    table = Table(expand=True, box=None, show_header=False, padding=(0, 1))
+                    table.add_column("Status")
+                    table.add_column("Task")
+                    for task in tasks:
+                        status = task.get("status", "pending")
+                        task_text = task.get("task", "")
+                        if status == "done":
+                            style, icon = "strike #525252", "✅"
+                        elif status == "in-progress":
+                            style, icon = "bold cyan", "🔄"
+                        else:
+                            style, icon = ColorPalette.TEXT_PRIMARY, "⏳"
+                        table.add_row(icon, f"[{style}]{task_text}[/]")
+                    blocks.append(Group(header, table))
+                if blocks:
+                    target.write_task_tracker(
+                        Panel(Group(*blocks), border_style="green",
+                              title="[bold green]Task Tracker[/bold green]",
+                              title_align="left", expand=True)
+                    )
+        except Exception:
+            pass
 
-        for agent_name, tasks in agent_plans.items():
-            if not tasks:
-                continue
-
-            header = Text.from_markup(
-                f"[bold {ColorPalette.SECONDARY}]● {agent_name}[/bold {ColorPalette.SECONDARY}]"
-            )
-            table = Table(
-                expand=True, box=None, show_header=False, padding=(0, 1), title=None
-            )
-            table.add_column("Status")
-            table.add_column("Task")
-
-            for task in tasks:
-                status = task.get("status", "pending")
-                task_text = task.get("task", "")
-
-                if status == "done":
-                    style = "strike #525252"
-                    status_icon = "✅"
-                elif status == "in-progress":
-                    style = "bold cyan"
-                    status_icon = "🔄"
-                else:
-                    # Consciente del tema: "white" fijo es invisible sobre fondo claro
-                    style = ColorPalette.TEXT_PRIMARY
-                    status_icon = "⏳"
-
-                table.add_row(status_icon, f"[{style}]{task_text}[/]")
-
-            block = Group(header, table)
-
-            # Buscar el ChatLogWidget correspondiente a este agente
-            target_log = None
-            normalized_name = agent_name.lower().replace(" ", "_")
-            for log_widget in all_logs:
-                widget_id = (log_widget.id or "").lower()
-                if widget_id != "chat_log" and (
-                    normalized_name in widget_id or widget_id in normalized_name
-                ):
-                    target_log = log_widget
-                    break
-
-            if not target_log:
-                target_log = self.chat_log
-
-            if target_log not in log_to_blocks:
-                log_to_blocks[target_log] = []
-            log_to_blocks[target_log].append(block)
-
-        # Para cada log_widget, construir y escribir/actualizar su panel
-        for log_widget, blocks in log_to_blocks.items():
-            if blocks:
-                panel = Panel(
-                    Group(*blocks),
-                    border_style="green",
-                    title="[bold green]Task Tracker[/bold green]",
-                    title_align="left",
-                    expand=True,
-                )
-                if hasattr(log_widget, "write_task_tracker"):
-                    log_widget.write_task_tracker(panel)
-                else:
-                    log_widget.write_message(panel)
+    def action_toggle_task_tracker(self):
+        """Pliega/despliega el panel de tareas sobre el input."""
+        try:
+            dock = self.query_one("#task_tracker_dock")
+        except Exception:
+            dock = getattr(self, "task_tracker_dock", None)
+        if dock is None or not getattr(dock, "display", False):
+            return
+        try:
+            dock.toggle()
+        except Exception:
+            pass
 
     def action_toggle_tool_panel(self):
         """Método obsoleto de alternancia del panel de herramientas."""

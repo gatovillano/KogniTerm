@@ -2586,6 +2586,7 @@ def create_app() -> FastAPI:
             {"id": "plan", "name": "plan", "description": "Show plan mode", "category": "session"},
             {"id": "keys", "name": "keys", "description": "Configure API keys", "category": "session"},
             {"id": "config", "name": "config", "description": "Show config", "category": "session"},
+            {"id": "instructions", "name": "instructions", "description": "Manage agent instructions (Workspace/Global): list/add/remove/clear", "category": "session"},
         ]
         if request.url.path.startswith("/api/"):
             return {"data": commands}

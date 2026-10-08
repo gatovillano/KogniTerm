@@ -630,7 +630,106 @@ Example: /autosave restore autosave_20250515_141530
             return True
 
         if user_input.lower().strip().startswith('/instructions'):
+            import shlex as _shlex
             config_manager = ConfigManager()
+
+            # Helper to load list
+            def _get_list(scope: str):
+                if scope == 'global':
+                    return config_manager.load_global_config().get('agent_instructions', []) or []
+                return config_manager.load_project_config().get('agent_instructions', []) or []
+
+            # Helper to save list
+            def _save_list(scope: str, lst):
+                if scope == 'global':
+                    config_manager.set_global_config('agent_instructions', lst)
+                else:
+                    config_manager.set_project_config('agent_instructions', lst)
+
+            def _print_lists(scopes):
+                gl = _get_list('global') if 'global' in scopes else []
+                pl = _get_list('project') if 'project' in scopes else []
+                if not gl and not pl:
+                    self.terminal_ui.print_message("No instructions configured.", style="yellow")
+                    return
+                if pl and 'project' in scopes:
+                    self.terminal_ui.print_message("Instructions (Workspace):", style="bold cyan")
+                    for i, itm in enumerate(pl, 1):
+                        self.terminal_ui.print_message(f"  {i}. {itm}", style="dim")
+                if gl and 'global' in scopes:
+                    self.terminal_ui.print_message("Instructions (Global):", style="bold magenta")
+                    for i, itm in enumerate(gl, 1):
+                        self.terminal_ui.print_message(f"  {i}. {itm}", style="dim")
+
+            # ── Modo con argumentos (no interactivo): /instructions add|list|remove|clear ──
+            try:
+                _parts = _shlex.split(user_input.strip())
+            except Exception:
+                _parts = user_input.strip().split()
+            _args = _parts[1:] if len(_parts) > 1 else []
+            if _args:
+                _sub = _args[0].lower()
+                _scope = 'project'
+                _rest: list = []
+                for _tok in _args[1:]:
+                    _tl = _tok.lower()
+                    if _tl in ('--global', '-g', 'global'):
+                        _scope = 'global'
+                    elif _tl in ('--project', '--workspace', '-p', '-w', 'project', 'workspace'):
+                        _scope = 'project'
+                    else:
+                        _rest.append(_tok)
+                if _sub in ('list', 'ls', 'show'):
+                    if any(t.lower() in ('--global', '-g') for t in _args[1:]):
+                        _print_lists(['global'])
+                    elif any(t.lower() in ('--project', '--workspace', '-p', '-w') for t in _args[1:]):
+                        _print_lists(['project'])
+                    else:
+                        _print_lists(['project', 'global'])
+                    return True
+                if _sub in ('add', 'add-global', 'add-project', 'add-workspace'):
+                    if _sub != 'add':
+                        _scope = 'global' if 'global' in _sub else 'project'
+                    _text = ' '.join(_rest).strip()
+                    if not _text:
+                        self.terminal_ui.print_message("Uso: /instructions add [--global|--project] <texto>", style="yellow")
+                        return True
+                    _lst = _get_list(_scope)
+                    _lst.append(_text)
+                    _save_list(_scope, _lst)
+                    self.terminal_ui.print_message(f"Instruction saved in {_scope} (#{len(_lst)}).", style="green")
+                    return True
+                if _sub in ('remove', 'rm', 'del', 'delete'):
+                    if not _rest or not _rest[0].isdigit():
+                        self.terminal_ui.print_message("Uso: /instructions remove [--global|--project] <nº>", style="yellow")
+                        return True
+                    _idx = int(_rest[0]) - 1
+                    _lst = _get_list(_scope)
+                    if _idx < 0 or _idx >= len(_lst):
+                        self.terminal_ui.print_message(f"Nº fuera de rango (1-{len(_lst)}).", style="red")
+                        return True
+                    _removed = _lst.pop(_idx)
+                    _save_list(_scope, _lst)
+                    self.terminal_ui.print_message(f"Instruction removed: {_removed}", style="green")
+                    return True
+                if _sub in ('clear', 'clean'):
+                    _save_list(_scope, [])
+                    self.terminal_ui.print_message(f"All instructions from {_scope} have been cleared.", style="green")
+                    return True
+                if _sub in ('help', '-h', '--help', '?'):
+                    self.terminal_ui.print_message(
+                        "/instructions [list|add|remove|clear] [--global|--project]\n"
+                        "Sin argumentos abre el diálogo interactivo.", style="cyan")
+                    return True
+                # /instructions <texto libre> → atajo a add (Workspace)
+                _scope2 = 'global' if any(t.lower() in ('--global', '-g') for t in _args) else 'project'
+                _text2 = ' '.join(t for t in _args if t.lower() not in ('--global', '-g', '--project', '--workspace', '-p', '-w')).strip()
+                if _text2:
+                    _lst2 = _get_list(_scope2)
+                    _lst2.append(_text2)
+                    _save_list(_scope2, _lst2)
+                    self.terminal_ui.print_message(f"Instruction saved in {_scope2} (#{len(_lst2)}).", style="green")
+                    return True
 
             options = [
                 ("add_project", "➕ Add instruction (Workspace)"),
@@ -646,19 +745,6 @@ Example: /autosave restore autosave_20250515_141530
             if not selected:
                 self.terminal_ui.print_message("Operation canceled.", style="dim")
                 return True
-
-            # Helper to load list
-            def _get_list(scope: str):
-                if scope == 'global':
-                    return config_manager.load_global_config().get('agent_instructions', []) or []
-                return config_manager.load_project_config().get('agent_instructions', []) or []
-
-            # Helper to save list
-            def _save_list(scope: str, lst):
-                if scope == 'global':
-                    config_manager.set_global_config('agent_instructions', lst)
-                else:
-                    config_manager.set_project_config('agent_instructions', lst)
 
             if selected in ('add_project', 'add_global'):
                 scope = 'project' if selected == 'add_project' else 'global'

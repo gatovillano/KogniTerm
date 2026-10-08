@@ -355,7 +355,17 @@ class ToolExecutor:
                 or not getattr(terminal_ui, "is_tty", True)
             )
 
-            if is_server_or_non_tty and hasattr(terminal_ui, "print_message"):
+            if hasattr(terminal_ui, "print_diff_applied"):
+                # Modo servidor: evento estructurado para widget de diff coloreado
+                try:
+                    terminal_ui.print_diff_applied(diff_content, file_path, tool_name)
+                except TypeError:
+                    terminal_ui.print_message(
+                        f"### ✅ Cambios aplicados en `{file_path}`\n"
+                        f"**Operación:** `{tool_name}`\n\n"
+                        f"```diff\n{diff_content}\n```"
+                    )
+            elif is_server_or_non_tty and hasattr(terminal_ui, "print_message"):
                 terminal_ui.print_message(
                     f"### ✅ Cambios aplicados en `{file_path}`\n"
                     f"**Operación:** `{tool_name}`\n\n"
