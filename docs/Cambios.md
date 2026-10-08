@@ -620,3 +620,37 @@ No existía una forma nativa de actualizar KogniTerm desde la propia aplicación
 #### Archivos Modificados
 - [cli.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/cli.py)
 - [Cambios.md](file:///home/gato/Proyectos/Gemini-Interpreter/docs/Cambios.md)
+
+---
+
+## [1.4.1] - 2026-10-08
+
+### 🖥️ KogniTerm Desktop — Sin barra de menú y `upgrade` que actualiza el lanzador
+
+#### Problema
+1. KogniTerm Desktop (Electron) mostraba la barra de menú nativa por defecto (`File Edit View Window`), que no aporta nada a la app.
+2. Al ejecutar `kogniterm upgrade`, el icono del lanzador seguía abriendo la versión vieja de Desktop: el comando solo hacía `git pull` + `pip install -e .` y nunca recompilaba `kogniterm-desktop`. Como `start.sh` solo compila si faltan los bundles (`apps/web/dist`, `apps/electron/out`), los assets construidos quedaban obsoletos tras actualizar el código.
+
+#### Cambios Realizados
+
+**1. Barra de menú superior eliminada (Electron)**
+- **Archivo:** `kogniterm-desktop/apps/electron/src/main.ts`
+- Se importa `Menu` de Electron y se desactiva el menú de aplicación con `Menu.setApplicationMenu(null)` en `app.whenReady()`.
+- La ventana se crea con `autoHideMenuBar: true` y se llama a `win.setMenu(null)` en `createWindow()` para ocultar la barra en Linux/Windows.
+
+**2. `kogniterm upgrade` ahora recompila Desktop y refresca el lanzador**
+- **Archivo:** `kogniterm/terminal/cli.py`
+- `handle_upgrade()` llama al nuevo `_upgrade_desktop(repo_dir, venv_dir)` tras el `pip install`:
+  - Recompila con `npm run build` en `kogniterm-desktop` (con fallback a `npm install` + build si falla).
+  - Asegura `start.sh` ejecutable y avisa con `kogniterm desktop --build` si `npm` no está disponible o la compilación falla.
+- Nuevos helpers `_refresh_desktop_entry()` (+ variantes Linux/macOS, espejo de `install.sh`):
+  - Recrea `~/.local/bin/kogniterm-desktop` (delega en `kogniterm desktop`).
+  - Reescribe `~/.local/share/applications/kogniterm-desktop.desktop` con el icono actual del repo y refresca `update-desktop-database` / `gtk-update-icon-cache` (Linux), o el bundle `~/Applications/KogniTerm Desktop.app` (macOS).
+- **Archivo:** `install.sh`
+- `update_kogniterm()` (opción 1 del menú) recompila Desktop con `npm run build` (fallback a `npm install` + build) antes de `create_launchers`, para que la actualización vía instalador tampoco deje la build vieja.
+
+#### Archivos Modificados
+- [main.ts](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm-desktop/apps/electron/src/main.ts)
+- [cli.py](file:///home/gato/Proyectos/Gemini-Interpreter/kogniterm/terminal/cli.py)
+- [install.sh](file:///home/gato/Proyectos/Gemini-Interpreter/install.sh)
+- [Cambios.md](file:///home/gato/Proyectos/Gemini-Interpreter/docs/Cambios.md)
