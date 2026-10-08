@@ -855,14 +855,14 @@ class KogniTermTUI(App):
         max-height: 18;
         background: #22262e;
         color: #e5e7eb;
-        border: solid #4b5563;
+        border: none;
         padding: 0 1;
         margin-bottom: 1;
         display: none;
         overflow-y: auto;
     }
     #task_tracker_dock:focus {
-        border: solid #4b5563;
+        border: none;
         outline: none;
     }
 
