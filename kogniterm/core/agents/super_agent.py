@@ -62,13 +62,25 @@ def is_terminal_tool(name: str) -> bool:
 
 
 def _langchain_to_dict_messages(messages: List[BaseMessage]) -> List[Dict[str, Any]]:
-    """Convierte una lista de mensajes LangChain a la estructura de diccionarios de LiteLLM/OpenAI."""
+    """Convierte una lista de mensajes LangChain a la estructura de diccionarios de LiteLLM/OpenAI.
+
+    Preserva el contenido multimodal (lista de bloques text/image_url) tal cual:
+    convertirlo con str() destruye la imagen — el modelo recibe el repr de
+    Python con el base64 como texto y alucina en vez de ver la imagen.
+    """
     dict_msgs: List[Dict[str, Any]] = []
     for msg in messages:
         if isinstance(msg, SystemMessage):
-            dict_msgs.append({"role": "system", "content": str(msg.content)})
+            content = msg.content
+            dict_msgs.append({"role": "system", "content": content if isinstance(content, (str, list)) else str(content)})
         elif isinstance(msg, HumanMessage):
-            dict_msgs.append({"role": "user", "content": str(msg.content)})
+            content = msg.content
+            if isinstance(content, list):
+                dict_msgs.append({"role": "user", "content": list(content)})
+            elif isinstance(content, str):
+                dict_msgs.append({"role": "user", "content": content})
+            else:
+                dict_msgs.append({"role": "user", "content": str(content)})
         elif isinstance(msg, AIMessage):
             d: Dict[str, Any] = {"role": "assistant", "content": str(msg.content or "")}
             if getattr(msg, "tool_calls", None):
@@ -115,12 +127,15 @@ def _langchain_to_dict_messages(messages: List[BaseMessage]) -> List[Dict[str, A
                     }]
                 })
 
+            # ToolMessage multimodal (p.ej. screenshot como lista image_url):
+            # preservarlo como lista; str() lo convertiría en base64-texto.
+            tool_content = msg.content if isinstance(msg.content, (str, list)) else str(msg.content)
             dict_msgs.append(
                 {
                     "role": "tool",
                     "tool_call_id": t_id,
                     "name": t_name,
-                    "content": str(msg.content),
+                    "content": tool_content,
                 }
             )
         elif isinstance(msg, dict):
@@ -1022,9 +1037,19 @@ class SuperAgentRunner:
                     except Exception:
                         t_args = getattr(state, "last_tool_args", {}) or {}
 
-                    # Sincronizar ToolMessage en el historial de state.messages para conservar contexto
-                    res_str = json.dumps(t_res, ensure_ascii=False) if isinstance(t_res, (dict, list)) else str(t_res)
-                    state.add_message(ToolMessage(content=res_str, tool_call_id=t_id, name=t_name))
+                    # Sincronizar ToolMessage en el historial de state.messages para conservar contexto.
+                    # Si el resultado ya es multimodal (lista image_url), preservarlo
+                    # como lista; json.dumps lo convertiría en base64-texto.
+                    if isinstance(t_res, list):
+                        tool_content = t_res
+                        res_str = json.dumps(t_res, ensure_ascii=False)[:20000]
+                    elif isinstance(t_res, dict):
+                        tool_content = json.dumps(t_res, ensure_ascii=False)
+                        res_str = tool_content
+                    else:
+                        tool_content = str(t_res)
+                        res_str = tool_content
+                    state.add_message(ToolMessage(content=tool_content, tool_call_id=t_id, name=t_name))
 
                     # Si fue complete_task, marcar estado completado
                     if t_name == "complete_task":
