@@ -181,7 +181,29 @@ class ToolExecutor:
             if isinstance(res, str):
                 full_tool_output = res
             elif isinstance(res, (dict, list)):
-                full_tool_output = json.dumps(res, ensure_ascii=False)
+                # Las listas con imágenes MCP se normalizan a bloques de visión
+                # (image_url reducidos). json.dumps directo del base64 = error 400.
+                try:
+                    from kogniterm.core.utils.tool_image_utils import normalize_tool_result
+                    normalized = normalize_tool_result(res, tool_name=tool_name)
+                    # normalize devuelve str o lista de bloques; ToolMessage
+                    # acepta ambos, así que lo propagamos sin aplanar.
+                    if isinstance(normalized, list):
+                        if terminal_ui and hasattr(terminal_ui, "update_tool_display"):
+                            try:
+                                from kogniterm.core.utils.tool_image_utils import content_length_for_log
+                                terminal_ui.update_tool_display(
+                                    tool_name,
+                                    f"[imagen adjunta: {content_length_for_log(normalized)}]",
+                                    tool_call_id=tool_id,
+                                    command=command_hint,
+                                )
+                            except Exception:
+                                pass
+                        return tool_id, normalized, None
+                    full_tool_output = normalized
+                except Exception:
+                    full_tool_output = json.dumps(res, ensure_ascii=False)
             elif hasattr(res, "__iter__") and not isinstance(res, (bytes, bytearray)):
                 for part in res:
                     if part:

@@ -47,6 +47,19 @@ def smart_prune_tool_output(
     total_lines = len(lines)
     total_bytes = len(output.encode("utf-8", errors="replace"))
 
+    # Caso especial: blob gigante de una sola línea (p. ej. screenshot en
+    # base64). El recorte por líneas no sirve (1 línea) y devolvería el blob
+    # íntegro al LLM -> 400 "input token count exceeds". Truncar por chars.
+    if len(output) > max(max_bytes * 4, 12000) and total_lines <= 3:
+        log_filepath = _save_full_log(output[:1000000], tool_name)
+        head = output[:2000]
+        return (
+            f"ℹ️ [KogniTerm: Salida de {tool_name} omitida ({total_bytes // 1024} KB en "
+            f"{total_lines} línea(s), parece binario/base64). Log completo en: {log_filepath}]\n"
+            f"Primeros 2000 chars: {head}\n"
+            f"[Si es un screenshot, vuelve a llamar a la herramienta: se reenviará como imagen de visión.]"
+        )
+
     # Si la salida recortada semánticamente ya entra en los límites, retornar
     if total_lines <= max_lines and total_bytes <= max_bytes:
         return output

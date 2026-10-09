@@ -253,14 +253,27 @@ class ToolRegistryAdapter:
                 raw_res = await handler.ainvoke(injected)
             except Exception:
                 raw_res = await asyncio.to_thread(handler.invoke, injected)
-            if hasattr(raw_res, "content"):
-                return raw_res.content
-            return raw_res
+            content = getattr(raw_res, "content", raw_res)
+            # Normalizar imágenes MCP (screenshot -> bloques image_url
+            # reducidos) para no enviar base64 como texto (error 400 por
+            # exceder 1048576 tokens).
+            try:
+                from kogniterm.core.utils.tool_image_utils import normalize_tool_result
+                return normalize_tool_result(content, tool_name=name)
+            except Exception:
+                if hasattr(raw_res, "content"):
+                    return raw_res.content
+                return raw_res
         elif hasattr(handler, "invoke"):
             raw_res = await asyncio.to_thread(handler.invoke, injected)
-            if hasattr(raw_res, "content"):
-                return raw_res.content
-            return raw_res
+            content = getattr(raw_res, "content", raw_res)
+            try:
+                from kogniterm.core.utils.tool_image_utils import normalize_tool_result
+                return normalize_tool_result(content, tool_name=name)
+            except Exception:
+                if hasattr(raw_res, "content"):
+                    return raw_res.content
+                return raw_res
 
         if inspect.iscoroutinefunction(handler):
             return await handler(**injected)

@@ -213,17 +213,35 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
         result_msg = msg
     elif isinstance(message, ToolMessage):
         content = message.content
-        if not isinstance(content, str):
-            content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
-        if not content or not str(content).strip():
-            content = "Operación completada (sin salida)."
-        
-        tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
-        tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
-        name = getattr(message, 'name', None)
-        if name:
-            tool_msg["name"] = name
-        result_msg = tool_msg
+        # Contenido multimodal (p. ej. screenshot MCP ya normalizado a bloques
+        # image_url): preservarlo como lista para que el proveedor lo cuente
+        # como imagen (~1-2k tokens) y NO como texto base64 (millones).
+        if isinstance(content, list):
+            try:
+                from kogniterm.core.utils.tool_image_utils import normalize_tool_result
+                content = normalize_tool_result(content)
+            except Exception:
+                pass
+            if isinstance(content, str):
+                if not content.strip():
+                    content = "Operación completada (sin salida)."
+            tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
+            tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
+            name = getattr(message, 'name', None)
+            if name:
+                tool_msg["name"] = name
+            result_msg = tool_msg
+        else:
+            if not isinstance(content, str):
+                content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
+            if not content or not str(content).strip():
+                content = "Operación completada (sin salida)."
+            tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
+            tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
+            name = getattr(message, 'name', None)
+            if name:
+                tool_msg["name"] = name
+            result_msg = tool_msg
     elif isinstance(message, SystemMessage):
         content = message.content
         if not isinstance(content, str):

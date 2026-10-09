@@ -503,7 +503,20 @@ class LLMBridge:
                     t_args = {}
                 try:
                     result = await self.execute_tool_call(t_name, t_args)
+                    # `execute` ya normaliza imágenes a bloques image_url (lista).
+                    # NO serializar listas con json.dumps: el base64 quedaría como
+                    # texto y el proveedor lo cuenta como ~1M tokens (error 400).
+                    if isinstance(result, list):
+                        return {"ok": True, "id": t_id, "name": t_name, "result_str": result, "raw": result}
                     result_str = json.dumps(result, ensure_ascii=False) if not isinstance(result, str) else result
+                    # Defensa extra: un str gigante de una sola línea (base64
+                    # suelto) también revienta el contexto -> podar por chars.
+                    if isinstance(result_str, str) and len(result_str) > 20000:
+                        try:
+                            from kogniterm.core.utils.tool_image_utils import prune_giant_text
+                            result_str = prune_giant_text(result_str, t_name)
+                        except Exception:
+                            result_str = result_str[:20000] + "\n\n[... truncado ...]"
                     return {"ok": True, "id": t_id, "name": t_name, "result_str": result_str, "raw": result}
                 except Exception as exc:
                     err_str = f"Error ejecutando herramienta '{t_name}': {exc}"

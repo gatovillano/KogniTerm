@@ -450,9 +450,22 @@ class HistoryManager:
                             entry['thought_signatures'] = message.additional_kwargs['thought_signatures']
                         serializable_history.append(entry)
                 elif isinstance(message, ToolMessage):
+                    content = message.content
+                    # No persistir data URLs gigantes en history.json: ocupan MB
+                    # y ralentizan cada carga. Se guarda un marcador.
+                    if isinstance(content, list):
+                        safe_parts = []
+                        for p in content:
+                            if isinstance(p, dict) and p.get("type") == "image_url":
+                                safe_parts.append({"type": "image_url", "image_url": {"url": "[imagen de sesión anterior: rehaz el screenshot si la necesitas]"}})
+                            else:
+                                safe_parts.append(p)
+                        content = safe_parts
+                    elif isinstance(content, str) and len(content) > 20000:
+                        content = content[:20000] + "\n\n[... truncado al persistir ...]"
                     serializable_history.append({
-                        'type': 'tool', 
-                        'content': message.content, 
+                        'type': 'tool',
+                        'content': content,
                         'tool_call_id': message.tool_call_id
                     })
                 elif isinstance(message, SystemMessage):
@@ -1158,7 +1171,24 @@ class HistoryManager:
                 msg["tool_calls"] = message.tool_calls
             return msg
         elif isinstance(message, ToolMessage):
-            return {"role": "tool", "content": message.content, "tool_call_id": message.tool_call_id}
+            content = message.content
+            # Contenido multimodal (screenshot): no contar el base64 como texto
+            # (inflaría a millones de tokens y dispararía resúmenes/purgas).
+            if isinstance(content, list):
+                try:
+                    from kogniterm.core.llm.message_converter import content_for_token_count
+                    safe = content_for_token_count(content)
+                except Exception:
+                    safe = [{"type": p.get("type", "?")} if isinstance(p, dict) else p for p in content]
+                extra = sum(
+                    1500 for p in content
+                    if isinstance(p, dict) and p.get("type") == "image_url"
+                )
+                if extra:
+                    return {"role": "tool", "content": safe, "_image_tokens": extra,
+                            "tool_call_id": message.tool_call_id}
+                return {"role": "tool", "content": safe, "tool_call_id": message.tool_call_id}
+            return {"role": "tool", "content": content, "tool_call_id": message.tool_call_id}
         elif isinstance(message, SystemMessage):
             return {"role": "system", "content": message.content}
         return {"role": "user", "content": str(message.content)}

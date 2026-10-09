@@ -2799,6 +2799,17 @@ Limita el resumen a 6000 caracteres."""
                     # Si el resultado es lista de bloques de contenido [{'type': 'text', 'text': ...}], extraer texto
                     if isinstance(result, list) and len(result) > 0 and all(isinstance(x, dict) and 'text' in x for x in result):
                         result = "\n".join(str(x['text']) for x in result)
+                    # Si hay bloques de imagen MCP (screenshot), normalizar a
+                    # bloques de visión image_url reducidos en lugar de dejar
+                    # que el llamador los serialice a JSON gigante (error 400).
+                    elif isinstance(result, list) and any(isinstance(x, dict) and str(x.get('type', '')).lower() in ('image', 'image_url') for x in result):
+                        try:
+                            from kogniterm.core.utils.tool_image_utils import normalize_tool_result
+                            result = normalize_tool_result(
+                                result, tool_name=getattr(tool, 'name', 'tool') or 'tool'
+                            )
+                        except Exception:
+                            pass
                 elif hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
                     # Método estándar e idóneo para LangChain BaseTool / StructuredTool
                     result = tool.invoke(injected_args)
