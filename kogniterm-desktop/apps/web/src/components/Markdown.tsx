@@ -69,33 +69,37 @@ async function renderMarkdown(text: string): Promise<string> {
   return DOMPurify.sanitize(raw, { ADD_ATTR: ["target", "rel"] });
 }
 
-/** Markdown con highlight (shiki/github-dark) y streaming real en tiempo real.
- *
- * Problema anterior: debounce de 150ms con `setTimeout(reset)` → si los
- * chunks llegan más rápido que el debounce, `stable` nunca se actualiza
- * y el mensaje solo aparece al final (cuando el stream se detiene).
- *
- * Estrategia actual (doble vía):
- *  - `streaming=true` (mensaje con pending): render ligero SINCRONO e
- *    inmediato del texto crudo (escape + <br>, con fences sin cerrar
- *    tolerados). Sin debounce, sin shiki, sin async → el usuario ve cada
- *    token al instante.
- *  - `streaming=false` (mensaje finalizado): render completo async con
- *    marked + shiki una sola vez. Throttle (no debounce con starvation).
+// Renderizado síncrono ligero para streaming en tiempo real (sin shiki async)
+function renderMarkdownSync(text: string): string {
+  const m = new Marked({ gfm: true, breaks: true });
+  m.use({
+    renderer: {
+      link({ href, title, text }: { href: string; title?: string | null; text: string }) {
+        const t = title ? ` title="${escapeHtml(title)}"` : "";
+        return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${t}>${text}</a>`;
+      },
+      code({ text: code, lang }: { text: string; lang?: string }) {
+        return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
+      },
+    },
+  });
+  const raw = m.parse(text) as string;
+  return DOMPurify.sanitize(raw, { ADD_ATTR: ["target", "rel"] });
+}
+
+/** Markdown con highlight (shiki/github-dark) y streaming real en tiempo real con renderizado de Markdown.
  */
 export function Markdown(props: { text: string; center?: boolean; streaming?: boolean }) {
   const [stable, setStable] = createSignal(props.text);
   let timer: number | undefined;
   let lastFlush = 0;
-  const THROTTLE_MS = 300;
+  const THROTTLE_MS = 100;
 
   createEffect(() => {
     const cur = props.text;
     const streaming = props.streaming;
     clearTimeout(timer);
     if (streaming) {
-      // Durante el stream el render ligero ya muestra `cur` al instante;
-      // solo re-generamos el HTML completo como mucho cada THROTTLE_MS.
       const now = Date.now();
       const elapsed = now - lastFlush;
       if (elapsed >= THROTTLE_MS) {
@@ -118,8 +122,8 @@ export function Markdown(props: { text: string; center?: boolean; streaming?: bo
   // Solo se re-ejecuta cuando `stable` cambia (throttled), no por cada token.
   const [html] = createResource(stable, renderMarkdown);
 
-  // Vista streaming: texto crudo escapado, actualización síncrona por token.
-  const streamingHtml = () => escapeHtml(props.text).replace(/\n/g, "<br>");
+  // Vista streaming: renderizado markdown síncrono en tiempo real por token.
+  const streamingHtml = () => renderMarkdownSync(props.text);
 
   // Clics en enlaces: en Electron se delega a shell.openExternal vía preload
   // (evita que un <a> sin target navegue la ventana); en navegador basta con
@@ -146,7 +150,7 @@ export function Markdown(props: { text: string; center?: boolean; streaming?: bo
       innerHTML={
         props.streaming
           ? streamingHtml()
-          : (html() ?? escapeHtml(stable()).replace(/\n/g, "<br>"))
+          : (html() ?? renderMarkdownSync(stable()))
       }
     />
   );
