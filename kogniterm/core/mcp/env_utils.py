@@ -213,13 +213,23 @@ def normalize_mcp_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
 
         # Inyectar PATH enriquecido en variables de entorno del servidor
         env = dict(cfg.get("env") or {})
+        # Propagar variables de entorno del display/gráfico para que servidores MCP
+        # que lanzan navegadores (browser-use, playwright, etc.) puedan abrir una
+        # ventana visible cuando no se pasa headless. Si no, el subproceso queda
+        # sin DISPLAY y se ejecuta de forma efectivamente headless.
+        for _display_var in ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"):
+            if _display_var not in env and os.environ.get(_display_var):
+                env[_display_var] = os.environ[_display_var]
         enhanced_path = get_enhanced_path(env.get("PATH"))
         env["PATH"] = enhanced_path
 
         # Si es npx o npm, configurar variables que desactivan prompts interactivos
         if "npx" in base_name or "npm" in base_name:
             env.setdefault("npm_config_yes", "true")
-            env.setdefault("CI", "1")
+            # No forzar CI=1 cuando hay display: algunos servidores (browser-use,
+            # playwright) lo interpretan como entorno CI y arrancan en headless.
+            if "DISPLAY" not in env and "WAYLAND_DISPLAY" not in env:
+                env.setdefault("CI", "1")
 
         # Resolver ruta absoluta al ejecutable si es posible
         resolved_cmd = resolve_executable(raw_cmd, custom_path=enhanced_path)
