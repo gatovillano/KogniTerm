@@ -12,6 +12,7 @@ import { Wordmark } from "./Wordmark";
 import { tasksStore } from "../lib/tasks";
 import { WorkspaceFileItem, api } from "../lib/api";
 import { ToolIndicator } from "./ToolIndicator";
+import { ThinkingBlock } from "./ThinkingBlock";
 
 export function ChatView(props: { tabId: string }) {
   const session = useSession(props.tabId);
@@ -622,14 +623,7 @@ export function ChatView(props: { tabId: string }) {
                           /* Agente: diseño minimalista en escala de grises con texto seleccionable */
                           <div class="group relative w-full text-[13.5px] leading-relaxed text-[#f4f4f5] animate-slide-up select-text">
                             <Show when={m.thinking?.trim()}>
-                              <div class="thinking flex items-center gap-2 text-[12px] text-zinc-400 select-text mb-2">
-                                <span class="shrink-0 text-zinc-500">
-                                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                                    <path d="M9 5l7 7-7 7" />
-                                  </svg>
-                                </span>
-                                <span class="min-w-0 truncate font-mono">{m.thinking}</span>
-                              </div>
+                              <ThinkingBlock text={m.thinking} pending={m.pending} />
                             </Show>
                             <Markdown text={m.text} center streaming={m.pending} />
                             {m.pending && (
