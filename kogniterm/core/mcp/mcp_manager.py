@@ -86,6 +86,9 @@ class MCPManager:
         self.active_tools: List[Any] = []
         self.server_statuses: Dict[str, Dict[str, Any]] = {}
         self._on_reload_callbacks: List[Any] = []
+        # Sesiones MCP persistentes por servidor para mantener procesos (y navegador) abiertos
+        self._session_ctxs: Dict[str, Any] = {}
+        self._sessions: Dict[str, Any] = {}
 
     @classmethod
     def get_instance(cls) -> "MCPManager":
@@ -101,6 +104,14 @@ class MCPManager:
     async def reload(self):
         """Sincroniza los servidores activos y carga sus herramientas."""
         from kogniterm.core.mcp.env_utils import format_mcp_exception
+        # Cerrar sesiones persistentes anteriores
+        for _name in list(self._session_ctxs.keys()):
+            try:
+                await self._session_ctxs[_name].__aexit__(None, None, None)
+            except Exception:
+                pass
+        self._session_ctxs.clear()
+        self._sessions.clear()
         servers = self.config_manager.get_mcp_servers()
         self.active_tools.clear()
         self.server_statuses.clear()
@@ -151,6 +162,8 @@ class MCPManager:
             pass
 
         try:
+            from langchain_mcp_adapters.sessions import create_session
+            from langchain_mcp_adapters.tools import load_mcp_tools as _load
             if transport == "stdio":
                 cmd = norm_cfg.get("command")
                 if not cmd:
@@ -162,7 +175,6 @@ class MCPManager:
                 }
                 if norm_cfg.get("env"):
                     conn["env"] = norm_cfg.get("env")
-                return await load_mcp_tools(session=None, connection=conn, server_name=name)
             elif transport in ("sse", "http", "streamable_http", "websocket"):
                 url = norm_cfg.get("url")
                 if not url:
@@ -173,8 +185,21 @@ class MCPManager:
                 }
                 if norm_cfg.get("headers"):
                     conn["headers"] = norm_cfg.get("headers")
-                return await load_mcp_tools(session=None, connection=conn, server_name=name)
-            return []
+            else:
+                return []
+
+            # Abrir sesión persistente (mantiene el subproceso vivo)
+            cm = create_session(conn)
+            session = await cm.__aenter__()
+            try:
+                await session.initialize()
+            except Exception:
+                await cm.__aexit__(None, None, None)
+                raise
+            self._session_ctxs[name] = cm
+            self._sessions[name] = session
+            tools = await _load(session=session, server_name=name)
+            return tools
         except Exception as e:
             # Inspeccionar si el subproceso escribió un error en stderr (ej. npm error 404)
             recent_err = ""
