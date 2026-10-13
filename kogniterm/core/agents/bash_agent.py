@@ -280,6 +280,17 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
             base_content += "\n\n### 📚 MEMORIA CONTEXTUAL DEL PROYECTO:\nActualmente no existe el archivo `.kogniterm/llm_context.md`. Debes sugerir al usuario ejecutar `/init` al inicio de la interacción para realizar la investigación y construirla automáticamente.\n"
     except Exception:
         pass
+    # --- Contexto GLOBAL de usuario (~/.kogniterm/user_context.md) ---
+    try:
+        from kogniterm.core.context.user_context_manager import UserContextManager
+        ucm = UserContextManager.get_instance()
+        user_ctx = ucm.get_context()
+        if user_ctx and ucm.is_populated():
+            base_content += f"\n\n### 🧑 CONTEXTO GLOBAL DEL USUARIO (user_context.md):\nInformación persistente sobre el usuario, compartida en todos sus proyectos. Adáptate a sus preferencias, respeta su stack y tenla en cuenta en cada decisión:\n{user_ctx}\n"
+        elif user_ctx:
+            base_content += "\n\n### 🧑 CONTEXTO GLOBAL DEL USUARIO:\nExiste `~/.kogniterm/user_context.md` pero aún no está poblado. Si el usuario comparte información duradera sobre sí mismo (nombre, preferencias, stack, proyectos), OFRÉCELE guardarla en su contexto global para que la recuerdes en el futuro.\n"
+    except Exception as _ucm_exc:
+        logger.debug(f"Error inyectando contexto global de usuario: {_ucm_exc}")
     try:
         from kogniterm.core.mcp.mcp_manager import MCPManager
         mcp_prompt = MCPManager.get_instance().get_prompt_instructions()
