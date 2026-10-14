@@ -253,6 +253,7 @@ class MCPManager:
                     tool_name = getattr(tool, "name", "")
 
                     async def make_resilient_call(orig_coro=orig_coro, tool_name=tool_name, **arguments: Any):
+                        logger.info(f"[MCP] Llamando tool {tool_name} en {name} args={list(arguments.keys())}")
                         srv_name = name
                         if not self.is_session_alive(srv_name):
                             cfg = self._session_configs.get(srv_name, config_dict)
@@ -260,7 +261,9 @@ class MCPManager:
                             if not await self.connect_server(srv_name, cfg):
                                 raise RuntimeError(f"Sesión MCP {srv_name} no disponible")
                         try:
-                            return await asyncio.wait_for(orig_coro(**arguments), timeout=300.0)
+                            result = await asyncio.wait_for(orig_coro(**arguments), timeout=300.0)
+                            logger.info(f"[MCP] Tool {tool_name} OK")
+                            return result
                         except Exception as exc:
                             exc_name = type(exc).__name__
                             if "ClosedResourceError" in exc_name or "ClosedResourceError" in str(exc):
