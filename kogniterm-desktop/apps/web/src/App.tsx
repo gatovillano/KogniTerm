@@ -7,6 +7,7 @@ import { TerminalPanel } from "./components/TerminalPanel";
 import { ConversationsView } from "./components/ConversationsView";
 import { approvals } from "./lib/approvals";
 import { setAutoApprove } from "./lib/session";
+import { theme, toggleTheme } from "./lib/theme";
 import { api, type LLMConfig } from "./lib/api";
 import { tabs } from "./lib/tabs";
 
@@ -168,6 +169,14 @@ export function App() {
               </div>
             </Show>
           </div>
+
+          <button
+            class="w-7 h-7 flex items-center justify-center rounded-full text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all duration-300 active:scale-90 text-[14px]"
+            onClick={toggleTheme}
+            title={theme() === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+          >
+            {theme() === "dark" ? "☀" : "☾"}
+          </button>
 
           <button
             class="w-7 h-7 flex items-center justify-center rounded-full text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all duration-300 active:rotate-180 text-[13px]"
