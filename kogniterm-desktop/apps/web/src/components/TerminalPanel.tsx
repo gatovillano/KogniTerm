@@ -67,7 +67,7 @@ export function TerminalPanel(props: { tabId: string }) {
         cursorBlink: true,
         scrollback: 5000,
         theme: {
-          background: "#090a0f",
+          background: "#0a0a0a",
           foreground: "#f4f4f5",
           cursor: "#e4e4e7",
           selectionBackground: "rgba(255, 255, 255, 0.28)",
@@ -143,7 +143,7 @@ export function TerminalPanel(props: { tabId: string }) {
   }
 
   return (
-    <div class="flex flex-col h-full bg-[#080b11]">
+    <div class="flex flex-col h-full bg-[#0c0c0c]">
       {/* Cabecera minimalista sin bordes */}
       <div class="flex items-center gap-2.5 px-4 py-2 bg-white/[0.02] text-[12px] select-none">
         <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.04]">
@@ -156,10 +156,10 @@ export function TerminalPanel(props: { tabId: string }) {
                   : "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.7)]"
             }`}
           />
-          <span class="text-slate-300 font-mono text-[11px]">pty</span>
+          <span class="text-zinc-300 font-mono text-[11px]">pty</span>
         </div>
 
-        <span class="text-slate-400 font-mono text-[11px] truncate max-w-[180px]" title={cwd() ?? ptyId()}>
+        <span class="text-zinc-400 font-mono text-[11px] truncate max-w-[180px]" title={cwd() ?? ptyId()}>
           {cwd() ?? ptyId()}
         </span>
 
@@ -169,7 +169,7 @@ export function TerminalPanel(props: { tabId: string }) {
           class={`h-6 px-2.5 rounded-full flex items-center gap-1.5 transition-all text-[11px] font-medium ${
             copied()
               ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-              : "text-slate-400 hover:text-white hover:bg-white/[0.08]"
+              : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
           }`}
           onClick={handleCopy}
           onMouseDown={(e) => e.preventDefault()}
@@ -194,14 +194,14 @@ export function TerminalPanel(props: { tabId: string }) {
         </button>
 
         <button
-          class="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all"
           onClick={reconnect}
           title="Reconectar al mismo shell"
         >
           ↻
         </button>
         <button
-          class="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-red-300 hover:bg-red-500/10 transition-all text-[11px]"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-red-300 hover:bg-red-500/10 transition-all text-[11px]"
           onClick={restart}
           title="Matar shell y empezar uno nuevo"
         >

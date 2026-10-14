@@ -62,7 +62,7 @@ export function AgentSelector(props: AgentSelectorProps) {
         class={`flex h-[36px] max-w-[200px] items-center gap-2 rounded-xl px-3 text-[12.5px] font-medium transition-all duration-200 active:scale-95 ${
           agentState.selected()
             ? "bg-white/[0.06] hover:bg-white/[0.1] text-white"
-            : "cursor-not-allowed bg-white/[0.02] text-slate-500"
+            : "cursor-not-allowed bg-white/[0.02] text-zinc-500"
         }`}
       >
         <span aria-hidden="true" class="w-2 h-2 rounded-full bg-zinc-300 shadow-[0_0_6px_rgba(255,255,255,0.4)]" />
@@ -112,8 +112,8 @@ export function AgentSelector(props: AgentSelectorProps) {
                     />
                     <span class="min-w-0 flex-1">
                       <span class="block truncate text-[13px] font-semibold text-white">{agent.name}</span>
-                      <span class="block text-[12px] leading-snug text-slate-400 line-clamp-2 mt-0.5">{agent.description}</span>
-                      <span class="mt-1 block font-mono text-[10.5px] text-slate-400">{agent.engine}</span>
+                      <span class="block text-[12px] leading-snug text-zinc-400 line-clamp-2 mt-0.5">{agent.description}</span>
+                      <span class="mt-1 block font-mono text-[10.5px] text-zinc-400">{agent.engine}</span>
                     </span>
                   </button>
                 );

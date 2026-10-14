@@ -130,23 +130,23 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   }
 
   return (
-    <div class="h-full overflow-y-auto bg-[#080b11] select-none">
+    <div class="h-full overflow-y-auto bg-[#0c0c0c] select-none">
       <div class="mx-auto w-full max-w-3xl px-6 py-10 text-left">
         <div class="flex items-center gap-3 mb-1.5">
           <h1 class="text-[20px] font-semibold text-white tracking-tight">Conversaciones</h1>
-          <span class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.06] text-slate-400">
+          <span class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-400">
             {totalShown()} en {groups().length} workspace(s)
           </span>
           <div class="flex-1" />
           <button
             onClick={refresh}
-            class="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all"
+            class="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all"
             title="Recargar"
           >
             ↻
           </button>
         </div>
-        <p class="text-[13px] text-slate-400 mb-6">
+        <p class="text-[13px] text-zinc-400 mb-6">
           Historial de sesiones persistidas en el backend de KogniTerm, organizadas por proyecto.
         </p>
 
@@ -239,7 +239,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                                 e.stopPropagation();
                                 void remove(t);
                               }}
-                              class="w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[12px]"
+                              class="w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[12px]"
                               title="Eliminar conversación"
                             >
                               ✕
@@ -250,7 +250,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                       <Show when={g.items.length > PAGE}>
                         <button
                           onClick={() => setExpanded((e) => ({ ...e, [g.dir]: !e[g.dir] }))}
-                          class="w-full text-center py-2 rounded-xl text-[12px] text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all mt-1"
+                          class="w-full text-center py-2 rounded-xl text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.04] transition-all mt-1"
                         >
                           {expanded()[g.dir] ? "− Ver menos" : `Ver ${g.items.length - PAGE} más…`}
                         </button>
@@ -265,13 +265,13 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
 
         <Show when={!loading() && workspaces().length > 0}>
           <section class="mt-10 pt-6">
-            <h2 class="text-[12px] font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            <h2 class="text-[12px] font-semibold text-zinc-400 uppercase tracking-wider mb-3">
               Workspaces registrados
             </h2>
             <div class="flex flex-wrap gap-2">
               <For each={workspaces()}>
                 {(w) => (
-                  <span class="text-[11.5px] font-mono px-3 py-1 rounded-full bg-white/[0.04] text-slate-400">
+                  <span class="text-[11.5px] font-mono px-3 py-1 rounded-full bg-white/[0.04] text-zinc-400">
                     {w.name}
                   </span>
                 )}

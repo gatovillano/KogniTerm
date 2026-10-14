@@ -98,7 +98,7 @@ export function App() {
   }
 
   return (
-    <div class="h-screen w-screen flex flex-col bg-[#090a0f] text-[#f4f4f5]">
+    <div class="h-screen w-screen flex flex-col bg-[#0a0a0a] text-[#f4f4f5]">
       {/* Topbar: pestañas arriba, sin título KogniTerm v3 */}
       <header class="glass-header z-30 flex items-center gap-2 pl-2 pr-4 py-2 transition-all select-none">
         <div class="flex-1 min-w-0">

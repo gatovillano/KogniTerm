@@ -545,7 +545,7 @@ export function ChatView(props: { tabId: string }) {
   }
 
   return (
-    <div class="flex flex-col h-full bg-[#090a0f] text-[#f4f4f5]">
+    <div class="flex flex-col h-full bg-[#0a0a0a] text-[#f4f4f5]">
       {/* Barra de estado minimalista y sin bordes */}
       <div class="flex items-center gap-2.5 px-5 py-2 text-[12px] text-zinc-400 bg-white/[0.015] select-none">
         <div class="flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/[0.04]">
@@ -778,7 +778,7 @@ export function ChatView(props: { tabId: string }) {
       </div>
 
       {/* Dock de entrada flotante y curvo al pie de página (tonos grises) */}
-      <div class="p-4 bg-gradient-to-t from-[#090a0f] via-[#090a0f]/95 to-transparent">
+      <div class="p-4 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent">
         <div class="max-w-3xl mx-auto relative">
           <ChatAutocomplete
             tabId={props.tabId}
@@ -965,7 +965,7 @@ export function ChatView(props: { tabId: string }) {
                   }
                   class="w-9 h-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-white/[0.08] flex items-center justify-center font-medium shadow-sm transition-all duration-200 active:scale-90 disabled:opacity-30 disabled:pointer-events-none"
                 >
-                  <svg class="w-4 h-4 fill-current rotate-45 transform -translate-x-0.5 translate-y-0.5" viewBox="0 0 20 20">
+                  <svg class="w-4 h-4 fill-current rotate-45 transform -tranzinc-x-0.5 tranzinc-y-0.5" viewBox="0 0 20 20">
                     <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
                   </svg>
                 </button>

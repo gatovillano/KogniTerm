@@ -41,25 +41,25 @@ export function ApprovalDialog(props: { tabId: string }) {
 
             {/* Contenido */}
             <div class="space-y-3 mb-6 select-text">
-              <p class="text-[13px] text-slate-200 whitespace-pre-wrap font-mono bg-black/40 rounded-2xl p-3.5 leading-relaxed">
+              <p class="text-[13px] text-zinc-200 whitespace-pre-wrap font-mono bg-black/40 rounded-2xl p-3.5 leading-relaxed">
                 {req().message}
               </p>
               <Show when={req().file_path}>
-                <p class="text-[12px] text-slate-400 px-1">
-                  Archivo: <span class="font-mono text-slate-200">{req().file_path}</span>
+                <p class="text-[12px] text-zinc-400 px-1">
+                  Archivo: <span class="font-mono text-zinc-200">{req().file_path}</span>
                 </p>
               </Show>
               <Show when={req().diff}>
                 <details class="text-[12px]">
-                  <summary class="cursor-pointer text-slate-400 hover:text-white px-1 font-medium transition-colors">
+                  <summary class="cursor-pointer text-zinc-400 hover:text-white px-1 font-medium transition-colors">
                     Ver diff del cambio
                   </summary>
-                  <pre class="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap font-mono bg-black/50 rounded-2xl p-3.5 text-slate-200 text-[11.5px] leading-relaxed">
+                  <pre class="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap font-mono bg-black/50 rounded-2xl p-3.5 text-zinc-200 text-[11.5px] leading-relaxed">
                     {req().diff}
                   </pre>
                 </details>
               </Show>
-              <p class="text-[11.5px] text-slate-400 px-1">
+              <p class="text-[11.5px] text-zinc-400 px-1">
                 La ejecución está en pausa esperando tu confirmación.
               </p>
             </div>

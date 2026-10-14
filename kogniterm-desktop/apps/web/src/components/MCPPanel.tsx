@@ -3,7 +3,7 @@ import { api, type MCPServerStatus, type MCPScope } from "../lib/api";
 
 function dot(status?: string, disabled?: boolean) {
   if (disabled || status === "disabled") {
-    return <span class="w-2 h-2 rounded-full bg-slate-500" title="Deshabilitado" />;
+    return <span class="w-2 h-2 rounded-full bg-zinc-500" title="Deshabilitado" />;
   }
   if (status === "connected") {
     return <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" title="Conectado" />;
@@ -265,13 +265,13 @@ export function MCPPanel() {
       </Show>
 
       <div class="flex items-center px-1">
-        <span class="text-[12px] text-slate-400 font-mono">
+        <span class="text-[12px] text-zinc-400 font-mono">
           {loading() ? "Cargando…" : `${names().length} servidor(es)`}
         </span>
         <div class="flex-1" />
         <button
           onClick={refresh}
-          class="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all mr-1"
+          class="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all mr-1"
           title="Recargar lista"
         >
           ↻
@@ -287,7 +287,7 @@ export function MCPPanel() {
       {/* ── lista ── */}
       <div class="max-h-[240px] overflow-y-auto space-y-1.5">
         <Show when={names().length === 0 && !loading()}>
-          <p class="py-8 text-[12.5px] text-slate-400 text-center">Sin servidores MCP. Añade uno con ＋ Añadir.</p>
+          <p class="py-8 text-[12.5px] text-zinc-400 text-center">Sin servidores MCP. Añade uno con ＋ Añadir.</p>
         </Show>
         <For each={names()}>
           {(name) => {
@@ -298,7 +298,7 @@ export function MCPPanel() {
                 <div class="flex items-center gap-2.5">
                   {dot(s().status, s().disabled)}
                   <span class="text-[13.5px] text-white font-semibold font-mono">{name}</span>
-                  <span class="text-[11px] text-slate-400 font-mono px-2 py-0.5 rounded-full bg-white/[0.04]">
+                  <span class="text-[11px] text-zinc-400 font-mono px-2 py-0.5 rounded-full bg-white/[0.04]">
                     {s().transport ?? "stdio"}
                   </span>
                   <Show when={s().source}>
@@ -326,7 +326,7 @@ export function MCPPanel() {
                   <button
                     onClick={() => toggle(name)}
                     disabled={busy() !== null}
-                    class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white transition-all active:scale-90 text-[11px] disabled:opacity-50"
+                    class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white transition-all active:scale-90 text-[11px] disabled:opacity-50"
                     title="Activar / desactivar"
                   >
                     {busy() === `t:${name}` ? "…" : s().disabled ? "▶" : "⏸"}
@@ -334,14 +334,14 @@ export function MCPPanel() {
                   <button
                     onClick={() => remove(name)}
                     disabled={busy() !== null}
-                    class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] hover:bg-red-500/20 text-slate-400 hover:text-red-300 transition-all active:scale-90 text-[11px] disabled:opacity-50"
+                    class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] hover:bg-red-500/20 text-zinc-400 hover:text-red-300 transition-all active:scale-90 text-[11px] disabled:opacity-50"
                     title="Eliminar"
                   >
                     ✕
                   </button>
                 </div>
                 <Show when={tools().length > 0}>
-                  <p class="text-[11.5px] text-slate-400 font-mono mt-1.5 truncate" title={tools().join(", ")}>
+                  <p class="text-[11.5px] text-zinc-400 font-mono mt-1.5 truncate" title={tools().join(", ")}>
                     🔧 {tools().slice(0, 6).join(", ")}
                     {tools().length > 6 ? ` +${tools().length - 6}` : ""}
                   </p>
@@ -365,7 +365,7 @@ export function MCPPanel() {
                 class={`px-3 py-1 rounded-lg text-[12px] font-medium transition-all ${
                   addMode() === "form"
                     ? "bg-white/[0.12] text-white"
-                    : "text-slate-400 hover:text-white hover:bg-white/[0.05]"
+                    : "text-zinc-400 hover:text-white hover:bg-white/[0.05]"
                 }`}
               >
                 Formulario
@@ -375,7 +375,7 @@ export function MCPPanel() {
                 class={`px-3 py-1 rounded-lg text-[12px] font-medium transition-all ${
                   addMode() === "json"
                     ? "bg-white/[0.12] text-white"
-                    : "text-slate-400 hover:text-white hover:bg-white/[0.05]"
+                    : "text-zinc-400 hover:text-white hover:bg-white/[0.05]"
                 }`}
               >
                 Pegar JSON (Claude / mcpservers)
@@ -403,11 +403,11 @@ export function MCPPanel() {
                   rows={6}
                   class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2.5 text-[12px] font-mono text-white placeholder-zinc-500 outline-none transition-all resize-y"
                 />
-                <div class="flex justify-between items-center text-[11px] text-slate-400">
+                <div class="flex justify-between items-center text-[11px] text-zinc-400">
                   <span>💡 Detecta automáticamente formato Claude Desktop, mcpservers.org o lista de servidores.</span>
                   <button
                     onClick={() => populateFromJson(rawJson())}
-                    class="text-indigo-400 hover:text-indigo-300 font-medium px-2 py-1"
+                    class="text-zinc-300 hover:text-white font-medium px-2 py-1"
                   >
                     Rellenar en formulario ↗
                   </button>

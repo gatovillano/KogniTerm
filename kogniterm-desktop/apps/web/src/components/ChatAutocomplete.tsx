@@ -250,7 +250,7 @@ export function ChatAutocomplete(props: ChatAutocompleteProps) {
                 </span>
               }
             >
-              <span class="flex items-center gap-1.5 font-medium text-indigo-400">
+              <span class="flex items-center gap-1.5 font-medium text-zinc-300">
                 <span>📁</span>
                 <span>Archivos del Workspace</span>
               </span>
@@ -265,7 +265,7 @@ export function ChatAutocomplete(props: ChatAutocompleteProps) {
           <div class="flex items-center gap-3 text-[11px] text-zinc-500">
             <Show when={loading()}>
               <span class="flex items-center gap-1 text-zinc-400">
-                <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                <span class="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse" />
                 Buscando…
               </span>
             </Show>
@@ -352,7 +352,7 @@ export function ChatAutocomplete(props: ChatAutocompleteProps) {
                           <Show when={dirpath}>
                             <span class="text-zinc-500 font-mono text-[12px] truncate">{dirpath}</span>
                           </Show>
-                          <span class={`font-mono truncate ${isDir ? "text-indigo-300 font-medium" : "text-zinc-100"}`}>
+                          <span class={`font-mono truncate ${isDir ? "text-zinc-200 font-medium" : "text-zinc-100"}`}>
                             {filename}
                           </span>
                         </div>
@@ -365,7 +365,7 @@ export function ChatAutocomplete(props: ChatAutocompleteProps) {
                           </span>
                         </Show>
                         <Show when={isDir}>
-                          <span class="text-[10px] font-semibold uppercase tracking-wider text-indigo-400/90 px-1.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
+                          <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-300 px-1.5 py-0.5 rounded-full bg-white/[0.06] border border-white/[0.08]">
                             Carpeta
                           </span>
                         </Show>

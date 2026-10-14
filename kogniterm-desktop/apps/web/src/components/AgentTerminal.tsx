@@ -87,7 +87,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
       fontSize: 12,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       theme: {
-        background: "#05070d",
+        background: "#080808",
         foreground: "#f4f4f5",
         cursor: "#e4e4e7",
         selectionBackground: "rgba(255, 255, 255, 0.28)",
@@ -138,17 +138,17 @@ export function AgentTerminal(props: AgentTerminalProps) {
   });
 
   return (
-    <div class="w-full overflow-hidden rounded-2xl bg-[#05070d] shadow-[0_8px_32px_rgba(0,0,0,0.55)] transition-all">
+    <div class="w-full overflow-hidden rounded-2xl bg-[#080808] shadow-[0_8px_32px_rgba(0,0,0,0.55)] transition-all">
       {/* Cabecera estilizada con dots y comandos */}
-      <div class="flex items-center gap-2.5 bg-[#0b0f19] px-4 py-2 text-[12px] select-none">
+      <div class="flex items-center gap-2.5 bg-[#131314] px-4 py-2 text-[12px] select-none">
         <div class="flex items-center gap-1.5 mr-1">
           <span class="w-2.5 h-2.5 rounded-full bg-red-500/80" />
           <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
         </div>
         
-        <span class="text-[11px] font-mono text-slate-400">terminal</span>
-        <span class="truncate font-mono text-slate-200 text-[11.5px] max-w-sm" title={displayCommand()}>
+        <span class="text-[11px] font-mono text-zinc-400">terminal</span>
+        <span class="truncate font-mono text-zinc-200 text-[11.5px] max-w-sm" title={displayCommand()}>
           $ {displayCommand()}
         </span>
 
@@ -165,7 +165,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
           </span>
         </Show>
         <Show when={!props.active}>
-          <span class="rounded-full bg-white/[0.05] px-2.5 py-0.5 text-[10.5px] text-slate-400">
+          <span class="rounded-full bg-white/[0.05] px-2.5 py-0.5 text-[10.5px] text-zinc-400">
             finalizada
           </span>
         </Show>
@@ -174,7 +174,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
           class={`h-6 px-2.5 rounded-full flex items-center gap-1.5 transition-all text-[11px] font-medium ml-1.5 ${
             copied()
               ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-              : "text-slate-400 hover:text-white hover:bg-white/[0.08]"
+              : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
           }`}
           onClick={handleCopy}
           onMouseDown={(e) => e.preventDefault()}
@@ -202,7 +202,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
       <div ref={hostRef} class="h-56 w-full px-2 py-1 select-text" />
 
       {/* Pie de terminal */}
-      <div class="flex items-center gap-2 bg-[#0b0f19] px-4 py-1.5 text-[11px] text-slate-400 select-none">
+      <div class="flex items-center gap-2 bg-[#131314] px-4 py-1.5 text-[11px] text-zinc-400 select-none">
         <Show
           when={props.active}
           fallback={<span>Salida de ejecución vinculada al proceso del agente.</span>}
@@ -210,7 +210,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
           <span>Envío interactivo activo: flechas, contraseñas y Ctrl+C.</span>
           <div class="flex-1" />
           <button
-            class="rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-2.5 py-0.5 text-[11px] font-mono text-slate-200 hover:text-white transition-all active:scale-95"
+            class="rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-2.5 py-0.5 text-[11px] font-mono text-zinc-200 hover:text-white transition-all active:scale-95"
             title="Enviar señal Ctrl+C (interrumpir)"
             onClick={() => props.onInput("\x03")}
           >

@@ -13,7 +13,7 @@ function Shell(props: { title: string; onClose: () => void; children: any }) {
           <span class="text-white text-[16px] font-semibold tracking-tight">{props.title}</span>
           <div class="flex-1" />
           <button
-            class="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/[0.08] transition-all text-[13px]"
+            class="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all text-[13px]"
             onClick={props.onClose}
           >
             ✕
@@ -67,11 +67,11 @@ export function ProviderModal(props: { current: LLMConfig | null; onClose: () =>
               onClick={() => pick(p.id)}
               class="w-full text-left px-4 py-2.5 rounded-2xl hover:bg-white/[0.06] flex items-center gap-3 transition-all active:scale-[0.98]"
             >
-              <Show when={props.current?.provider === p.id} fallback={<span class="w-2 h-2 rounded-full bg-slate-600" />}>
+              <Show when={props.current?.provider === p.id} fallback={<span class="w-2 h-2 rounded-full bg-zinc-600" />}>
                 <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
               </Show>
               <span class="text-[13.5px] text-white font-medium">{p.label}</span>
-              <span class="text-[11px] text-slate-400 font-mono ml-auto">{p.id}</span>
+              <span class="text-[11px] text-zinc-400 font-mono ml-auto">{p.id}</span>
               <Show when={busy() === p.id}>
                 <span class="text-[11px] text-amber-300">…</span>
               </Show>
@@ -79,7 +79,7 @@ export function ProviderModal(props: { current: LLMConfig | null; onClose: () =>
           )}
         </For>
       </div>
-      <p class="pt-3 text-[11.5px] text-slate-400">Igual que /provider en TUI. Cambia default_model y recarga sesiones.</p>
+      <p class="pt-3 text-[11.5px] text-zinc-400">Igual que /provider en TUI. Cambia default_model y recarga sesiones.</p>
     </Shell>
   );
 }
@@ -134,7 +134,7 @@ export function ModelModal(props: { current: LLMConfig | null; onClose: () => vo
           )}
         </For>
         <Show when={list().length === 0 && !err()}>
-          <p class="py-6 text-[12.5px] text-slate-400 text-center">Sin resultados para el filtro.</p>
+          <p class="py-6 text-[12.5px] text-zinc-400 text-center">Sin resultados para el filtro.</p>
         </Show>
       </div>
     </Shell>
@@ -267,7 +267,7 @@ export function UnifiedSettingsModal(props: {
           <button
             onClick={() => switchTab(t)}
             class={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150 active:scale-95 shrink-0 ${
-              tab() === t ? "bg-white/[0.12] text-white shadow-sm" : "text-slate-400 hover:text-white"
+              tab() === t ? "bg-white/[0.12] text-white shadow-sm" : "text-zinc-400 hover:text-white"
             }`}
           >
             {t === "provider"
@@ -285,7 +285,7 @@ export function UnifiedSettingsModal(props: {
         <Show when={tab() === "provider" || tab() === "models"}>
           <button
             onClick={() => void loadModels(selProv())}
-            class="px-2.5 py-1 text-[11px] text-slate-400 hover:text-white rounded-full transition-all"
+            class="px-2.5 py-1 text-[11px] text-zinc-400 hover:text-white rounded-full transition-all"
             title="Recargar modelos desde la API del proveedor"
           >
             ↻ recargar
@@ -314,11 +314,11 @@ export function UnifiedSettingsModal(props: {
                 onClick={() => pickProvider(p.id)}
                 class="w-full text-left px-4 py-2.5 rounded-2xl hover:bg-white/[0.06] flex items-center gap-3 transition-all active:scale-[0.98]"
               >
-                <Show when={selProv() === p.id} fallback={<span class="w-2 h-2 rounded-full bg-slate-600" />}>
+                <Show when={selProv() === p.id} fallback={<span class="w-2 h-2 rounded-full bg-zinc-600" />}>
                   <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
                 </Show>
                 <span class="text-[13px] text-white font-medium">{p.label}</span>
-                <span class="text-[11px] text-slate-400 font-mono ml-auto">{p.id}</span>
+                <span class="text-[11px] text-zinc-400 font-mono ml-auto">{p.id}</span>
                 <Show when={busyProv() === p.id}>
                   <span class="text-[11px] text-amber-300">…</span>
                 </Show>
@@ -326,13 +326,13 @@ export function UnifiedSettingsModal(props: {
             )}
           </For>
         </div>
-        <p class="pt-3 text-[11.5px] text-slate-400">Elegir proveedor lo activa y salta a Modelos con la lista en vivo de su API.</p>
+        <p class="pt-3 text-[11.5px] text-zinc-400">Elegir proveedor lo activa y salta a Modelos con la lista en vivo de su API.</p>
       </Show>
 
       {/* ── MODELS ── */}
       <Show when={tab() === "models"}>
         <div class="px-2 py-1 flex items-center gap-2 mb-2">
-          <span class="text-[12px] text-slate-400">Proveedor:</span>
+          <span class="text-[12px] text-zinc-400">Proveedor:</span>
           <select
             value={selProv()}
             onChange={(e) => {
@@ -362,7 +362,7 @@ export function UnifiedSettingsModal(props: {
             )}
           </For>
           <Show when={modelList().length === 0 && !modelsErr() && !loadingModels()}>
-            <p class="py-6 text-[12px] text-slate-400 text-center">Sin resultados para el filtro.</p>
+            <p class="py-6 text-[12px] text-zinc-400 text-center">Sin resultados para el filtro.</p>
           </Show>
         </div>
       </Show>
@@ -546,12 +546,12 @@ export function KeysModal(props: { onClose: () => void; onDone: () => void }) {
                 class="w-full text-left px-4 py-2.5 rounded-2xl hover:bg-white/[0.06] flex items-center gap-3 transition-all active:scale-[0.98]"
               >
                 <span class="text-[13.5px] text-white capitalize font-medium">{k.id}</span>
-                <span class="text-[11px] text-slate-400 font-mono ml-auto">{k.env}</span>
+                <span class="text-[11px] text-zinc-400 font-mono ml-auto">{k.env}</span>
               </button>
             )}
           </For>
         </div>
-        <p class="pt-3 text-[11.5px] text-slate-400">Igual que /keys en TUI. POST /config/llm con provider + api_key.</p>
+        <p class="pt-3 text-[11.5px] text-zinc-400">Igual que /keys en TUI. POST /config/llm con provider + api_key.</p>
       </Show>
     </Shell>
   );
