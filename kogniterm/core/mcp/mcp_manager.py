@@ -92,6 +92,7 @@ class MCPManager:
         self._session_ctxs: Dict[str, Any] = {}
         self._sessions: Dict[str, Any] = {}
         self._session_configs: Dict[str, Dict[str, Any]] = {}
+        self._session_locks: Dict[str, asyncio.Lock] = {}
 
     @classmethod
     def get_instance(cls) -> "MCPManager":
@@ -255,29 +256,31 @@ class MCPManager:
                     async def make_resilient_call(orig_coro=orig_coro, tool_name=tool_name, **arguments: Any):
                         logger.info(f"[MCP] Llamando tool {tool_name} en {name} args={list(arguments.keys())}")
                         srv_name = name
-                        if not self.is_session_alive(srv_name):
-                            cfg = self._session_configs.get(srv_name, config_dict)
-                            await self.disconnect_server(srv_name)
-                            if not await self.connect_server(srv_name, cfg):
-                                raise RuntimeError(f"Sesión MCP {srv_name} no disponible")
-                        try:
-                            result = await asyncio.wait_for(orig_coro(**arguments), timeout=300.0)
-                            logger.info(f"[MCP] Tool {tool_name} OK")
-                            return result
-                        except Exception as exc:
-                            exc_name = type(exc).__name__
-                            if "ClosedResourceError" in exc_name or "ClosedResourceError" in str(exc):
-                                logger.warning(
-                                    f"Conexión perdida con servidor MCP {name} ({tool_name}). Reconectando y reintentando..."
-                                )
+                        lock = self._session_locks.setdefault(srv_name, asyncio.Lock())
+                        async with lock:
+                            if not self.is_session_alive(srv_name):
                                 cfg = self._session_configs.get(srv_name, config_dict)
                                 await self.disconnect_server(srv_name)
-                                if await self.connect_server(srv_name, cfg):
-                                    new_session = self._sessions.get(srv_name)
-                                    if new_session is not None:
-                                        result = await new_session.call_tool(tool_name, arguments)
-                                        return _convert_call_tool_result(result)
-                            raise
+                                if not await self.connect_server(srv_name, cfg):
+                                    raise RuntimeError(f"Sesión MCP {srv_name} no disponible")
+                            try:
+                                result = await asyncio.wait_for(orig_coro(**arguments), timeout=300.0)
+                                logger.info(f"[MCP] Tool {tool_name} OK")
+                                return result
+                            except Exception as exc:
+                                exc_name = type(exc).__name__
+                                if "ClosedResourceError" in exc_name or "ClosedResourceError" in str(exc):
+                                    logger.warning(
+                                        f"Conexión perdida con servidor MCP {name} ({tool_name}). Reconectando y reintentando..."
+                                    )
+                                    cfg = self._session_configs.get(srv_name, config_dict)
+                                    await self.disconnect_server(srv_name)
+                                    if await self.connect_server(srv_name, cfg):
+                                        new_session = self._sessions.get(srv_name)
+                                        if new_session is not None:
+                                            result = await new_session.call_tool(tool_name, arguments)
+                                            return _convert_call_tool_result(result)
+                                raise
 
                     tool.coroutine = make_resilient_call
 
