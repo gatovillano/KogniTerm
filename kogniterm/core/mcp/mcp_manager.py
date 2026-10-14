@@ -252,8 +252,7 @@ class MCPManager:
                 if orig_coro:
                     tool_name = getattr(tool, "name", "")
 
-                    async def make_resilient_call(**arguments: Any):
-                        nonlocal orig_coro
+                    async def make_resilient_call(orig_coro=orig_coro, tool_name=tool_name, **arguments: Any):
                         srv_name = name
                         if not self.is_session_alive(srv_name):
                             cfg = self._session_configs.get(srv_name, config_dict)
