@@ -800,9 +800,31 @@ class CLIHandler:
             print("❌ Error: No se pudo encontrar el directorio de KogniTerm Desktop.")
             return
 
+        # Si el candidato elegido no tiene dependencias instaladas (sin binario
+        # de Electron) pero otro candidato sí, preferir el que sí las tiene.
+        # Evita el caso: lanzar desde ~ resuelve a ~/.kogniterm/repo (stale,
+        # sin node_modules) cuando el repo de trabajo sí tiene Electron.
+        def _has_electron(d: str) -> bool:
+            return (
+                os.path.isfile(os.path.join(d, "node_modules", ".bin", "electron"))
+                or os.path.isfile(os.path.join(d, "apps", "electron", "node_modules", ".bin", "electron"))
+            )
+
+        if not _has_electron(desktop_dir):
+            for candidate in (cwd_desktop, package_desktop, alt_desktop):
+                if candidate != desktop_dir and os.path.isdir(candidate) and _has_electron(candidate):
+                    print(f"ℹ️  Usando {candidate} (tiene Electron instalado).", flush=True)
+                    desktop_dir = candidate
+                    break
+
         script_path = os.path.join(desktop_dir, "start.sh")
         if not os.path.exists(script_path):
             print(f"❌ Error: No se encontró el script de inicio en {script_path}")
+            return
+
+        if not _has_electron(desktop_dir) and not shutil.which("electron"):
+            print(f"❌ No se encontró el ejecutable de Electron en {desktop_dir}.")
+            print(f"   Instala las dependencias con: cd {desktop_dir} && npm install")
             return
 
         print("🚀 Iniciando KogniTerm Desktop...")
