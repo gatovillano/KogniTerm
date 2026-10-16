@@ -115,16 +115,19 @@ managing command approval from the user in the KogniTerm application.
 class CommandApprovalHandler:
     def __init__(self, llm_service: LLMService, command_executor: CommandExecutor,
                  prompt_session: PromptSession, terminal_ui: TerminalUI, agent_state: AgentState,
-                 file_update_tool: Any = None, advanced_file_editor_tool: Any = None, file_operations_tool: Any = None):
+                 file_update_tool: Any = None, advanced_file_editor_tool: Any = None, file_operations_tool: Any = None,
+                 interrupt_queue: Optional[Any] = None):
         self.llm_service = llm_service
         self.command_executor = command_executor
         self.prompt_session = prompt_session
         self.terminal_ui = terminal_ui
         self.agent_state = agent_state
-        self._interrupt_queue = None
-        if terminal_ui and hasattr(terminal_ui, "get_interrupt_queue"):
+        # Cola de interrupción propia de la sesión; si no se pasa, se
+        # resuelve contra el terminal_ui (cola compartida).
+        self._interrupt_queue = interrupt_queue
+        if self._interrupt_queue is None and terminal_ui and hasattr(terminal_ui, "get_interrupt_queue"):
             self._interrupt_queue = terminal_ui.get_interrupt_queue()
-        else:
+        elif self._interrupt_queue is None:
             self._interrupt_queue = getattr(terminal_ui, "interrupt_queue", None)
         self.file_update_tool = file_update_tool
         self.advanced_file_editor_tool = advanced_file_editor_tool

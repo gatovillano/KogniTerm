@@ -159,6 +159,60 @@ export interface AgentCatalogResponse {
   default: string;
 }
 
+export interface Plan {
+  id: string;
+  name: string;
+  tier: "free" | "pro" | "enterprise";
+  price: number;
+  currency: string;
+  billing_cycle: "monthly" | "yearly";
+  description: string;
+  features: string[];
+  token_limit_per_month: number;
+  max_sessions: number;
+  custom_models_allowed: boolean;
+}
+
+export interface Subscription {
+  user_id: string;
+  plan_id: string;
+  status: string;
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
+  metadata?: Record<string, any>;
+}
+
+export interface PaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  exp_month: number;
+  exp_year: number;
+  is_default?: boolean;
+}
+
+export interface PaymentHistoryItem {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  date: string;
+  receipt_url?: string | null;
+  description: string;
+}
+
+export interface UsageQuota {
+  tier: string;
+  tokens_used_this_month: number;
+  tokens_limit: number;
+  percentage_used: number;
+  sessions_active: number;
+  sessions_limit: number;
+}
+
 export const api = {
   health: () => req<{ status: string }>("/health"),
   listAgents: () => req<AgentCatalogResponse>("/api/agents"),
@@ -263,6 +317,49 @@ export const api = {
       return [];
     }
   },
+
+  // ── Pagos y Suscripciones ──
+  listPlans: () => req<Plan[]>("/api/payments/plans"),
+  getPlan: (planId: string) => req<Plan>(`/api/payments/plans/${encodeURIComponent(planId)}`),
+  getSubscription: () => req<Subscription>("/api/payments/subscription"),
+  createCheckout: (body: {
+    plan_id: string;
+    success_url: string;
+    cancel_url: string;
+    customer_email?: string;
+    user_id?: string;
+    provider?: "stripe" | "mock";
+  }) =>
+    req<{ checkout_url: string; session_id: string; provider: string }>(
+      "/api/payments/checkout",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  completeCheckout: (body: {
+    session_id: string;
+    user_id?: string;
+    plan_id?: string;
+  }) =>
+    req<{ status: string; message: string; subscription: Subscription }>(
+      "/api/payments/checkout/complete",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  switchPlan: (body: {
+    plan_id: string;
+    provider?: "stripe" | "mock";
+    prorate?: boolean;
+  }) =>
+    req<Subscription>(
+      "/api/payments/subscription/switch",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  cancelSubscription: (atPeriodEnd: boolean = true) =>
+    req<Subscription>(
+      `/api/payments/subscription/cancel?at_period_end=${atPeriodEnd}`,
+      { method: "POST" },
+    ),
+  listPaymentMethods: () => req<PaymentMethod[]>("/api/payments/payment-methods"),
+  getPaymentHistory: () => req<PaymentHistoryItem[]>("/api/payments/history"),
+  getQuotaUsage: () => req<UsageQuota>("/api/payments/quota"),
 };
 
 /** Proveedores canónicos TUI (command_processor._handle_provider + multi_provider_manager). */

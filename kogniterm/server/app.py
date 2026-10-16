@@ -66,6 +66,7 @@ from kogniterm.server.channel_adapters import (
 )
 from kogniterm.server.pty_manager import pty_manager
 from kogniterm.server.payments.router import router as payments_router
+from kogniterm.server.payments.router_extended import router as payments_router_extended
 
 logger = logging.getLogger("kogniterm.server.app")
 logging.basicConfig(
@@ -447,6 +448,7 @@ def create_app() -> FastAPI:
 
     # ── Endpoints de Pagos y Suscripciones ──────────────────────────────────────
     application.include_router(payments_router, prefix="/api/payments")
+    application.include_router(payments_router_extended, prefix="/api/payments")
 
     # ── Gestión de Configuración (LLM) ──────────────────────────────────────
 

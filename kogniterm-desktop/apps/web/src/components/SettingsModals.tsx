@@ -141,7 +141,7 @@ export function ModelModal(props: { current: LLMConfig | null; onClose: () => vo
   );
 }
 
-export type SettingsTab = "provider" | "models" | "keys" | "connection" | "mcp";
+export type SettingsTab = "provider" | "models" | "keys" | "connection" | "mcp" | "pricing";
 
 /** Ajustes unificados: Proveedor, Modelo, Keys, Conexión y MCP en una sola ventana. */
 export function UnifiedSettingsModal(props: {
@@ -263,7 +263,7 @@ export function UnifiedSettingsModal(props: {
     <Shell title="⚙ Ajustes del Sistema" onClose={props.onClose}>
       {/* Selector de pestañas en cápsula tipo dock */}
       <div class="flex gap-1 p-1 rounded-full bg-white/[0.04] mb-3 overflow-x-auto select-none">
-        {(["provider", "models", "keys", "connection", "mcp"] as SettingsTab[]).map((t) => (
+        {(["provider", "models", "keys", "connection", "mcp", "pricing"] as SettingsTab[]).map((t) => (
           <button
             onClick={() => switchTab(t)}
             class={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150 active:scale-95 shrink-0 ${
@@ -278,7 +278,9 @@ export function UnifiedSettingsModal(props: {
                   ? "Keys"
                   : t === "connection"
                     ? "Conexión"
-                    : "MCP"}
+                    : t === "mcp"
+                      ? "MCP"
+                      : "Pagos"}
           </button>
         ))}
         <div class="flex-1" />
@@ -470,6 +472,13 @@ export function UnifiedSettingsModal(props: {
       {/* ── MCP ── */}
       <Show when={tab() === "mcp"}>
         <MCPPanel />
+      </Show>
+
+      {/* ── Pagos y Suscripciones ── */}
+      <Show when={tab() === "pricing"}>
+        <div class="p-4">
+          <PricingPanel />
+        </div>
       </Show>
     </Shell>
   );

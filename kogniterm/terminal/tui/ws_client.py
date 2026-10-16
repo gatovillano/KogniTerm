@@ -506,9 +506,18 @@ class TUIWebSocketClient:
             )
 
         elif event_type == "task_tracker":
-            # Actualizar el panel de tareas
+            # Actualizar el panel de tareas.
+            # El evento lleva el session_id de origen para aislar la lista
+            # por sesión/pestaña: el dock solo muestra la del usuario activo.
             if isinstance(data, dict):
-                self._app.call_from_thread(self._app.update_task_tracker, data)
+                session_id = (
+                    event.get("session_id")
+                    if isinstance(event, dict)
+                    else None
+                )
+                self._app.call_from_thread(
+                    self._app.update_task_tracker, data, session_id
+                )
 
         elif event_type == "live_update":
             # Actualización de rich content (reasoning, etc.)

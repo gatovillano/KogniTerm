@@ -390,6 +390,11 @@ class ServerUI(TerminalUI):
         event = {"type": event_type, "data": data, "ts": datetime.utcnow().isoformat()}
         if agent_id:
             event["agent_id"] = agent_id
+        if event_type == "task_tracker":
+            # Identifica la sesión de origen para que el cliente aisle el
+            # panel de tareas por sesión/pestaña (cada pestaña solo debe
+            # ver la lista de su propia sesión).
+            event["session_id"] = self.session_id
         # Actualizar búfer de estado en vivo
         if event_type == "live_update" and isinstance(data, dict):
             if "thinking" in data:

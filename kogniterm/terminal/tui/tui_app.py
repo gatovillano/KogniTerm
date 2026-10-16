@@ -447,9 +447,11 @@ class TextualTerminalUI:
             language=command or None,
         )
 
-    def update_task_tracker(self, agent_plans: dict):
+    def update_task_tracker(self, agent_plans: dict, session_id: str = None):
         """Actualiza el panel de seguimiento de tareas."""
-        self._safe_call(self.app.update_task_tracker, agent_plans)
+        self._safe_call(
+            self.app.update_task_tracker, agent_plans, session_id
+        )
 
     def stop_live(self, **kwargs):
         """Finaliza el streaming y consolida el mensaje."""
@@ -1210,7 +1212,9 @@ class KogniTermTUI(App):
             self.command_executor.terminal_ui = self.tui_ui
         if self.llm_service:
             self.llm_service.terminal_ui = self.tui_ui
-            self.llm_service.interrupt_queue = self.tui_ui.get_interrupt_queue()
+            # La cola que el LLMService comprueba es la de la sesión activa,
+            # para que una interrupción (ESC) solo afecte a la pestaña en foco.
+            self.llm_service.interrupt_queue = self._current_interrupt_queue()
         # ── Multisesión con pestañas (mismo workspace/proyecto) ──────────
         # Cada sesión tiene su propio thread, AgentState, cola de
         # interrupción, interaction manager y ChatLogWidget. El LLMService y
@@ -1218,6 +1222,8 @@ class KogniTermTUI(App):
         self._sessions = {}
         self._session_order = []
         self._active_session_id = None
+        # Listas de tareas aisladas por sesión (task tracker por pestaña).
+        self._task_tracker_plans = {}
         self._session_counter = 0
         self._session_id_prefix = "s"
         self._is_processing_queue = False
@@ -1325,7 +1331,7 @@ class KogniTermTUI(App):
                     self.llm_service,
                     self.agent_state,
                     self.tui_ui,
-                    self.tui_ui.get_interrupt_queue() if self.tui_ui else None,
+                    self._current_interrupt_queue(),
                     self.command_approval_handler,
                 )
             else:
@@ -2008,7 +2014,7 @@ class KogniTermTUI(App):
             app = create_deep_researcher(
                 llm_service=self.llm_service,
                 terminal_ui=self.tui_ui,
-                interrupt_queue=self.tui_ui.interrupt_queue,
+                interrupt_queue=self._current_interrupt_queue(),
             )
 
             # 3. Formular la consulta
@@ -3990,8 +3996,8 @@ class KogniTermTUI(App):
     def _process_agent_request_legacy(self, user_input: str):
         """Ruta original mono-sesión (fallback si no hay sesiones)."""
         self.is_processing = True
-        if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "interrupt_queue"):
-            iq = self.tui_ui.interrupt_queue
+        if hasattr(self, "tui_ui") and hasattr(self.tui_ui, "get_interrupt_queue"):
+            iq = self._current_interrupt_queue()
             while iq and not iq.empty():
                 try:
                     iq.get_nowait()
@@ -4393,6 +4399,27 @@ class KogniTermTUI(App):
             pass
         return None
 
+    def _current_interrupt_queue(self):
+        """Cola de interrupción efectiva: la de la sesión activa.
+
+        Se usa para que una interrupción (ESC) solo afecte a la pestaña
+        donde el usuario está trabajando, y no a las demás sesiones.
+        Si no hay sesión activa (o la sesión no tiene cola propia),
+        se usa la cola compartida como respaldo legacy.
+        """
+        try:
+            session = self.get_active_session()
+            if session is not None:
+                interrupt_q = getattr(session, "interrupt_queue", None)
+                if interrupt_q is not None:
+                    return interrupt_q
+        except Exception:
+            pass
+        try:
+            return self.tui_ui.get_interrupt_queue()
+        except Exception:
+            return None
+
     def list_sessions(self) -> list:
         try:
             return [self._sessions[sid] for sid in self._session_order if sid in self._sessions]
@@ -4504,17 +4531,15 @@ class KogniTermTUI(App):
             except Exception:
                 pass
 
+        # Cada sesión tiene su propia cola de interrupción: una interrupción
+        # (ESC) debe detener únicamente la pestaña activa, nunca las demás.
         interrupt_q = None
-        if self._session_counter == 1 and getattr(self, "tui_ui", None) is not None:
-            try:
-                interrupt_q = self.tui_ui.get_interrupt_queue()
-            except Exception:
-                interrupt_q = None
-        if interrupt_q is None:
-            try:
-                interrupt_q = new_interrupt_queue() if new_interrupt_queue else queue.Queue()
-            except Exception:
-                interrupt_q = queue.Queue()
+        try:
+            interrupt_q = (
+                new_interrupt_queue() if new_interrupt_queue else queue.Queue()
+            )
+        except Exception:
+            interrupt_q = queue.Queue()
 
         session = Session(
             session_id=session_id,
@@ -4662,6 +4687,10 @@ class KogniTermTUI(App):
                     session.approval_handler.command_executor = session.command_executor
                 if hasattr(session.approval_handler, "terminal_ui"):
                     session.approval_handler.terminal_ui = proxy
+                if interrupt_q is not None:
+                    # Rebindar la cola propia de la pestaña, para que ESC
+                    # solo interrumpa esta sesión y no las demás.
+                    session.approval_handler.interrupt_queue = interrupt_q
             except Exception:
                 pass
         else:
@@ -4680,6 +4709,7 @@ class KogniTermTUI(App):
                     getattr(_g, "file_update_tool", None),
                     getattr(_g, "advanced_file_editor_tool", None),
                     getattr(_g, "file_operations_tool", None),
+                    interrupt_queue=interrupt_q,
                 )
                 try:
                     session.approval_handler.auto_approve = bool(
@@ -4811,6 +4841,15 @@ class KogniTermTUI(App):
         except Exception:
             pass
         self._active_session_id = session.session_id
+        # Rebind la cola de interrupción usada por el LLMService a la
+        # sesión activa, para que ESC solo detenga esta pestaña.
+        try:
+            if getattr(self, "llm_service", None) is not None:
+                self.llm_service.interrupt_queue = self._current_interrupt_queue()
+        except Exception:
+            pass
+        # El dock de tareas debe mostrar la lista de esta sesión.
+        self.refresh_task_tracker_display()
         # Alias legacy de WS hacia la pestaña activa
         try:
             self._sync_legacy_ws_alias()
@@ -5742,14 +5781,83 @@ class KogniTermTUI(App):
             ("__TERMINAL__", tool_name, output, display_command)
         )
 
-    def update_task_tracker(self, agent_plans: dict):
+    # ── Task tracker por sesión/pestaña ──────────────────────────
+    def _compute_visible_session(self):
+        """Retorna el session_id de la sesión/pestaña que está activa."""
+        try:
+            active = self.get_active_session()
+        except Exception:
+            active = None
+        return active.session_id if active is not None else None
+
+    def _active_task_tracker_session(self):
+        """Retorna el session_id visible y refresca el dock si cambió.
+
+        Es el que debe verse en el dock: siempre las tareas de la
+        sesión que el usuario está viendo, aunque otra sesión haya
+        actualizado su task tracker recientemente.
+        """
+        visible_sid = self._compute_visible_session()
+        self.refresh_task_tracker_display(visible_sid)
+        return visible_sid
+
+    def _prune_task_tracker_plans(self, visible_sid, store_sid=None):
+        """Elimina las listas de sesiones ya desconectadas.
+
+        Se conservan las sesiones visibles y la última sesión de la que
+        se recibió un evento, para no borrar lo recién guardado.
+        """
+        keep = {visible_sid}
+        if store_sid:
+            keep.add(store_sid)
+        sessions = set(self._sessions.keys())
+        for sid in list(getattr(self, "_task_tracker_plans", {})):
+            if sid in keep or sid in sessions:
+                continue
+            self._task_tracker_plans.pop(sid, None)
+
+    def refresh_task_tracker_display(self, visible_sid=None):
+        """Re-renderiza el dock con la lista de la sesión indicada.
+
+        Sin argumento usa la sesión/pestaña activa.
+        """
+        if visible_sid is None:
+            visible_sid = self._compute_visible_session()
+        plans = self._task_tracker_plans.get(visible_sid, {})
+        try:
+            dock = self.query_one("#task_tracker_dock")
+        except Exception:
+            dock = getattr(self, "task_tracker_dock", None)
+        if dock is not None and hasattr(dock, "update_tasks"):
+            try:
+                dock.update_tasks(plans)
+            except Exception:
+                logger.warning("refresh_task_tracker_display: dock falló", exc_info=True)
+
+    def update_task_tracker(self, agent_plans: dict, session_id: str = None):
         """Actualiza el dock replegable de tareas anclado sobre el input.
 
         Ya no inyecta paneles en el flujo del chat: el dock muestra una
         tira indicadora replegada (1 línea) y al presionarla se despliega
         con las tareas y su estado.
+
+        Las listas de tareas se mantienen **por sesión** (cada pestaña
+        corresponde a una sesión). El `session_id` del evento indica de
+        qué sesión proviene el plan (para conservarlo), pero el dock
+        solo muestra las tareas de la sesión activa: nunca se pisan
+        entre sesiones.
         """
-        if not agent_plans:
+        visible_sid = self._active_task_tracker_session()
+        store_sid = session_id or visible_sid
+        if agent_plans:
+            # Guardar bajo la sesión de origen, si se indicó.
+            self._task_tracker_plans[store_sid] = agent_plans
+        else:
+            # Lista vacía: limpia solo la sesión indicada (o la activa).
+            self._task_tracker_plans[store_sid] = {}
+        self._prune_task_tracker_plans(visible_sid, store_sid)
+        plans = self._task_tracker_plans.get(visible_sid, {})
+        if not plans:
             try:
                 dock = self.query_one("#task_tracker_dock")
                 dock.update_tasks({})
@@ -5763,7 +5871,7 @@ class KogniTermTUI(App):
             dock = getattr(self, "task_tracker_dock", None)
         if dock is not None and hasattr(dock, "update_tasks"):
             try:
-                dock.update_tasks(agent_plans)
+                dock.update_tasks(plans)
                 return
             except Exception:
                 logger.warning("update_task_tracker: dock falló", exc_info=True)
@@ -5780,7 +5888,7 @@ class KogniTermTUI(App):
                 from kogniterm.terminal.themes import ColorPalette
 
                 blocks = []
-                for agent_name, tasks in agent_plans.items():
+                for agent_name, tasks in plans.items():
                     if not tasks:
                         continue
                     header = Text.from_markup(

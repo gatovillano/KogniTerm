@@ -1,6 +1,7 @@
 import { Show, createSignal, onMount } from "solid-js";
 import { TabBar } from "./components/TabBar";
 import { ChatView } from "./components/ChatView";
+import { PricingPanel } from "./components/PricingPanel";
 import { ProviderModal, ModelModal, KeysModal, UnifiedSettingsModal, type SettingsTab } from "./components/SettingsModals";
 import { ApprovalDialog, QuestionDialog, PendingBadge } from "./components/ApprovalDialog";
 import { TerminalPanel } from "./components/TerminalPanel";
@@ -11,7 +12,7 @@ import { theme, toggleTheme } from "./lib/theme";
 import { api, type LLMConfig } from "./lib/api";
 import { tabs } from "./lib/tabs";
 
-type ModalKind = null | { view: "settings"; tab: SettingsTab } | "provider" | "models" | "keys";
+type ModalKind = null | { view: "settings"; tab: SettingsTab } | "provider" | "models" | "keys" | "pricing";
 
 export function App() {
   const [modal, setModal] = createSignal<ModalKind>(null);
@@ -165,6 +166,18 @@ export function App() {
                 >
                   <span class="text-[11px] w-4 text-center">⚙</span>
                   <span>Ajustes</span>
+                </button>
+                <button
+                  role="menuitem"
+                  class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12.5px] text-zinc-300 hover:text-white hover:bg-white/[0.07] transition-all text-left"
+                  title="Planes, suscripciones y facturación de KogniTerm"
+                  onClick={() => {
+                    setModal({ view: "settings", tab: "pricing" });
+                    setMenuOpen(false);
+                  }}
+                >
+                  <span class="text-[11px] w-4 text-center">💳</span>
+                  <span>Pagos y Suscripciones</span>
                 </button>
               </div>
             </Show>
