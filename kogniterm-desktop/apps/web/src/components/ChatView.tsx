@@ -13,6 +13,7 @@ import { tasksStore } from "../lib/tasks";
 import { WorkspaceFileItem, api } from "../lib/api";
 import { ToolIndicator } from "./ToolIndicator";
 import { ThinkingBlock } from "./ThinkingBlock";
+import { DiffBlock } from "./DiffBlock";
 
 export function ChatView(props: { tabId: string }) {
   const session = useSession(props.tabId);
@@ -612,7 +613,10 @@ export function ChatView(props: { tabId: string }) {
           <For each={tab().messages}>
             {(m) => (
               <Show
-                when={m.role === "tool"}
+                when={m.role === "diff"}
+                fallback={
+                  <Show
+                    when={m.role === "tool"}
                 fallback={
                   <Show
                     when={m.role !== "assistant" && m.role !== "terminal"}
@@ -771,6 +775,10 @@ export function ChatView(props: { tabId: string }) {
                 <div class="animate-slide-up my-1.5 w-full">
                   <ToolIndicator message={m} operating={isOperating()} />
                 </div>
+              </Show>
+                }
+              >
+                <DiffBlock diff={m.diffContent ?? ""} filePath={m.diffFilePath} operation={m.diffOperation} />
               </Show>
             )}
           </For>

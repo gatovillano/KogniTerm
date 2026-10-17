@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { api, apiRoot, token, setToken, setApiUrl, PROVIDERS, KEY_PROVIDERS, type LLMConfig } from "../lib/api";
 import { MCPPanel } from "./MCPPanel";
+import { PricingPanel } from "./PricingPanel";
 
 function Shell(props: { title: string; onClose: () => void; children: any }) {
   return (

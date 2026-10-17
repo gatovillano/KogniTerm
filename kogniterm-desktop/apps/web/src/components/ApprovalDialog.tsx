@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { approvals, type ApprovalReq, type QuestionReq } from "../lib/approvals";
 import { replyApproval, replyQuestion, setAutoApprove } from "../lib/session";
+import { DiffBlock } from "./DiffBlock";
 
 /** Diálogo de aprobación de herramienta — diseño modal moderno con cristal y botones curvos. */
 export function ApprovalDialog(props: { tabId: string }) {
@@ -50,14 +51,14 @@ export function ApprovalDialog(props: { tabId: string }) {
                 </p>
               </Show>
               <Show when={req().diff}>
-                <details class="text-[12px]">
-                  <summary class="cursor-pointer text-zinc-400 hover:text-white px-1 font-medium transition-colors">
-                    Ver diff del cambio
-                  </summary>
-                  <pre class="mt-2 max-h-[220px] overflow-auto whitespace-pre-wrap font-mono bg-black/50 rounded-2xl p-3.5 text-zinc-200 text-[11.5px] leading-relaxed">
-                    {req().diff}
-                  </pre>
-                </details>
+                <div class="text-[12px]">
+                  <div class="flex items-center gap-2 px-1 pb-1 font-medium text-zinc-400">
+                    <span>Diff del cambio</span>
+                  </div>
+                  <div class="max-h-[240px] overflow-auto rounded-2xl border border-white/[0.06]">
+                    <DiffBlock diff={req().diff} filePath={req().file_path} />
+                  </div>
+                </div>
               </Show>
               <p class="text-[11.5px] text-zinc-400 px-1">
                 La ejecución está en pausa esperando tu confirmación.

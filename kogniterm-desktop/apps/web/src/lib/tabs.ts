@@ -14,7 +14,7 @@ export interface ChatAttachment {
 
 export interface ChatMsg {
   id: string;
-  role: "user" | "assistant" | "tool" | "system" | "terminal";
+  role: "user" | "assistant" | "tool" | "system" | "terminal" | "diff";
   text: string;
   agent?: string;
   /** Razonamiento del modelo (evento live_update.thinking), se muestra atenuado. */
@@ -45,6 +45,11 @@ export interface ChatMsg {
   toolStatus?: "running" | "completed" | "error";
   toolCallId?: string;
   toolSkill?: string;
+  /** Diff unificado aplicado (evento `diff_applied` del servidor). */
+  diffContent?: string;
+  diffFilePath?: string;
+  diffOperation?: string;
+  diffAt?: number;
   startedAt?: number;
   completedAt?: number;
 }
@@ -206,6 +211,38 @@ export const tabs = {
   },
   push(tabId: string, msg: ChatMsg) {
     setStore("tabs", (t) => t.id === tabId, "messages", (ms) => [...ms, msg]);
+    persist();
+  },
+  /**
+   * Añade el diff de una edición aplicada (`diff_applied`).
+   * El mismo diff puede llegar dos veces: lo emite el handler de aprobación
+   * (`_print_applied_diff_in_history`) y también `ToolExecutor` cuando la
+   * herramienta se ejecuta sin confirmación. Se deduplica por contenido+archivo.
+   */
+  pushDiff(tabId: string, diff: string, filePath = "", operation = "") {
+    const tab = store.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const last = tab.messages[tab.messages.length - 1];
+    if (
+      last?.role === "diff" &&
+      last.diffContent === diff &&
+      last.diffFilePath === filePath &&
+      (last.diffAt ?? 0) > Date.now() - 10_000
+    ) {
+      return;
+    }
+    setStore("tabs", (t) => t.id === tabId, "messages", (ms) => [
+      ...ms,
+      {
+        id: uid("d"),
+        role: "diff" as const,
+        text: "",
+        diffContent: diff,
+        diffFilePath: filePath,
+        diffOperation: operation,
+        diffAt: Date.now(),
+      },
+    ]);
     persist();
   },
   /** Añade un mensaje en cola para ejecución diferida */

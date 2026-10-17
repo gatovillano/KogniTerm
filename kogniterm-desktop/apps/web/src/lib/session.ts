@@ -430,6 +430,15 @@ export function useSession(tabId: string) {
       const active = typeof data === "object" && data !== null ? Boolean(data.active) : Boolean(data);
       markAgentTerminalsInteractive(msg.agent_id, active);
       return;
+    } else if (type === "diff_applied") {
+      // El servidor renderiza el diff de cada edición aplicada (evento estructurado
+      // `diff_applied` de ServerUI.print_diff_applied). Antes se ignoraba y los
+      // cambios de archivos no aparecían en el chat del desktop.
+      const diff = typeof data === "string" ? data : String(data?.diff_content ?? data?.diff ?? "");
+      if (!diff.trim()) return;
+      const filePath = typeof data === "object" && data ? String(data?.file_path ?? "") : "";
+      const operation = typeof data === "object" && data ? String(data?.operation ?? "") : "";
+      tabs.pushDiff(tabId, diff, filePath, operation);
     } else if (type === "task_tracker") {
       if (data && typeof data === "object") {
         tasksStore.setAgentPlans(tabId, data);
