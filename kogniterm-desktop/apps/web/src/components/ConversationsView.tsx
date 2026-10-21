@@ -40,6 +40,18 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   const [busy, setBusy] = createSignal<string | null>(null);
   const [q, setQ] = createSignal("");
 
+  // Estado para añadir workspace
+  const [showAddWs, setShowAddWs] = createSignal(false);
+  const [wsPath, setWsPath] = createSignal("");
+  const [wsErr, setWsErr] = createSignal("");
+  const [addingWs, setAddingWs] = createSignal(false);
+  const [browseCurrent, setBrowseCurrent] = createSignal("");
+  const [browseParent, setBrowseParent] = createSignal<string | null>(null);
+  const [browseDirs, setBrowseDirs] = createSignal<Array<{ name: string; path: string }>>([]);
+  const [browseLoading, setBrowseLoading] = createSignal(false);
+
+  const hasNativePicker = () => typeof (globalThis as any).kogniterm?.pickDirectory === "function";
+
   async function refresh() {
     setLoading(true);
     try {
@@ -55,18 +67,130 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   }
   onMount(refresh);
 
+  async function loadBrowse(targetPath?: string) {
+    setBrowseLoading(true);
+    try {
+      const res = await api.browseDirectories(targetPath);
+      setBrowseCurrent(res.current);
+      setBrowseParent(res.parent);
+      setBrowseDirs(res.directories ?? []);
+      if (!wsPath().trim()) {
+        setWsPath(res.current);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setBrowseLoading(false);
+    }
+  }
+
+  function openAddWorkspaceModal() {
+    setWsErr("");
+    setShowAddWs(true);
+    void loadBrowse(wsPath().trim() || undefined);
+  }
+
+  async function pickNativeFolder() {
+    try {
+      const picker = (globalThis as any).kogniterm?.pickDirectory;
+      if (typeof picker !== "function") return;
+      const chosen: string | null = await picker();
+      if (chosen) {
+        setWsPath(chosen);
+        setWsErr("");
+        void loadBrowse(chosen);
+      }
+    } catch (e) {
+      setWsErr(String(e));
+    }
+  }
+
+  async function submitAddWorkspace(startChat = false) {
+    const clean = wsPath().trim();
+    if (!clean) {
+      setWsErr("Introduce o selecciona la ruta de una carpeta.");
+      return;
+    }
+    setAddingWs(true);
+    setWsErr("");
+    try {
+      const res = await api.addWorkspace(clean);
+      const addedPath = res.workspace?.path || clean;
+      // Asegurar que quede desplegado al añadirlo
+      setCollapsed((c) => {
+        const next = { ...c, [addedPath]: false };
+        try {
+          localStorage.setItem("kogniterm-v3-collapsed", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      setShowAddWs(false);
+      setWsPath("");
+      await refresh();
+      if (startChat) {
+        await newThread(addedPath);
+      }
+    } catch (e: any) {
+      setWsErr(e?.message || String(e));
+    } finally {
+      setAddingWs(false);
+    }
+  }
+
+  async function registerExistingDir(dir: string) {
+    setBusy(dir);
+    try {
+      await api.addWorkspace(dir);
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function unregisterWorkspace(dir: string, name: string) {
+    if (!confirm(`¿Quitar el workspace "${name}" de la lista?\n(No se borrarán los archivos ni las conversaciones en disco)`)) {
+      return;
+    }
+    setBusy(dir);
+    try {
+      await api.removeWorkspace(dir);
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const groups = createMemo(() => {
     const filter = q().trim().toLowerCase();
     const byDir = new Map<string, ThreadInfo[]>();
+    const known = new Map(workspaces().map((w) => [w.path, w.name]));
+
+    // Incluir todos los workspaces registrados aunque aún no tengan conversaciones
+    for (const w of workspaces()) {
+      if (!byDir.has(w.path)) {
+        byDir.set(w.path, []);
+      }
+    }
+
     for (const t of threads()) {
       const dir = t.workspace_dir || "(sin workspace)";
-      if (filter && !`${t.title} ${dir}`.toLowerCase().includes(filter)) continue;
+      if (filter && !`${t.title} ${dir} ${known.get(dir) ?? ""}`.toLowerCase().includes(filter)) continue;
       const arr = byDir.get(dir);
       if (arr) arr.push(t);
       else byDir.set(dir, [t]);
     }
-    const known = new Map(workspaces().map((w) => [w.path, w.name]));
+
     return [...byDir.entries()]
+      .filter(([dir, items]) => {
+        if (!filter) return true;
+        if (items.length > 0) return true;
+        const name = known.get(dir) || dir.split("/").filter(Boolean).pop() || dir;
+        return `${name} ${dir}`.toLowerCase().includes(filter);
+      })
       .map(([dir, items]) => ({
         dir,
         name: known.get(dir) || dir.split("/").filter(Boolean).pop() || dir,
@@ -97,7 +221,8 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   }
 
   function open(t: ThreadInfo) {
-    tabs.openThread(t.id, t.title || "Conversación");
+    const wsDir = t.workspace_dir && t.workspace_dir !== "(sin workspace)" ? t.workspace_dir : undefined;
+    tabs.openThread(t.id, t.title || "Conversación", wsDir);
     void loadThreadHistory(t.id);
     props.onOpenChat();
   }
@@ -105,9 +230,10 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   async function newThread(dir: string) {
     setBusy(dir);
     try {
-      const r = await api.createThread(dir);
+      const wsDir = dir !== "(sin workspace)" ? dir : undefined;
+      const r = await api.createThread(wsDir);
       if (r?.thread_id) {
-        tabs.openThread(r.thread_id, "Nueva conversación");
+        tabs.openThread(r.thread_id, "Nueva conversación", wsDir);
         void loadThreadHistory(r.thread_id);
         props.onOpenChat();
       }
@@ -139,6 +265,18 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
           </span>
           <div class="flex-1" />
           <button
+            onClick={() => (showAddWs() ? setShowAddWs(false) : openAddWorkspaceModal())}
+            class={`text-[12px] px-3.5 py-1.5 rounded-full font-medium transition-all active:scale-95 flex items-center gap-1.5 ${
+              showAddWs()
+                ? "bg-white text-black shadow-sm"
+                : "bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 hover:text-white border border-white/[0.08]"
+            }`}
+            title="Añadir una carpeta de proyecto como workspace"
+          >
+            <span>＋</span>
+            <span>Añadir workspace</span>
+          </button>
+          <button
             onClick={refresh}
             class="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all"
             title="Recargar"
@@ -149,6 +287,150 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
         <p class="text-[13px] text-zinc-400 mb-6">
           Historial de sesiones persistidas en el backend de KogniTerm, organizadas por proyecto.
         </p>
+
+        {/* Panel desplegable para añadir un nuevo workspace */}
+        <Show when={showAddWs()}>
+          <div class="mb-6 rounded-2xl bg-zinc-900/90 border border-white/[0.1] p-4 shadow-[0_8px_30px_rgba(0,0,0,0.5)] animate-scale-in space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-[14px] font-semibold text-white">Añadir Workspace</h2>
+                <p class="text-[12px] text-zinc-400">
+                  Ingresa la ruta del directorio o explora las carpetas para registrarlo en tus conversaciones.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddWs(false)}
+                class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] text-[12px]"
+                title="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <input
+                value={wsPath()}
+                onInput={(e) => {
+                  setWsPath(e.currentTarget.value);
+                  setWsErr("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submitAddWorkspace(false);
+                  } else if (e.key === "Escape") {
+                    setShowAddWs(false);
+                  }
+                }}
+                placeholder="/ruta/a/tu/proyecto o ~/mi-proyecto"
+                class="flex-1 bg-black/50 focus:bg-black/70 focus:ring-2 focus:ring-white/20 border border-white/[0.1] rounded-xl px-3.5 py-2 text-[13px] font-mono text-white placeholder-zinc-500 outline-none transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => void loadBrowse(wsPath().trim() || undefined)}
+                class="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-[12px] text-zinc-300 hover:text-white border border-white/[0.08] transition-all shrink-0"
+                title="Explorar la ruta escrita"
+              >
+                Explorar
+              </button>
+              <Show when={hasNativePicker()}>
+                <button
+                  type="button"
+                  onClick={pickNativeFolder}
+                  class="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-[12px] text-zinc-200 hover:text-white border border-white/[0.08] transition-all shrink-0 font-medium"
+                  title="Seleccionar carpeta con el explorador del sistema"
+                >
+                  📂 Examinar…
+                </button>
+              </Show>
+            </div>
+
+            {/* Explorador rápido de directorios del sistema */}
+            <div class="rounded-xl bg-black/40 border border-white/[0.06] overflow-hidden">
+              <div class="flex items-center gap-2 px-3 py-2 bg-white/[0.02] border-b border-white/[0.05] text-[11.5px]">
+                <span class="text-zinc-400">Carpeta actual:</span>
+                <span class="font-mono text-zinc-200 truncate flex-1" title={browseCurrent()}>
+                  {browseCurrent() || "…"}
+                </span>
+                <Show when={browseParent()}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const p = browseParent();
+                      if (p) {
+                        setWsPath(p);
+                        void loadBrowse(p);
+                      }
+                    }}
+                    class="px-2.5 py-0.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white transition-all font-medium shrink-0"
+                    title="Ir a la carpeta superior"
+                  >
+                    ↑ Subir
+                  </button>
+                </Show>
+              </div>
+              <div class="max-h-40 overflow-y-auto p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                <Show
+                  when={!browseLoading()}
+                  fallback={<div class="col-span-2 py-4 text-center text-[12px] text-zinc-500">Cargando carpetas…</div>}
+                >
+                  <Show
+                    when={browseDirs().length > 0}
+                    fallback={<div class="col-span-2 py-3 text-center text-[12px] text-zinc-500">No hay subcarpetas visibles en este directorio.</div>}
+                  >
+                    <For each={browseDirs()}>
+                      {(d) => (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWsPath(d.path);
+                            setWsErr("");
+                            void loadBrowse(d.path);
+                          }}
+                          class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-[12px] text-zinc-300 hover:text-white hover:bg-white/[0.07] transition-all truncate"
+                          title={d.path}
+                        >
+                          <span class="opacity-70 shrink-0">📁</span>
+                          <span class="truncate font-mono">{d.name}</span>
+                        </button>
+                      )}
+                    </For>
+                  </Show>
+                </Show>
+              </div>
+            </div>
+
+            <Show when={wsErr()}>
+              <p class="text-[12px] text-red-300 px-1">{wsErr()}</p>
+            </Show>
+
+            <div class="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowAddWs(false)}
+                class="px-3.5 py-1.5 rounded-full text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={addingWs() || !wsPath().trim()}
+                onClick={() => void submitAddWorkspace(false)}
+                class="px-4 py-1.5 rounded-full text-[12px] font-medium bg-white/[0.1] hover:bg-white/[0.16] text-white border border-white/[0.1] transition-all active:scale-95 disabled:opacity-50"
+              >
+                {addingWs() ? "Añadiendo…" : "Añadir workspace"}
+              </button>
+              <button
+                type="button"
+                disabled={addingWs() || !wsPath().trim()}
+                onClick={() => void submitAddWorkspace(true)}
+                class="px-4 py-1.5 rounded-full text-[12px] font-medium bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+              >
+                Añadir y abrir chat
+              </button>
+            </div>
+          </div>
+        </Show>
 
         {/* Barra de búsqueda curvada */}
         <div class="relative mb-8">
@@ -170,7 +452,13 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
         <Show when={!loading() && groups().length === 0}>
           <div class="text-center py-16 text-zinc-500">
             <span class="text-3xl block mb-2 opacity-50">📂</span>
-            <p class="text-[14px]">No hay conversaciones guardadas todavía.</p>
+            <p class="text-[14px] mb-4">No hay workspaces ni conversaciones guardadas todavía.</p>
+            <button
+              onClick={openAddWorkspaceModal}
+              class="text-[12.5px] px-4 py-2 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 hover:text-white border border-white/[0.08] transition-all active:scale-95 font-medium"
+            >
+              ＋ Añadir primer workspace
+            </button>
           </div>
         </Show>
 
@@ -195,6 +483,19 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                     </span>
                     <span class="text-[11px] font-mono text-zinc-500 shrink-0">· {g.items.length}</span>
                     <div class="flex-1" />
+                    <Show when={!g.registered && g.dir !== "(sin workspace)"}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void registerExistingDir(g.dir);
+                        }}
+                        disabled={busy() !== null}
+                        class="text-[11px] px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-zinc-400 hover:text-white transition-all active:scale-95 disabled:opacity-50 shrink-0"
+                        title="Guardar este directorio como workspace registrado"
+                      >
+                        Guardar workspace
+                      </button>
+                    </Show>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -206,54 +507,83 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                     >
                       ＋ nueva
                     </button>
+                    <Show when={g.registered}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void unregisterWorkspace(g.dir, g.name);
+                        }}
+                        disabled={busy() !== null}
+                        class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[11px]"
+                        title="Quitar workspace de la lista"
+                      >
+                        ✕
+                      </button>
+                    </Show>
                   </header>
 
                   <Show when={!isCollapsed()}>
                     <div class="space-y-1 px-3 pb-3 pt-1">
-                      <For each={visibleItems(g)}>
-                        {(t) => (
-                          <div
-                            class={`group flex items-center gap-3 rounded-xl px-3.5 py-2.5 cursor-pointer transition-all duration-150 ${
-                              tabs.isOpen(t.id)
-                                ? "bg-white/[0.1] text-white shadow-sm"
-                                : "hover:bg-white/[0.04] text-zinc-300"
-                            }`}
-                            onClick={() => open(t)}
-                          >
-                            <span class="text-zinc-400 text-[11.5px] w-16 shrink-0 tabular-nums font-mono">
-                              {relTime(t.updated_at ?? t.created_at)}
-                            </span>
-                            <span class="text-[13px] text-zinc-200 group-hover:text-white font-medium truncate flex-1">
-                              {t.title || t.id}
-                            </span>
-                            <Show when={tabs.isOpen(t.id)}>
-                              <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.12] text-zinc-200 font-medium shrink-0">
-                                abierta
-                              </span>
-                            </Show>
-                            <span class="text-[11px] text-zinc-400 font-mono tabular-nums shrink-0">
-                              {t.message_count ?? 0}
-                            </span>
+                      <Show
+                        when={g.items.length > 0}
+                        fallback={
+                          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white/[0.02] text-[12.5px] text-zinc-500">
+                            <span>Sin conversaciones en este workspace todavía.</span>
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void remove(t);
-                              }}
-                              class="w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[12px]"
-                              title="Eliminar conversación"
+                              onClick={() => void newThread(g.dir)}
+                              disabled={busy() !== null}
+                              class="text-[12px] text-zinc-300 hover:text-white underline underline-offset-2 transition-colors"
                             >
-                              ✕
+                              Iniciar primera conversación →
                             </button>
                           </div>
-                        )}
-                      </For>
-                      <Show when={g.items.length > PAGE}>
-                        <button
-                          onClick={() => setExpanded((e) => ({ ...e, [g.dir]: !e[g.dir] }))}
-                          class="w-full text-center py-2 rounded-xl text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.04] transition-all mt-1"
-                        >
-                          {expanded()[g.dir] ? "− Ver menos" : `Ver ${g.items.length - PAGE} más…`}
-                        </button>
+                        }
+                      >
+                        <For each={visibleItems(g)}>
+                          {(t) => (
+                            <div
+                              class={`group flex items-center gap-3 rounded-xl px-3.5 py-2.5 cursor-pointer transition-all duration-150 ${
+                                tabs.isOpen(t.id)
+                                  ? "bg-white/[0.1] text-white shadow-sm"
+                                  : "hover:bg-white/[0.04] text-zinc-300"
+                              }`}
+                              onClick={() => open(t)}
+                            >
+                              <span class="text-zinc-400 text-[11.5px] w-16 shrink-0 tabular-nums font-mono">
+                                {relTime(t.updated_at ?? t.created_at)}
+                              </span>
+                              <span class="text-[13px] text-zinc-200 group-hover:text-white font-medium truncate flex-1">
+                                {t.title || t.id}
+                              </span>
+                              <Show when={tabs.isOpen(t.id)}>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.12] text-zinc-200 font-medium shrink-0">
+                                  abierta
+                                </span>
+                              </Show>
+                              <span class="text-[11px] text-zinc-400 font-mono tabular-nums shrink-0">
+                                {t.message_count ?? 0}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void remove(t);
+                                }}
+                                class="w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[12px]"
+                                title="Eliminar conversación"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
+                        </For>
+                        <Show when={g.items.length > PAGE}>
+                          <button
+                            onClick={() => setExpanded((e) => ({ ...e, [g.dir]: !e[g.dir] }))}
+                            class="w-full text-center py-2 rounded-xl text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.04] transition-all mt-1"
+                          >
+                            {expanded()[g.dir] ? "− Ver menos" : `Ver ${g.items.length - PAGE} más…`}
+                          </button>
+                        </Show>
                       </Show>
                     </div>
                   </Show>
@@ -271,11 +601,35 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
             <div class="flex flex-wrap gap-2">
               <For each={workspaces()}>
                 {(w) => (
-                  <span class="text-[11.5px] font-mono px-3 py-1 rounded-full bg-white/[0.04] text-zinc-400">
-                    {w.name}
+                  <span
+                    class="inline-flex items-center gap-1.5 text-[11.5px] font-mono pl-3 pr-2 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 transition-colors"
+                    title={w.path}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setQ(w.name)}
+                      class="hover:text-white transition-colors"
+                    >
+                      {w.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void unregisterWorkspace(w.path, w.name)}
+                      class="w-4 h-4 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-300 hover:bg-red-500/15 transition-colors text-[10px]"
+                      title={`Quitar workspace ${w.name}`}
+                    >
+                      ✕
+                    </button>
                   </span>
                 )}
               </For>
+              <button
+                type="button"
+                onClick={openAddWorkspaceModal}
+                class="text-[11.5px] font-mono px-3 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-zinc-400 hover:text-white border border-dashed border-white/[0.12] transition-all"
+              >
+                ＋ añadir
+              </button>
             </div>
           </section>
         </Show>

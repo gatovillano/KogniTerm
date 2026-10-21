@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { ptyApi, ptyIdForTab, ptyWsUrl } from "../lib/pty";
 import { api } from "../lib/api";
+import { tabs } from "../lib/tabs";
 import { copyTerminalToClipboard, setupTerminalCopyHandlers } from "../lib/terminal-clipboard";
 
 interface TermHandle {
@@ -83,6 +84,11 @@ export function TerminalPanel(props: { tabId: string }) {
       });
     }
     const h = handle;
+    const knownDir = tabs.store.tabs.find((t) => t.id === props.tabId)?.workspaceDir;
+    if (knownDir && !h.cwd) {
+      h.cwd = knownDir;
+      setCwd(knownDir);
+    }
 
     void api
       .workspaceStatus(props.tabId)

@@ -58,6 +58,8 @@ export interface Tab {
   id: string; // = session_id nativo
   title: string;
   messages: ChatMsg[];
+  /** Directorio de trabajo asociado a este hilo/pestaña. */
+  workspaceDir?: string;
   /** El historial ya se pidió al backend para esta pestaña. */
   historyLoaded?: boolean;
 }
@@ -148,16 +150,17 @@ export const tabs = {
     persist();
   },
   /** Abre un hilo del backend en una pestaña (reutiliza la pestaña si ya existe). */
-  openThread(id: string, title?: string) {
+  openThread(id: string, title?: string, workspaceDir?: string) {
     const existing = store.tabs.find((t) => t.id === id);
     if (existing) {
       if (title) setStore("tabs", (t) => t.id === id, "title", title);
+      if (workspaceDir) setStore("tabs", (t) => t.id === id, "workspaceDir", workspaceDir);
       setStore("activeId", id);
       persist();
       return id;
     }
     const name = title || "Conversación";
-    setStore("tabs", (ts) => [...ts, { id, title: name, messages: [] }]);
+    setStore("tabs", (ts) => [...ts, { id, title: name, messages: [], ...(workspaceDir ? { workspaceDir } : {}) }]);
     setStore("activeId", id);
     persist();
     return id;

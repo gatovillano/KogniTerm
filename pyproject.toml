@@ -26,7 +26,9 @@ dependencies = [
     "colorama",
     "gitignore-parser",
     "watchdog",
-    "litellm",
+    # litellm>=1.103 requiere mcp>=2.2 (CacheableResult, httpx2), incompatible
+    # con langchain_mcp_adapters (mcp<2). Mantener <1.103 hasta que se actualice.
+    "litellm<1.103",
     "GitPython",
     "pydantic",
     "pydantic-settings",

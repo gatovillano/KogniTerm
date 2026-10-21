@@ -151,7 +151,8 @@ export function useSession(tabId: string) {
       return existing;
     }
     try {
-      const ws = new WebSocket(wsUrl(tabId));
+      const tab = tabs.store.tabs.find((t) => t.id === tabId);
+      const ws = new WebSocket(wsUrl(tabId, tab?.workspaceDir));
       sockets.set(tabId, ws);
       setConn("connecting");
       ws.onopen = () => {

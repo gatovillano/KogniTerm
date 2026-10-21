@@ -253,6 +253,15 @@ ipcMain.handle("shell:open-external", (_e, url: string) => {
     void shell.openExternal(url);
   }
 });
+ipcMain.handle("dialog:pick-directory", async () => {
+  const opts = {
+    properties: ["openDirectory", "createDirectory"] as ("openDirectory" | "createDirectory")[],
+    title: "Seleccionar carpeta de workspace",
+  };
+  const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+  if (res.canceled || !res.filePaths.length) return null;
+  return res.filePaths[0];
+});
 
 // ── Enlaces externos ─────────────────────────────────────────────────────────
 // Todo http(s) ajeno a la app debe abrirse en el navegador predeterminado,

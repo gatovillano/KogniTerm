@@ -46,7 +46,7 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
   return h;
 }
 
-export function wsUrl(sessionId: string): string {
+export function wsUrl(sessionId: string, workspaceDir?: string): string {
   const explicit = (import.meta as any).env?.VITE_KOGNITERM_WS as string | undefined;
   const root0 = apiRoot();
   let root: string;
@@ -62,12 +62,22 @@ export function wsUrl(sessionId: string): string {
     root = `${proto}//${location.host}`;
   }
   const t = token();
-  return `${root}/ws/${encodeURIComponent(sessionId)}?client_type=desktop${t ? `&token=${encodeURIComponent(t)}` : ""}`;
+  const wsParam = workspaceDir ? `&workspace_dir=${encodeURIComponent(workspaceDir)}` : "";
+  return `${root}/ws/${encodeURIComponent(sessionId)}?client_type=desktop${wsParam}${t ? `&token=${encodeURIComponent(t)}` : ""}`;
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${apiRoot()}${path}`, { ...init, headers: headers(init?.headers as any) });
-  if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body?.detail || body?.error || "";
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail ? String(detail) : `${init?.method ?? "GET"} ${path} → ${res.status}`);
+  }
   return (await res.json()) as T;
 }
 
@@ -279,6 +289,20 @@ export const api = {
     }),
   // ── Workspaces e hilos (conversaciones persistidas) ──
   listWorkspaces: () => req<{ workspaces: Workspace[] }>("/api/workspaces"),
+  addWorkspace: (path: string, name?: string) =>
+    req<{ status: string; workspace: Workspace }>("/api/workspaces", {
+      method: "POST",
+      body: JSON.stringify({ path, ...(name ? { name } : {}) }),
+    }),
+  removeWorkspace: (path: string) =>
+    req<{ status: string; deleted: string; success: boolean }>(
+      `/api/workspaces?path=${encodeURIComponent(path)}`,
+      { method: "DELETE" },
+    ),
+  browseDirectories: (path?: string) =>
+    req<{ current: string; parent: string | null; directories: Array<{ name: string; path: string }> }>(
+      `/api/workspaces/browse${path ? `?path=${encodeURIComponent(path)}` : ""}`,
+    ),
   listThreads: (workspaceDirs?: string[]) =>
     req<{ threads: ThreadInfo[] }>(
       `/api/threads${workspaceDirs?.length ? `?workspace_dirs=${encodeURIComponent(workspaceDirs.join(","))}` : ""}`,

@@ -21,4 +21,6 @@ contextBridge.exposeInMainWorld("kogniterm", {
   stopBackend: (): Promise<BackendStatus & { stopped: boolean }> => ipcRenderer.invoke("backend:stop"),
   /** Abre una URL en el navegador predeterminado (solo http/https/mailto). */
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("shell:open-external", url),
+  /** Abre el selector nativo de carpetas del sistema operativo. */
+  pickDirectory: (): Promise<string | null> => ipcRenderer.invoke("dialog:pick-directory"),
 });

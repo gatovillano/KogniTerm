@@ -1243,13 +1243,17 @@ def create_app() -> FastAPI:
                 s = pool.get(session_id)
                 if s and getattr(s, "workspace_dir", None):
                     workspace_path = s.workspace_dir
-                    from kogniterm.core.context.vector_db_manager import VectorDBManager
-                    try:
-                        vdb = VectorDBManager(workspace_path)
-                        indexed = vdb.is_indexed()
-                        vdb.close()
-                    except Exception:
-                        pass
+                elif pool._thread_manager:
+                    t_info = pool._thread_manager.get_thread(session_id)
+                    if t_info and getattr(t_info, "workspace_dir", None):
+                        workspace_path = t_info.workspace_dir
+                from kogniterm.core.context.vector_db_manager import VectorDBManager
+                try:
+                    vdb = VectorDBManager(workspace_path)
+                    indexed = vdb.is_indexed()
+                    vdb.close()
+                except Exception:
+                    pass
             else:
                 if pool._llm_service and pool._llm_service.vector_db_manager:
                     indexed = pool._llm_service.vector_db_manager.is_indexed()
@@ -1271,6 +1275,10 @@ def create_app() -> FastAPI:
                 s = pool.get(session_id)
                 if s and getattr(s, "workspace_dir", None):
                     workspace_path = s.workspace_dir
+                elif pool._thread_manager:
+                    t_info = pool._thread_manager.get_thread(session_id)
+                    if t_info and getattr(t_info, "workspace_dir", None):
+                        workspace_path = t_info.workspace_dir
 
             from kogniterm.terminal.file_completer import is_ignored_path, fuzzy_match_files
 
@@ -3327,6 +3335,36 @@ def create_app() -> FastAPI:
             removed = pool._thread_manager.unregister_workspace(clean)
             return {"status": "ok", "deleted": target_path, "success": removed}
         raise HTTPException(status_code=500, detail="ThreadManager no disponible")
+
+    @application.get("/api/workspaces/browse", tags=["Workspaces"])
+    async def browse_directories(path: Optional[str] = None):
+        """Lista subdirectorios de una ruta para el selector de workspaces."""
+        target = safe_abs_path(path) if path and path.strip() else str(Path.home())
+        if not os.path.exists(target) or not os.path.isdir(target):
+            target = str(Path.home())
+        parent = os.path.dirname(target.rstrip("/")) if target != "/" else None
+        dirs = []
+        try:
+            with os.scandir(target) as entries:
+                for entry in entries:
+                    if entry.name.startswith("."):
+                        continue
+                    try:
+                        if entry.is_dir():
+                            dirs.append({
+                                "name": entry.name,
+                                "path": safe_abs_path(entry.path),
+                            })
+                    except OSError:
+                        continue
+        except Exception as e:
+            logger.warning(f"No se pudo listar directorios en {target}: {e}")
+        dirs.sort(key=lambda d: d["name"].lower())
+        return {
+            "current": target,
+            "parent": parent if parent and parent != target else None,
+            "directories": dirs,
+        }
 
     # ── Gestión de Hilos de Chat (Threads) ─────────────────────────────────────
 
