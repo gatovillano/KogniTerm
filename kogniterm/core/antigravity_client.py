@@ -124,13 +124,9 @@ class AntigravityClient:
         return cls._access_token
 
     CODE_ASSIST_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com"
-    CODE_ASSIST_ENDPOINT_DAILY = "https://daily-cloudcode-pa.sandbox.googleapis.com"
-    CODE_ASSIST_ENDPOINT_AUTOPUSH = "https://autopush-cloudcode-pa.sandbox.googleapis.com"
 
     CODE_ASSIST_ENDPOINTS = [
         CODE_ASSIST_ENDPOINT_PROD,
-        CODE_ASSIST_ENDPOINT_DAILY,
-        CODE_ASSIST_ENDPOINT_AUTOPUSH,
     ]
 
     @classmethod
@@ -884,6 +880,13 @@ class AntigravityClient:
                     error_detail = err_json.get("error", {}).get("message", resp.text)
             except Exception:
                 pass
+
+            # Sanitizar páginas HTML para no inundar el chat ni los logs de la terminal
+            if "<html" in str(error_detail).lower() or "<!doctype" in str(error_detail).lower():
+                if "uberproxy" in str(error_detail).lower() or "service lockdown" in str(error_detail).lower():
+                    error_detail = "Acceso denegado por Google ÜberProxy (Endpoint interno restringido o falta de permisos)."
+                else:
+                    error_detail = f"Respuesta HTML inesperada del servidor (HTTP {status_code})."
             try:
                 debug_file = os.path.expanduser("~/.kogniterm/logs/antigravity_debug.log")
                 with open(debug_file, "a", encoding="utf-8") as df:

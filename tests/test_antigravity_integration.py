@@ -90,7 +90,8 @@ def test_antigravity_completion_stream(mock_post):
 
     # Mock token and project checks
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
-         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch.object(AntigravityClient, "get_endpoints", return_value=["https://ep1.example.com", "https://ep2.example.com"]):
          
         chunks = list(AntigravityClient.completion(
             model="antigravity/gemini-3-flash",
@@ -118,7 +119,8 @@ def test_antigravity_completion_non_stream(mock_post):
     mock_post.return_value = mock_response
 
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
-         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch.object(AntigravityClient, "get_endpoints", return_value=["https://ep1.example.com", "https://ep2.example.com"]):
          
         response = AntigravityClient.completion(
             model="antigravity/gemini-3-flash",
@@ -165,7 +167,8 @@ def test_antigravity_fetch_available_models_success(mock_post):
     mock_post.return_value = mock_response
 
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
-         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch.object(AntigravityClient, "get_endpoints", return_value=["https://ep1.example.com", "https://ep2.example.com"]):
          
         models = AntigravityClient.fetch_available_models()
         
@@ -183,7 +186,8 @@ def test_antigravity_fetch_available_models_fallback(mock_post):
     mock_post.side_effect = Exception("API error")
 
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
-         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch.object(AntigravityClient, "get_endpoints", return_value=["https://ep1.example.com", "https://ep2.example.com"]):
          
         models = AntigravityClient.fetch_available_models()
         
@@ -664,7 +668,8 @@ def test_antigravity_rate_limit_endpoint_fallback(mock_post, mock_sleep):
     mock_post.side_effect = [mock_resp_429, mock_resp_200]
 
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
-         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch.object(AntigravityClient, "get_endpoints", return_value=["https://ep1.example.com", "https://ep2.example.com"]):
 
         response = AntigravityClient.completion(
             model="antigravity/gemini-3.6-flash-medium",
@@ -768,7 +773,8 @@ def test_antigravity_pro_to_flash_fallback_on_quota_exhausted(mock_post):
     mock_post.side_effect = [mock_resp_429_quota, mock_resp_200_flash]
 
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \
-         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"):
+         patch.object(AntigravityClient, "get_project_id", return_value="fake-project"), \
+         patch.object(AntigravityClient, "get_endpoints", return_value=["https://ep1.example.com", "https://ep2.example.com"]):
 
         response = AntigravityClient.completion(
             model="antigravity/gemini-3.1-pro-high",
