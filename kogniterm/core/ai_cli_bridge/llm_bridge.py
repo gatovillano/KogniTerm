@@ -384,7 +384,11 @@ class LLMBridge:
                 yield {"type": "error", "message": f"Error de comunicación con el proveedor ({type(exc).__name__}): {exc}"}
                 return
             except Exception as exc:
-                yield {"type": "error", "message": f"Error inesperado en LiteLLM: {exc}"}
+                exc_str = str(exc)
+                if "429" in exc_str or "rate limit" in exc_str.lower() or "exhausted" in exc_str.lower():
+                    yield {"type": "error", "message": f"Límite de cuota o peticiones excedido (429 Rate Limit): {exc}"}
+                else:
+                    yield {"type": "error", "message": f"Error inesperado en LiteLLM: {exc}"}
                 return
 
             if not tool_calls_dict:

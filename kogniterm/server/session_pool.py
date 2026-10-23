@@ -1503,7 +1503,9 @@ class AgentSession:
                 parts = message.split(maxsplit=1)
                 if len(parts) > 1:
                     new_model = parts[1].strip()
-                    if hasattr(self.llm_service, "model_name"):
+                    if hasattr(self.llm_service, "set_model"):
+                        self.llm_service.set_model(new_model)
+                    elif hasattr(self.llm_service, "model_name"):
                         self.llm_service.model_name = new_model
                     os.environ["LITELLM_MODEL"] = new_model
                     self.ui.print_message(f"Modelo actualizado a: `{new_model}`", style="green")

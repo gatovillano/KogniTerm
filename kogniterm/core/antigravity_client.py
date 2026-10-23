@@ -788,7 +788,7 @@ class AntigravityClient:
                         err_status = str(error_obj.get("status", "")).upper()
                         err_msg = str(error_obj.get("message", "")).lower()
                         
-                        if err_status == "RESOURCE_EXHAUSTED" and ("individual quota reached" in err_msg or "quota limit" in err_msg or "upgrade your subscription" in err_msg):
+                        if err_status == "RESOURCE_EXHAUSTED" or any(q in err_msg for q in ["individual quota reached", "quota limit", "upgrade your subscription", "check quota", "resource has been exhausted", "exhausted"]):
                             is_quota_exhausted = True
 
                         for detail in error_obj.get("details", []):
