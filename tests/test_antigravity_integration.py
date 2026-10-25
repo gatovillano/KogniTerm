@@ -734,9 +734,9 @@ def test_multi_provider_manager_antigravity_model_mapping():
     assert manager._resolve_model_for_provider(provider, "gemini-2.5-pro") == "gemini-3-pro-high"
 
 
-def test_antigravity_endpoint_priority_prod_first():
-    assert AntigravityClient.CODE_ASSIST_ENDPOINTS[0] == AntigravityClient.CODE_ASSIST_ENDPOINT_PROD
-    assert "cloudcode-pa.googleapis.com" in AntigravityClient.CODE_ASSIST_ENDPOINTS[0]
+def test_antigravity_endpoint_priority_daily_first():
+    assert AntigravityClient.CODE_ASSIST_ENDPOINTS[0] == AntigravityClient.CODE_ASSIST_ENDPOINT_DAILY
+    assert "daily-cloudcode-pa.googleapis.com" in AntigravityClient.CODE_ASSIST_ENDPOINTS[0]
 
 
 @patch("kogniterm.core.antigravity_client.requests.post")

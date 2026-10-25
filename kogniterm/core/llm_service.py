@@ -42,6 +42,7 @@ from kogniterm.core.llm import (
     generate_short_id as _core_generate_short_id,
     content_for_token_count as _content_for_token_count,
     FallbackHandler,
+    _normalize_ollama_api_base,
 )
 
 import logging
@@ -99,7 +100,7 @@ if model_to_use.startswith("ollama/"):
         base = os.getenv("OLLAMA_CLOUD_API_BASE") or "https://ollama.com/v1"
         logger.info(f"☁️ Configuración inicial detectada: Ollama Cloud ({model_to_use}) en {base}")
     else:
-        base = ollama_api_base or "http://localhost:11434/v1"
+        base = _normalize_ollama_api_base(ollama_api_base or "http://localhost:11434")
         logger.info(f"🦙 Configuración inicial detectada: Ollama Local ({model_to_use}) en {base}")
 elif model_to_use.startswith("gemini/") or ("gemini" in model_to_use.lower() and not "openrouter" in model_to_use.lower() and not "antigravity" in model_to_use.lower()):
     logger.info(f"🤖 Configuración inicial detectada: Gemini ({model_to_use})")
@@ -938,7 +939,7 @@ class LLMService:
                     self.headers = {}
                     logger.warning(f"⚠️ Cambiado a Ollama Cloud: {model_name} pero SIN API KEY.")
             else:
-                self.api_base = api_base_local or "http://localhost:11434/v1"
+                self.api_base = _normalize_ollama_api_base(api_base_local or "http://localhost:11434")
                 self.api_key = "ollama"
                 self.headers = {}
                 logger.info(f"🦙 Cambiado a Ollama Local: {model_name} en {self.api_base}")

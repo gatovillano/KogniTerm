@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "electron";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -374,6 +374,18 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Configurar permisos de micrófono (media) para el cliente desktop
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "media") {
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return permission === "media";
+  });
+
   // Quita el menú de aplicación por defecto (File Edit View Window).
   Menu.setApplicationMenu(null);
   // La ventana abre igual aunque el backend tarde o falle: la UI muestra el error.

@@ -3,6 +3,7 @@ import asyncio
 import os
 import threading
 from .security import scrub_secrets, mask_url_credentials
+from kogniterm.core.llm import _normalize_ollama_api_base
 from kogniterm.core.llm_service import LLMService
 from kogniterm.core.insights import KogniInsightsEngine
 from kogniterm.core.agents.bash_agent import AgentState, get_system_message
@@ -1139,7 +1140,7 @@ Example: /autosave restore autosave_20250515_141530
             # Función auxiliar para obtener modelos de Ollama Local
             async def _fetch_ollama_local_models():
                 try:
-                    ollama_url = os.environ.get("OLLAMA_API_BASE", "http://localhost:11434/v1")
+                    ollama_url = _normalize_ollama_api_base(os.environ.get("OLLAMA_API_BASE", "http://localhost:11434"))
                     # Construir varias rutas candidatas para compatibilidad (/api/tags, /tags, /v1/tags)
                     base = ollama_url.rstrip('/')
                     # Normalizar si el usuario proporcionó /v1 o /api
@@ -1627,9 +1628,10 @@ Example: /autosave restore autosave_20250515_141530
                 if selected_provider == "ollama":
                     ollama_url = await self._show_input(
                         title="Configurar URL de Ollama Local",
-                        text="Introduce la URL de tu servidor Ollama local (ejemplo: http://localhost:11434/v1):"
+                        text="Introduce la URL de tu servidor Ollama local (ejemplo: http://localhost:11434):"
                     )
                     if ollama_url:
+                        ollama_url = _normalize_ollama_api_base(ollama_url)
                         # Guardar en variable de entorno y persistir en .env si es posible
                         os.environ["OLLAMA_API_BASE"] = ollama_url
                         os.environ["OLLAMA_PROVIDER_TARGET"] = "local"

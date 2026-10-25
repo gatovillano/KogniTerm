@@ -123,10 +123,14 @@ class AntigravityClient:
         logger.info("Token de Antigravity refrescado correctamente.")
         return cls._access_token
 
+    CODE_ASSIST_ENDPOINT_DAILY = "https://daily-cloudcode-pa.googleapis.com"
     CODE_ASSIST_ENDPOINT_PROD = "https://cloudcode-pa.googleapis.com"
+    CODE_ASSIST_ENDPOINT_DAILY_SANDBOX = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 
     CODE_ASSIST_ENDPOINTS = [
+        CODE_ASSIST_ENDPOINT_DAILY,
         CODE_ASSIST_ENDPOINT_PROD,
+        CODE_ASSIST_ENDPOINT_DAILY_SANDBOX,
     ]
 
     @classmethod
@@ -528,62 +532,72 @@ class AntigravityClient:
         for tool in openai_tools:
             if tool.get("type") == "function":
                 fn = tool.get("function", {})
-                sanitized_name = AntigravityClient._sanitize_tool_name(fn.get("name"))
-                if sanitized_name in seen_names:
-                    logger.warning(f"⚠️ Omitiendo declaración de función duplicada en AntigravityClient: {sanitized_name}")
-                    continue
-                seen_names.add(sanitized_name)
+            elif isinstance(tool, dict) and "name" in tool:
+                fn = tool
+            else:
+                continue
+
+            sanitized_name = AntigravityClient._sanitize_tool_name(fn.get("name"))
+            if sanitized_name in seen_names:
+                logger.warning(f"⚠️ Omitiendo declaración de función duplicada en AntigravityClient: {sanitized_name}")
+                continue
+            seen_names.add(sanitized_name)
+            
+            def convert_schema(schema):
+                if not isinstance(schema, dict):
+                    return schema
                 
-                def convert_schema(schema):
-                    if not isinstance(schema, dict):
-                        return schema
-                    
-                    disallowed_keys = {
-                        "$schema", "$ref", "title", "default", "additionalProperties",
-                        "examples", "definitions", "$defs", "markdownDescription",
-                        "allOf", "anyOf", "oneOf", "const", "format", "id"
-                    }
-                    
-                    new_schema = {}
-                    for k, v in schema.items():
-                        if k in disallowed_keys:
-                            continue
-                            
-                        if k == "type":
-                            if isinstance(v, str):
-                                new_schema["type"] = v.upper()
-                            elif isinstance(v, list):
-                                non_null = [t for t in v if isinstance(t, str) and t.lower() != "null"]
-                                new_schema["type"] = non_null[0].upper() if non_null else "STRING"
-                            else:
-                                new_schema["type"] = "STRING"
-                        elif k == "properties" and isinstance(v, dict):
-                            new_schema["properties"] = {pk: convert_schema(pv) for pk, pv in v.items()}
-                        elif k == "items":
-                            if isinstance(v, dict):
-                                new_schema["items"] = convert_schema(v)
-                            elif isinstance(v, list) and v:
-                                new_schema["items"] = convert_schema(v[0])
-                        elif isinstance(v, dict):
-                            new_schema[k] = convert_schema(v)
-                        elif isinstance(v, list):
-                            new_schema[k] = [convert_schema(item) if isinstance(item, dict) else item for item in v]
-                        else:
-                            new_schema[k] = v
-                            
-                    if "properties" in new_schema and "type" not in new_schema:
-                        new_schema["type"] = "OBJECT"
-                    if "items" in new_schema and "type" not in new_schema:
-                        new_schema["type"] = "ARRAY"
-                        
-                    return new_schema
-                
-                decl = {
-                    "name": sanitized_name,
-                    "description": fn.get("description") or "",
-                    "parameters": convert_schema(fn.get("parameters", {}))
+                disallowed_keys = {
+                    "$schema", "$ref", "title", "default", "additionalProperties",
+                    "examples", "definitions", "$defs", "markdownDescription",
+                    "allOf", "anyOf", "oneOf", "const", "format", "id"
                 }
-                function_declarations.append(decl)
+                
+                new_schema = {}
+                for k, v in schema.items():
+                    if k in disallowed_keys:
+                        continue
+                        
+                    if k == "type":
+                        if isinstance(v, str):
+                            new_schema["type"] = v.upper()
+                        elif isinstance(v, list):
+                            non_null = [t for t in v if isinstance(t, str) and t.lower() != "null"]
+                            new_schema["type"] = non_null[0].upper() if non_null else "STRING"
+                        else:
+                            new_schema["type"] = "STRING"
+                    elif k == "enum" and isinstance(v, list):
+                        # La API de Google Gemini (Protobuf) exige que todos los valores enum sean TYPE_STRING
+                        new_schema["enum"] = [str(item) for item in v if item is not None]
+                    elif k == "properties" and isinstance(v, dict):
+                        new_schema["properties"] = {pk: convert_schema(pv) for pk, pv in v.items()}
+                    elif k == "items":
+                        if isinstance(v, dict):
+                            new_schema["items"] = convert_schema(v)
+                        elif isinstance(v, list) and v:
+                            new_schema["items"] = convert_schema(v[0])
+                    elif isinstance(v, dict):
+                        new_schema[k] = convert_schema(v)
+                    elif isinstance(v, list):
+                        new_schema[k] = [convert_schema(item) if isinstance(item, dict) else item for item in v]
+                    else:
+                        new_schema[k] = v
+                        
+                if "properties" in new_schema and "type" not in new_schema:
+                    new_schema["type"] = "OBJECT"
+                if "items" in new_schema and "type" not in new_schema:
+                    new_schema["type"] = "ARRAY"
+                if "enum" in new_schema and "type" not in new_schema:
+                    new_schema["type"] = "STRING"
+                    
+                return new_schema
+            
+            decl = {
+                "name": sanitized_name,
+                "description": fn.get("description") or "",
+                "parameters": convert_schema(fn.get("parameters", {}))
+            }
+            function_declarations.append(decl)
         if function_declarations:
             gemini_tools.append({"functionDeclarations": function_declarations})
         return gemini_tools
@@ -823,9 +837,9 @@ class AntigravityClient:
                             **fallback_kwargs
                         )
 
-                    # Si es cuota agotada del mismo modelo y estamos en el intento 0, no desperdiciar retries inútiles
-                    if is_quota_exhausted and attempt == 0 and ep_idx == 0:
-                        logger.warning(f"⚠️ Cuota agotada detectada en Antigravity para {model}. Omitiendo reintentos idénticos.")
+                    # Si es cuota agotada del mismo modelo y no es el último endpoint, rotar al siguiente inmediatamente
+                    if is_quota_exhausted and attempt == 0 and ep_idx < len(endpoints_to_try) - 1:
+                        logger.warning(f"⚠️ Cuota agotada detectada en Antigravity para {model} en {endpoint}. Probando siguiente endpoint...")
                         endpoint_failed = True
                         break
 

@@ -384,7 +384,50 @@ export const api = {
   listPaymentMethods: () => req<PaymentMethod[]>("/api/payments/payment-methods"),
   getPaymentHistory: () => req<PaymentHistoryItem[]>("/api/payments/history"),
   getQuotaUsage: () => req<UsageQuota>("/api/payments/quota"),
+  transcribeAudio: async (
+    file: Blob | File,
+    language?: string,
+  ): Promise<AudioTranscriptionResult> => {
+    const form = new FormData();
+    form.append("file", file, file instanceof File ? file.name : "audio.webm");
+    if (language) form.append("language", language);
+    const h: Record<string, string> = {};
+    const t = token();
+    if (t) h["Authorization"] = `Bearer ${t}`;
+    const res = await fetch(`${apiRoot()}/api/audio/transcribe`, {
+      method: "POST",
+      headers: h,
+      body: form,
+    });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const body = await res.json();
+        detail = body?.detail || body?.error || "";
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail ? String(detail) : `POST /api/audio/transcribe → ${res.status}`);
+    }
+    return (await res.json()) as AudioTranscriptionResult;
+  },
+  getAudioStatus: () => req<AudioStatusResult>("/api/audio/status"),
 };
+
+export interface AudioTranscriptionResult {
+  text: string;
+  language?: string;
+  language_probability?: number;
+  duration?: number;
+}
+
+export interface AudioStatusResult {
+  available: boolean;
+  model: string;
+  device: string;
+  compute_type: string;
+  loaded: boolean;
+}
 
 /** Proveedores canónicos TUI (command_processor._handle_provider + multi_provider_manager). */
 export const PROVIDERS: Array<{ id: string; label: string; defaultModel: string }> = [

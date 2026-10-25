@@ -1,6 +1,6 @@
 """
 Servicio de transcripción de audio para KogniTerm utilizando faster-whisper.
-Utiliza un modelo Whisper ligero ("tiny" por defecto) cuantizado en int8 para CPU.
+Utiliza un modelo Whisper ligero ("base" por defecto) cuantizado en int8 para CPU.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ class AudioTranscriptionService:
     _instance: Optional[AudioTranscriptionService] = None
     
     def __init__(self, model_size: Optional[str] = None):
-        self.model_size = model_size or os.getenv("KOGNITERM_WHISPER_MODEL", "tiny")
+        self.model_size = model_size or os.getenv("KOGNITERM_WHISPER_MODEL", "base")
         self.device = os.getenv("KOGNITERM_WHISPER_DEVICE", "cpu")
         self.compute_type = os.getenv("KOGNITERM_WHISPER_COMPUTE_TYPE", "int8")
         self._model = None

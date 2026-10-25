@@ -387,6 +387,8 @@ class LLMBridge:
                 exc_str = str(exc)
                 if "429" in exc_str or "rate limit" in exc_str.lower() or "exhausted" in exc_str.lower():
                     yield {"type": "error", "message": f"Límite de cuota o peticiones excedido (429 Rate Limit): {exc}"}
+                elif provider_kwargs.get("custom_llm_provider") == "antigravity":
+                    yield {"type": "error", "message": f"Error inesperado en Antigravity: {exc}"}
                 else:
                     yield {"type": "error", "message": f"Error inesperado en LiteLLM: {exc}"}
                 return
@@ -554,7 +556,7 @@ class LLMBridge:
                 if res["ok"]:
                     yield {"type": "tool_result", "name": t_name, "result": res["raw"], "id": t_id}
                 else:
-                    yield {"type": "error", "message": result_str, "id": t_id}
+                    yield {"type": "tool_result", "name": t_name, "result": result_str, "id": t_id, "is_error": True}
 
                 messages.append(
                     {

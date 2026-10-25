@@ -24,6 +24,19 @@ from litellm import completion, litellm
 logger = logging.getLogger(__name__)
 
 
+def _normalize_ollama_api_base(api_base: Optional[str]) -> Optional[str]:
+    """Normaliza la base de Ollama local para evitar duplicar segmentos /api o /v1."""
+    if not api_base:
+        return api_base
+
+    normalized = api_base.rstrip("/")
+    for suffix in ("/api", "/v1"):
+        if normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)]
+
+    return normalized.rstrip("/")
+
+
 class ProviderStatus(Enum):
     """Estados posibles de un proveedor."""
     HEALTHY = "healthy"
@@ -166,11 +179,16 @@ class ProviderConfig:
     
     def get_api_base(self) -> Optional[str]:
         """Obtiene la URL base de la API, priorizando la variable de entorno si existe."""
+        base = None
         if self.api_base_env:
             env_base = os.getenv(self.api_base_env)
             if env_base:
-                return env_base
-        return self.api_base
+                base = env_base
+        if not base:
+            base = self.api_base
+        if self.name == "ollama" and base:
+            base = _normalize_ollama_api_base(base)
+        return base
     
     def is_configured(self) -> bool:
         """Verifica si el proveedor está configurado (con caché TTL de 30s)."""
@@ -280,7 +298,7 @@ DEFAULT_PROVIDERS = [
         name="ollama",
         model_prefix="ollama",
         api_key_env="OLLAMA_API_KEY",
-        api_base="http://localhost:11434/v1",
+        api_base="http://localhost:11434",
         api_base_env="OLLAMA_API_BASE",
         priority=20,
         fallback_on_error_codes=["429", "503"]
@@ -516,6 +534,8 @@ class MultiProviderManager:
                 return "gemini-3-pro-high"
             if "agent" in lower_pure or "antigravity" in lower_pure:
                 return "gemini-pro-agent"
+            if any(m in lower_pure for m in ["2.5-flash", "2.0-flash", "1.5-flash"]):
+                return pure_model
             if "flash" in lower_pure:
                 return "gemini-3-flash"
             if "pro" in lower_pure:
@@ -745,6 +765,8 @@ class MultiProviderManager:
             if provider.name.startswith("ollama"):
                 api_base = kwargs.get("api_base") or provider.get_api_base()
                 if api_base:
+                    if provider.name == "ollama":
+                        api_base = _normalize_ollama_api_base(api_base)
                     completion_kwargs["api_base"] = api_base
                 
                 # Para ollama local, no requiere headers (o usa los definidos en config)

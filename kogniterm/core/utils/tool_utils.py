@@ -84,6 +84,9 @@ def normalize_tool_parameters_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
         if "required" in node and isinstance(node["required"], list):
             node["required"] = [sanitize_tool_name(r) for r in node["required"] if isinstance(r, str)]
 
+        if "enum" in node and isinstance(node["enum"], list):
+            node["enum"] = [str(item) for item in node["enum"] if item is not None]
+
         for keyword in ("anyOf", "oneOf", "allOf"):
             variants = node.get(keyword)
             if isinstance(variants, list):
@@ -110,6 +113,8 @@ def normalize_tool_parameters_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
                 node["type"] = "object"
             elif "items" in node:
                 node["type"] = "array"
+            elif "enum" in node:
+                node["type"] = "string"
             else:
                 node["type"] = "string"
 

@@ -232,3 +232,27 @@ def test_resolve_model_for_opencode_zen(monkeypatch):
     assert manager._determine_ideal_provider("zen/gemini-3-flash").name == "opencode"
 
 
+def test_ollama_local_api_base_normalization(monkeypatch):
+    from kogniterm.core.multi_provider_manager import ProviderConfig, DEFAULT_PROVIDERS
+
+    ollama_default = next(p for p in DEFAULT_PROVIDERS if p.name == "ollama")
+    assert ollama_default.api_base == "http://localhost:11434"
+
+    p = ProviderConfig(
+        name="ollama",
+        model_prefix="ollama",
+        api_key_env="OLLAMA_API_KEY",
+        api_base="http://localhost:11434/v1",
+        api_base_env="OLLAMA_API_BASE",
+    )
+    monkeypatch.delenv("OLLAMA_API_BASE", raising=False)
+    assert p.get_api_base() == "http://localhost:11434"
+
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://192.168.1.50:11434/v1/")
+    assert p.get_api_base() == "http://192.168.1.50:11434"
+
+    monkeypatch.setenv("OLLAMA_API_BASE", "http://localhost:11434/api")
+    assert p.get_api_base() == "http://localhost:11434"
+
+
+

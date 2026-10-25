@@ -29,6 +29,145 @@ export function ChatView(props: { tabId: string }) {
   // Adjuntos pendientes (texto o imagen) antes de enviar.
   const [attachments, setAttachments] = createSignal<ChatAttachment[]>([]);
   const [attachError, setAttachError] = createSignal("");
+
+  // Grabación de audio / dictado por voz (faster-whisper base)
+  const [isRecording, setIsRecording] = createSignal(false);
+  const [isTranscribing, setIsTranscribing] = createSignal(false);
+  const [recordingSeconds, setRecordingSeconds] = createSignal(0);
+  const [audioError, setAudioError] = createSignal("");
+  let mediaRecorder: MediaRecorder | null = null;
+  let audioStream: MediaStream | null = null;
+  let audioChunks: Blob[] = [];
+  let recordTimer: any = null;
+  let cancelRecordingRef = false;
+
+  function formatSeconds(secs: number): string {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  }
+
+  async function startRecording() {
+    setAudioError("");
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setAudioError("El entorno no soporta captura de micrófono.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStream = stream;
+      audioChunks = [];
+      cancelRecordingRef = false;
+
+      let mimeType = "";
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+          mimeType = "audio/ogg;codecs=opus";
+        }
+      }
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorder = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        if (audioStream) {
+          audioStream.getTracks().forEach((track) => track.stop());
+          audioStream = null;
+        }
+
+        if (cancelRecordingRef) {
+          audioChunks = [];
+          setIsRecording(false);
+          setRecordingSeconds(0);
+          return;
+        }
+
+        const blobType = recorder.mimeType || "audio/webm";
+        const audioBlob = new Blob(audioChunks, { type: blobType });
+        audioChunks = [];
+        setIsRecording(false);
+        setRecordingSeconds(0);
+
+        if (audioBlob.size === 0) {
+          return;
+        }
+
+        setIsTranscribing(true);
+        try {
+          const res = await api.transcribeAudio(audioBlob);
+          const text = res.text?.trim() ?? "";
+          if (text) {
+            setDraft((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+            requestAnimationFrame(() => {
+              inputRef?.focus();
+              const len = draft().length;
+              inputRef?.setSelectionRange(len, len);
+            });
+          }
+        } catch (err: any) {
+          const msg = err?.message || "Error al transcribir audio";
+          setAudioError(msg);
+          setTimeout(() => setAudioError(""), 5000);
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      recorder.start(250);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+
+      clearInterval(recordTimer);
+      recordTimer = setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } catch (err: any) {
+      console.error("Error al acceder al micrófono:", err);
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setAudioError("Permiso de micrófono denegado.");
+      } else {
+        setAudioError("No se pudo iniciar la captura de audio.");
+      }
+      setTimeout(() => setAudioError(""), 5000);
+    }
+  }
+
+  function stopRecording(cancelled: boolean = false) {
+    cancelRecordingRef = cancelled;
+    clearInterval(recordTimer);
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      try {
+        mediaRecorder.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (cancelled && audioStream) {
+      audioStream.getTracks().forEach((track) => track.stop());
+      audioStream = null;
+      setIsRecording(false);
+      setRecordingSeconds(0);
+    }
+  }
+
+  function toggleRecording() {
+    if (isRecording()) {
+      stopRecording(false);
+    } else {
+      void startRecording();
+    }
+  }
   let scrollRef: HTMLDivElement | undefined;
   let inputRef: HTMLInputElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
@@ -509,6 +648,17 @@ export function ChatView(props: { tabId: string }) {
 
   onCleanup(() => {
     if (queueTimeout) clearTimeout(queueTimeout);
+    clearInterval(recordTimer);
+    if (audioStream) {
+      audioStream.getTracks().forEach((track) => track.stop());
+    }
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      try {
+        mediaRecorder.stop();
+      } catch {
+        /* ignore */
+      }
+    }
   });
 
   function submit(e?: Event) {
@@ -879,6 +1029,58 @@ export function ChatView(props: { tabId: string }) {
             <p class="px-3 pt-1 text-[12px] text-red-300/90">{attachError()}</p>
           </Show>
 
+          {/* Indicador de grabación de audio activa */}
+          <Show when={isRecording()}>
+            <div class="flex items-center justify-between px-3 py-1.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 animate-pulse">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                <span class="font-medium">Grabando audio ({formatSeconds(recordingSeconds())})</span>
+                <span class="text-zinc-400">· Faster-Whisper base</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => stopRecording(false)}
+                  class="px-2 py-0.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/40 font-medium text-[11px] transition-all cursor-pointer"
+                >
+                  Listo (Transcribir)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => stopRecording(true)}
+                  class="px-2 py-0.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-white/10 text-[11px] transition-all cursor-pointer"
+                >
+                  Cancelar (Esc)
+                </button>
+              </div>
+            </div>
+          </Show>
+
+          {/* Indicador de transcripción en progreso */}
+          <Show when={isTranscribing()}>
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
+              <svg class="w-3.5 h-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+              </svg>
+              <span>Transcribiendo audio con modelo <strong>Faster-Whisper base</strong>...</span>
+            </div>
+          </Show>
+
+          {/* Error de audio */}
+          <Show when={audioError()}>
+            <div class="flex items-center justify-between px-3 py-1.5 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300">
+              <span class="truncate">{audioError()}</span>
+              <button
+                type="button"
+                onClick={() => setAudioError("")}
+                class="ml-2 text-zinc-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          </Show>
+
           <form
             onSubmit={submit}
             class="flex flex-col gap-0.5 px-1.5 pt-1.5 pb-1 rounded-2xl bg-zinc-900/90 hover:bg-zinc-900 focus-within:bg-zinc-900 focus-within:ring-2 focus-within:ring-white/20 border border-white/[0.08] transition-all duration-200 shadow-none"
@@ -907,6 +1109,52 @@ export function ChatView(props: { tabId: string }) {
               </svg>
             </button>
 
+            {/* Botón de micrófono para dictado/transcripción Faster-Whisper base */}
+            <button
+              type="button"
+              onClick={toggleRecording}
+              disabled={isTranscribing()}
+              title={
+                isRecording()
+                  ? `Detener grabación y transcribir (${formatSeconds(recordingSeconds())})`
+                  : isTranscribing()
+                  ? "Transcribiendo con Faster-Whisper base..."
+                  : "Dictar por voz (Faster-Whisper base)"
+              }
+              class={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-all active:scale-90 relative ${
+                isRecording()
+                  ? "bg-red-500/20 text-red-400 border border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse"
+                  : isTranscribing()
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-wait"
+                  : "bg-transparent hover:bg-white/[0.06] text-zinc-400 hover:text-white border border-transparent hover:border-white/[0.08]"
+              }`}
+            >
+              <Show
+                when={!isTranscribing()}
+                fallback={
+                  <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                  </svg>
+                }
+              >
+                <Show
+                  when={!isRecording()}
+                  fallback={
+                    <svg class="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="12" cy="12" r="6" />
+                    </svg>
+                  }
+                >
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </svg>
+                </Show>
+              </Show>
+            </button>
+
             <input
               ref={inputRef}
               value={draft()}
@@ -925,6 +1173,18 @@ export function ChatView(props: { tabId: string }) {
                 }
               }}
               onKeyDown={(e) => {
+                if (isRecording()) {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    stopRecording(true);
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    stopRecording(false);
+                    return;
+                  }
+                }
                 if (autocompleteRef?.handleKeyDown(e)) {
                   return;
                 }
@@ -953,9 +1213,13 @@ export function ChatView(props: { tabId: string }) {
                 }
               }}
               placeholder={
-                isOperating()
+                isRecording()
+                  ? "Habla ahora… presiona Enter o clic en micrófono para transcribir"
+                  : isTranscribing()
+                  ? "Transcribiendo tu voz con faster-whisper base…"
+                  : isOperating()
                   ? "Escribe para encolar la siguiente tarea… (Enter para encolar)"
-                  : "Escribe un mensaje o tarea… (/ comandos, @ archivos, 📎 adjuntos)"
+                  : "Escribe un mensaje o tarea… (/ comandos, @ archivos, 📎 adjuntos, 🎙️ voz)"
               }
               class="flex-1 bg-transparent px-3 py-2 text-[13.5px] text-white placeholder-zinc-500 outline-none select-text"
             />
