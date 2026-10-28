@@ -6,7 +6,12 @@ import unittest
 from fastapi.testclient import TestClient
 from kogniterm.server.app import create_app
 from kogniterm.server.payments.service import payment_service, AVAILABLE_PLANS
-from kogniterm.server.payments.models import PlanTier, SubscriptionStatus, PaymentProvider
+from kogniterm.server.payments.models import (
+    PlanTier,
+    SubscriptionStatus,
+    PaymentProvider,
+    CreateCheckoutSessionRequest,
+)
 
 
 class TestPaymentsSystem(unittest.TestCase):
@@ -84,12 +89,13 @@ class TestPaymentsSystem(unittest.TestCase):
         """Prueba la obtención de los métodos de pago guardados."""
         headers = {"X-User-ID": "user_methods_test"}
         # Asignar primero plan Pro para tener tarjeta en el mock
-        payment_service.create_checkout_session("user_methods_test", type("Obj", (), {
-            "plan_id": "plan_pro_monthly",
-            "success_url": "http://localhost/success",
-            "cancel_url": "http://localhost/cancel",
-            "customer_email": "test@test.com"
-        }))
+        payment_service.create_checkout_session("user_methods_test", CreateCheckoutSessionRequest(
+            plan_id="plan_pro_monthly",
+            success_url="http://localhost/success",
+            cancel_url="http://localhost/cancel",
+            customer_email="test@test.com",
+            provider=PaymentProvider.MOCK
+        ))
         response = self.client.get("/api/payments/payment-methods", headers=headers)
         self.assertEqual(response.status_code, 200)
         methods = response.json()
@@ -99,12 +105,13 @@ class TestPaymentsSystem(unittest.TestCase):
     def test_get_payment_history(self):
         """Prueba la consulta del historial de facturación."""
         headers = {"X-User-ID": "user_history_test"}
-        payment_service.create_checkout_session("user_history_test", type("Obj", (), {
-            "plan_id": "plan_pro_monthly",
-            "success_url": "http://localhost/success",
-            "cancel_url": "http://localhost/cancel",
-            "customer_email": "test@test.com"
-        }))
+        payment_service.create_checkout_session("user_history_test", CreateCheckoutSessionRequest(
+            plan_id="plan_pro_monthly",
+            success_url="http://localhost/success",
+            cancel_url="http://localhost/cancel",
+            customer_email="test@test.com",
+            provider=PaymentProvider.MOCK
+        ))
         response = self.client.get("/api/payments/history", headers=headers)
         self.assertEqual(response.status_code, 200)
         history = response.json()

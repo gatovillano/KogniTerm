@@ -54,11 +54,12 @@ Ejecuta un comando en la shell y devuelve la salida.
 - **Nivel de seguridad: elevated** - Requiere aprobación del usuario
 - **Permisos requeridos:** execute, filesystem
 - **Requiere allowlisting:** true
-- **Ejecución en sandbox:** true (Docker)
+- **Ejecución:** local en un PTY persistente e interactivo (sin sandbox Docker)
+- **Terminal interactiva:** el comando tiene `stdin` real. Puedes ejecutar `sudo` y comandos que pidan contraseña o confirmación; tras aprobar la ejecución, el usuario responde directamente en la terminal de KogniTerm. No te niegues a ejecutarlos ni pidas al usuario que los corra en otra terminal.
 
 ### Comandos peligrosos (requieren aprobación):
 
-Los siguientes comandos requieren aprobación manual del usuario:
+Los siguientes comandos requieren aprobación manual del usuario (la aprobación no impide su ejecución: una vez aprobada, el comando corre y puede pedir entrada):
 - `rm -rf`, `rm -r`, `rm -f`
 - `sudo`, `su`
 - `chmod 777`, `chown`

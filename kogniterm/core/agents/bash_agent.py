@@ -192,6 +192,37 @@ def process_file_references(content: str, workspace_directory: str) -> str:
 
 
 # --- Mensaje de Sistema ---
+
+# Capacidad real del entorno de ejecución. Se inyecta SIEMPRE en el system
+# prompt (y se re-inyecta en prompts personalizados) para que el agente no
+# asuma un ejecutor no interactivo ni se niegue a usar sudo.
+INTERACTIVE_TERMINAL_MARKER = "CAPACIDAD REAL DE LA TERMINAL: ES INTERACTIVA Y ADMITE `sudo`"
+
+INTERACTIVE_TERMINAL_INSTRUCTION = f"""## 🖥️ {INTERACTIVE_TERMINAL_MARKER}
+`execute_command` no es un ejecutor no interactivo: opera sobre un **PTY persistente** con `stdin`/`stdout` bidireccionales y conserva la misma sesión de shell entre comandos.
+
+- **SÍ puedes ejecutar `sudo`** y cualquier comando que pida entrada (contraseña de `sudo`, `su`, `apt`, `systemctl`, confirmaciones `[y/N]`, menús de selección, passphrases SSH, etc.). Úsalo con `execute_command` cuando la tarea lo requiera; es parte normal de tu trabajo.
+- Cuando el comando muestre un prompt, **el usuario puede responderlo directamente en la terminal interactiva de KogniTerm**. No necesitas pedirle la contraseña por el chat ni ejecutar el comando por él.
+- **PROHIBIDO** negarte a usar `sudo` alegando que "no hay TTY", que "no puedes introducir contraseñas" o que "requiere intervención manual". **PROHIBIDO** pedirle al usuario que abra otra terminal o que ejecute el comando él mismo.
+- **NO** añadas `sudo -n`, `sudo -S`, `--non-interactive`, `DEBIAN_FRONTEND=noninteractive` ni `-y` solo para esquivar un prompt. Úsalos únicamente si el comando realmente debe ser no interactivo.
+- La aprobación de la herramienta en la UI de KogniTerm es independiente del prompt del comando: una vez que el usuario aprueba la ejecución, el comando corre de verdad y puede pedir entrada.
+- Si un comando interactivo parece quedarse esperando, está aguardando que el usuario escriba: no lo des por fallido; el usuario puede responder en la terminal. Para esos casos usa un `timeout` amplio en `execute_command`.
+- Usa `sudo` solo cuando de verdad se necesiten privilegios. Si un comando falla por permisos, reinténtalo con `sudo` en lugar de rendirte o pedir ayuda.
+"""
+
+
+def ensure_interactive_terminal_instruction(sys_content: str) -> str:
+    """Garantiza que el system prompt declare la terminal interactiva y sudo."""
+    if not sys_content:
+        return INTERACTIVE_TERMINAL_INSTRUCTION.strip()
+    if INTERACTIVE_TERMINAL_MARKER in sys_content:
+        return sys_content
+    # SUPERAGENT_SYSTEM_PROMPT ya trae una sección equivalente con este texto.
+    if "Terminal interactiva y comandos `sudo`" in sys_content:
+        return sys_content
+    return sys_content.rstrip() + "\n\n" + INTERACTIVE_TERMINAL_INSTRUCTION.strip()
+
+
 def get_system_message(llm_service: LLMService) -> SystemMessage:
     base_content = """INSTRUCCIÓN CRÍTICA: Tu nombre es KogniTerm. Eres un agente evolutivo de terminal con **Capacidad Evolutiva**.
 
@@ -201,6 +232,8 @@ Cualquier solicitud del usuario (sin importar su complejidad) DEBE ser registrad
 2. **Actualizaciones en Tiempo Real**: Cada vez que inicies, completes o cambie el estado de una tarea, DEBES llamar inmediatamente a `task_tracker` con `action="update"`, especificando el `task_index` y el nuevo `status` ("in-progress", "done", "failed").
 3. **Registro Final**: Al concluir el trabajo, asegúrate de marcar la última tarea como completada llamando a `task_tracker`.
 ¡NUNCA OMITAS ESTE PASO! No inicializar el task tracker inmediatamente en el primer turno se considera un fallo de ejecución crítico y una violación del protocolo.
+
+""" + INTERACTIVE_TERMINAL_INSTRUCTION + """
 
 **Tus Principios:**
 1.  **Eres KogniTerm**: Agente evolutivo experto en terminal, depuración y Python.

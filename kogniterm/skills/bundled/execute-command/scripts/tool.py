@@ -16,7 +16,7 @@ from typing import Optional, Generator, Any
 
 # Metadata de la herramienta
 name = "execute_command"
-description = "Ejecuta un comando bash y devuelve su salida en tiempo real. Para comandos de larga duración (>30s), servidores/demonios (ej. 'npm run dev', 'python app.py') o descargas pesadas, usa 'is_background: true' para ejecutarlos asíncronamente en segundo plano sin bloquear."
+description = "Ejecuta un comando bash en una terminal interactiva (PTY persistente, con stdin real) y devuelve su salida en tiempo real. Admite `sudo` y comandos que pidan contraseña o confirmación: el usuario responde directamente en la terminal de KogniTerm tras aprobar la ejecución; nunca te niegues a ejecutarlos ni pidas al usuario que los corra en otra terminal. Para comandos de larga duración (>30s), servidores/demonios (ej. 'npm run dev', 'python app.py') o descargas pesadas, usa 'is_background: true' para ejecutarlos asíncronamente en segundo plano sin bloquear."
 
 
 def _transform_python3_dash_c(command: str) -> tuple[str, bool, Optional[str]]:

@@ -17,6 +17,7 @@ from langchain_core.messages import (
 from kogniterm.core.agent_state import AgentState
 from kogniterm.core.ai_cli_bridge.llm_bridge import LLMBridge
 from kogniterm.core.agents.bash_agent import (
+    ensure_interactive_terminal_instruction,
     get_system_message,
     learning_node,
     verification_node,
@@ -136,6 +137,16 @@ def _ensure_parallel_instruction(sys_content: str) -> str:
     if "Ejecución en paralelo de herramientas" in sys_content:
         return sys_content
     return sys_content.rstrip() + "\n" + PARALLEL_TOOL_INSTRUCTION
+
+
+def _ensure_terminal_instruction(sys_content: str) -> str:
+    """Añade la instrucción de terminal interactiva/sudo si no está ya.
+
+    Se aplica también a system prompts personalizados (DeepCoder, subagentes,
+    etc.) para que la capacidad de ejecutar `sudo` y responder prompts no
+    dependa de que el usuario la recuerde en su mensaje.
+    """
+    return ensure_interactive_terminal_instruction(sys_content)
 
 
 TERMINAL_TOOLS = {
@@ -262,12 +273,19 @@ class SuperAgent:
         default_system = SUPERAGENT_SYSTEM_PROMPT + "\n" + PARALLEL_TOOL_INSTRUCTION
         sys_content = system_prompt or default_system
         sys_content = _ensure_parallel_instruction(sys_content)
+        sys_content = _ensure_terminal_instruction(sys_content)
 
         if not messages or messages[0].get("role") != "system":
             messages.insert(0, {"role": "system", "content": sys_content})
         elif system_prompt:
-            # Conservar la instrucción de paralelismo aunque venga un prompt personalizado.
-            messages[0]["content"] = _ensure_parallel_instruction(system_prompt)
+            # Conservar las instrucciones de paralelismo y de terminal interactiva
+            # aunque venga un prompt personalizado.
+            messages[0]["content"] = _ensure_terminal_instruction(
+                _ensure_parallel_instruction(system_prompt)
+            )
+        elif isinstance(messages[0].get("content"), str):
+            # Sin system_prompt explícito: reforzar el system message existente.
+            messages[0]["content"] = _ensure_terminal_instruction(messages[0]["content"])
 
         if task:
             messages.append({"role": "user", "content": task})
@@ -853,6 +871,7 @@ class SuperAgentRunner:
                 logger.debug(f"No se pudo generar system_message dinámico: {exc}")
                 system_prompt = "Eres KogniTerm, un asistente evolutivo de terminal de alta velocidad."
         system_prompt = _ensure_parallel_instruction(system_prompt)
+        system_prompt = _ensure_terminal_instruction(system_prompt)
 
         # 3b. Enrutamiento semántico de skills procedimentales relevantes.
         # Selecciona por similitud semántica las skills cuyo conocimiento aplica

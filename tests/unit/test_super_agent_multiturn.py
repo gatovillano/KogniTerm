@@ -39,3 +39,35 @@ async def test_super_agent_injects_custom_system_prompt():
         assert len(captured_messages) >= 2
         assert captured_messages[0]["role"] == "system"
         assert "Instrucciones avanzadas de KogniTerm" in captured_messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_super_agent_injects_interactive_terminal_capability_in_custom_prompt():
+    """Un prompt personalizado (subagente/DeepCoder) no debe perder la capacidad de sudo."""
+    agent = SuperAgent(model="test-model")
+
+    captured_messages = []
+    async def fake_chat(messages, tools=None, max_steps=25):
+        captured_messages.extend(messages)
+        yield {"type": "done", "content": "ok"}
+
+    with patch.object(agent.llm_bridge, "chat", side_effect=fake_chat):
+        async for _ in agent.execute_stream(
+            task="instala el paquete",
+            system_prompt="Eres KogniDeepCoder. Edita código.",
+        ):
+            pass
+
+    sys_content = captured_messages[0]["content"]
+    assert "Eres KogniDeepCoder. Edita código." in sys_content
+    assert "CAPACIDAD REAL DE LA TERMINAL" in sys_content
+    assert "SÍ puedes ejecutar `sudo`" in sys_content
+    assert sys_content.count("CAPACIDAD REAL DE LA TERMINAL") == 1
+
+
+def test_interactive_terminal_instruction_is_idempotent():
+    from kogniterm.core.agents.bash_agent import ensure_interactive_terminal_instruction
+
+    once = ensure_interactive_terminal_instruction("Prompt base")
+    assert "CAPACIDAD REAL DE LA TERMINAL" in once
+    assert ensure_interactive_terminal_instruction(once) == once
