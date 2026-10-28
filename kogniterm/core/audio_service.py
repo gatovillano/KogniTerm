@@ -13,6 +13,21 @@ from typing import Optional, Dict, Any
 
 logger = logging.getLogger("kogniterm.core.audio_service")
 
+# Compatibilidad con PyAV >= 14/19+: faster-whisper 1.2.1 pasa metadata_errors="ignore"
+# a av.open(), pero versiones recientes de PyAV eliminaron ese parámetro.
+try:
+    import av
+    _orig_av_open = av.open
+
+    def _safe_av_open(*args, **kwargs):
+        kwargs.pop("metadata_errors", None)
+        return _orig_av_open(*args, **kwargs)
+
+    av.open = _safe_av_open
+except Exception as _e:
+    logger.debug(f"No se aplicó compatibilidad para av.open: {_e}")
+
+
 class AudioTranscriptionService:
     """Servicio singleton para transcripción de audio con Whisper ligero."""
     

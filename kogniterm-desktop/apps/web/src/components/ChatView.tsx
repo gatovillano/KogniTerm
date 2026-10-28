@@ -169,10 +169,19 @@ export function ChatView(props: { tabId: string }) {
     }
   }
   let scrollRef: HTMLDivElement | undefined;
-  let inputRef: HTMLInputElement | undefined;
+  let inputRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let autocompleteRef: { handleKeyDown: (e: KeyboardEvent) => boolean } | undefined;
   let queueTimeout: any = null;
+
+  function adjustTextareaHeight() {
+    if (!inputRef) return;
+    inputRef.style.height = "auto";
+    const maxHeight = 200; // ~8-9 líneas
+    const nextHeight = Math.min(inputRef.scrollHeight, maxHeight);
+    inputRef.style.height = `${Math.max(nextHeight, 38)}px`;
+    inputRef.style.overflowY = inputRef.scrollHeight > maxHeight ? "auto" : "hidden";
+  }
 
   function checkAutocomplete() {
     if (!inputRef) {
@@ -478,6 +487,13 @@ export function ChatView(props: { tabId: string }) {
   createEffect(() => {
     props.tabId;
     resetHistoryNav();
+  });
+
+  createEffect(() => {
+    draft();
+    requestAnimationFrame(() => {
+      adjustTextareaHeight();
+    });
   });
 
   function applyHistoryValue(value: string) {
@@ -1095,71 +1111,75 @@ export function ChatView(props: { tabId: string }) {
                 e.currentTarget.value = "";
               }}
             />
-            <div class="flex items-center gap-2">
-            <AgentSelector tabId={props.tabId} onSelect={() => inputRef?.focus()} />
+            <div class="flex items-end gap-2">
+            <div class="flex items-center gap-1 shrink-0 pb-0.5">
+              <AgentSelector tabId={props.tabId} onSelect={() => inputRef?.focus()} />
 
-            <button
-              type="button"
-              onClick={() => fileInputRef?.click()}
-              title="Adjuntar texto o imagen (también puedes pegar con Ctrl+V)"
-              class="w-9 h-9 shrink-0 rounded-xl bg-transparent hover:bg-white/[0.06] text-zinc-400 hover:text-white border border-transparent hover:border-white/[0.08] flex items-center justify-center transition-all active:scale-90"
-            >
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef?.click()}
+                title="Adjuntar texto o imagen (también puedes pegar con Ctrl+V)"
+                class="w-9 h-9 shrink-0 rounded-xl bg-transparent hover:bg-white/[0.06] text-zinc-400 hover:text-white border border-transparent hover:border-white/[0.08] flex items-center justify-center transition-all active:scale-90"
+              >
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
 
-            {/* Botón de micrófono para dictado/transcripción Faster-Whisper base */}
-            <button
-              type="button"
-              onClick={toggleRecording}
-              disabled={isTranscribing()}
-              title={
-                isRecording()
-                  ? `Detener grabación y transcribir (${formatSeconds(recordingSeconds())})`
-                  : isTranscribing()
-                  ? "Transcribiendo con Faster-Whisper base..."
-                  : "Dictar por voz (Faster-Whisper base)"
-              }
-              class={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-all active:scale-90 relative ${
-                isRecording()
-                  ? "bg-red-500/20 text-red-400 border border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse"
-                  : isTranscribing()
-                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-wait"
-                  : "bg-transparent hover:bg-white/[0.06] text-zinc-400 hover:text-white border border-transparent hover:border-white/[0.08]"
-              }`}
-            >
-              <Show
-                when={!isTranscribing()}
-                fallback={
-                  <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                  </svg>
+              {/* Botón de micrófono para dictado/transcripción Faster-Whisper base */}
+              <button
+                type="button"
+                onClick={toggleRecording}
+                disabled={isTranscribing()}
+                title={
+                  isRecording()
+                    ? `Detener grabación y transcribir (${formatSeconds(recordingSeconds())})`
+                    : isTranscribing()
+                    ? "Transcribiendo con Faster-Whisper base..."
+                    : "Dictar por voz (Faster-Whisper base)"
                 }
+                class={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-all active:scale-90 relative ${
+                  isRecording()
+                    ? "bg-red-500/20 text-red-400 border border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse"
+                    : isTranscribing()
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-wait"
+                    : "bg-transparent hover:bg-white/[0.06] text-zinc-400 hover:text-white border border-transparent hover:border-white/[0.08]"
+                }`}
               >
                 <Show
-                  when={!isRecording()}
+                  when={!isTranscribing()}
                   fallback={
-                    <svg class="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="currentColor">
-                      <circle cx="12" cy="12" r="6" />
+                    <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
                     </svg>
                   }
                 >
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </svg>
+                  <Show
+                    when={!isRecording()}
+                    fallback={
+                      <svg class="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="12" r="6" />
+                      </svg>
+                    }
+                  >
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" x2="12" y1="19" y2="22" />
+                    </svg>
+                  </Show>
                 </Show>
-              </Show>
-            </button>
+              </button>
+            </div>
 
-            <input
+            <textarea
               ref={inputRef}
+              rows={1}
               value={draft()}
               onInput={(e) => {
                 setDraft(e.currentTarget.value);
+                adjustTextareaHeight();
                 if (agentStatus()) setAgentStatus("");
                 // El usuario editó a mano: abandona la navegación del historial.
                 if (historyIndex() !== null) resetHistoryNav();
@@ -1188,10 +1208,27 @@ export function ChatView(props: { tabId: string }) {
                 if (autocompleteRef?.handleKeyDown(e)) {
                   return;
                 }
+                // Enter sin Shift envía o encola el mensaje. Shift+Enter genera salto de línea.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                  return;
+                }
                 // Historial de solicitudes solo cuando no hay autocompletado abierto
-                // (el autocompletado ya consume ↑/↓ mientras está visible).
+                // y estamos en una sola línea o al inicio/fin (el autocompletado ya consume ↑/↓ mientras está visible).
                 if (e.key === "ArrowUp" || e.key === "ArrowDown") {
                   if (autocompleteState()) return;
+                  // Si tiene múltiples líneas, permitir navegar verticalmente por el texto a menos que esté en el borde
+                  const el = inputRef;
+                  if (el) {
+                    const hasNewlines = draft().includes("\n");
+                    if (e.key === "ArrowUp" && hasNewlines && (el.selectionStart ?? 0) > 0) {
+                      return;
+                    }
+                    if (e.key === "ArrowDown" && hasNewlines && (el.selectionEnd ?? 0) < draft().length) {
+                      return;
+                    }
+                  }
                   if (navigateHistory(e.key === "ArrowUp" ? -1 : 1)) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -1218,12 +1255,13 @@ export function ChatView(props: { tabId: string }) {
                   : isTranscribing()
                   ? "Transcribiendo tu voz con faster-whisper base…"
                   : isOperating()
-                  ? "Escribe para encolar la siguiente tarea… (Enter para encolar)"
-                  : "Escribe un mensaje o tarea… (/ comandos, @ archivos, 📎 adjuntos, 🎙️ voz)"
+                  ? "Escribe para encolar la siguiente tarea… (Enter para encolar, Shift+Enter nueva línea)"
+                  : "Escribe un mensaje o tarea… (/ comandos, @ archivos, 📎 adjuntos, Shift+Enter nueva línea)"
               }
-              class="flex-1 bg-transparent px-3 py-2 text-[13.5px] text-white placeholder-zinc-500 outline-none select-text"
+              class="flex-1 bg-transparent px-3 py-2 text-[13.5px] text-white placeholder-zinc-500 outline-none select-text resize-none min-h-[38px] max-h-[200px] leading-relaxed custom-scrollbar"
             />
 
+            <div class="shrink-0 pb-0.5">
             <Show
               when={isOperating()}
               fallback={
@@ -1269,6 +1307,7 @@ export function ChatView(props: { tabId: string }) {
                 </button>
               </div>
             </Show>
+            </div>
             </div>
             {/* Barra inferior del input: carpeta actual a la izquierda, modelo a la derecha */}
             <div class="flex items-center justify-between gap-3 px-3 py-1 text-[11px] leading-none select-none">

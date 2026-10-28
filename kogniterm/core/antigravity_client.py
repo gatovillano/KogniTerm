@@ -285,20 +285,23 @@ class AntigravityClient:
                 name = msg.get("name")
                 tool_call_id = msg.get("tool_call_id")
                 
-                # Fallback: si el nombre no está presente, buscar en los tool_calls anteriores del historial
-                if not name and tool_call_id:
+                # CRÍTICO: Si hay tool_call_id, buscar en los tool_calls del asistente el nombre exacto con el que
+                # se invocó la herramienta. La API de Gemini rechaza con 400 si el name del functionResponse
+                # difiere del name del functionCall del turno previo del modelo.
+                if tool_call_id:
                     for prev_msg in openai_messages:
                         if prev_msg.get("role") == "assistant" and prev_msg.get("tool_calls"):
                             for tc in prev_msg["tool_calls"]:
                                 if tc.get("id") == tool_call_id:
                                     fn = tc.get("function", {})
-                                    name = fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None)
-                                    break
+                                    tc_name = fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None)
+                                    if tc_name:
+                                        name = tc_name
+                                        break
                             if name:
                                 break
                 
-                # CRÍTICO: Gemini rechaza functionResponse con name=null (HTTP 400).
-                # Si aún no tenemos nombre, usamos el tool_call_id como último recurso.
+                # Fallback: si aún no tenemos nombre, usamos el tool_call_id como último recurso.
                 if not name:
                     name = tool_call_id or "unknown_tool"
                     logger.warning(
@@ -419,9 +422,15 @@ class AntigravityClient:
                                 if fc_id and str(fc_id) in responded_calls:
                                     matched_resp = responded_calls[str(fc_id)]
                                     valid_fcall_keys.add(str(fc_id))
+                                    # CRÍTICO: Sincronizar el nombre del functionResponse con el functionCall.
+                                    # La API de Gemini rechaza con 400 si difieren (ej. run_shell vs execute_command).
+                                    if "functionResponse" in matched_resp and fc_name:
+                                        matched_resp["functionResponse"]["name"] = fc_name
                                 elif fc_name and str(fc_name) in responded_calls:
                                     matched_resp = responded_calls[str(fc_name)]
                                     valid_fcall_keys.add(str(fc_name))
+                                    if "functionResponse" in matched_resp and fc_name:
+                                        matched_resp["functionResponse"]["name"] = fc_name
                                     
                                 if matched_resp:
                                     valid_parts.append(p)

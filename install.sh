@@ -299,6 +299,16 @@ install_desktop_entry() {
             fi
         fi
 
+        # Instalar también la variante PNG si existe (para gestores que prefieren bitmap)
+        for png_cand in \
+            "$REPO_DIR/kogniterm-desktop/apps/electron/assets/icon.png" \
+            "kogniterm-desktop/apps/electron/assets/icon.png"; do
+            if [ -f "$png_cand" ]; then
+                cp -f "$png_cand" "$icon_dir_png/$icon_name.png" 2>/dev/null && icon_installed="true"
+                break
+            fi
+        done
+
         local icon_key="$icon_name"
         if [ "$icon_installed" != "true" ]; then
             # Sin icono propio: usar icono genérico de terminal del tema del sistema
@@ -318,6 +328,7 @@ Icon=$icon_key
 Terminal=false
 Categories=Development;System;Utility;TerminalEmulator;
 StartupWMClass=kogniterm-desktop
+StartupNotify=true
 Keywords=terminal;ai;kogniterm;shell;gemini;
 EOF
         chmod +x "$desktop_file"

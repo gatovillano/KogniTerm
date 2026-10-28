@@ -353,6 +353,19 @@ class CommandApprovalHandler:
         if not isinstance(raw_name, str):
             state_tool = getattr(self.agent_state, "tool_pending_confirmation", None)
             raw_name = state_tool if isinstance(state_tool, str) else None
+        if not raw_name and tool_call_id:
+            for msg in reversed(self.agent_state.messages):
+                tool_calls = getattr(msg, "tool_calls", None)
+                if tool_calls:
+                    for tc in tool_calls:
+                        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                        if tc_id == tool_call_id:
+                            fn_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                            if fn_name:
+                                raw_name = fn_name
+                                break
+                    if raw_name:
+                        break
         name = raw_name if (isinstance(raw_name, str) and raw_name.strip()) else "execute_command"
 
         replacement = ToolMessage(content=content, tool_call_id=tool_call_id, name=name)

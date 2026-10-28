@@ -696,6 +696,15 @@ class CLIHandler:
             except Exception:
                 pass
 
+        # Instalar también la variante PNG si existe (para gestores que prefieren bitmap)
+        png_candidate = os.path.join(repo_dir, "kogniterm-desktop", "apps", "electron", "assets", "icon.png")
+        if os.path.isfile(png_candidate):
+            try:
+                shutil.copyfile(png_candidate, os.path.join(icon_png_dir, f"{icon_name}.png"))
+                icon_key = icon_name
+            except Exception:
+                pass
+
         with open(desktop_file, "w", encoding="utf-8") as f:
             f.write(
                 "[Desktop Entry]\n"
@@ -709,6 +718,7 @@ class CLIHandler:
                 "Terminal=false\n"
                 "Categories=Development;System;Utility;TerminalEmulator;\n"
                 "StartupWMClass=kogniterm-desktop\n"
+                "StartupNotify=true\n"
                 "Keywords=terminal;ai;kogniterm;shell;gemini;\n"
             )
         try:

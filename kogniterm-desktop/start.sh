@@ -28,12 +28,13 @@ cd "$SCRIPT_DIR" || exit 1
 
 export PATH="$SCRIPT_DIR/node_modules/.bin:$SCRIPT_DIR/apps/electron/node_modules/.bin:$PATH"
 export ELECTRON_DISABLE_SANDBOX=1
+export CHROME_DESKTOP="kogniterm-desktop.desktop"
 
 # Detectar si hay servidor X disponible; si no, forzar modo headless
 if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
-    export ELECTRON_FLAGS="--ozone-platform=headless --disable-gpu --no-sandbox"
+    export ELECTRON_FLAGS="--ozone-platform=headless --disable-gpu --no-sandbox --class=kogniterm-desktop"
 else
-    export ELECTRON_FLAGS="--no-sandbox"
+    export ELECTRON_FLAGS="--no-sandbox --class=kogniterm-desktop"
 fi
 
 command_exists() {
@@ -80,9 +81,9 @@ fi
 export NODE_ENV=production
 
 if [ "$SHOW_LOGS" = true ]; then
-    "$ELECTRON_BIN" $ELECTRON_FLAGS "$SCRIPT_DIR/apps/electron/out/main/main.js"
+    "$ELECTRON_BIN" $ELECTRON_FLAGS "$SCRIPT_DIR/apps/electron"
 else
     echo "📝 Guardando logs del escritorio en $LOGS_DIR/desktop.log"
-    setsid "$ELECTRON_BIN" $ELECTRON_FLAGS "$SCRIPT_DIR/apps/electron/out/main/main.js" > "$LOGS_DIR/desktop.log" 2>&1 &
+    setsid "$ELECTRON_BIN" $ELECTRON_FLAGS "$SCRIPT_DIR/apps/electron" > "$LOGS_DIR/desktop.log" 2>&1 &
     echo -e "${GREEN}✨ KogniTerm Desktop iniciado correctamente.${NC}"
 fi

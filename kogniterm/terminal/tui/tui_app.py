@@ -2865,12 +2865,9 @@ class KogniTermTUI(App):
         except Exception:
             is_terminal_focused = False
 
-        cmd_exec = self.get_active_executor()
-        proc = getattr(cmd_exec, "process", None) if cmd_exec else None
-        is_proc_running = proc is not None and getattr(proc, "poll", lambda: None)() is None
-
-        if (is_interact_mode or is_terminal_focused or is_proc_running) and cmd_exec and proc:
-            cmd_exec.write_input(user_input + "\n")
+        _target = self._interactive_input_target(is_interact_mode or is_terminal_focused)
+        if _target is not None:
+            _target.write_input(user_input + "\n")
             event.input.value = ""
             return
 
@@ -2914,6 +2911,43 @@ class KogniTermTUI(App):
             except Exception:
                 pass
 
+    def _interactive_input_target(self, wants_terminal: bool):
+        """Devuelve el ejecutor al que debe ir el input del chat, o None.
+
+        Prioriza el ejecutor interactivo registrado por `set_terminal_cursor`
+        para la pestaña activa (en modo servidor es un
+        `ServerTerminalExecutorProxy`, que no expone `process`). Si no hay,
+        cae al shell persistente local cuando tiene un comando en curso.
+        """
+        session = None
+        try:
+            session = self.get_active_session()
+        except Exception:
+            session = None
+
+        # 1. Terminal interactiva activa en la pestaña (local o servidor)
+        interactive = None
+        cursor_on = False
+        if session is not None:
+            interactive = getattr(session, "interactive_executor", None)
+            cursor_on = bool(getattr(session, "cursor_active", False))
+        if interactive is None:
+            interactive = getattr(self, "interactive_executor", None)
+            cursor_on = cursor_on or bool(getattr(self, "_cursor_active", False))
+        if interactive is not None and (cursor_on or wants_terminal) and hasattr(interactive, "write_input"):
+            return interactive
+
+        # 2. Shell persistente local con un comando en ejecución
+        cmd_exec = self.get_active_executor()
+        proc = getattr(cmd_exec, "process", None) if cmd_exec else None
+        try:
+            is_proc_running = proc is not None and proc.poll() is None
+        except Exception:
+            is_proc_running = False
+        if (wants_terminal or is_proc_running) and proc is not None and hasattr(cmd_exec, "write_input"):
+            return cmd_exec
+        return None
+
     def on_chat_input_submitted(self, event):
         user_input = getattr(event, "value", "")
         if not user_input.strip():
@@ -2947,12 +2981,9 @@ class KogniTermTUI(App):
         except Exception:
             is_terminal_focused = False
 
-        cmd_exec = self.get_active_executor()
-        proc = getattr(cmd_exec, "process", None) if cmd_exec else None
-        is_proc_running = proc is not None and getattr(proc, "poll", lambda: None)() is None
-
-        if (is_interact_mode or is_terminal_focused or is_proc_running) and cmd_exec and proc:
-            cmd_exec.write_input(user_input + "\n")
+        _target = self._interactive_input_target(is_interact_mode or is_terminal_focused)
+        if _target is not None:
+            _target.write_input(user_input + "\n")
             return
 
         # Sesión de origen: la pestaña activa en el momento del envío

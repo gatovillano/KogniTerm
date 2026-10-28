@@ -483,6 +483,52 @@ def test_antigravity_normalize_contents_mismatched_ids_fallback():
     assert normalized[2]["parts"][0]["functionResponse"]["name"] == "file_operations"
 
 
+def test_antigravity_normalize_contents_mismatched_names_synchronization():
+    # Caso crítico: El modelo invoca un alias (ej. 'run_shell') y la herramienta responde con su nombre canónico ('execute_command').
+    # Gemini rechaza con HTTP 400 si el name del functionResponse no coincide exactamente con el functionCall.
+    raw_payload_contents = [
+        {
+            "role": "user",
+            "parts": [{"text": "corre un comando"}]
+        },
+        {
+            "role": "model",
+            "parts": [
+                {"functionCall": {"name": "run_shell", "id": "call_abc123"}}
+            ]
+        },
+        {
+            "role": "user",
+            "parts": [
+                {"functionResponse": {"name": "execute_command", "response": {"output": "listo"}, "id": "call_abc123"}}
+            ]
+        }
+    ]
+    
+    normalized = AntigravityClient._normalize_contents(raw_payload_contents)
+    
+    assert len(normalized) == 3
+    assert normalized[1]["role"] == "model"
+    assert normalized[1]["parts"][0]["functionCall"]["name"] == "run_shell"
+    
+    # La respuesta debe haber sido sincronizada con 'run_shell' para evitar el 400 de Gemini
+    assert normalized[2]["role"] == "user"
+    assert normalized[2]["parts"][0]["functionResponse"]["name"] == "run_shell"
+    assert normalized[2]["parts"][0]["functionResponse"]["id"] == "call_abc123"
+
+    # También verificar a nivel de map_messages
+    openai_msgs = [
+        {"role": "user", "content": "corre un comando"},
+        {"role": "assistant", "tool_calls": [{"id": "call_xyz", "type": "function", "function": {"name": "run_shell", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call_xyz", "name": "execute_command", "content": "resultado"}
+    ]
+    contents, _ = AntigravityClient.map_messages(openai_msgs)
+    assert len(contents) == 3
+    assert contents[1]["parts"][0]["functionCall"]["name"] == "run_shell"
+    assert contents[2]["parts"][0]["functionResponse"]["name"] == "run_shell"
+
+
+
 def test_thinking_config_gemini_3_level(monkeypatch):
     # Test that gemini-3-flash adds thinkingLevel (MEDIUM) instead of thinkingBudget to request_payload
     with patch.object(AntigravityClient, "get_token", return_value="fake-token"), \

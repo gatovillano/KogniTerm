@@ -2,8 +2,37 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from "elect
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+
+const APP_ID = "kogniterm-desktop";
+const DESKTOP_FILE = "kogniterm-desktop.desktop";
+
+// Migrar Local Storage previo si existía en ~/.config/Electron (cuando se lanzaba
+// main.js directamente sin nombre de paquete) para no perder pestañas ni ajustes.
+try {
+  const configDir = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  const legacyStorage = join(configDir, "Electron", "Local Storage");
+  const targetUserData = join(configDir, APP_ID);
+  const targetStorage = join(targetUserData, "Local Storage");
+  const migratedFlag = join(targetUserData, ".migrated_from_electron");
+  if (existsSync(legacyStorage) && !existsSync(migratedFlag)) {
+    mkdirSync(targetUserData, { recursive: true });
+    cpSync(legacyStorage, targetStorage, { recursive: true, force: true });
+    writeFileSync(migratedFlag, new Date().toISOString(), "utf8");
+  }
+} catch {
+  /* ignorar si Local Storage está bloqueado o no es accesible */
+}
+
+// Identidad de la aplicación para que el dock/panel en Linux (Wayland app_id y
+// X11 WM_CLASS) asocie la ventana al lanzador kogniterm-desktop.desktop en lugar
+// de crear un segundo icono genérico ("electron").
+app.setName(APP_ID);
+if (process.platform === "linux") {
+  (app as typeof app & { setDesktopName?: (name: string) => void }).setDesktopName?.(DESKTOP_FILE);
+  app.commandLine.appendSwitch("class", APP_ID);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV !== "production";
@@ -286,12 +315,23 @@ function isExternalUrl(url: string): boolean {
 
 // ── Ventana ──────────────────────────────────────────────────────────────────
 
+function resolveWindowIcon(): string | undefined {
+  const candidates = [
+    join(__dirname, "..", "..", "assets", "icon.png"),
+    join(homedir(), ".local", "share", "icons", "hicolor", "512x512", "apps", "kogniterm-desktop.png"),
+    join(DESKTOP_ROOT, "..", "assets", "kogniterm_banner.png"),
+  ];
+  return candidates.find((p) => existsSync(p));
+}
+
 async function createWindow() {
+  const icon = resolveWindowIcon();
   win = new BrowserWindow({
     width: 1280,
     height: 860,
     backgroundColor: "#080b11",
     title: "KogniTerm",
+    ...(icon ? { icon } : {}),
     autoHideMenuBar: true,
     webPreferences: {
       // Preload en CJS: el contexto sandboxed de Electron no admite ESM.
@@ -373,29 +413,41 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(async () => {
-  // Configurar permisos de micrófono (media) para el cliente desktop
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    if (permission === "media") {
-      callback(true);
-      return;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
     }
-    callback(false);
-  });
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    return permission === "media";
   });
 
-  // Quita el menú de aplicación por defecto (File Edit View Window).
-  Menu.setApplicationMenu(null);
-  // La ventana abre igual aunque el backend tarde o falle: la UI muestra el error.
-  void ensureBackend();
-  await createWindow();
+  app.whenReady().then(async () => {
+    // Configurar permisos de micrófono (media) para el cliente desktop
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      if (permission === "media") {
+        callback(true);
+        return;
+      }
+      callback(false);
+    });
+    session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+      return permission === "media";
+    });
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+    // Quita el menú de aplicación por defecto (File Edit View Window).
+    Menu.setApplicationMenu(null);
+    // La ventana abre igual aunque el backend tarde o falle: la UI muestra el error.
+    void ensureBackend();
+    await createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+    });
   });
-});
+}
 
 app.on("window-all-closed", () => {
   // El backend NO se detiene: si es del servicio debe seguir, y si lo lanzamos

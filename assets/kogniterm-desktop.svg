@@ -8,16 +8,21 @@
       <stop offset="0" stop-color="#00F2FE"/>
       <stop offset="1" stop-color="#4FACFE"/>
     </linearGradient>
+    <clipPath id="squircle">
+      <rect x="16" y="16" width="480" height="480" rx="112"/>
+    </clipPath>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)" stroke="#00F2FE" stroke-opacity="0.35" stroke-width="6"/>
-  <rect x="16" y="16" width="480" height="104" rx="0" fill="#FFFFFF" fill-opacity="0.04"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="104" fill="#FFFFFF" fill-opacity="0.04" clip-path="url(#squircle)"/>
   <circle cx="78" cy="68" r="14" fill="#FF5F57"/>
   <circle cx="120" cy="68" r="14" fill="#FEBC2E"/>
   <circle cx="162" cy="68" r="14" fill="#28C840"/>
-  <text x="96" y="300" font-family="monospace" font-size="150" font-weight="bold" fill="url(#cyan)">&gt;_</text>
+  <path d="M 98 196 A 12 12 0 0 1 115 194 L 185 244 A 12 12 0 0 1 185 264 L 115 314 A 12 12 0 0 1 98 294 L 154 254 L 98 214 A 12 12 0 0 1 98 196 Z" fill="#00F2FE"/>
+  <rect x="200" y="290" width="76" height="24" rx="12" fill="#4FACFE"/>
+  <line x1="360" y1="330" x2="410" y2="270" stroke="#00F2FE" stroke-width="6" stroke-opacity="0.8"/>
+  <line x1="360" y1="330" x2="410" y2="390" stroke="#00F2FE" stroke-width="6" stroke-opacity="0.8"/>
   <circle cx="360" cy="330" r="18" fill="#FFB300"/>
   <circle cx="410" cy="270" r="12" fill="#00F2FE"/>
   <circle cx="410" cy="390" r="12" fill="#4FACFE"/>
-  <line x1="360" y1="330" x2="410" y2="270" stroke="#00F2FE" stroke-width="6" stroke-opacity="0.8"/>
-  <line x1="360" y1="330" x2="410" y2="390" stroke="#00F2FE" stroke-width="6" stroke-opacity="0.8"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="none" stroke="#00F2FE" stroke-opacity="0.35" stroke-width="6"/>
 </svg>

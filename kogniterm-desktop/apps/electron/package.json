@@ -1,5 +1,7 @@
 {
   "name": "@kogniterm/electron",
+  "productName": "kogniterm-desktop",
+  "desktopName": "kogniterm-desktop.desktop",
   "version": "3.0.0",
   "private": true,
   "type": "module",
