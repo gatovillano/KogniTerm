@@ -1715,6 +1715,15 @@ class KogniTermTUI(App):
         if not self._server_mode:
             self.switch_to_server_mode()
         self._sync_legacy_ws_alias()
+        # Si se reanudó un hilo mientras la pestaña estaba en modo local, la
+        # sesión remota aún no lo conoce: enviarlo ahora.
+        try:
+            session = self.get_session(tab_id)
+            pending = getattr(session, "_pending_server_resume", None) if session else None
+            if pending:
+                self.run_worker(self._sync_resume_to_server(session, pending))
+        except Exception as exc:
+            logger.debug(f"No se pudo reenviar /resume pendiente: {exc}")
 
     async def _send_to_server(self, text: str, session=None) -> None:
         """Envía un mensaje al servidor vía el WebSocket DE LA PESTAÑA."""
@@ -3296,6 +3305,21 @@ class KogniTermTUI(App):
             tm.set_current_thread_id(thread.id)
         except Exception:
             pass
+        # Sincronizar el historial global del LLMService si es la pestaña
+        # activa (meta-comandos como /compress operan sobre él).
+        try:
+            if (
+                getattr(self, "llm_service", None) is not None
+                and session.session_id == self._active_session_id
+                and session.agent_state is not None
+            ):
+                self.llm_service.conversation_history = list(session.agent_state.messages or [])
+        except Exception:
+            pass
+        # En modo servidor los mensajes se procesan en la sesión remota de la
+        # pestaña: hay que cargar allí también el hilo, o el agente remoto
+        # empezaría una conversación nueva sin ver el historial reanudado.
+        await self._sync_resume_to_server(session, thread.id)
         self._render_history_into_session(session, history)
         self._refresh_session_tabs()
         try:
@@ -3305,6 +3329,33 @@ class KogniTermTUI(App):
             )
         except Exception:
             pass
+
+    async def _sync_resume_to_server(self, session, thread_id: str) -> None:
+        """Carga el hilo reanudado también en la sesión remota de la pestaña.
+
+        En modo servidor el agente que responde vive en el servidor con su
+        propio AgentState; si no se le envía `/resume <id>` no ve el historial
+        cargado localmente. Si la pestaña no está en modo servidor, se deja
+        pendiente y se envía al (re)conectar el WebSocket.
+        """
+        if session is None or not thread_id:
+            return
+        session._pending_server_resume = thread_id
+        if not getattr(self, "_server_mode", False):
+            return
+        try:
+            client = self._ensure_session_client(session)
+        except Exception:
+            client = None
+        if client is None:
+            return
+        try:
+            # La cola del cliente preserva el orden: el /resume llega al
+            # servidor antes que cualquier mensaje posterior del usuario.
+            await client.send_message(f"/resume {thread_id}")
+            session._pending_server_resume = None
+        except Exception as exc:
+            logger.warning(f"No se pudo sincronizar /resume con el servidor: {exc}")
 
     async def _handle_session_subcommand(self, session, args: list):
         """Versión por pestaña de `/session` (mismo workspace)."""
