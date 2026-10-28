@@ -142,5 +142,8 @@
     "url": "https://github.com/kogniterm/kogniterm-vscode.git"
   },
   "license": "MIT",
-  "author": "KogniTerm Team"
+  "author": "KogniTerm Team",
+  "overrides": {
+    "minimatch@^9.0.0": "^9.0.7"
+  }
 }

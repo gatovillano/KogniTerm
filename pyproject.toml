@@ -32,7 +32,7 @@ dependencies = [
     "GitPython",
     "pydantic",
     "pydantic-settings",
-    "urllib3<2",
+    "urllib3>=2.5.0",
     "nest_asyncio",
     "tiktoken",
     "requests",
