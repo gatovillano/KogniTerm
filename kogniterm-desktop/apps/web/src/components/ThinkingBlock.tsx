@@ -9,34 +9,31 @@ interface ThinkingBlockProps {
 
 /**
  * Bloque de pensamiento ("thinking") del asistente.
- *
- * Se apoya en el CSS `.thinking` de index.css, que espera un `<details>/<summary>`
- * (`.thinking > summary` con cursor pointer, `content:"›"` y `.thinking[open]`).
- * Antes se renderizaba como un `<div>` plano, por lo que el click no hacía nada.
- *
- * Se mantiene SIEMPRE comprimido (una sola línea con vista previa truncada),
- * incluso mientras el modelo transmite: abrirlo a mano obliga a que el bloque
- * ocupe la pantalla y empuje la respuesta hacia abajo. El texto completo sigue
- * disponible al desplegarlo.
+ * Se mantiene comprimido con vista previa truncada y desplegable bajo demanda.
  */
 export function ThinkingBlock(props: ThinkingBlockProps) {
   const [open, setOpen] = createSignal(false);
 
   return (
     <details
-      class="thinking select-text mb-2"
+      class="thinking select-text mb-2.5"
       open={open()}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
       <summary>
-        <span class="shrink-0 font-mono">
-          <Show when={props.pending} fallback="Pensamiento">
-            Pensando…
+        <Show when={props.pending}>
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+        </Show>
+        <span class="shrink-0 font-mono text-[11.5px] text-[var(--kt-text-secondary)]">
+          <Show when={props.pending} fallback="Razonamiento">
+            Razonando…
           </Show>
         </span>
-        <span class="min-w-0 truncate font-mono">{props.text}</span>
+        <span class="min-w-0 truncate font-mono text-[11.5px] opacity-75">{props.text}</span>
       </summary>
-      <div class="mt-1.5 whitespace-pre-wrap font-mono text-zinc-400">{props.text}</div>
+      <div class="mt-2 pt-2 border-t border-[var(--kt-border-subtle)] whitespace-pre-wrap font-mono text-[11.5px] text-[var(--kt-text-muted)] leading-relaxed">
+        {props.text}
+      </div>
     </details>
   );
 }

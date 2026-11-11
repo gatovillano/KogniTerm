@@ -2,25 +2,49 @@ import { For, Show, createSignal } from "solid-js";
 import { api, apiRoot, token, setToken, setApiUrl, PROVIDERS, KEY_PROVIDERS, type LLMConfig } from "../lib/api";
 import { MCPPanel } from "./MCPPanel";
 import { PricingPanel } from "./PricingPanel";
+import {
+  IconCheck,
+  IconClose,
+  IconCpu,
+  IconCreditCard,
+  IconGlobe,
+  IconKey,
+  IconPlug,
+  IconRefresh,
+  IconSearch,
+  IconSettings,
+  IconSpark,
+} from "./Icons";
 
-function Shell(props: { title: string; onClose: () => void; children: any }) {
+function Shell(props: { title: string; onClose: () => void; wide?: boolean; children: any }) {
   return (
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl animate-fade-in p-4" onClick={props.onClose}>
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl animate-fade-in p-4"
+      onClick={props.onClose}
+    >
       <div
-        class="w-[520px] max-w-[92vw] max-h-[85vh] overflow-hidden rounded-3xl glass-modal p-6 animate-scale-in flex flex-col select-none"
+        class={`${
+          props.wide ? "w-[800px] h-[580px]" : "w-[520px] max-h-[85vh]"
+        } max-w-[94vw] max-h-[88vh] overflow-hidden rounded-3xl glass-modal animate-scale-in flex flex-col select-none`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div class="pb-3 flex items-center">
-          <span class="text-white text-[16px] font-semibold tracking-tight">{props.title}</span>
+        <div class="px-6 py-4 flex items-center border-b border-[var(--kt-border-subtle)] shrink-0">
+          <div class="flex items-center gap-2.5">
+            <span class="w-7 h-7 rounded-xl bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] flex items-center justify-center text-[var(--kt-text-muted)]">
+              <IconSettings size={14} />
+            </span>
+            <span class="text-[var(--kt-text-primary)] text-[15px] font-semibold tracking-tight">{props.title}</span>
+          </div>
           <div class="flex-1" />
           <button
-            class="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all text-[13px]"
+            class="w-7 h-7 rounded-xl flex items-center justify-center text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all"
             onClick={props.onClose}
+            title="Cerrar (Esc)"
           >
-            ✕
+            <IconClose size={14} />
           </button>
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto pt-1">{props.children}</div>
+        <div class="flex-1 min-h-0 flex flex-col overflow-hidden">{props.children}</div>
       </div>
     </div>
   );
@@ -28,18 +52,22 @@ function Shell(props: { title: string; onClose: () => void; children: any }) {
 
 function FilterInput(props: { value: string; onInput: (v: string) => void; placeholder: string }) {
   return (
-    <div class="my-2">
+    <div class="relative mb-3">
+      <IconSearch
+        size={14}
+        class="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--kt-text-faint)] pointer-events-none"
+      />
       <input
         value={props.value}
         onInput={(e) => props.onInput(e.currentTarget.value)}
         placeholder={props.placeholder}
-        class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 border border-white/[0.08] rounded-full px-4 py-2 text-[13px] text-white placeholder-zinc-500 outline-none transition-all"
+        class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl pl-9 pr-4 py-2 text-[13px] text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
       />
     </div>
   );
 }
 
-/** Modal Proveedor — espejo de TUI _handle_provider. */
+/** Modal Proveedor */
 export function ProviderModal(props: { current: LLMConfig | null; onClose: () => void; onDone: () => void }) {
   const [q, setQ] = createSignal("");
   const [busy, setBusy] = createSignal<string | null>(null);
@@ -60,32 +88,46 @@ export function ProviderModal(props: { current: LLMConfig | null; onClose: () =>
 
   return (
     <Shell title="Seleccionar Proveedor" onClose={props.onClose}>
-      <FilterInput value={q()} onInput={setQ} placeholder="Filtrar proveedores…" />
-      <div class="max-h-[340px] overflow-y-auto space-y-1">
-        <For each={list()}>
-          {(p) => (
-            <button
-              onClick={() => pick(p.id)}
-              class="w-full text-left px-4 py-2.5 rounded-2xl hover:bg-white/[0.06] flex items-center gap-3 transition-all active:scale-[0.98]"
-            >
-              <Show when={props.current?.provider === p.id} fallback={<span class="w-2 h-2 rounded-full bg-zinc-600" />}>
-                <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
-              </Show>
-              <span class="text-[13.5px] text-white font-medium">{p.label}</span>
-              <span class="text-[11px] text-zinc-400 font-mono ml-auto">{p.id}</span>
-              <Show when={busy() === p.id}>
-                <span class="text-[11px] text-amber-300">…</span>
-              </Show>
-            </button>
-          )}
-        </For>
+      <div class="p-5 overflow-y-auto flex-1">
+        <FilterInput value={q()} onInput={setQ} placeholder="Filtrar proveedores…" />
+        <div class="max-h-[340px] overflow-y-auto space-y-1">
+          <For each={list()}>
+            {(p) => {
+              const active = () => props.current?.provider === p.id;
+              return (
+                <button
+                  onClick={() => pick(p.id)}
+                  class={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-3 transition-all active:scale-[0.99] border ${
+                    active()
+                      ? "bg-[var(--kt-bg-active)] border-[var(--kt-border-default)]"
+                      : "border-transparent hover:bg-[var(--kt-bg-hover)]"
+                  }`}
+                >
+                  <Show
+                    when={active()}
+                    fallback={<span class="w-2 h-2 rounded-full bg-[var(--kt-text-faint)] opacity-40" />}
+                  >
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
+                  </Show>
+                  <span class="text-[13.5px] text-[var(--kt-text-primary)] font-medium">{p.label}</span>
+                  <span class="text-[11px] text-[var(--kt-text-faint)] font-mono ml-auto">{p.id}</span>
+                  <Show when={busy() === p.id}>
+                    <span class="text-[11px] text-amber-300">…</span>
+                  </Show>
+                </button>
+              );
+            }}
+          </For>
+        </div>
+        <p class="pt-3 text-[11.5px] text-[var(--kt-text-muted)]">
+          Igual que /provider en TUI. Cambia default_model y recarga sesiones.
+        </p>
       </div>
-      <p class="pt-3 text-[11.5px] text-zinc-400">Igual que /provider en TUI. Cambia default_model y recarga sesiones.</p>
     </Shell>
   );
 }
 
-/** Modal Modelo — espejo de TUI _handle_models (filtra por proveedor activo). */
+/** Modal Modelo */
 export function ModelModal(props: { current: LLMConfig | null; onClose: () => void; onDone: () => void }) {
   const [q, setQ] = createSignal("");
   const [models, setModels] = createSignal<string[]>([]);
@@ -117,26 +159,42 @@ export function ModelModal(props: { current: LLMConfig | null; onClose: () => vo
 
   return (
     <Shell title={`Modelos de ${props.current?.provider ?? "proveedor"}`} onClose={props.onClose}>
-      <FilterInput value={q()} onInput={setQ} placeholder="Filtrar modelos…" />
-      <Show when={err()}>
-        <p class="text-[12px] text-red-300 mb-2">{err()}</p>
-      </Show>
-      <div class="max-h-[340px] overflow-y-auto space-y-1">
-        <For each={list()}>
-          {(m) => (
-            <button
-              onClick={() => pick(m)}
-              class="w-full text-left px-4 py-2 rounded-2xl hover:bg-white/[0.06] transition-all active:scale-[0.98]"
-            >
-              <span class={`text-[13px] font-mono ${m === props.current?.model ? "text-emerald-300 font-semibold" : "text-white"}`}>
-                {m}
-              </span>
-            </button>
-          )}
-        </For>
-        <Show when={list().length === 0 && !err()}>
-          <p class="py-6 text-[12.5px] text-zinc-400 text-center">Sin resultados para el filtro.</p>
+      <div class="p-5 overflow-y-auto flex-1">
+        <FilterInput value={q()} onInput={setQ} placeholder="Filtrar modelos…" />
+        <Show when={err()}>
+          <p class="text-[12px] text-red-300 mb-2">{err()}</p>
         </Show>
+        <div class="max-h-[340px] overflow-y-auto space-y-1">
+          <For each={list()}>
+            {(m) => {
+              const active = () => m === props.current?.model;
+              return (
+                <button
+                  onClick={() => pick(m)}
+                  class={`w-full text-left px-3.5 py-2 rounded-xl flex items-center justify-between transition-all active:scale-[0.99] border ${
+                    active()
+                      ? "bg-[var(--kt-bg-active)] border-[var(--kt-border-default)]"
+                      : "border-transparent hover:bg-[var(--kt-bg-hover)]"
+                  }`}
+                >
+                  <span
+                    class={`text-[13px] font-mono ${
+                      active() ? "text-emerald-300 font-semibold" : "text-[var(--kt-text-primary)]"
+                    }`}
+                  >
+                    {m}
+                  </span>
+                  <Show when={active()}>
+                    <IconCheck size={13} class="text-emerald-400 shrink-0" />
+                  </Show>
+                </button>
+              );
+            }}
+          </For>
+          <Show when={list().length === 0 && !err()}>
+            <p class="py-6 text-[12.5px] text-[var(--kt-text-muted)] text-center">Sin resultados para el filtro.</p>
+          </Show>
+        </div>
       </div>
     </Shell>
   );
@@ -144,7 +202,16 @@ export function ModelModal(props: { current: LLMConfig | null; onClose: () => vo
 
 export type SettingsTab = "provider" | "models" | "keys" | "connection" | "mcp" | "pricing";
 
-/** Ajustes unificados: Proveedor, Modelo, Keys, Conexión y MCP en una sola ventana. */
+const NAV_ITEMS: Array<{ id: SettingsTab; label: string; desc: string }> = [
+  { id: "provider", label: "Proveedor", desc: "Motor LLM principal" },
+  { id: "models", label: "Modelos", desc: "Selección del modelo activo" },
+  { id: "keys", label: "API Keys", desc: "Credenciales por proveedor" },
+  { id: "connection", label: "Conexión", desc: "Backend nativo y token" },
+  { id: "mcp", label: "Servidores MCP", desc: "Herramientas y contexto externo" },
+  { id: "pricing", label: "Pagos y Planes", desc: "Suscripción y facturación" },
+];
+
+/** Ajustes unificados en diseño de dos columnas */
 export function UnifiedSettingsModal(props: {
   current: LLMConfig | null;
   initialTab?: SettingsTab;
@@ -260,227 +327,298 @@ export function UnifiedSettingsModal(props: {
     if (t === "models") void loadModels(selProv());
   }
 
+  function navIcon(id: SettingsTab) {
+    switch (id) {
+      case "provider":
+        return <IconSpark size={14} />;
+      case "models":
+        return <IconCpu size={14} />;
+      case "keys":
+        return <IconKey size={14} />;
+      case "connection":
+        return <IconGlobe size={14} />;
+      case "mcp":
+        return <IconPlug size={14} />;
+      case "pricing":
+        return <IconCreditCard size={14} />;
+    }
+  }
+
+  const currentNav = () => NAV_ITEMS.find((n) => n.id === tab())!;
+
   return (
-    <Shell title="⚙ Ajustes del Sistema" onClose={props.onClose}>
-      {/* Selector de pestañas en cápsula tipo dock */}
-      <div class="flex gap-1 p-1 rounded-full bg-white/[0.04] mb-3 overflow-x-auto select-none">
-        {(["provider", "models", "keys", "connection", "mcp", "pricing"] as SettingsTab[]).map((t) => (
-          <button
-            onClick={() => switchTab(t)}
-            class={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-all duration-150 active:scale-95 shrink-0 ${
-              tab() === t ? "bg-white/[0.12] text-white shadow-sm" : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            {t === "provider"
-              ? "Proveedor"
-              : t === "models"
-                ? "Modelo"
-                : t === "keys"
-                  ? "Keys"
-                  : t === "connection"
-                    ? "Conexión"
-                    : t === "mcp"
-                      ? "MCP"
-                      : "Pagos"}
-          </button>
-        ))}
-        <div class="flex-1" />
-        <Show when={tab() === "provider" || tab() === "models"}>
-          <button
-            onClick={() => void loadModels(selProv())}
-            class="px-2.5 py-1 text-[11px] text-zinc-400 hover:text-white rounded-full transition-all"
-            title="Recargar modelos desde la API del proveedor"
-          >
-            ↻ recargar
-          </button>
-        </Show>
-      </div>
-
-      <Show when={tab() !== "connection" && tab() !== "mcp"}>
-        <FilterInput
-          value={q()}
-          onInput={setQ}
-          placeholder={tab() === "provider" ? "Filtrar proveedores…" : tab() === "models" ? `Filtrar modelos de ${selProv()}…` : "Filtrar…"}
-        />
-      </Show>
-
-      <Show when={notice()}>
-        <p class="px-2 py-1 text-[12px] text-amber-300 animate-fade-in">{notice()}</p>
-      </Show>
-
-      {/* ── PROVIDER ── */}
-      <Show when={tab() === "provider"}>
-        <div class="max-h-[300px] overflow-y-auto space-y-1">
-          <For each={provList()}>
-            {(p) => (
-              <button
-                onClick={() => pickProvider(p.id)}
-                class="w-full text-left px-4 py-2.5 rounded-2xl hover:bg-white/[0.06] flex items-center gap-3 transition-all active:scale-[0.98]"
-              >
-                <Show when={selProv() === p.id} fallback={<span class="w-2 h-2 rounded-full bg-zinc-600" />}>
-                  <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
-                </Show>
-                <span class="text-[13px] text-white font-medium">{p.label}</span>
-                <span class="text-[11px] text-zinc-400 font-mono ml-auto">{p.id}</span>
-                <Show when={busyProv() === p.id}>
-                  <span class="text-[11px] text-amber-300">…</span>
-                </Show>
-              </button>
-            )}
-          </For>
-        </div>
-        <p class="pt-3 text-[11.5px] text-zinc-400">Elegir proveedor lo activa y salta a Modelos con la lista en vivo de su API.</p>
-      </Show>
-
-      {/* ── MODELS ── */}
-      <Show when={tab() === "models"}>
-        <div class="px-2 py-1 flex items-center gap-2 mb-2">
-          <span class="text-[12px] text-zinc-400">Proveedor:</span>
-          <select
-            value={selProv()}
-            onChange={(e) => {
-              setSelProv(e.currentTarget.value);
-              void loadModels(e.currentTarget.value);
-            }}
-            class="bg-white/[0.06] rounded-xl px-3 py-1 text-[12px] text-white outline-none"
-          >
-            <For each={PROVIDERS}>{(p) => <option value={p.id}>{p.label}</option>}</For>
-          </select>
-          <Show when={loadingModels()}>
-            <span class="text-[11px] text-amber-300 animate-pulse">cargando desde API…</span>
-          </Show>
-        </div>
-        <Show when={modelsErr()}>
-          <p class="px-2 py-1 text-[12px] text-red-300">{modelsErr()}</p>
-        </Show>
-        <div class="max-h-[280px] overflow-y-auto space-y-1">
-          <For each={modelList()}>
-            {(m) => (
-              <button
-                onClick={() => pickModel(m)}
-                class="w-full text-left px-4 py-2 rounded-2xl hover:bg-white/[0.06] transition-all active:scale-[0.98]"
-              >
-                <span class={`text-[13px] font-mono ${m === props.current?.model ? "text-emerald-300 font-semibold" : "text-white"}`}>{m}</span>
-              </button>
-            )}
-          </For>
-          <Show when={modelList().length === 0 && !modelsErr() && !loadingModels()}>
-            <p class="py-6 text-[12px] text-zinc-400 text-center">Sin resultados para el filtro.</p>
-          </Show>
-        </div>
-      </Show>
-
-      {/* ── KEYS ── */}
-      <Show when={tab() === "keys"}>
-        <Show
-          when={!keyProv()}
-          fallback={
-            <div class="p-2 space-y-3">
-              <p class="text-[13px] text-white">
-                API Key para <b class="font-mono text-zinc-200">{keyProv()}</b>
-                <span class="text-zinc-400"> ({KEY_PROVIDERS.find((k) => k.id === keyProv())?.env})</span>
-              </p>
-              <input
-                type="password"
-                value={keyVal()}
-                onInput={(e) => setKeyVal(e.currentTarget.value)}
-                placeholder="Introduce la llave…"
-                class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 border border-white/[0.08] rounded-2xl px-4 py-2.5 text-[13px] text-white outline-none transition-all"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void saveKey();
-                  if (e.key === "Escape") setKeyProv(null);
-                }}
-              />
-              <div class="flex gap-2 pt-2">
+    <Shell title="Ajustes de KogniTerm" onClose={props.onClose} wide>
+      <div class="flex flex-col sm:flex-row flex-1 min-h-0 overflow-hidden">
+        {/* Barra lateral de navegación */}
+        <aside class="sm:w-52 shrink-0 border-b sm:border-b-0 sm:border-r border-[var(--kt-border-subtle)] bg-[var(--kt-bg-app)]/40 p-2.5 flex sm:flex-col gap-1 overflow-x-auto sm:overflow-y-auto">
+          <For each={NAV_ITEMS}>
+            {(item) => {
+              const active = () => tab() === item.id;
+              return (
                 <button
-                  onClick={() => setKeyProv(null)}
-                  class="px-4 py-1.5 rounded-full text-[13px] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all"
+                  onClick={() => switchTab(item.id)}
+                  class={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] font-medium transition-all duration-150 shrink-0 text-left border ${
+                    active()
+                      ? "bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)] border-[var(--kt-border-default)] shadow-sm"
+                      : "border-transparent text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)]"
+                  }`}
                 >
-                  ← Volver
+                  <span class={active() ? "text-[var(--kt-text-primary)]" : "text-[var(--kt-text-faint)]"}>
+                    {navIcon(item.id)}
+                  </span>
+                  <span class="truncate">{item.label}</span>
                 </button>
-                <div class="flex-1" />
+              );
+            }}
+          </For>
+        </aside>
+
+        {/* Panel derecho de contenido */}
+        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-5 sm:p-6">
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="text-[15px] font-semibold text-[var(--kt-text-primary)]">{currentNav().label}</h3>
+              <p class="text-[12px] text-[var(--kt-text-muted)]">{currentNav().desc}</p>
+            </div>
+            <Show when={tab() === "provider" || tab() === "models"}>
+              <button
+                onClick={() => void loadModels(selProv())}
+                class="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-medium text-[var(--kt-text-secondary)] hover:text-[var(--kt-text-primary)] bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] rounded-xl transition-all"
+                title="Recargar modelos desde la API del proveedor"
+              >
+                <IconRefresh size={12} />
+                <span>Recargar</span>
+              </button>
+            </Show>
+          </div>
+
+          <Show when={tab() === "provider" || tab() === "models"}>
+            <FilterInput
+              value={q()}
+              onInput={setQ}
+              placeholder={tab() === "provider" ? "Filtrar proveedores…" : `Filtrar modelos de ${selProv()}…`}
+            />
+          </Show>
+
+          <Show when={notice()}>
+            <p class="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[12px] text-amber-300 animate-fade-in">
+              {notice()}
+            </p>
+          </Show>
+
+          {/* ── PROVIDER ── */}
+          <Show when={tab() === "provider"}>
+            <div class="space-y-1">
+              <For each={provList()}>
+                {(p) => {
+                  const active = () => selProv() === p.id;
+                  return (
+                    <button
+                      onClick={() => pickProvider(p.id)}
+                      class={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center gap-3 transition-all active:scale-[0.99] border ${
+                        active()
+                          ? "bg-[var(--kt-bg-active)] border-[var(--kt-border-default)]"
+                          : "border-transparent hover:bg-[var(--kt-bg-hover)]"
+                      }`}
+                    >
+                      <Show
+                        when={active()}
+                        fallback={<span class="w-2 h-2 rounded-full bg-[var(--kt-text-faint)] opacity-40" />}
+                      >
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" />
+                      </Show>
+                      <span class="text-[13px] text-[var(--kt-text-primary)] font-medium">{p.label}</span>
+                      <span class="text-[11px] text-[var(--kt-text-faint)] font-mono ml-auto">{p.id}</span>
+                      <Show when={busyProv() === p.id}>
+                        <span class="text-[11px] text-amber-300">…</span>
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+            <p class="pt-3 text-[11.5px] text-[var(--kt-text-muted)]">
+              Elegir un proveedor lo activa y carga la lista en vivo de modelos desde su API.
+            </p>
+          </Show>
+
+          {/* ── MODELS ── */}
+          <Show when={tab() === "models"}>
+            <div class="flex items-center gap-2 mb-3">
+              <span class="text-[12px] text-[var(--kt-text-muted)]">Proveedor:</span>
+              <select
+                value={selProv()}
+                onChange={(e) => {
+                  setSelProv(e.currentTarget.value);
+                  void loadModels(e.currentTarget.value);
+                }}
+                class="bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] rounded-xl px-3 py-1.5 text-[12px] text-[var(--kt-text-primary)] outline-none"
+              >
+                <For each={PROVIDERS}>{(p) => <option value={p.id}>{p.label}</option>}</For>
+              </select>
+              <Show when={loadingModels()}>
+                <span class="text-[11px] text-amber-300 animate-pulse">cargando desde API…</span>
+              </Show>
+            </div>
+            <Show when={modelsErr()}>
+              <p class="mb-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/25 text-[12px] text-red-300">
+                {modelsErr()}
+              </p>
+            </Show>
+            <div class="space-y-1">
+              <For each={modelList()}>
+                {(m) => {
+                  const active = () => m === props.current?.model;
+                  return (
+                    <button
+                      onClick={() => pickModel(m)}
+                      class={`w-full text-left px-3.5 py-2 rounded-xl flex items-center justify-between transition-all active:scale-[0.99] border ${
+                        active()
+                          ? "bg-[var(--kt-bg-active)] border-[var(--kt-border-default)]"
+                          : "border-transparent hover:bg-[var(--kt-bg-hover)]"
+                      }`}
+                    >
+                      <span
+                        class={`text-[13px] font-mono ${
+                          active() ? "text-emerald-300 font-semibold" : "text-[var(--kt-text-primary)]"
+                        }`}
+                      >
+                        {m}
+                      </span>
+                      <Show when={active()}>
+                        <IconCheck size={13} class="text-emerald-400 shrink-0" />
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
+              <Show when={modelList().length === 0 && !modelsErr() && !loadingModels()}>
+                <p class="py-6 text-[12px] text-[var(--kt-text-muted)] text-center">Sin resultados para el filtro.</p>
+              </Show>
+            </div>
+          </Show>
+
+          {/* ── KEYS ── */}
+          <Show when={tab() === "keys"}>
+            <Show
+              when={!keyProv()}
+              fallback={
+                <div class="space-y-3">
+                  <p class="text-[13px] text-[var(--kt-text-primary)]">
+                    API Key para <b class="font-mono">{keyProv()}</b>
+                    <span class="text-[var(--kt-text-muted)]">
+                      {" "}
+                      ({KEY_PROVIDERS.find((k) => k.id === keyProv())?.env})
+                    </span>
+                  </p>
+                  <input
+                    type="password"
+                    value={keyVal()}
+                    onInput={(e) => setKeyVal(e.currentTarget.value)}
+                    placeholder="Introduce la llave…"
+                    class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-default)] focus:border-[var(--kt-border-strong)] rounded-xl px-4 py-2.5 text-[13px] text-[var(--kt-text-primary)] outline-none transition-all font-mono"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void saveKey();
+                      if (e.key === "Escape") setKeyProv(null);
+                    }}
+                  />
+                  <div class="flex gap-2 pt-2">
+                    <button
+                      onClick={() => setKeyProv(null)}
+                      class="px-4 py-1.5 rounded-full text-[13px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all"
+                    >
+                      ← Volver
+                    </button>
+                    <div class="flex-1" />
+                    <button
+                      onClick={saveKey}
+                      disabled={!keyVal() || busyKey()}
+                      class="px-5 py-2 rounded-full bg-[var(--kt-btn-primary-bg)] hover:bg-[var(--kt-btn-primary-hover)] text-[var(--kt-btn-primary-text)] text-[13px] font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-40"
+                    >
+                      {busyKey() ? "Guardando…" : "Guardar y recargar"}
+                    </button>
+                  </div>
+                </div>
+              }
+            >
+              <div class="space-y-1">
+                <For each={KEY_PROVIDERS}>
+                  {(k) => (
+                    <button
+                      onClick={() => {
+                        setKeyVal("");
+                        setKeyProv(k.id);
+                      }}
+                      class="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-[var(--kt-bg-hover)] flex items-center gap-3 transition-all active:scale-[0.99]"
+                    >
+                      <IconKey size={13} class="text-[var(--kt-text-faint)]" />
+                      <span class="text-[13.5px] text-[var(--kt-text-primary)] capitalize font-medium">{k.id}</span>
+                      <span class="text-[11px] text-[var(--kt-text-faint)] font-mono ml-auto">{k.env}</span>
+                    </button>
+                  )}
+                </For>
+              </div>
+              <p class="pt-3 text-[11.5px] text-[var(--kt-text-muted)]">
+                Al guardar, se recargan los modelos en vivo de ese proveedor.
+              </p>
+            </Show>
+          </Show>
+
+          {/* ── CONEXIÓN ── */}
+          <Show when={tab() === "connection"}>
+            <div class="space-y-4 select-text">
+              <div>
+                <label class="block text-[12px] font-medium text-[var(--kt-text-muted)] mb-1.5">
+                  URL del backend nativo
+                </label>
+                <input
+                  value={connUrl()}
+                  onInput={(e) => setConnUrl(e.currentTarget.value)}
+                  placeholder="http://127.0.0.1:8755"
+                  class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-default)] focus:border-[var(--kt-border-strong)] rounded-xl px-4 py-2.5 text-[13px] font-mono text-[var(--kt-text-primary)] outline-none transition-all"
+                />
+              </div>
+              <div>
+                <label class="block text-[12px] font-medium text-[var(--kt-text-muted)] mb-1.5">
+                  Token de autenticación
+                </label>
+                <input
+                  type="password"
+                  value={connToken()}
+                  onInput={(e) => setConnToken(e.currentTarget.value)}
+                  placeholder="Bearer token… (vacío si no tiene auth)"
+                  class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-default)] focus:border-[var(--kt-border-strong)] rounded-xl px-4 py-2.5 text-[13px] font-mono text-[var(--kt-text-primary)] outline-none transition-all"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void testConnection();
+                  }}
+                />
+              </div>
+              <div class="flex justify-end pt-1">
                 <button
-                  onClick={saveKey}
-                  disabled={!keyVal() || busyKey()}
-                  class="px-5 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-[13px] font-medium shadow-sm border border-white/[0.08] transition-all active:scale-95 disabled:opacity-50"
+                  onClick={testConnection}
+                  disabled={busyConn()}
+                  class="px-5 py-2 rounded-full bg-[var(--kt-btn-primary-bg)] hover:bg-[var(--kt-btn-primary-hover)] text-[var(--kt-btn-primary-text)] text-[13px] font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-40"
                 >
-                  {busyKey() ? "Guardando…" : "Guardar y recargar"}
+                  {busyConn() ? "Probando…" : "Guardar y probar"}
                 </button>
               </div>
+              <p class="text-[11.5px] text-[var(--kt-text-muted)]">
+                Se guarda en el cliente y aplica al instante a las conexiones REST y WebSocket.
+              </p>
             </div>
-          }
-        >
-          <div class="space-y-1">
-            <For each={KEY_PROVIDERS}>
-              {(k) => (
-                <button
-                  onClick={() => {
-                    setKeyVal("");
-                    setKeyProv(k.id);
-                  }}
-                  class="w-full text-left px-4 py-2.5 rounded-2xl hover:bg-white/[0.06] flex items-center gap-3 transition-all active:scale-[0.98]"
-                >
-                  <span class="text-[13.5px] text-white capitalize font-medium">{k.id}</span>
-                  <span class="text-[11px] text-zinc-400 font-mono ml-auto">{k.env}</span>
-                </button>
-              )}
-            </For>
-          </div>
-          <p class="pt-3 text-[11.5px] text-zinc-400">Al guardar, se recargan los modelos en vivo de ese proveedor.</p>
-        </Show>
-      </Show>
+          </Show>
 
-      {/* ── CONEXIÓN ── */}
-      <Show when={tab() === "connection"}>
-        <div class="space-y-3 pt-1 select-text">
-          <div>
-            <label class="block text-[12px] text-zinc-400 mb-1">URL del backend nativo</label>
-            <input
-              value={connUrl()}
-              onInput={(e) => setConnUrl(e.currentTarget.value)}
-              placeholder="http://127.0.0.1:8755"
-              class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 border border-white/[0.08] rounded-2xl px-4 py-2.5 text-[13px] font-mono text-white outline-none transition-all"
-            />
-          </div>
-          <div>
-            <label class="block text-[12px] text-zinc-400 mb-1">Token de autenticación</label>
-            <input
-              type="password"
-              value={connToken()}
-              onInput={(e) => setConnToken(e.currentTarget.value)}
-              placeholder="Bearer token… (vacío si no tiene auth)"
-              class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 border border-white/[0.08] rounded-2xl px-4 py-2.5 text-[13px] font-mono text-white outline-none transition-all"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void testConnection();
-              }}
-            />
-          </div>
-          <div class="flex justify-end pt-2">
-            <button
-              onClick={testConnection}
-              disabled={busyConn()}
-              class="px-5 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-[13px] font-medium shadow-sm border border-white/[0.08] transition-all active:scale-95 disabled:opacity-50"
-            >
-              {busyConn() ? "Probando…" : "Guardar y probar"}
-            </button>
-          </div>
-          <p class="text-[11.5px] text-zinc-400">
-            Se guarda en el cliente y aplica al instante a las conexiones REST y WebSocket.
-          </p>
+          {/* ── MCP ── */}
+          <Show when={tab() === "mcp"}>
+            <MCPPanel />
+          </Show>
+
+          {/* ── Pagos y Suscripciones ── */}
+          <Show when={tab() === "pricing"}>
+            <PricingPanel />
+          </Show>
         </div>
-      </Show>
-
-      {/* ── MCP ── */}
-      <Show when={tab() === "mcp"}>
-        <MCPPanel />
-      </Show>
-
-      {/* ── Pagos y Suscripciones ── */}
-      <Show when={tab() === "pricing"}>
-        <div class="p-4">
-          <PricingPanel />
-        </div>
-      </Show>
+      </div>
     </Shell>
   );
 }
@@ -507,62 +645,70 @@ export function KeysModal(props: { onClose: () => void; onDone: () => void }) {
 
   return (
     <Shell title="Configurar API Keys" onClose={props.onClose}>
-      <Show
-        when={!stepProv()}
-        fallback={
-          <div class="space-y-3">
-            <p class="text-[13px] text-white">
-              API Key para <b class="font-mono text-zinc-200">{stepProv()}</b>
-              <span class="text-zinc-400"> ({KEY_PROVIDERS.find((k) => k.id === stepProv())?.env})</span>
-            </p>
-            <input
-              type="password"
-              value={key()}
-              onInput={(e) => setKey(e.currentTarget.value)}
-              placeholder="Introduce la llave…"
-              class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-2xl px-4 py-2.5 text-[13px] text-white outline-none transition-all"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void save();
-                if (e.key === "Escape") setStepProv(null);
-              }}
-            />
-            <div class="flex gap-2 pt-2">
-              <button
-                onClick={() => setStepProv(null)}
-                class="px-4 py-1.5 rounded-full text-[13px] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all"
-              >
-                ← Volver
-              </button>
-              <div class="flex-1" />
-              <button
-                onClick={save}
-                disabled={!key() || busy()}
-                class="px-5 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-white/[0.08] text-[13px] font-medium shadow-sm transition-all active:scale-95 disabled:opacity-50"
-              >
-                {busy() ? "Guardando…" : "Guardar"}
-              </button>
-            </div>
-          </div>
-        }
-      >
-        <div class="space-y-1">
-          <For each={KEY_PROVIDERS}>
-            {(k) => (
-              <button
-                onClick={() => {
-                  setKey("");
-                  setStepProv(k.id);
+      <div class="p-5 overflow-y-auto flex-1">
+        <Show
+          when={!stepProv()}
+          fallback={
+            <div class="space-y-3">
+              <p class="text-[13px] text-[var(--kt-text-primary)]">
+                API Key para <b class="font-mono">{stepProv()}</b>
+                <span class="text-[var(--kt-text-muted)]">
+                  {" "}
+                  ({KEY_PROVIDERS.find((k) => k.id === stepProv())?.env})
+                </span>
+              </p>
+              <input
+                type="password"
+                value={key()}
+                onInput={(e) => setKey(e.currentTarget.value)}
+                placeholder="Introduce la llave…"
+                class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-default)] focus:border-[var(--kt-border-strong)] rounded-xl px-4 py-2.5 text-[13px] text-[var(--kt-text-primary)] outline-none transition-all font-mono"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void save();
+                  if (e.key === "Escape") setStepProv(null);
                 }}
-                class="w-full text-left px-4 py-2.5 rounded-2xl hover:bg-white/[0.06] flex items-center gap-3 transition-all active:scale-[0.98]"
-              >
-                <span class="text-[13.5px] text-white capitalize font-medium">{k.id}</span>
-                <span class="text-[11px] text-zinc-400 font-mono ml-auto">{k.env}</span>
-              </button>
-            )}
-          </For>
-        </div>
-        <p class="pt-3 text-[11.5px] text-zinc-400">Igual que /keys en TUI. POST /config/llm con provider + api_key.</p>
-      </Show>
+              />
+              <div class="flex gap-2 pt-2">
+                <button
+                  onClick={() => setStepProv(null)}
+                  class="px-4 py-1.5 rounded-full text-[13px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all"
+                >
+                  ← Volver
+                </button>
+                <div class="flex-1" />
+                <button
+                  onClick={save}
+                  disabled={!key() || busy()}
+                  class="px-5 py-2 rounded-full bg-[var(--kt-btn-primary-bg)] hover:bg-[var(--kt-btn-primary-hover)] text-[var(--kt-btn-primary-text)] text-[13px] font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-40"
+                >
+                  {busy() ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div class="space-y-1">
+            <For each={KEY_PROVIDERS}>
+              {(k) => (
+                <button
+                  onClick={() => {
+                    setKey("");
+                    setStepProv(k.id);
+                  }}
+                  class="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-[var(--kt-bg-hover)] flex items-center gap-3 transition-all active:scale-[0.99]"
+                >
+                  <IconKey size={13} class="text-[var(--kt-text-faint)]" />
+                  <span class="text-[13.5px] text-[var(--kt-text-primary)] capitalize font-medium">{k.id}</span>
+                  <span class="text-[11px] text-[var(--kt-text-faint)] font-mono ml-auto">{k.env}</span>
+                </button>
+              )}
+            </For>
+          </div>
+          <p class="pt-3 text-[11.5px] text-[var(--kt-text-muted)]">
+            Igual que /keys en TUI. POST /config/llm con provider + api_key.
+          </p>
+        </Show>
+      </div>
     </Shell>
   );
 }

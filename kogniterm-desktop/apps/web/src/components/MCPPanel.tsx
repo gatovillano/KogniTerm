@@ -1,5 +1,6 @@
 import { For, Show, createSignal, onMount } from "solid-js";
 import { api, type MCPServerStatus, type MCPScope } from "../lib/api";
+import { IconClose, IconPause, IconPlay, IconPlug, IconPlus, IconRefresh, IconTrash } from "./Icons";
 
 function dot(status?: string, disabled?: boolean) {
   if (disabled || status === "disabled") {
@@ -258,67 +259,75 @@ export function MCPPanel() {
   return (
     <div class="space-y-3 pt-1 select-none">
       <Show when={notice()}>
-        <p class="px-2 py-1 text-[12px] text-amber-300 break-words animate-fade-in">{notice()}</p>
+        <p class="px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[12px] text-amber-300 break-words animate-fade-in">
+          {notice()}
+        </p>
       </Show>
       <Show when={err()}>
-        <p class="px-2 py-1 text-[12px] text-red-300">{err()}</p>
+        <p class="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/25 text-[12px] text-red-300">{err()}</p>
       </Show>
 
       <div class="flex items-center px-1">
-        <span class="text-[12px] text-zinc-400 font-mono">
+        <span class="text-[12px] text-[var(--kt-text-muted)] font-mono">
           {loading() ? "Cargando…" : `${names().length} servidor(es)`}
         </span>
         <div class="flex-1" />
         <button
           onClick={refresh}
-          class="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all mr-1"
+          class="w-7 h-7 rounded-xl flex items-center justify-center text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all mr-1.5"
           title="Recargar lista"
         >
-          ↻
+          <IconRefresh size={13} />
         </button>
         <button
           onClick={() => setShowAdd(!showAdd())}
-          class="text-[12px] px-3.5 py-1.5 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-100 font-medium border border-white/[0.08] shadow-sm transition-all active:scale-95"
+          class="inline-flex items-center gap-1.5 text-[12px] px-3.5 py-1.5 rounded-full bg-[var(--kt-btn-primary-bg)] hover:bg-[var(--kt-btn-primary-hover)] text-[var(--kt-btn-primary-text)] font-medium shadow-sm transition-all active:scale-95"
         >
-          {showAdd() ? "− Cerrar" : "＋ Añadir"}
+          <Show when={showAdd()} fallback={<IconPlus size={12} />}>
+            <IconClose size={12} />
+          </Show>
+          <span>{showAdd() ? "Cerrar" : "Añadir"}</span>
         </button>
       </div>
 
       {/* ── lista ── */}
-      <div class="max-h-[240px] overflow-y-auto space-y-1.5">
+      <div class="max-h-[260px] overflow-y-auto space-y-2">
         <Show when={names().length === 0 && !loading()}>
-          <p class="py-8 text-[12.5px] text-zinc-400 text-center">Sin servidores MCP. Añade uno con ＋ Añadir.</p>
+          <div class="py-10 text-center rounded-2xl border border-dashed border-[var(--kt-border-subtle)] text-[12.5px] text-[var(--kt-text-muted)]">
+            <IconPlug size={20} class="mx-auto mb-2 opacity-50" />
+            Sin servidores MCP. Añade uno con «Añadir».
+          </div>
         </Show>
         <For each={names()}>
           {(name) => {
             const s = () => servers()[name];
             const tools = () => s().tools ?? [];
             return (
-              <div class="px-4 py-3 rounded-2xl bg-white/[0.03] hover:bg-white/[0.05] transition-all">
+              <div class="px-4 py-3 rounded-2xl bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] hover:border-[var(--kt-border-default)] transition-all">
                 <div class="flex items-center gap-2.5">
                   {dot(s().status, s().disabled)}
-                  <span class="text-[13.5px] text-white font-semibold font-mono">{name}</span>
-                  <span class="text-[11px] text-zinc-400 font-mono px-2 py-0.5 rounded-full bg-white/[0.04]">
+                  <span class="text-[13.5px] text-[var(--kt-text-primary)] font-semibold font-mono">{name}</span>
+                  <span class="text-[11px] text-[var(--kt-text-muted)] font-mono px-2 py-0.5 rounded-full bg-[var(--kt-bg-active)]">
                     {s().transport ?? "stdio"}
                   </span>
                   <Show when={s().source}>
                     <span
-                      class="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-mono border border-violet-500/30"
+                      class="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 font-mono border border-violet-500/30"
                       title={`Detectado automáticamente desde ${s().source}`}
                     >
                       {s().source === "claude_code"
                         ? "claude code"
                         : s().source === "claude_code_project"
-                        ? "claude (proyecto)"
-                        : s().source === "claude_desktop"
-                        ? "claude desktop"
-                        : s().source === "project_mcp_json"
-                        ? ".mcp.json"
-                        : s().source}
+                          ? "claude (proyecto)"
+                          : s().source === "claude_desktop"
+                            ? "claude desktop"
+                            : s().source === "project_mcp_json"
+                              ? ".mcp.json"
+                              : s().source}
                     </span>
                   </Show>
                   <Show when={s().disabled}>
-                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">
                       deshabilitado
                     </span>
                   </Show>
@@ -326,23 +335,23 @@ export function MCPPanel() {
                   <button
                     onClick={() => toggle(name)}
                     disabled={busy() !== null}
-                    class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white transition-all active:scale-90 text-[11px] disabled:opacity-50"
+                    class="w-7 h-7 rounded-xl flex items-center justify-center bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[var(--kt-text-secondary)] hover:text-[var(--kt-text-primary)] transition-all active:scale-90 disabled:opacity-50"
                     title="Activar / desactivar"
                   >
-                    {busy() === `t:${name}` ? "…" : s().disabled ? "▶" : "⏸"}
+                    {busy() === `t:${name}` ? "…" : s().disabled ? <IconPlay size={11} /> : <IconPause size={11} />}
                   </button>
                   <button
                     onClick={() => remove(name)}
                     disabled={busy() !== null}
-                    class="w-7 h-7 rounded-full flex items-center justify-center bg-white/[0.06] hover:bg-red-500/20 text-zinc-400 hover:text-red-300 transition-all active:scale-90 text-[11px] disabled:opacity-50"
+                    class="w-7 h-7 rounded-xl flex items-center justify-center bg-[var(--kt-bg-hover)] hover:bg-red-500/20 text-[var(--kt-text-muted)] hover:text-red-300 transition-all active:scale-90 disabled:opacity-50"
                     title="Eliminar"
                   >
-                    ✕
+                    <IconTrash size={12} />
                   </button>
                 </div>
                 <Show when={tools().length > 0}>
-                  <p class="text-[11.5px] text-zinc-400 font-mono mt-1.5 truncate" title={tools().join(", ")}>
-                    🔧 {tools().slice(0, 6).join(", ")}
+                  <p class="text-[11.5px] text-[var(--kt-text-muted)] font-mono mt-1.5 truncate" title={tools().join(", ")}>
+                    {tools().length} herramientas: {tools().slice(0, 6).join(", ")}
                     {tools().length > 6 ? ` +${tools().length - 6}` : ""}
                   </p>
                 </Show>
@@ -357,15 +366,15 @@ export function MCPPanel() {
 
       {/* ── alta ── */}
       <Show when={showAdd()}>
-        <div class="mt-3 p-4 rounded-2xl bg-white/[0.03] space-y-3 animate-slide-up">
-          <div class="flex items-center justify-between pb-1 border-b border-white/[0.06]">
+        <div class="mt-3 p-4 rounded-2xl bg-[var(--kt-bg-app)] border border-[var(--kt-border-default)] space-y-3 animate-slide-up">
+          <div class="flex items-center justify-between pb-2 border-b border-[var(--kt-border-subtle)]">
             <div class="flex gap-1.5">
               <button
                 onClick={() => setAddMode("form")}
                 class={`px-3 py-1 rounded-lg text-[12px] font-medium transition-all ${
                   addMode() === "form"
-                    ? "bg-white/[0.12] text-white"
-                    : "text-zinc-400 hover:text-white hover:bg-white/[0.05]"
+                    ? "bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)]"
+                    : "text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)]"
                 }`}
               >
                 Formulario
@@ -374,8 +383,8 @@ export function MCPPanel() {
                 onClick={() => setAddMode("json")}
                 class={`px-3 py-1 rounded-lg text-[12px] font-medium transition-all ${
                   addMode() === "json"
-                    ? "bg-white/[0.12] text-white"
-                    : "text-zinc-400 hover:text-white hover:bg-white/[0.05]"
+                    ? "bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)]"
+                    : "text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)]"
                 }`}
               >
                 Pegar JSON (Claude / mcpservers)
@@ -385,7 +394,7 @@ export function MCPPanel() {
               value={fScope()}
               onChange={(e) => setFScope(e.currentTarget.value as MCPScope)}
               title="Ámbito: project (.kogniterm/config.json) o global (~/.kogniterm)"
-              class="bg-white/[0.06] rounded-lg px-2.5 py-1 text-[11.5px] text-white outline-none"
+              class="bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] rounded-lg px-2.5 py-1 text-[11.5px] text-[var(--kt-text-primary)] outline-none"
             >
               <option value="project">project</option>
               <option value="global">global</option>
@@ -401,13 +410,13 @@ export function MCPPanel() {
                   onInput={(e) => setRawJson(e.currentTarget.value)}
                   placeholder={`Pega aquí el JSON de mcpservers.org o Claude Desktop:\n{\n  "mcpServers": {\n    "ai-docs": {\n      "command": "npx",\n      "args": ["-y", "hyperresearch-ai-docs-mcp"]\n    }\n  }\n}`}
                   rows={6}
-                  class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2.5 text-[12px] font-mono text-white placeholder-zinc-500 outline-none transition-all resize-y"
+                  class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2.5 text-[12px] font-mono text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all resize-y"
                 />
-                <div class="flex justify-between items-center text-[11px] text-zinc-400">
-                  <span>💡 Detecta automáticamente formato Claude Desktop, mcpservers.org o lista de servidores.</span>
+                <div class="flex justify-between items-center text-[11px] text-[var(--kt-text-muted)]">
+                  <span>Detecta automáticamente formato Claude Desktop, mcpservers.org o lista de servidores.</span>
                   <button
                     onClick={() => populateFromJson(rawJson())}
-                    class="text-zinc-300 hover:text-white font-medium px-2 py-1"
+                    class="text-[var(--kt-text-primary)] font-medium px-2 py-1 hover:underline"
                   >
                     Rellenar en formulario ↗
                   </button>
@@ -420,12 +429,12 @@ export function MCPPanel() {
                 value={fName()}
                 onInput={(e) => setFName(e.currentTarget.value)}
                 placeholder="nombre (p.ej. git, memory, ai-docs)"
-                class="flex-1 bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2 text-[13px] text-white placeholder-zinc-500 outline-none transition-all"
+                class="flex-1 bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2 text-[13px] text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
               />
               <select
                 value={fTransport()}
                 onChange={(e) => setFTransport(e.currentTarget.value as "stdio" | "sse")}
-                class="bg-white/[0.06] rounded-xl px-3 py-2 text-[12.5px] text-white outline-none"
+                class="bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] rounded-xl px-3 py-2 text-[12.5px] text-[var(--kt-text-primary)] outline-none"
               >
                 <option value="stdio">stdio (npx, uvx, local)</option>
                 <option value="sse">sse (remoto / url)</option>
@@ -439,14 +448,14 @@ export function MCPPanel() {
                     value={fUrl()}
                     onInput={(e) => setFUrl(e.currentTarget.value)}
                     placeholder="https://mcp.hyperresearch.ai/mcp o http://localhost:8000/sse"
-                    class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2 text-[13px] font-mono text-white placeholder-zinc-500 outline-none transition-all"
+                    class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2 text-[13px] font-mono text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
                   />
                   <textarea
                     value={fHeaders()}
                     onInput={(e) => setFHeaders(e.currentTarget.value)}
                     placeholder="Headers HTTP opcionales (Authorization: Bearer ..., uno por línea)"
                     rows={2}
-                    class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2 text-[12px] font-mono text-white placeholder-zinc-500 outline-none transition-all"
+                    class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2 text-[12px] font-mono text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
                   />
                 </div>
               }
@@ -455,20 +464,20 @@ export function MCPPanel() {
                 value={fCommand()}
                 onInput={(e) => handleCommandInput(e.currentTarget.value)}
                 placeholder="comando (ej. npx -y @modelcontextprotocol/server-memory, uvx, node)"
-                class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2 text-[13px] font-mono text-white placeholder-zinc-500 outline-none transition-all"
+                class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2 text-[13px] font-mono text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
               />
               <input
                 value={fArgs()}
                 onInput={(e) => setFArgs(e.currentTarget.value)}
                 placeholder="args adicionales (opcional si ya los pusiste en comando)"
-                class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2 text-[13px] font-mono text-white placeholder-zinc-500 outline-none transition-all"
+                class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2 text-[13px] font-mono text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
               />
               <textarea
                 value={fEnv()}
                 onInput={(e) => setFEnv(e.currentTarget.value)}
                 placeholder="variables de entorno opcionales (KEY=VALOR por línea)"
                 rows={2}
-                class="w-full bg-white/[0.05] focus:bg-white/[0.08] focus:ring-2 focus:ring-white/20 rounded-xl px-3.5 py-2 text-[12px] font-mono text-white placeholder-zinc-500 outline-none transition-all"
+                class="w-full bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-subtle)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2 text-[12px] font-mono text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
               />
             </Show>
           </Show>
@@ -477,14 +486,14 @@ export function MCPPanel() {
             <button
               onClick={test}
               disabled={!valid() || busy() !== null}
-              class="px-4 py-2 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[12.5px] text-zinc-300 hover:text-white transition-all active:scale-95 disabled:opacity-50"
+              class="px-4 py-2 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] text-[12.5px] text-[var(--kt-text-secondary)] hover:text-[var(--kt-text-primary)] transition-all active:scale-95 disabled:opacity-50"
             >
-              {busy() === "test" ? "Probando…" : "🧪 Probar"}
+              {busy() === "test" ? "Probando…" : "Probar"}
             </button>
             <button
               onClick={save}
               disabled={!valid() || busy() !== null}
-              class="px-5 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-[12.5px] font-medium border border-white/[0.08] shadow-sm transition-all active:scale-95 disabled:opacity-50"
+              class="px-5 py-2 rounded-full bg-[var(--kt-btn-primary-bg)] hover:bg-[var(--kt-btn-primary-hover)] text-[var(--kt-btn-primary-text)] text-[12.5px] font-semibold shadow-sm transition-all active:scale-95 disabled:opacity-50"
             >
               {busy() === "save" ? "Guardando…" : "Guardar"}
             </button>

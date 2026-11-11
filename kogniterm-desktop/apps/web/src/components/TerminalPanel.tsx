@@ -6,6 +6,7 @@ import { ptyApi, ptyIdForTab, ptyWsUrl } from "../lib/pty";
 import { api } from "../lib/api";
 import { tabs } from "../lib/tabs";
 import { copyTerminalToClipboard, setupTerminalCopyHandlers } from "../lib/terminal-clipboard";
+import { IconCheck, IconClose, IconCopy, IconRefresh, IconTerminal } from "./Icons";
 
 interface TermHandle {
   term: Terminal;
@@ -18,7 +19,7 @@ interface TermHandle {
 
 const handles = new Map<string, TermHandle>();
 
-/** Sidebar derecho: shell interactivo real por pestaña con diseño moderno y sin bordes. */
+/** Sidebar derecho: shell interactivo real por pestaña. */
 export function TerminalPanel(props: { tabId: string }) {
   let hostRef: HTMLDivElement | undefined;
   const [status, setStatus] = createSignal("conectando…");
@@ -51,7 +52,7 @@ export function TerminalPanel(props: { tabId: string }) {
       };
       ws.onclose = () => {
         setStatus("desconectado");
-        handle.term.write("\r\n\x1b[33m[terminal desconectada — pulsa ↻ para reconectar]\x1b[0m\r\n");
+        handle.term.write("\r\n\x1b[33m[terminal desconectada — pulsa reconectar]\x1b[0m\r\n");
       };
       ws.onerror = () => setStatus("error");
     } catch {
@@ -64,11 +65,11 @@ export function TerminalPanel(props: { tabId: string }) {
     if (!handle) {
       const term = new Terminal({
         fontSize: 12.5,
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+        fontFamily: '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
         cursorBlink: true,
         scrollback: 5000,
         theme: {
-          background: "#0a0a0a",
+          background: "#08080a",
           foreground: "#f4f4f5",
           cursor: "#e4e4e7",
           selectionBackground: "rgba(255, 255, 255, 0.28)",
@@ -149,12 +150,12 @@ export function TerminalPanel(props: { tabId: string }) {
   }
 
   return (
-    <div class="flex flex-col h-full bg-[#0c0c0c]">
-      {/* Cabecera minimalista sin bordes */}
-      <div class="flex items-center gap-2.5 px-4 py-2 bg-white/[0.02] text-[12px] select-none">
-        <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.04]">
+    <div class="flex flex-col h-full bg-[#08080a]">
+      {/* Cabecera oscura consistente con la consola */}
+      <div class="flex items-center gap-2 px-3.5 py-2 bg-[#101014] border-b border-white/[0.06] text-[12px] select-none shrink-0">
+        <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.05] border border-white/[0.06]">
           <span
-            class={`w-2 h-2 rounded-full transition-all duration-300 ${
+            class={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
               status() === "conectado"
                 ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]"
                 : status() === "conectando…"
@@ -162,10 +163,11 @@ export function TerminalPanel(props: { tabId: string }) {
                   : "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.7)]"
             }`}
           />
+          <IconTerminal size={11} class="text-zinc-400" />
           <span class="text-zinc-300 font-mono text-[11px]">pty</span>
         </div>
 
-        <span class="text-zinc-400 font-mono text-[11px] truncate max-w-[180px]" title={cwd() ?? ptyId()}>
+        <span class="text-zinc-400 font-mono text-[11px] truncate max-w-[200px]" title={cwd() ?? ptyId()}>
           {cwd() ?? ptyId()}
         </span>
 
@@ -175,28 +177,16 @@ export function TerminalPanel(props: { tabId: string }) {
           class={`h-6 px-2.5 rounded-full flex items-center gap-1.5 transition-all text-[11px] font-medium ${
             copied()
               ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              : "text-zinc-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1]"
           }`}
           onClick={handleCopy}
           onMouseDown={(e) => e.preventDefault()}
           title={copied() ? "¡Copiado!" : "Copiar contenido de la terminal (o selección actual)"}
         >
-          {copied() ? (
-            <>
-              <svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span>Copiado</span>
-            </>
-          ) : (
-            <>
-              <svg class="w-3 h-3 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-              <span>Copiar</span>
-            </>
-          )}
+          <Show when={copied()} fallback={<IconCopy size={11} />}>
+            <IconCheck size={11} class="text-emerald-400" />
+          </Show>
+          <span>{copied() ? "Copiado" : "Copiar"}</span>
         </button>
 
         <button
@@ -204,26 +194,27 @@ export function TerminalPanel(props: { tabId: string }) {
           onClick={reconnect}
           title="Reconectar al mismo shell"
         >
-          ↻
+          <IconRefresh size={12} />
         </button>
         <button
-          class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-red-300 hover:bg-red-500/10 transition-all text-[11px]"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-red-300 hover:bg-red-500/15 transition-all"
           onClick={restart}
           title="Matar shell y empezar uno nuevo"
         >
-          ✕
+          <IconClose size={12} />
         </button>
       </div>
 
-      <div ref={hostRef} class="flex-1 min-h-0 px-2 py-1 select-text" />
+      <div ref={hostRef} class="flex-1 min-h-0 px-2.5 py-2 select-text" />
 
       <Show when={status() !== "conectado"}>
-        <div class="p-3 flex justify-center">
+        <div class="p-3 flex justify-center border-t border-white/[0.06] bg-[#0e0e12]">
           <button
             onClick={reconnect}
-            class="px-4 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-[12px] text-white font-medium transition-all active:scale-95 shadow-sm"
+            class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.1] text-[12px] text-white font-medium transition-all active:scale-95 shadow-sm"
           >
-            Reconectar terminal ({status()})
+            <IconRefresh size={12} />
+            <span>Reconectar terminal ({status()})</span>
           </button>
         </div>
       </Show>

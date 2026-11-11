@@ -2,6 +2,16 @@ import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { api, type ThreadInfo, type Workspace } from "../lib/api";
 import { tabs } from "../lib/tabs";
 import { loadThreadHistory } from "../lib/history";
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconClose,
+  IconFolder,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+  IconTrash,
+} from "./Icons";
 
 function relTime(iso?: string): string {
   if (!iso) return "";
@@ -256,54 +266,54 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
   }
 
   return (
-    <div class="h-full overflow-y-auto bg-[#0c0c0c] select-none">
-      <div class="mx-auto w-full max-w-3xl px-6 py-10 text-left">
-        <div class="flex items-center gap-3 mb-1.5">
-          <h1 class="text-[20px] font-semibold text-white tracking-tight">Conversaciones</h1>
-          <span class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.06] text-zinc-400">
+    <div class="h-full overflow-y-auto kt-canvas-bg select-none">
+      <div class="mx-auto w-full max-w-3xl px-6 py-8 sm:py-10 text-left">
+        <div class="flex flex-wrap items-center gap-3 mb-1.5">
+          <h1 class="text-[22px] font-semibold text-[var(--kt-text-primary)] tracking-tight">Conversaciones</h1>
+          <span class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] text-[var(--kt-text-muted)] tabular-nums">
             {totalShown()} en {groups().length} workspace(s)
           </span>
           <div class="flex-1" />
           <button
             onClick={() => (showAddWs() ? setShowAddWs(false) : openAddWorkspaceModal())}
-            class={`text-[12px] px-3.5 py-1.5 rounded-full font-medium transition-all active:scale-95 flex items-center gap-1.5 ${
+            class={`text-[12px] px-3.5 py-1.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-1.5 border ${
               showAddWs()
-                ? "bg-white text-black shadow-sm"
-                : "bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 hover:text-white border border-white/[0.08]"
+                ? "bg-[var(--kt-btn-primary-bg)] text-[var(--kt-btn-primary-text)] border-transparent shadow-sm"
+                : "bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)] border-[var(--kt-border-default)]"
             }`}
             title="Añadir una carpeta de proyecto como workspace"
           >
-            <span>＋</span>
+            <IconPlus size={13} />
             <span>Añadir workspace</span>
           </button>
           <button
             onClick={refresh}
-            class="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all"
+            class="w-8 h-8 rounded-xl flex items-center justify-center text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] border border-transparent hover:border-[var(--kt-border-subtle)] transition-all"
             title="Recargar"
           >
-            ↻
+            <IconRefresh size={14} />
           </button>
         </div>
-        <p class="text-[13px] text-zinc-400 mb-6">
+        <p class="text-[13px] text-[var(--kt-text-muted)] mb-6">
           Historial de sesiones persistidas en el backend de KogniTerm, organizadas por proyecto.
         </p>
 
         {/* Panel desplegable para añadir un nuevo workspace */}
         <Show when={showAddWs()}>
-          <div class="mb-6 rounded-2xl bg-zinc-900/90 border border-white/[0.1] p-4 shadow-[0_8px_30px_rgba(0,0,0,0.5)] animate-scale-in space-y-3">
+          <div class="mb-6 rounded-2xl kt-card p-4 animate-scale-in space-y-3">
             <div class="flex items-center justify-between">
               <div>
-                <h2 class="text-[14px] font-semibold text-white">Añadir Workspace</h2>
-                <p class="text-[12px] text-zinc-400">
+                <h2 class="text-[14px] font-semibold text-[var(--kt-text-primary)]">Añadir Workspace</h2>
+                <p class="text-[12px] text-[var(--kt-text-muted)]">
                   Ingresa la ruta del directorio o explora las carpetas para registrarlo en tus conversaciones.
                 </p>
               </div>
               <button
                 onClick={() => setShowAddWs(false)}
-                class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] text-[12px]"
+                class="w-7 h-7 rounded-xl flex items-center justify-center text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)]"
                 title="Cerrar"
               >
-                ✕
+                <IconClose size={13} />
               </button>
             </div>
 
@@ -323,12 +333,12 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                   }
                 }}
                 placeholder="/ruta/a/tu/proyecto o ~/mi-proyecto"
-                class="flex-1 bg-black/50 focus:bg-black/70 focus:ring-2 focus:ring-white/20 border border-white/[0.1] rounded-xl px-3.5 py-2 text-[13px] font-mono text-white placeholder-zinc-500 outline-none transition-all"
+                class="flex-1 bg-[var(--kt-bg-hover)] focus:bg-[var(--kt-bg-input)] border border-[var(--kt-border-default)] focus:border-[var(--kt-border-strong)] rounded-xl px-3.5 py-2 text-[13px] font-mono text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
               />
               <button
                 type="button"
                 onClick={() => void loadBrowse(wsPath().trim() || undefined)}
-                class="px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-[12px] text-zinc-300 hover:text-white border border-white/[0.08] transition-all shrink-0"
+                class="px-3 py-2 rounded-xl bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[12px] text-[var(--kt-text-secondary)] hover:text-[var(--kt-text-primary)] border border-[var(--kt-border-subtle)] transition-all shrink-0"
                 title="Explorar la ruta escrita"
               >
                 Explorar
@@ -337,19 +347,20 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                 <button
                   type="button"
                   onClick={pickNativeFolder}
-                  class="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-[12px] text-zinc-200 hover:text-white border border-white/[0.08] transition-all shrink-0 font-medium"
+                  class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[12px] text-[var(--kt-text-primary)] border border-[var(--kt-border-default)] transition-all shrink-0 font-medium"
                   title="Seleccionar carpeta con el explorador del sistema"
                 >
-                  📂 Examinar…
+                  <IconFolder size={13} />
+                  <span>Examinar…</span>
                 </button>
               </Show>
             </div>
 
             {/* Explorador rápido de directorios del sistema */}
-            <div class="rounded-xl bg-black/40 border border-white/[0.06] overflow-hidden">
-              <div class="flex items-center gap-2 px-3 py-2 bg-white/[0.02] border-b border-white/[0.05] text-[11.5px]">
-                <span class="text-zinc-400">Carpeta actual:</span>
-                <span class="font-mono text-zinc-200 truncate flex-1" title={browseCurrent()}>
+            <div class="rounded-xl bg-[var(--kt-bg-app)] border border-[var(--kt-border-subtle)] overflow-hidden">
+              <div class="flex items-center gap-2 px-3 py-2 bg-[var(--kt-bg-hover)] border-b border-[var(--kt-border-subtle)] text-[11.5px]">
+                <span class="text-[var(--kt-text-muted)]">Carpeta:</span>
+                <span class="font-mono text-[var(--kt-text-primary)] truncate flex-1" title={browseCurrent()}>
                   {browseCurrent() || "…"}
                 </span>
                 <Show when={browseParent()}>
@@ -362,7 +373,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                         void loadBrowse(p);
                       }
                     }}
-                    class="px-2.5 py-0.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300 hover:text-white transition-all font-medium shrink-0"
+                    class="px-2.5 py-0.5 rounded-lg bg-[var(--kt-bg-active)] text-[var(--kt-text-secondary)] hover:text-[var(--kt-text-primary)] transition-all font-medium shrink-0"
                     title="Ir a la carpeta superior"
                   >
                     ↑ Subir
@@ -372,11 +383,19 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
               <div class="max-h-40 overflow-y-auto p-1.5 grid grid-cols-1 sm:grid-cols-2 gap-1">
                 <Show
                   when={!browseLoading()}
-                  fallback={<div class="col-span-2 py-4 text-center text-[12px] text-zinc-500">Cargando carpetas…</div>}
+                  fallback={
+                    <div class="col-span-2 py-4 text-center text-[12px] text-[var(--kt-text-faint)]">
+                      Cargando carpetas…
+                    </div>
+                  }
                 >
                   <Show
                     when={browseDirs().length > 0}
-                    fallback={<div class="col-span-2 py-3 text-center text-[12px] text-zinc-500">No hay subcarpetas visibles en este directorio.</div>}
+                    fallback={
+                      <div class="col-span-2 py-3 text-center text-[12px] text-[var(--kt-text-faint)]">
+                        No hay subcarpetas visibles en este directorio.
+                      </div>
+                    }
                   >
                     <For each={browseDirs()}>
                       {(d) => (
@@ -387,10 +406,10 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                             setWsErr("");
                             void loadBrowse(d.path);
                           }}
-                          class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-[12px] text-zinc-300 hover:text-white hover:bg-white/[0.07] transition-all truncate"
+                          class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left text-[12px] text-[var(--kt-text-secondary)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all truncate"
                           title={d.path}
                         >
-                          <span class="opacity-70 shrink-0">📁</span>
+                          <IconFolder size={13} class="text-[var(--kt-text-faint)] shrink-0" />
                           <span class="truncate font-mono">{d.name}</span>
                         </button>
                       )}
@@ -408,7 +427,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
               <button
                 type="button"
                 onClick={() => setShowAddWs(false)}
-                class="px-3.5 py-1.5 rounded-full text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.06] transition-all"
+                class="px-3.5 py-1.5 rounded-full text-[12px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all"
               >
                 Cancelar
               </button>
@@ -416,7 +435,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                 type="button"
                 disabled={addingWs() || !wsPath().trim()}
                 onClick={() => void submitAddWorkspace(false)}
-                class="px-4 py-1.5 rounded-full text-[12px] font-medium bg-white/[0.1] hover:bg-white/[0.16] text-white border border-white/[0.1] transition-all active:scale-95 disabled:opacity-50"
+                class="px-4 py-1.5 rounded-full text-[12px] font-medium bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)] border border-[var(--kt-border-default)] transition-all active:scale-95 disabled:opacity-50"
               >
                 {addingWs() ? "Añadiendo…" : "Añadir workspace"}
               </button>
@@ -424,7 +443,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                 type="button"
                 disabled={addingWs() || !wsPath().trim()}
                 onClick={() => void submitAddWorkspace(true)}
-                class="px-4 py-1.5 rounded-full text-[12px] font-medium bg-white text-black hover:bg-zinc-200 transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+                class="px-4 py-1.5 rounded-full text-[12px] font-semibold bg-[var(--kt-btn-primary-bg)] text-[var(--kt-btn-primary-text)] hover:bg-[var(--kt-btn-primary-hover)] transition-all active:scale-95 disabled:opacity-50 shadow-sm"
               >
                 Añadir y abrir chat
               </button>
@@ -432,32 +451,51 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
           </div>
         </Show>
 
-        {/* Barra de búsqueda curvada */}
-        <div class="relative mb-8">
+        {/* Barra de búsqueda */}
+        <div class="relative mb-6">
+          <IconSearch
+            size={15}
+            class="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--kt-text-faint)] pointer-events-none"
+          />
           <input
             value={q()}
             onInput={(e) => setQ(e.currentTarget.value)}
             placeholder="Filtrar por título o directorio…"
-            class="w-full bg-zinc-900/90 hover:bg-zinc-900 focus:bg-zinc-900 focus:ring-2 focus:ring-white/20 border border-white/[0.08] rounded-full px-5 py-2.5 text-[13.5px] text-white placeholder-zinc-500 outline-none transition-all shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+            class="w-full kt-composer rounded-2xl pl-10 pr-9 py-2.5 text-[13.5px] text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none transition-all"
           />
+          <Show when={q()}>
+            <button
+              type="button"
+              onClick={() => setQ("")}
+              class="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center text-[var(--kt-text-faint)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all"
+              title="Limpiar búsqueda"
+            >
+              <IconClose size={12} />
+            </button>
+          </Show>
         </div>
 
         <Show when={err()}>
           <p class="mb-4 text-[12px] text-red-300 px-2">{err()}</p>
         </Show>
         <Show when={loading()}>
-          <p class="text-[13px] text-zinc-400 py-12 text-center animate-pulse">Cargando conversaciones…</p>
+          <p class="text-[13px] text-[var(--kt-text-muted)] py-12 text-center animate-pulse">
+            Cargando conversaciones…
+          </p>
         </Show>
 
         <Show when={!loading() && groups().length === 0}>
-          <div class="text-center py-16 text-zinc-500">
-            <span class="text-3xl block mb-2 opacity-50">📂</span>
+          <div class="text-center py-16 text-[var(--kt-text-muted)] kt-card rounded-2xl">
+            <div class="w-12 h-12 rounded-2xl bg-[var(--kt-bg-hover)] flex items-center justify-center mx-auto mb-3 text-[var(--kt-text-muted)]">
+              <IconFolder size={22} />
+            </div>
             <p class="text-[14px] mb-4">No hay workspaces ni conversaciones guardadas todavía.</p>
             <button
               onClick={openAddWorkspaceModal}
-              class="text-[12.5px] px-4 py-2 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 hover:text-white border border-white/[0.08] transition-all active:scale-95 font-medium"
+              class="inline-flex items-center gap-1.5 text-[12.5px] px-4 py-2 rounded-full bg-[var(--kt-btn-primary-bg)] text-[var(--kt-btn-primary-text)] hover:bg-[var(--kt-btn-primary-hover)] transition-all active:scale-95 font-medium"
             >
-              ＋ Añadir primer workspace
+              <IconPlus size={13} />
+              <span>Añadir primer workspace</span>
             </button>
           </div>
         </Show>
@@ -467,21 +505,24 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
             {(g) => {
               const isCollapsed = () => !!collapsed()[g.dir];
               return (
-                <section class="rounded-2xl bg-zinc-900/60 hover:bg-zinc-900/80 border border-white/[0.06] transition-all duration-200 overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
+                <section class="rounded-2xl kt-card transition-all duration-200 overflow-hidden">
                   {/* Cabecera del grupo */}
                   <header
-                    class="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none hover:bg-white/[0.03] transition-colors"
+                    class="flex items-center gap-2.5 px-4 py-3 cursor-pointer select-none hover:bg-[var(--kt-bg-hover)] transition-colors"
                     onClick={() => toggleCollapse(g.dir)}
                     title={isCollapsed() ? "Desplegar" : "Replegar"}
                   >
-                    <span class="text-[11px] text-zinc-400 w-3 shrink-0 transition-transform duration-200">
-                      {isCollapsed() ? "▸" : "▾"}
+                    <span class="text-[var(--kt-text-muted)] shrink-0">
+                      {isCollapsed() ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}
                     </span>
-                    <h2 class="text-[13.5px] font-semibold text-white shrink-0">{g.name}</h2>
-                    <span class="text-[11.5px] text-zinc-400 font-mono truncate" title={g.dir}>
+                    <IconFolder size={14} class="text-[var(--kt-text-muted)] shrink-0" />
+                    <h2 class="text-[13.5px] font-semibold text-[var(--kt-text-primary)] shrink-0">{g.name}</h2>
+                    <span class="text-[11.5px] text-[var(--kt-text-faint)] font-mono truncate" title={g.dir}>
                       {shortPath(g.dir)}
                     </span>
-                    <span class="text-[11px] font-mono text-zinc-500 shrink-0">· {g.items.length}</span>
+                    <span class="text-[11px] font-mono text-[var(--kt-text-faint)] shrink-0 tabular-nums">
+                      · {g.items.length}
+                    </span>
                     <div class="flex-1" />
                     <Show when={!g.registered && g.dir !== "(sin workspace)"}>
                       <button
@@ -490,7 +531,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                           void registerExistingDir(g.dir);
                         }}
                         disabled={busy() !== null}
-                        class="text-[11px] px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-zinc-400 hover:text-white transition-all active:scale-95 disabled:opacity-50 shrink-0"
+                        class="text-[11px] px-2.5 py-1 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] transition-all active:scale-95 disabled:opacity-50 shrink-0"
                         title="Guardar este directorio como workspace registrado"
                       >
                         Guardar workspace
@@ -502,10 +543,11 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                         void newThread(g.dir);
                       }}
                       disabled={busy() !== null}
-                      class="text-[11.5px] px-3 py-1 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 hover:text-white transition-all active:scale-95 disabled:opacity-50 shrink-0 font-medium"
+                      class="flex items-center gap-1 text-[11.5px] px-3 py-1 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] text-[var(--kt-text-primary)] transition-all active:scale-95 disabled:opacity-50 shrink-0 font-medium"
                       title="Nueva conversación en este workspace"
                     >
-                      ＋ nueva
+                      <IconPlus size={11} />
+                      <span>Nueva</span>
                     </button>
                     <Show when={g.registered}>
                       <button
@@ -514,25 +556,25 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                           void unregisterWorkspace(g.dir, g.name);
                         }}
                         disabled={busy() !== null}
-                        class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[11px]"
+                        class="w-6 h-6 rounded-full flex items-center justify-center text-[var(--kt-text-faint)] hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0"
                         title="Quitar workspace de la lista"
                       >
-                        ✕
+                        <IconClose size={11} />
                       </button>
                     </Show>
                   </header>
 
                   <Show when={!isCollapsed()}>
-                    <div class="space-y-1 px-3 pb-3 pt-1">
+                    <div class="space-y-1 px-2.5 pb-2.5 pt-1 border-t border-[var(--kt-border-subtle)]">
                       <Show
                         when={g.items.length > 0}
                         fallback={
-                          <div class="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-white/[0.02] text-[12.5px] text-zinc-500">
+                          <div class="flex items-center justify-between px-3 py-2.5 rounded-xl bg-[var(--kt-bg-hover)] text-[12.5px] text-[var(--kt-text-muted)]">
                             <span>Sin conversaciones en este workspace todavía.</span>
                             <button
                               onClick={() => void newThread(g.dir)}
                               disabled={busy() !== null}
-                              class="text-[12px] text-zinc-300 hover:text-white underline underline-offset-2 transition-colors"
+                              class="text-[12px] text-[var(--kt-text-primary)] hover:underline underline-offset-2 font-medium"
                             >
                               Iniciar primera conversación →
                             </button>
@@ -542,25 +584,25 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                         <For each={visibleItems(g)}>
                           {(t) => (
                             <div
-                              class={`group flex items-center gap-3 rounded-xl px-3.5 py-2.5 cursor-pointer transition-all duration-150 ${
+                              class={`group flex items-center gap-3 rounded-xl px-3 py-2 cursor-pointer transition-all duration-150 ${
                                 tabs.isOpen(t.id)
-                                  ? "bg-white/[0.1] text-white shadow-sm"
-                                  : "hover:bg-white/[0.04] text-zinc-300"
+                                  ? "bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)]"
+                                  : "hover:bg-[var(--kt-bg-hover)] text-[var(--kt-text-secondary)]"
                               }`}
                               onClick={() => open(t)}
                             >
-                              <span class="text-zinc-400 text-[11.5px] w-16 shrink-0 tabular-nums font-mono">
+                              <span class="text-[var(--kt-text-faint)] text-[11.5px] w-16 shrink-0 tabular-nums font-mono">
                                 {relTime(t.updated_at ?? t.created_at)}
                               </span>
-                              <span class="text-[13px] text-zinc-200 group-hover:text-white font-medium truncate flex-1">
+                              <span class="text-[13px] text-[var(--kt-text-primary)] font-medium truncate flex-1">
                                 {t.title || t.id}
                               </span>
                               <Show when={tabs.isOpen(t.id)}>
-                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.12] text-zinc-200 font-medium shrink-0">
+                                <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 font-medium shrink-0">
                                   abierta
                                 </span>
                               </Show>
-                              <span class="text-[11px] text-zinc-400 font-mono tabular-nums shrink-0">
+                              <span class="text-[11px] text-[var(--kt-text-faint)] font-mono tabular-nums shrink-0 px-1.5 py-0.5 rounded bg-[var(--kt-bg-hover)]">
                                 {t.message_count ?? 0}
                               </span>
                               <button
@@ -568,10 +610,10 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                                   e.stopPropagation();
                                   void remove(t);
                                 }}
-                                class="w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0 text-[12px]"
+                                class="w-6 h-6 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 text-[var(--kt-text-faint)] hover:text-red-300 hover:bg-red-500/15 transition-all shrink-0"
                                 title="Eliminar conversación"
                               >
-                                ✕
+                                <IconTrash size={12} />
                               </button>
                             </div>
                           )}
@@ -579,7 +621,7 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
                         <Show when={g.items.length > PAGE}>
                           <button
                             onClick={() => setExpanded((e) => ({ ...e, [g.dir]: !e[g.dir] }))}
-                            class="w-full text-center py-2 rounded-xl text-[12px] text-zinc-400 hover:text-white hover:bg-white/[0.04] transition-all mt-1"
+                            class="w-full text-center py-2 rounded-xl text-[12px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all mt-1"
                           >
                             {expanded()[g.dir] ? "− Ver menos" : `Ver ${g.items.length - PAGE} más…`}
                           </button>
@@ -594,31 +636,31 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
         </div>
 
         <Show when={!loading() && workspaces().length > 0}>
-          <section class="mt-10 pt-6">
-            <h2 class="text-[12px] font-semibold text-zinc-400 uppercase tracking-wider mb-3">
+          <section class="mt-8 pt-6 border-t border-[var(--kt-border-subtle)]">
+            <h2 class="text-[11px] font-semibold text-[var(--kt-text-faint)] uppercase tracking-wider mb-3">
               Workspaces registrados
             </h2>
             <div class="flex flex-wrap gap-2">
               <For each={workspaces()}>
                 {(w) => (
                   <span
-                    class="inline-flex items-center gap-1.5 text-[11.5px] font-mono pl-3 pr-2 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 transition-colors"
+                    class="inline-flex items-center gap-1.5 text-[11.5px] font-mono pl-3 pr-1.5 py-1 rounded-full bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] text-[var(--kt-text-secondary)] transition-colors"
                     title={w.path}
                   >
                     <button
                       type="button"
                       onClick={() => setQ(w.name)}
-                      class="hover:text-white transition-colors"
+                      class="hover:text-[var(--kt-text-primary)] transition-colors"
                     >
                       {w.name}
                     </button>
                     <button
                       type="button"
                       onClick={() => void unregisterWorkspace(w.path, w.name)}
-                      class="w-4 h-4 rounded-full flex items-center justify-center text-zinc-500 hover:text-red-300 hover:bg-red-500/15 transition-colors text-[10px]"
+                      class="w-4 h-4 rounded-full flex items-center justify-center text-[var(--kt-text-faint)] hover:text-red-300 hover:bg-red-500/15 transition-colors"
                       title={`Quitar workspace ${w.name}`}
                     >
-                      ✕
+                      <IconClose size={10} />
                     </button>
                   </span>
                 )}
@@ -626,9 +668,10 @@ export function ConversationsView(props: { onOpenChat: () => void }) {
               <button
                 type="button"
                 onClick={openAddWorkspaceModal}
-                class="text-[11.5px] font-mono px-3 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.1] text-zinc-400 hover:text-white border border-dashed border-white/[0.12] transition-all"
+                class="inline-flex items-center gap-1 text-[11.5px] font-mono px-3 py-1 rounded-full bg-transparent hover:bg-[var(--kt-bg-hover)] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] border border-dashed border-[var(--kt-border-default)] transition-all"
               >
-                ＋ añadir
+                <IconPlus size={11} />
+                <span>añadir</span>
               </button>
             </div>
           </section>

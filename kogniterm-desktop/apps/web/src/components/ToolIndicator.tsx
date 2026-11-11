@@ -1,5 +1,6 @@
-import { createSignal, onCleanup } from "solid-js";
+import { Show, createSignal, onCleanup } from "solid-js";
 import { ChatMsg, isTerminalTool } from "../lib/tabs";
+import { IconCheck, IconClose } from "./Icons";
 
 interface ToolIndicatorProps {
   message: ChatMsg;
@@ -7,14 +8,13 @@ interface ToolIndicatorProps {
   operating?: boolean;
 }
 
-/** Frames del spinner cuadrado (cuadrantes rotando), mismo ritmo que la TUI (120ms). */
 const SQUARE_FRAMES = ["▖", "▘", "▝", "▗"];
 
 function SquareSpinner() {
   const [frame, setFrame] = createSignal(0);
   const timer = setInterval(() => setFrame((f) => (f + 1) % SQUARE_FRAMES.length), 120);
   onCleanup(() => clearInterval(timer));
-  return <span class="shrink-0 font-mono text-[13px] leading-none text-amber-300">{SQUARE_FRAMES[frame()]}</span>;
+  return <span class="shrink-0 font-mono text-[12px] leading-none text-amber-400">{SQUARE_FRAMES[frame()]}</span>;
 }
 
 export function ToolIndicator(props: ToolIndicatorProps) {
@@ -27,11 +27,9 @@ export function ToolIndicator(props: ToolIndicatorProps) {
     return "herramienta";
   };
 
-  // EXCEPCIÓN: execute_command y comandos de terminal usan AgentTerminal exclusivamente
   if (isTerminalTool(props.message.toolName || toolName())) {
     return null;
   }
-
 
   const action = () => {
     if (props.message.toolDescription) return String(props.message.toolDescription);
@@ -54,23 +52,39 @@ export function ToolIndicator(props: ToolIndicatorProps) {
     return a ? `${toolName()} · ${a}` : toolName();
   };
 
-  const isRunning = () => (props.message.toolStatus || "completed") === "running";
-  /** Solo gira si la herramienta sigue marcada en ejecución Y la pestaña sigue operando.
-   *  Si el backend no cerró la herramienta pero la ejecución ya terminó, se muestra el ícono. */
+  const status = () => props.message.toolStatus || "completed";
+  const isRunning = () => status() === "running";
+  const isError = () => status() === "error";
   const showSpinner = () => isRunning() && props.operating !== false;
 
   return (
-    <div class="my-1 flex items-center gap-2 text-[12px] select-text text-zinc-400" title={title()}>
-      <span class="shrink-0 text-zinc-500">
-        {showSpinner() ? (
+    <div
+      class="inline-flex max-w-full items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--kt-bg-surface)] border border-[var(--kt-border-subtle)] text-[12px] select-text shadow-sm"
+      title={title()}
+    >
+      <span class="shrink-0 flex items-center justify-center">
+        <Show
+          when={showSpinner()}
+          fallback={
+            <Show
+              when={isError()}
+              fallback={<IconCheck size={12} class="text-emerald-400" />}
+            >
+              <IconClose size={12} class="text-red-400" />
+            </Show>
+          }
+        >
           <SquareSpinner />
-        ) : (
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M9 5l7 7-7 7" />
-          </svg>
-        )}
+        </Show>
       </span>
-      <span class="min-w-0 truncate font-mono">{title()}</span>
+      <span class="shrink-0 font-mono text-[11px] font-medium text-[var(--kt-text-primary)] px-1.5 py-0.5 rounded-md bg-[var(--kt-bg-hover)]">
+        {toolName()}
+      </span>
+      <Show when={action()}>
+        <span class="min-w-0 truncate font-mono text-[11.5px] text-[var(--kt-text-muted)]">
+          {action()}
+        </span>
+      </Show>
     </div>
   );
 }

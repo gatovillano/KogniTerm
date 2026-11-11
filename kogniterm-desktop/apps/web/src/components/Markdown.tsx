@@ -41,13 +41,16 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+function wrapCodeBlock(preHtml: string, lang?: string): string {
+  const label = escapeHtml((lang || "text").toLowerCase());
+  return `<div class="md-code-block"><div class="md-code-header"><span>${label}</span><button type="button" class="md-code-copy">Copiar</button></div>${preHtml}</div>`;
+}
+
 async function renderMarkdown(text: string): Promise<string> {
   const hl = await getHighlighter();
   const m = new Marked({ gfm: true, breaks: true });
   m.use({
     renderer: {
-      // Enlaces: siempre con target="_blank" para que Electron los derive al
-      // navegador vía setWindowOpenHandler en vez de navegar la ventana.
       link({ href, title, text }: { href: string; title?: string | null; text: string }) {
         const t = title ? ` title="${escapeHtml(title)}"` : "";
         return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${t}>${text}</a>`;
@@ -56,20 +59,17 @@ async function renderMarkdown(text: string): Promise<string> {
         const language = (lang || "plaintext").toLowerCase();
         try {
           if (!(hl.getLoadedLanguages() as string[]).includes(language)) throw new Error("unknown lang");
-          return hl.codeToHtml(code, { lang: language, theme: "github-dark" });
+          return wrapCodeBlock(hl.codeToHtml(code, { lang: language, theme: "github-dark" }), lang || language);
         } catch {
-          return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
+          return wrapCodeBlock(`<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`, lang || "text");
         }
       },
     },
   });
   const raw = await m.parse(text);
-  // DOMPurify quitaría target/_blank sin ADD_ATTR: hay que conservarlo para
-  // que Electron derive el enlace al navegador vía setWindowOpenHandler.
   return DOMPurify.sanitize(raw, { ADD_ATTR: ["target", "rel"] });
 }
 
-// Renderizado síncrono ligero para streaming en tiempo real (sin shiki async)
 function renderMarkdownSync(text: string): string {
   const m = new Marked({ gfm: true, breaks: true });
   m.use({
@@ -79,7 +79,7 @@ function renderMarkdownSync(text: string): string {
         return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${t}>${text}</a>`;
       },
       code({ text: code, lang }: { text: string; lang?: string }) {
-        return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
+        return wrapCodeBlock(`<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`, lang || "text");
       },
     },
   });
@@ -87,8 +87,7 @@ function renderMarkdownSync(text: string): string {
   return DOMPurify.sanitize(raw, { ADD_ATTR: ["target", "rel"] });
 }
 
-/** Markdown con highlight (shiki/github-dark) y streaming real en tiempo real con renderizado de Markdown.
- */
+/** Markdown con highlight (shiki/github-dark), copia en bloques de código y streaming en tiempo real. */
 export function Markdown(props: { text: string; center?: boolean; streaming?: boolean }) {
   const [stable, setStable] = createSignal(props.text);
   let timer: number | undefined;
@@ -113,23 +112,37 @@ export function Markdown(props: { text: string; center?: boolean; streaming?: bo
       }
       return;
     }
-    // Mensaje finalizado: render inmediato (una sola vez).
     lastFlush = Date.now();
     setStable(cur);
   });
   onCleanup(() => clearTimeout(timer));
 
-  // Solo se re-ejecuta cuando `stable` cambia (throttled), no por cada token.
   const [html] = createResource(stable, renderMarkdown);
-
-  // Vista streaming: renderizado markdown síncrono en tiempo real por token.
   const streamingHtml = () => renderMarkdownSync(props.text);
 
-  // Clics en enlaces: en Electron se delega a shell.openExternal vía preload
-  // (evita que un <a> sin target navegue la ventana); en navegador basta con
-  // el target="_blank" del renderer, aquí solo se refuerza con noopener.
-  const onLinkClick = (e: MouseEvent) => {
-    const anchor = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+  const onContentClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    const copyBtn = target.closest?.(".md-code-copy") as HTMLButtonElement | null;
+    if (copyBtn) {
+      const wrap = copyBtn.closest(".md-code-block");
+      const codeEl = wrap?.querySelector("pre code");
+      const codeText = codeEl?.textContent ?? "";
+      if (codeText) {
+        void navigator.clipboard.writeText(codeText).then(() => {
+          copyBtn.textContent = "✓ Copiado";
+          copyBtn.classList.add("is-copied");
+          setTimeout(() => {
+            copyBtn.textContent = "Copiar";
+            copyBtn.classList.remove("is-copied");
+          }, 1600);
+        });
+      }
+      return;
+    }
+
+    const anchor = target.closest?.("a[href]") as HTMLAnchorElement | null;
     if (!anchor) return;
     const href = anchor.getAttribute("href") ?? "";
     if (!/^(https?:|mailto:)/i.test(href)) return;
@@ -146,12 +159,8 @@ export function Markdown(props: { text: string; center?: boolean; streaming?: bo
   return (
     <div
       class={`md ${props.center ? "md-center" : ""}`}
-      onClick={onLinkClick}
-      innerHTML={
-        props.streaming
-          ? streamingHtml()
-          : (html() ?? renderMarkdownSync(stable()))
-      }
+      onClick={onContentClick}
+      innerHTML={props.streaming ? streamingHtml() : (html() ?? renderMarkdownSync(stable()))}
     />
   );
 }

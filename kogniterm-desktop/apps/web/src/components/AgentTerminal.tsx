@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { copyTerminalToClipboard, setupTerminalCopyHandlers } from "../lib/terminal-clipboard";
+import { IconCheck, IconCopy } from "./Icons";
 
 interface AgentTerminalProps {
   tabId: string;
@@ -16,7 +17,6 @@ interface AgentTerminalProps {
 
 /**
  * Terminal inline vinculada a la ejecución worker del agente.
- * Diseño minimalista con tarjeta curvada, barra de título elegante y sin bordes toscos.
  */
 export function AgentTerminal(props: AgentTerminalProps) {
   let hostRef: HTMLDivElement | undefined;
@@ -85,9 +85,9 @@ export function AgentTerminal(props: AgentTerminalProps) {
       cursorBlink: true,
       convertEol: true,
       fontSize: 12,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontFamily: '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       theme: {
-        background: "#080808",
+        background: "#08080a",
         foreground: "#f4f4f5",
         cursor: "#e4e4e7",
         selectionBackground: "rgba(255, 255, 255, 0.28)",
@@ -138,29 +138,30 @@ export function AgentTerminal(props: AgentTerminalProps) {
   });
 
   return (
-    <div class="w-full overflow-hidden rounded-2xl bg-[#080808] shadow-[0_8px_32px_rgba(0,0,0,0.55)] transition-all">
-      {/* Cabecera estilizada con dots y comandos */}
-      <div class="flex items-center gap-2.5 bg-[#131314] px-4 py-2 text-[12px] select-none">
+    <div class="w-full overflow-hidden rounded-2xl bg-[#08080a] border border-white/[0.08] shadow-[var(--kt-shadow-md)] transition-all">
+      {/* Cabecera */}
+      <div class="flex items-center gap-2.5 bg-[#121216] border-b border-white/[0.06] px-3.5 py-2 text-[12px] select-none">
         <div class="flex items-center gap-1.5 mr-1">
-          <span class="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-          <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+          <span class="w-2.5 h-2.5 rounded-full bg-red-500/75" />
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-500/75" />
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/75" />
         </div>
-        
-        <span class="text-[11px] font-mono text-zinc-400">terminal</span>
-        <span class="truncate font-mono text-zinc-200 text-[11.5px] max-w-sm" title={displayCommand()}>
-          $ {displayCommand()}
+
+        <span class="truncate font-mono text-zinc-200 text-[11.5px] max-w-md" title={displayCommand()}>
+          <span class="text-zinc-500 mr-1.5">$</span>
+          {displayCommand()}
         </span>
 
         <div class="flex-1" />
 
         <Show when={props.active && props.interactive}>
-          <span class="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[10.5px] font-medium text-amber-200 animate-pulse">
-            interactiva: escribe aquí
+          <span class="rounded-full bg-amber-500/20 border border-amber-500/30 px-2.5 py-0.5 text-[10.5px] font-medium text-amber-200 animate-pulse">
+            interactiva
           </span>
         </Show>
         <Show when={props.active && !props.interactive}>
-          <span class="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[10.5px] font-medium text-emerald-300">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2.5 py-0.5 text-[10.5px] font-medium text-emerald-300">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             ejecutando
           </span>
         </Show>
@@ -171,53 +172,23 @@ export function AgentTerminal(props: AgentTerminalProps) {
         </Show>
 
         <button
-          class={`h-6 px-2.5 rounded-full flex items-center gap-1.5 transition-all text-[11px] font-medium ml-1.5 ${
+          class={`h-6 px-2.5 rounded-full flex items-center gap-1.5 transition-all text-[11px] font-medium ml-1 ${
             copied()
               ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-              : "text-zinc-400 hover:text-white hover:bg-white/[0.08]"
+              : "text-zinc-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1]"
           }`}
           onClick={handleCopy}
           onMouseDown={(e) => e.preventDefault()}
           title={copied() ? "¡Copiado!" : "Copiar contenido de la terminal (o selección actual)"}
         >
-          {copied() ? (
-            <>
-              <svg class="w-3 h-3 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span>Copiado</span>
-            </>
-          ) : (
-            <>
-              <svg class="w-3 h-3 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-              <span>Copiar</span>
-            </>
-          )}
+          <Show when={copied()} fallback={<IconCopy size={11} />}>
+            <IconCheck size={11} class="text-emerald-400" />
+          </Show>
+          <span>{copied() ? "Copiado" : "Copiar"}</span>
         </button>
       </div>
 
-      <div ref={hostRef} class="h-56 w-full px-2 py-1 select-text" />
-
-      {/* Pie de terminal */}
-      <div class="flex items-center gap-2 bg-[#131314] px-4 py-1.5 text-[11px] text-zinc-400 select-none">
-        <Show
-          when={props.active}
-          fallback={<span>Salida de ejecución vinculada al proceso del agente.</span>}
-        >
-          <span>Envío interactivo activo: flechas, contraseñas y Ctrl+C.</span>
-          <div class="flex-1" />
-          <button
-            class="rounded-full bg-white/[0.08] hover:bg-white/[0.14] px-2.5 py-0.5 text-[11px] font-mono text-zinc-200 hover:text-white transition-all active:scale-95"
-            title="Enviar señal Ctrl+C (interrumpir)"
-            onClick={() => props.onInput("\x03")}
-          >
-            Ctrl+C
-          </button>
-        </Show>
-      </div>
+      <div ref={hostRef} class="px-2.5 py-2 select-text" />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js";
 import { tabs } from "../lib/tabs";
+import { IconClose, IconConversations, IconPlus } from "./Icons";
 
 export function TabBar(props: {
   view: "chat" | "conversations";
@@ -7,74 +8,85 @@ export function TabBar(props: {
   onShowChat: () => void;
 }) {
   return (
-    <nav class="flex flex-1 min-w-0 items-center gap-1.5 px-1 py-0.5 bg-transparent overflow-x-auto select-none transition-colors">
-      {/* Botón de conversaciones: estilo cápsula moderno */}
+    <nav class="flex flex-1 min-w-0 items-center gap-1.5 px-1 py-0.5 bg-transparent select-none">
+      {/* Botón de conversaciones / proyectos */}
       <button
         onClick={props.onToggleView}
-        title="Conversaciones (agrupadas por proyecto)"
-        class={`flex items-center gap-2 px-3 py-1 rounded-full text-[12.5px] font-medium transition-all duration-200 active:scale-95 shrink-0 ${
+        title="Conversaciones y Workspaces"
+        class={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[12.5px] font-medium transition-all duration-150 active:scale-[0.97] shrink-0 border ${
           props.view === "conversations"
-            ? "bg-white/[0.12] text-white shadow-sm"
-            : "text-zinc-400 hover:text-white hover:bg-white/[0.05]"
+            ? "bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)] border-[var(--kt-border-default)] shadow-sm"
+            : "border-transparent text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)]"
         }`}
       >
-        <span class="text-[13px] leading-none opacity-80">☰</span>
-        <span class="hidden sm:inline">Conversaciones</span>
+        <IconConversations size={14} class="opacity-85" />
+        <span class="hidden sm:inline">Sesiones</span>
       </button>
 
-      <span class="w-px h-3.5 bg-white/[0.08] mx-1 shrink-0" />
+      <span class="w-px h-4 bg-[var(--kt-border-subtle)] mx-0.5 shrink-0" />
 
-      {/* Lista de pestañas tipo cápsulas / floating pills */}
-      <div class="flex flex-1 min-w-0 items-center gap-1 overflow-x-auto py-0.5">
+      {/* Lista de pestañas */}
+      <div class="flex flex-1 min-w-0 items-center gap-1 overflow-x-auto py-0.5 no-scrollbar">
         <For each={tabs.store.tabs}>
           {(t) => {
-            const active = () => t.id === tabs.store.activeId;
+            const active = () => props.view === "chat" && t.id === tabs.store.activeId;
             return (
-                <div
-                  class={`group flex items-center gap-2 px-3 py-1 rounded-full text-[12.5px] font-medium cursor-pointer shrink-0 transition-all duration-200 active:scale-[0.98] ${
+              <div
+                class={`group flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-xl text-[12.5px] font-medium cursor-pointer shrink-0 transition-all duration-150 border ${
+                  active()
+                    ? "bg-[var(--kt-bg-elevated)] text-[var(--kt-text-primary)] border-[var(--kt-border-default)] shadow-[var(--kt-shadow-sm)]"
+                    : "border-transparent text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)]"
+                }`}
+                title={t.workspaceDir ? `${t.title}\n${t.workspaceDir}` : t.title}
+                onClick={() => {
+                  tabs.select(t.id);
+                  props.onShowChat();
+                }}
+                onAuxClick={(e) => {
+                  if (e.button === 1 && tabs.store.tabs.length > 1) {
+                    e.preventDefault();
+                    tabs.close(t.id);
+                  }
+                }}
+              >
+                <span
+                  class={`w-1.5 h-1.5 rounded-full shrink-0 transition-all duration-300 ${
                     active()
-                      ? "bg-white/[0.12] text-white shadow-[0_2px_10px_rgba(0,0,0,0.3)]"
-                      : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.05]"
+                      ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]"
+                      : "bg-[var(--kt-text-faint)] opacity-50"
                   }`}
-                  onClick={() => {
-                    tabs.select(t.id);
-                    props.onShowChat();
-                  }}
-                >
-                  <span
-                    class={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
-                      active() ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" : "bg-zinc-600"
+                />
+                <span class="max-w-[148px] truncate">{t.title}</span>
+                <Show when={tabs.store.tabs.length > 1}>
+                  <button
+                    class={`w-4 h-4 rounded-md flex items-center justify-center transition-all ml-0.5 text-[var(--kt-text-faint)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-active)] ${
+                      active() ? "opacity-65 hover:opacity-100" : "opacity-0 group-hover:opacity-80"
                     }`}
-                  />
-                  <span class="max-w-[150px] truncate">{t.title}</span>
-                  <Show when={tabs.store.tabs.length > 1}>
-                    <button
-                      class="w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-white/15 text-zinc-400 hover:text-white text-[11px] leading-none transition-all ml-0.5"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        tabs.close(t.id);
-                      }}
-                      title="Cerrar pestaña"
-                    >
-                      ✕
-                    </button>
-                  </Show>
-                </div>
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      tabs.close(t.id);
+                    }}
+                    title="Cerrar pestaña"
+                  >
+                    <IconClose size={11} />
+                  </button>
+                </Show>
+              </div>
             );
           }}
         </For>
-      </div>
 
-      <button
-        class="w-6 h-6 ml-1 flex items-center justify-center rounded-full text-zinc-400 hover:text-white hover:bg-white/[0.08] text-[15px] leading-none transition-all duration-150 active:scale-90 shrink-0"
-        onClick={() => {
-          tabs.newTab();
-          props.onShowChat();
-        }}
-        title="Nueva pestaña (sesión)"
-      >
-        +
-      </button>
+        <button
+          class="w-7 h-7 ml-0.5 flex items-center justify-center rounded-xl text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all duration-150 active:scale-90 shrink-0"
+          onClick={() => {
+            tabs.newTab();
+            props.onShowChat();
+          }}
+          title="Nueva pestaña (sesión)"
+        >
+          <IconPlus size={14} />
+        </button>
+      </div>
     </nav>
   );
 }

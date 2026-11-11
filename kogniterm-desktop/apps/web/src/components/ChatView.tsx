@@ -14,8 +14,52 @@ import { WorkspaceFileItem, api } from "../lib/api";
 import { ToolIndicator } from "./ToolIndicator";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { DiffBlock } from "./DiffBlock";
+import type { SettingsTab } from "./SettingsModals";
+import {
+  IconArrowDown,
+  IconArrowUp,
+  IconCheck,
+  IconClock,
+  IconClose,
+  IconCopy,
+  IconFile,
+  IconFolder,
+  IconMic,
+  IconPaperclip,
+  IconPlay,
+  IconRefresh,
+  IconSpark,
+  IconStop,
+} from "./Icons";
 
-export function ChatView(props: { tabId: string }) {
+const QUICK_PROMPTS = [
+  {
+    title: "Explorar el proyecto",
+    subtitle: "Analiza estructura, stack y archivos clave",
+    prompt: "Analiza la estructura de este proyecto y explícame sus componentes principales.",
+  },
+  {
+    title: "Revisar cambios recientes",
+    subtitle: "Resume el estado actual de git y diff",
+    prompt: "Revisa el estado de git (git status y últimos commits) y resume los cambios recientes.",
+  },
+  {
+    title: "Ejecutar y diagnosticar",
+    subtitle: "Corre tests o verifica que todo compile",
+    prompt: "Verifica si los tests o el build del proyecto pasan correctamente.",
+  },
+  {
+    title: "Buscar mejoras",
+    subtitle: "Detecta bugs potenciales o deuda técnica",
+    prompt: "Revisa el código actual en busca de posibles bugs, edge cases o mejoras claras.",
+  },
+];
+
+export function ChatView(props: {
+  tabId: string;
+  onOpenSettings?: (tab: SettingsTab) => void;
+  onToggleTerm?: () => void;
+}) {
   const session = useSession(props.tabId);
   const agentState = useAgents(props.tabId);
   const [draft, setDraft] = createSignal("");
@@ -23,6 +67,10 @@ export function ChatView(props: { tabId: string }) {
   const [copiedId, setCopiedId] = createSignal<string | null>(null);
   const [pausedQueue, setPausedQueue] = createSignal(false);
   const [autocompleteState, setAutocompleteState] = createSignal<AutocompleteState | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = createSignal(false);
+  const [isDragging, setIsDragging] = createSignal(false);
+  const [lightboxSrc, setLightboxSrc] = createSignal<string | null>(null);
+  let dragDepth = 0;
   // Navegación por historial de solicitudes del usuario (estilo shell: ↑/↓).
   const [historyIndex, setHistoryIndex] = createSignal<number | null>(null);
   const [historyBackup, setHistoryBackup] = createSignal("");
@@ -711,67 +759,225 @@ export function ChatView(props: { tabId: string }) {
     }
   }
 
+  function handleChatScroll() {
+    if (!scrollRef) return;
+    const dist = scrollRef.scrollHeight - scrollRef.scrollTop - scrollRef.clientHeight;
+    setShowScrollBottom(dist > 200);
+  }
+
+  function scrollToBottom() {
+    scrollRef?.scrollTo({ top: scrollRef.scrollHeight, behavior: "smooth" });
+  }
+
+  function applyQuickPrompt(text: string) {
+    setDraft(text);
+    requestAnimationFrame(() => {
+      adjustTextareaHeight();
+      inputRef?.focus();
+      const len = text.length;
+      inputRef?.setSelectionRange(len, len);
+    });
+  }
+
+  function onDragEnter(e: DragEvent) {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragDepth += 1;
+    setIsDragging(true);
+  }
+
+  function onDragOver(e: DragEvent) {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+  }
+
+  function onDragLeave(e: DragEvent) {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setIsDragging(false);
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    dragDepth = 0;
+    setIsDragging(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      void addFiles(files);
+    }
+  }
+
   return (
-    <div class="flex flex-col h-full bg-[#0a0a0a] text-[#f4f4f5]">
-      {/* Barra de estado minimalista y sin bordes */}
-      <div class="flex items-center gap-2.5 px-5 py-2 text-[12px] text-zinc-400 bg-white/[0.015] select-none">
-        <div class="flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/[0.04]">
+    <div
+      class="flex flex-col h-full kt-canvas-bg text-[var(--kt-text-primary)] relative"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {/* Overlay de Drag & Drop */}
+      <Show when={isDragging()}>
+        <div class="absolute inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-md p-6 animate-fade-in pointer-events-none">
+          <div class="w-full max-w-md rounded-3xl border-2 border-dashed border-[var(--kt-border-strong)] bg-[var(--kt-bg-elevated)]/90 px-8 py-12 text-center shadow-[var(--kt-shadow-lg)]">
+            <div class="w-12 h-12 rounded-2xl bg-[var(--kt-bg-active)] flex items-center justify-center mx-auto mb-3 text-[var(--kt-text-primary)]">
+              <IconPaperclip size={22} />
+            </div>
+            <p class="text-[15px] font-semibold text-[var(--kt-text-primary)]">Suelta tus archivos aquí</p>
+            <p class="text-[12.5px] text-[var(--kt-text-muted)] mt-1">
+              Imágenes, código o texto se adjuntarán al mensaje actual.
+            </p>
+          </div>
+        </div>
+      </Show>
+
+      {/* Lightbox para vista previa de imágenes */}
+      <Show when={lightboxSrc()}>
+        {(src) => (
+          <div
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xl p-6 animate-fade-in"
+            onClick={() => setLightboxSrc(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxSrc(null)}
+              class="absolute top-5 right-5 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all"
+              title="Cerrar vista previa"
+            >
+              <IconClose size={16} />
+            </button>
+            <img
+              src={src()}
+              alt="Vista previa"
+              class="max-w-[90vw] max-h-[86vh] rounded-2xl shadow-2xl border border-white/10 object-contain animate-scale-in"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
+      </Show>
+
+      {/* Sub-barra de estado de sesión */}
+      <div class="flex items-center gap-2 px-4 py-1.5 text-[11.5px] text-[var(--kt-text-muted)] border-b border-[var(--kt-border-subtle)] bg-[var(--kt-bg-app)]/50 select-none shrink-0">
+        <div class="flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)]">
           <span
-            class={`w-2 h-2 rounded-full transition-all duration-300 ${
+            class={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
               session.conn() === "open"
                 ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]"
                 : session.conn() === "connecting"
-                  ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]"
+                  ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)] animate-pulse"
                   : "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.7)]"
             }`}
           />
-          <span class="font-mono text-zinc-300 text-[11px]">{props.tabId}</span>
-          <span class="text-zinc-600">·</span>
-          <span class="capitalize text-zinc-400 text-[11px]">{session.conn()}</span>
+          <span class="font-mono text-[var(--kt-text-secondary)] text-[11px] max-w-[160px] truncate">{props.tabId}</span>
+          <span class="opacity-40">·</span>
+          <span class="text-[var(--kt-text-muted)] text-[11px]">
+            {session.conn() === "open"
+              ? "conectado"
+              : session.conn() === "connecting"
+                ? "conectando"
+                : "desconectado"}
+          </span>
         </div>
+
+        <Show when={workDir()}>
+          <div
+            class="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] max-w-[260px]"
+            title={workPath()}
+          >
+            <IconFolder size={11} class="text-[var(--kt-text-faint)] shrink-0" />
+            <span class="font-mono text-[11px] text-[var(--kt-text-muted)] truncate">{workDir()}</span>
+          </div>
+        </Show>
 
         <div class="flex-1" />
 
         <button
-          class="w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/[0.08] hover:text-white transition-all text-zinc-400"
+          class="w-6 h-6 rounded-lg flex items-center justify-center hover:bg-[var(--kt-bg-hover)] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] transition-all"
           onClick={() => session.reconnect()}
           title="Reconectar WebSocket"
         >
-          ↻
+          <IconRefresh size={12} />
         </button>
 
         <Show when={isOperating()}>
           <button
-            class="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium bg-red-500/15 text-red-300 hover:bg-red-500/25 border border-red-500/20 shadow-sm transition-all active:scale-95 animate-pulse"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-red-500/15 text-red-300 hover:bg-red-500/25 border border-red-500/25 shadow-sm transition-all active:scale-95"
             onClick={() => session.interrupt()}
             title="Detener ejecución del agente"
           >
-            <span class="w-1.5 h-1.5 rounded-full bg-red-400" />
+            <span class="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
             <span>Detener</span>
           </button>
         </Show>
       </div>
 
-      {/* Área de mensajes del chat con texto seleccionable y copiable */}
-      <div ref={scrollRef} data-chat-scroll class="flex-1 overflow-y-auto px-4 py-6 select-text">
-        <div class="w-full max-w-3xl mx-auto space-y-4">
+      {/* Área de mensajes del chat */}
+      <div
+        ref={scrollRef}
+        data-chat-scroll
+        onScroll={handleChatScroll}
+        class="flex-1 overflow-y-auto px-4 sm:px-6 py-6 select-text relative"
+      >
+        <div class="w-full max-w-3xl mx-auto space-y-5">
           <Show when={tab().messages.length === 0}>
-            <div class="text-center text-zinc-400 py-16 animate-fade-in flex flex-col items-center select-none">
-              {/* Wordmark vectorial de la v2 (packages/ui/src/v2/components/wordmark-v2.tsx) */}
+            <div class="text-center py-10 sm:py-14 animate-fade-in flex flex-col items-center select-none">
               <Wordmark class="tui-banner" />
-              <p class="mt-4 text-[13px] text-zinc-400 max-w-md">
-                Entorno de ejecución y asistencia inteligente. Escribe tus instrucciones abajo o usa los comandos rápidos.
+              <p class="mt-3 text-[13.5px] text-[var(--kt-text-muted)] max-w-md leading-relaxed">
+                Estación de trabajo inteligente para código, shell y agentes autónomos.
               </p>
+
+              {/* Tarjetas de inicio rápido */}
+              <div class="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl text-left">
+                <For each={QUICK_PROMPTS}>
+                  {(item) => (
+                    <button
+                      type="button"
+                      onClick={() => applyQuickPrompt(item.prompt)}
+                      class="group p-3.5 rounded-2xl kt-card hover:border-[var(--kt-border-strong)] hover:bg-[var(--kt-bg-elevated)] transition-all duration-150 active:scale-[0.985] text-left"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-[13px] font-semibold text-[var(--kt-text-primary)]">
+                          {item.title}
+                        </span>
+                        <IconArrowUp
+                          size={13}
+                          class="rotate-45 text-[var(--kt-text-faint)] group-hover:text-[var(--kt-text-primary)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all"
+                        />
+                      </div>
+                      <p class="text-[11.5px] text-[var(--kt-text-muted)] mt-1 leading-snug">
+                        {item.subtitle}
+                      </p>
+                    </button>
+                  )}
+                </For>
+              </div>
+
+              {/* Atajos interactivos */}
               <div class="mt-6 flex flex-wrap gap-2 justify-center">
-                <span class="px-3 py-1 rounded-full bg-white/[0.04] text-[11px] text-zinc-400 font-mono">
-                  Ctrl+P · Proveedor
-                </span>
-                <span class="px-3 py-1 rounded-full bg-white/[0.04] text-[11px] text-zinc-400 font-mono">
-                  Ctrl+M · Modelos
-                </span>
-                <span class="px-3 py-1 rounded-full bg-white/[0.04] text-[11px] text-zinc-400 font-mono">
-                  Ctrl+` · Terminal
-                </span>
+                <button
+                  type="button"
+                  onClick={() => props.onOpenSettings?.("provider")}
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] text-[11px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] transition-all"
+                >
+                  <kbd class="kt-kbd">Ctrl+P</kbd>
+                  <span>Proveedor</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => props.onOpenSettings?.("models")}
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] text-[11px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] transition-all"
+                >
+                  <kbd class="kt-kbd">Ctrl+M</kbd>
+                  <span>Modelos</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => props.onToggleTerm?.()}
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] text-[11px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] transition-all"
+                >
+                  <kbd class="kt-kbd">Ctrl+`</kbd>
+                  <span>Terminal</span>
+                </button>
               </div>
             </div>
           </Show>
@@ -783,176 +989,227 @@ export function ChatView(props: { tabId: string }) {
                 fallback={
                   <Show
                     when={m.role === "tool"}
-                fallback={
-                  <Show
-                    when={m.role !== "assistant" && m.role !== "terminal"}
                     fallback={
                       <Show
-                        when={m.role === "terminal"}
+                        when={m.role !== "assistant" && m.role !== "terminal"}
                         fallback={
-                          /* Agente: diseño minimalista en escala de grises con texto seleccionable */
-                          <div class="group relative w-full text-[13.5px] leading-relaxed text-[#f4f4f5] animate-slide-up select-text">
-                            <Show when={m.thinking?.trim()}>
-                              <ThinkingBlock text={m.thinking} pending={m.pending} />
-                            </Show>
-                            <Markdown text={m.text} center streaming={m.pending} />
-                            {m.pending && (
-                              <span class="inline-block w-2 h-4 ml-1 rounded-full bg-zinc-400 animate-pulse align-middle" />
-                            )}
+                          <Show
+                            when={m.role === "terminal"}
+                            fallback={
+                              /* Respuesta del asistente: diseño editorial limpio */
+                              <div class="group relative w-full text-[14px] leading-relaxed text-[var(--kt-text-primary)] animate-slide-up select-text">
+                                <div class="flex items-center gap-2 mb-1.5 select-none">
+                                  <span class="w-5 h-5 rounded-lg bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] flex items-center justify-center text-[var(--kt-text-muted)]">
+                                    <IconSpark size={11} />
+                                  </span>
+                                  <span class="text-[11.5px] font-semibold tracking-tight text-[var(--kt-text-muted)]">
+                                    {m.agent ? (agents.byId(m.agent)?.name ?? m.agent) : "KogniTerm"}
+                                  </span>
+                                  <Show when={m.pending}>
+                                    <span class="text-[10.5px] font-mono text-amber-400/90 animate-pulse">
+                                      escribiendo…
+                                    </span>
+                                  </Show>
+                                </div>
 
-                            <Show when={m.text && !m.pending}>
-                              <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mt-1 flex justify-start">
-                                <button
-                                  onClick={() => copyMessage(m.id, m.text)}
-                                  class="text-[11px] text-zinc-400 hover:text-white px-2 py-0.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] transition-all flex items-center gap-1"
-                                  title="Copiar respuesta"
-                                >
-                                  <span>{copiedId() === m.id ? "✓ Copiado" : "Copiar"}</span>
-                                </button>
+                                <div class="pl-7">
+                                  <Show when={m.thinking?.trim()}>
+                                    <ThinkingBlock text={m.thinking} pending={m.pending} />
+                                  </Show>
+                                  <Markdown text={m.text} streaming={m.pending} />
+                                  {m.pending && (
+                                    <span class="inline-block w-1.5 h-4 ml-1 rounded-full bg-[var(--kt-text-muted)] animate-pulse align-middle" />
+                                  )}
+
+                                  <Show when={m.text && !m.pending}>
+                                    <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-150 mt-2 flex justify-start">
+                                      <button
+                                        onClick={() => copyMessage(m.id, m.text)}
+                                        class="text-[11px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] px-2.5 py-1 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] transition-all flex items-center gap-1.5"
+                                        title="Copiar respuesta"
+                                      >
+                                        <Show when={copiedId() === m.id} fallback={<IconCopy size={11} />}>
+                                          <IconCheck size={11} class="text-emerald-400" />
+                                        </Show>
+                                        <span>{copiedId() === m.id ? "Copiado" : "Copiar"}</span>
+                                      </button>
+                                    </div>
+                                  </Show>
+                                </div>
                               </div>
-                            </Show>
-                          </div>
+                            }
+                          >
+                            <div class="animate-slide-up my-2">
+                              <AgentTerminal
+                                tabId={props.tabId}
+                                terminalId={m.terminalId ?? m.id}
+                                tool={m.terminalTool}
+                                command={m.terminalCommand}
+                                output={m.terminalOutput ?? ""}
+                                active={m.terminalActive}
+                                interactive={m.terminalInteractive}
+                                onInput={(text) => session.sendTerminalInput(text)}
+                              />
+                            </div>
+                          </Show>
                         }
                       >
-                        <div class="animate-slide-up my-2">
-                          <AgentTerminal
-                            tabId={props.tabId}
-                            terminalId={m.terminalId ?? m.id}
-                            tool={m.terminalTool}
-                            command={m.terminalCommand}
-                            output={m.terminalOutput ?? ""}
-                            active={m.terminalActive}
-                            interactive={m.terminalInteractive}
-                            onInput={(text) => session.sendTerminalInput(text)}
-                          />
+                        <div class={`group flex animate-slide-up ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                          <div class="relative max-w-[84%]">
+                            <Show
+                              when={m.role === "user" && m.queued}
+                              fallback={
+                                <div
+                                  class={`text-[13.5px] leading-relaxed transition-all select-text ${
+                                    m.role === "user"
+                                      ? "bg-[var(--kt-user-bubble)] text-[var(--kt-text-primary)] rounded-2xl rounded-br-md px-4 py-2.5 shadow-[var(--kt-shadow-sm)] border border-[var(--kt-user-bubble-border)] whitespace-pre-wrap"
+                                      : "bg-red-500/10 text-red-200 rounded-2xl p-3.5 whitespace-pre-wrap border border-red-500/25"
+                                  }`}
+                                >
+                                  <Show when={m.role === "user" && m.agent}>
+                                    <div class="mb-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--kt-bg-hover)] text-[10px] font-semibold uppercase tracking-wider text-[var(--kt-text-muted)]">
+                                      {agents.byId(m.agent)?.name ?? m.agent}
+                                    </div>
+                                  </Show>
+                                  <Show
+                                    when={
+                                      (m.images?.length ?? 0) > 0 ||
+                                      (m.attachments?.filter((a) => a.kind === "image" && a.dataUrl).length ?? 0) > 0
+                                    }
+                                  >
+                                    <div class="flex flex-wrap gap-2 mb-2">
+                                      <For
+                                        each={
+                                          m.images ??
+                                          m.attachments?.filter((a) => a.kind === "image" && a.dataUrl).map((a) => a.dataUrl!) ??
+                                          []
+                                        }
+                                      >
+                                        {(src) => (
+                                          <img
+                                            src={src}
+                                            alt="adjunto"
+                                            class="max-w-[220px] max-h-[160px] rounded-xl border border-[var(--kt-border-default)] object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
+                                            onClick={() => setLightboxSrc(src)}
+                                          />
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                  <Show when={(m.attachments?.filter((a) => a.kind === "text").length ?? 0) > 0}>
+                                    <div class="flex flex-wrap gap-1.5 mb-2">
+                                      <For each={m.attachments?.filter((a) => a.kind === "text") ?? []}>
+                                        {(a) => (
+                                          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)] text-[11px] font-mono text-[var(--kt-text-secondary)]">
+                                            <IconFile size={11} />
+                                            <span>{a.name}</span>
+                                          </span>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                  {m.text}
+                                </div>
+                              }
+                            >
+                              {/* Burbuja para mensaje en cola */}
+                              <div class="bg-[var(--kt-bg-elevated)] text-[var(--kt-text-primary)] rounded-2xl rounded-br-md p-3.5 shadow-[var(--kt-shadow-md)] border border-dashed border-amber-500/45 transition-all">
+                                <div class="flex items-center justify-between gap-3 mb-2 pb-1.5 border-b border-[var(--kt-border-subtle)]">
+                                  <div class="flex items-center gap-2">
+                                    <span class="inline-flex items-center gap-1.5 text-[10.5px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                                      En cola
+                                    </span>
+                                    <Show when={m.agent}>
+                                      <span class="text-[10.5px] font-mono text-[var(--kt-text-muted)]">
+                                        {agents.byId(m.agent)?.name ?? m.agent}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                  <div class="flex items-center gap-1.5">
+                                    <button
+                                      onClick={() => runQueuedNow(m)}
+                                      class="text-[11px] text-[var(--kt-text-primary)] px-2.5 py-0.5 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-subtle)] transition-all font-medium"
+                                      title="Ejecutar inmediatamente este mensaje encolado"
+                                    >
+                                      Enviar ya
+                                    </button>
+                                    <button
+                                      onClick={() => tabs.dequeue(props.tabId, m.id)}
+                                      class="w-6 h-6 rounded-full flex items-center justify-center text-[var(--kt-text-muted)] hover:text-red-300 hover:bg-red-500/15 transition-all"
+                                      title="Cancelar este mensaje de la cola"
+                                    >
+                                      <IconClose size={11} />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div class="text-[13.5px] leading-relaxed whitespace-pre-wrap select-text">
+                                  <Show when={(m.images?.length ?? 0) > 0}>
+                                    <div class="flex flex-wrap gap-2 mb-2">
+                                      <For each={m.images ?? []}>
+                                        {(src) => (
+                                          <img
+                                            src={src}
+                                            alt="adjunto"
+                                            class="max-w-[220px] max-h-[160px] rounded-xl border border-[var(--kt-border-default)] object-cover cursor-zoom-in"
+                                            onClick={() => setLightboxSrc(src)}
+                                          />
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                  {m.text}
+                                </div>
+                              </div>
+                            </Show>
+
+                            <button
+                              onClick={() => copyMessage(m.id, m.text)}
+                              class="opacity-0 group-hover:opacity-100 transition-opacity duration-150 absolute -top-2.5 right-2 text-[10.5px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] px-2 py-0.5 rounded-full bg-[var(--kt-bg-elevated)] border border-[var(--kt-border-default)] shadow-sm flex items-center gap-1"
+                              title="Copiar mensaje"
+                            >
+                              <Show when={copiedId() === m.id} fallback={<IconCopy size={10} />}>
+                                <IconCheck size={10} class="text-emerald-400" />
+                              </Show>
+                              <span>{copiedId() === m.id ? "Copiado" : "Copiar"}</span>
+                            </button>
+                          </div>
                         </div>
                       </Show>
                     }
                   >
-                    <div class={`group flex animate-slide-up ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                      <div class="relative max-w-[85%]">
-                        <Show
-                          when={m.role === "user" && m.queued}
-                          fallback={
-                            <div
-                              class={`text-[13.5px] leading-relaxed transition-all select-text ${
-                                m.role === "user"
-                                  ? "bg-zinc-800/95 hover:bg-zinc-800 text-zinc-100 rounded-2xl rounded-br-sm px-4 py-2.5 shadow-[0_4px_16px_rgba(0,0,0,0.35)] border border-white/[0.06] whitespace-pre-wrap"
-                                  : "bg-red-500/10 text-red-200 rounded-2xl p-3 whitespace-pre-wrap border border-red-500/20"
-                              }`}
-                            >
-                              <Show when={m.role === "user" && m.agent}>
-                                <div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                                  {agents.byId(m.agent)?.name ?? m.agent}
-                                </div>
-                              </Show>
-                              <Show when={(m.images?.length ?? 0) > 0 || (m.attachments?.filter((a) => a.kind === "image" && a.dataUrl).length ?? 0) > 0}>
-                                <div class="flex flex-wrap gap-2 mb-2">
-                                  <For each={m.images ?? m.attachments?.filter((a) => a.kind === "image" && a.dataUrl).map((a) => a.dataUrl!) ?? []}>
-                                    {(src) => (
-                                      <img
-                                        src={src}
-                                        alt="adjunto"
-                                        class="max-w-[220px] max-h-[160px] rounded-xl border border-white/10 object-cover cursor-zoom-in"
-                                        onClick={() => window.open(src, "_blank")}
-                                      />
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
-                              <Show when={(m.attachments?.filter((a) => a.kind === "text").length ?? 0) > 0}>
-                                <div class="flex flex-wrap gap-1.5 mb-2">
-                                  <For each={m.attachments?.filter((a) => a.kind === "text") ?? []}>
-                                    {(a) => (
-                                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/[0.06] text-[11px] font-mono text-zinc-300">
-                                        📄 {a.name}
-                                      </span>
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
-                              {m.text}
-                            </div>
-                          }
-                        >
-                          {/* Burbuja elegante para mensaje en cola */}
-                          <div class="bg-zinc-900/95 text-zinc-200 rounded-2xl rounded-br-sm p-3.5 shadow-[0_6px_24px_rgba(0,0,0,0.45)] border border-dashed border-amber-500/40 transition-all backdrop-blur-sm">
-                            <div class="flex items-center justify-between gap-3 mb-2 pb-1.5 border-b border-white/[0.06]">
-                              <div class="flex items-center gap-2">
-                                <span class="inline-flex items-center gap-1.5 text-[10.5px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                                  <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                                  En cola
-                                </span>
-                                <Show when={m.agent}>
-                                  <span class="text-[10px] font-mono text-zinc-400">
-                                    {agents.byId(m.agent)?.name ?? m.agent}
-                                  </span>
-                                </Show>
-                              </div>
-                              <div class="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => runQueuedNow(m)}
-                                  class="text-[11px] text-zinc-200 hover:text-white px-2 py-0.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] transition-all font-medium"
-                                  title="Ejecutar inmediatamente este mensaje encolado"
-                                >
-                                  Enviar ya
-                                </button>
-                                <button
-                                  onClick={() => tabs.dequeue(props.tabId, m.id)}
-                                  class="text-[11px] text-zinc-400 hover:text-red-400 px-1.5 py-0.5 rounded-full hover:bg-white/[0.06] transition-all"
-                                  title="Cancelar este mensaje de la cola"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            </div>
-                            <div class="text-[13.5px] leading-relaxed whitespace-pre-wrap select-text text-zinc-100">
-                              <Show when={(m.images?.length ?? 0) > 0}>
-                                <div class="flex flex-wrap gap-2 mb-2">
-                                  <For each={m.images ?? []}>
-                                    {(src) => (
-                                      <img
-                                        src={src}
-                                        alt="adjunto"
-                                        class="max-w-[220px] max-h-[160px] rounded-xl border border-white/10 object-cover"
-                                      />
-                                    )}
-                                  </For>
-                                </div>
-                              </Show>
-                              {m.text}
-                            </div>
-                          </div>
-                        </Show>
-
-                        <button
-                          onClick={() => copyMessage(m.id, m.text)}
-                          class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 absolute -top-2.5 right-2 text-[10px] text-zinc-400 hover:text-white px-2 py-0.5 rounded-full bg-zinc-900 border border-white/[0.08] shadow-sm"
-                          title="Copiar mensaje"
-                        >
-                          {copiedId() === m.id ? "✓" : "Copiar"}
-                        </button>
-                      </div>
+                    <div class="animate-slide-up my-1 w-full pl-7">
+                      <ToolIndicator message={m} operating={isOperating()} />
                     </div>
                   </Show>
                 }
               >
-                {/* Indicador de ejecución de herramienta: solo título (ícono + acción) */}
-                <div class="animate-slide-up my-1.5 w-full">
-                  <ToolIndicator message={m} operating={isOperating()} />
+                <div class="pl-0 sm:pl-7">
+                  <DiffBlock diff={m.diffContent ?? ""} filePath={m.diffFilePath} operation={m.diffOperation} />
                 </div>
-              </Show>
-                }
-              >
-                <DiffBlock diff={m.diffContent ?? ""} filePath={m.diffFilePath} operation={m.diffOperation} />
               </Show>
             )}
           </For>
         </div>
       </div>
 
-      {/* Dock de entrada flotante y curvo al pie de página (tonos grises) */}
-      <div class="p-4 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent">
+      {/* Botón flotante para volver al final */}
+      <Show when={showScrollBottom()}>
+        <div class="pointer-events-none absolute bottom-36 left-0 right-0 flex justify-center z-20 animate-fade-in">
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            class="pointer-events-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-full glass-dropdown text-[12px] font-medium text-[var(--kt-text-primary)] hover:scale-105 active:scale-95 transition-all"
+            title="Ir al último mensaje"
+          >
+            <IconArrowDown size={13} />
+            <span>Ir al final</span>
+          </button>
+        </div>
+      </Show>
+
+      {/* Dock de entrada flotante */}
+      <div class="px-4 pb-4 pt-2 kt-dock-fade shrink-0">
         <div class="max-w-3xl mx-auto relative">
           <ChatAutocomplete
             tabId={props.tabId}
@@ -966,74 +1223,84 @@ export function ChatView(props: { tabId: string }) {
           />
 
           <Show when={agentStatus()}>
-            <p class="mb-2 text-[12px] text-amber-300/90 px-3 animate-fade-in">{agentStatus()}</p>
+            <p class="mb-2 text-[12px] text-amber-300 px-3 animate-fade-in">{agentStatus()}</p>
           </Show>
 
           {/* Barra flotante de estado de la cola */}
           <Show when={queuedMessages().length > 0}>
-            <div class="mb-2.5 flex items-center justify-between gap-3 px-3.5 py-2 rounded-2xl bg-zinc-900/90 border border-amber-500/25 shadow-[0_4px_20px_rgba(0,0,0,0.5)] text-[12px] text-zinc-300 animate-slide-up backdrop-blur-md">
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span class="font-medium text-amber-200">
+            <div class="mb-2.5 flex items-center justify-between gap-3 px-3.5 py-2 rounded-2xl kt-card border-amber-500/30 text-[12px] text-[var(--kt-text-secondary)] animate-slide-up">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <span class="font-medium text-amber-300 shrink-0">
                   {queuedMessages().length === 1
                     ? "1 mensaje en cola"
                     : `${queuedMessages().length} mensajes en cola`}
                 </span>
-                <span class="text-zinc-500 text-[11px]">
+                <span class="text-[var(--kt-text-faint)] text-[11px] truncate hidden sm:inline">
                   {pausedQueue()
                     ? "· en pausa tras detención manual"
                     : "· se ejecutará en secuencia automáticamente"}
                 </span>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 shrink-0">
                 <Show when={pausedQueue()}>
                   <button
                     type="button"
                     onClick={resumeQueue}
-                    class="text-[11px] font-medium text-amber-300 hover:text-white bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-0.5 rounded-full transition-all"
+                    class="flex items-center gap-1 text-[11px] font-medium text-amber-300 bg-amber-500/20 hover:bg-amber-500/30 px-2.5 py-1 rounded-full transition-all"
                   >
-                    ▶ Reanudar
+                    <IconPlay size={10} />
+                    <span>Reanudar</span>
                   </button>
                 </Show>
                 <button
                   type="button"
                   onClick={() => tabs.clearQueue(props.tabId)}
-                  class="text-[11px] text-zinc-400 hover:text-red-300 hover:bg-white/[0.06] px-2 py-0.5 rounded-lg transition-all"
+                  class="text-[11px] text-[var(--kt-text-muted)] hover:text-red-300 hover:bg-[var(--kt-bg-hover)] px-2 py-1 rounded-lg transition-all"
                 >
-                  Vaciar cola
+                  Vaciar
                 </button>
               </div>
             </div>
           </Show>
 
-          {/* Panel de seguimiento de tareas desplegable desde el input bar */}
+          {/* Panel de seguimiento de tareas */}
           <TaskTrackerPanel tabId={props.tabId} />
 
           {/* Chips de adjuntos pendientes */}
           <Show when={attachments().length > 0}>
-            <div class="flex flex-wrap gap-2 px-2 pt-1.5">
+            <div class="flex flex-wrap gap-2 px-1 pb-2">
               <For each={attachments()}>
                 {(a) => (
-                  <div class="flex items-center gap-2 pl-1.5 pr-2 py-1 rounded-xl bg-white/[0.05] border border-white/[0.08] text-[12px] text-zinc-200 max-w-full">
+                  <div class="flex items-center gap-2 pl-1.5 pr-2 py-1 rounded-xl kt-card text-[12px] text-[var(--kt-text-primary)] max-w-full animate-scale-in">
                     <Show
                       when={a.kind === "image" && a.dataUrl}
-                      fallback={<span class="text-[14px]">📄</span>}
+                      fallback={
+                        <span class="w-8 h-8 rounded-lg bg-[var(--kt-bg-hover)] flex items-center justify-center text-[var(--kt-text-muted)]">
+                          <IconFile size={14} />
+                        </span>
+                      }
                     >
-                      <img src={a.dataUrl} alt={a.name} class="w-9 h-9 rounded-lg object-cover border border-white/10" />
+                      <img
+                        src={a.dataUrl}
+                        alt={a.name}
+                        class="w-8 h-8 rounded-lg object-cover border border-[var(--kt-border-subtle)] cursor-zoom-in"
+                        onClick={() => setLightboxSrc(a.dataUrl!)}
+                      />
                     </Show>
                     <div class="min-w-0 leading-tight">
-                      <div class="truncate max-w-[220px] font-medium">{a.name}</div>
-                      <div class="text-[10px] text-zinc-500 font-mono">
+                      <div class="truncate max-w-[200px] font-medium text-[12px]">{a.name}</div>
+                      <div class="text-[10px] text-[var(--kt-text-faint)] font-mono">
                         {a.kind === "image" ? "imagen" : "texto"} · {formatSize(a.size)}
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => removeAttachment(a.id)}
-                      class="w-5 h-5 rounded-full flex items-center justify-center text-zinc-400 hover:text-red-300 hover:bg-white/[0.08] transition-all"
+                      class="w-5 h-5 rounded-full flex items-center justify-center text-[var(--kt-text-faint)] hover:text-red-300 hover:bg-red-500/15 transition-all"
                       title={`Quitar ${a.name}`}
                     >
-                      ✕
+                      <IconClose size={11} />
                     </button>
                   </div>
                 )}
@@ -1042,29 +1309,34 @@ export function ChatView(props: { tabId: string }) {
           </Show>
 
           <Show when={attachError()}>
-            <p class="px-3 pt-1 text-[12px] text-red-300/90">{attachError()}</p>
+            <p class="px-3 pb-1.5 text-[12px] text-red-300">{attachError()}</p>
           </Show>
 
-          {/* Indicador de grabación de audio activa */}
+          {/* Indicador de grabación de audio */}
           <Show when={isRecording()}>
-            <div class="flex items-center justify-between px-3 py-1.5 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 animate-pulse">
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                <span class="font-medium">Grabando audio ({formatSeconds(recordingSeconds())})</span>
-                <span class="text-zinc-400">· Faster-Whisper base</span>
+            <div class="mb-2 flex items-center justify-between px-3.5 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 animate-fade-in">
+              <div class="flex items-center gap-2.5">
+                <div class="flex items-center gap-0.5 h-3.5" aria-hidden="true">
+                  <span class="w-0.5 h-full bg-red-400 rounded-full voice-bar" style={{ "animation-delay": "0ms" }} />
+                  <span class="w-0.5 h-full bg-red-400 rounded-full voice-bar" style={{ "animation-delay": "150ms" }} />
+                  <span class="w-0.5 h-full bg-red-400 rounded-full voice-bar" style={{ "animation-delay": "300ms" }} />
+                  <span class="w-0.5 h-full bg-red-400 rounded-full voice-bar" style={{ "animation-delay": "450ms" }} />
+                </div>
+                <span class="font-medium tabular-nums">Grabando ({formatSeconds(recordingSeconds())})</span>
+                <span class="text-[var(--kt-text-muted)] hidden sm:inline">· Faster-Whisper base</span>
               </div>
               <div class="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => stopRecording(false)}
-                  class="px-2 py-0.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/40 font-medium text-[11px] transition-all cursor-pointer"
+                  class="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/40 font-medium text-[11px] transition-all"
                 >
-                  Listo (Transcribir)
+                  Transcribir (↵)
                 </button>
                 <button
                   type="button"
                   onClick={() => stopRecording(true)}
-                  class="px-2 py-0.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-white/10 text-[11px] transition-all cursor-pointer"
+                  class="px-2.5 py-1 rounded-lg bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[var(--kt-text-secondary)] border border-[var(--kt-border-subtle)] text-[11px] transition-all"
                 >
                   Cancelar (Esc)
                 </button>
@@ -1072,35 +1344,28 @@ export function ChatView(props: { tabId: string }) {
             </div>
           </Show>
 
-          {/* Indicador de transcripción en progreso */}
+          {/* Indicador de transcripción */}
           <Show when={isTranscribing()}>
-            <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
+            <div class="mb-2 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
               <svg class="w-3.5 h-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
-              <span>Transcribiendo audio con modelo <strong>Faster-Whisper base</strong>...</span>
+              <span>Transcribiendo audio con Faster-Whisper base…</span>
             </div>
           </Show>
 
-          {/* Error de audio */}
           <Show when={audioError()}>
-            <div class="flex items-center justify-between px-3 py-1.5 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300">
+            <div class="mb-2 flex items-center justify-between px-3.5 py-2 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300">
               <span class="truncate">{audioError()}</span>
-              <button
-                type="button"
-                onClick={() => setAudioError("")}
-                class="ml-2 text-zinc-400 hover:text-white"
-              >
-                ✕
+              <button type="button" onClick={() => setAudioError("")} class="ml-2 hover:opacity-75">
+                <IconClose size={12} />
               </button>
             </div>
           </Show>
 
-          <form
-            onSubmit={submit}
-            class="flex flex-col gap-0.5 px-1.5 pt-1.5 pb-1 rounded-2xl bg-zinc-900/90 hover:bg-zinc-900 focus-within:bg-zinc-900 focus-within:ring-2 focus-within:ring-white/20 border border-white/[0.08] transition-all duration-200 shadow-none"
-          >
+          {/* Compositor principal */}
+          <form onSubmit={submit} class="kt-composer rounded-2xl p-2 transition-all duration-200">
             <input
               ref={fileInputRef}
               type="file"
@@ -1111,67 +1376,6 @@ export function ChatView(props: { tabId: string }) {
                 e.currentTarget.value = "";
               }}
             />
-            <div class="flex items-end gap-2">
-            <div class="flex items-center gap-1 shrink-0 pb-0.5">
-              <AgentSelector tabId={props.tabId} onSelect={() => inputRef?.focus()} />
-
-              <button
-                type="button"
-                onClick={() => fileInputRef?.click()}
-                title="Adjuntar texto o imagen (también puedes pegar con Ctrl+V)"
-                class="w-9 h-9 shrink-0 rounded-xl bg-transparent hover:bg-white/[0.06] text-zinc-400 hover:text-white border border-transparent hover:border-white/[0.08] flex items-center justify-center transition-all active:scale-90"
-              >
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
-                </svg>
-              </button>
-
-              {/* Botón de micrófono para dictado/transcripción Faster-Whisper base */}
-              <button
-                type="button"
-                onClick={toggleRecording}
-                disabled={isTranscribing()}
-                title={
-                  isRecording()
-                    ? `Detener grabación y transcribir (${formatSeconds(recordingSeconds())})`
-                    : isTranscribing()
-                    ? "Transcribiendo con Faster-Whisper base..."
-                    : "Dictar por voz (Faster-Whisper base)"
-                }
-                class={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center transition-all active:scale-90 relative ${
-                  isRecording()
-                    ? "bg-red-500/20 text-red-400 border border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse"
-                    : isTranscribing()
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-wait"
-                    : "bg-transparent hover:bg-white/[0.06] text-zinc-400 hover:text-white border border-transparent hover:border-white/[0.08]"
-                }`}
-              >
-                <Show
-                  when={!isTranscribing()}
-                  fallback={
-                    <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                    </svg>
-                  }
-                >
-                  <Show
-                    when={!isRecording()}
-                    fallback={
-                      <svg class="w-4 h-4 text-red-400" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="12" cy="12" r="6" />
-                      </svg>
-                    }
-                  >
-                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                      <line x1="12" x2="12" y1="19" y2="22" />
-                    </svg>
-                  </Show>
-                </Show>
-              </button>
-            </div>
 
             <textarea
               ref={inputRef}
@@ -1181,7 +1385,6 @@ export function ChatView(props: { tabId: string }) {
                 setDraft(e.currentTarget.value);
                 adjustTextareaHeight();
                 if (agentStatus()) setAgentStatus("");
-                // El usuario editó a mano: abandona la navegación del historial.
                 if (historyIndex() !== null) resetHistoryNav();
                 checkAutocomplete();
               }}
@@ -1208,17 +1411,13 @@ export function ChatView(props: { tabId: string }) {
                 if (autocompleteRef?.handleKeyDown(e)) {
                   return;
                 }
-                // Enter sin Shift envía o encola el mensaje. Shift+Enter genera salto de línea.
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   submit();
                   return;
                 }
-                // Historial de solicitudes solo cuando no hay autocompletado abierto
-                // y estamos en una sola línea o al inicio/fin (el autocompletado ya consume ↑/↓ mientras está visible).
                 if (e.key === "ArrowUp" || e.key === "ArrowDown") {
                   if (autocompleteState()) return;
-                  // Si tiene múltiples líneas, permitir navegar verticalmente por el texto a menos que esté en el borde
                   const el = inputRef;
                   if (el) {
                     const hasNewlines = draft().includes("\n");
@@ -1251,74 +1450,130 @@ export function ChatView(props: { tabId: string }) {
               }}
               placeholder={
                 isRecording()
-                  ? "Habla ahora… presiona Enter o clic en micrófono para transcribir"
+                  ? "Habla ahora… presiona Enter o clic en el micrófono para transcribir"
                   : isTranscribing()
-                  ? "Transcribiendo tu voz con faster-whisper base…"
-                  : isOperating()
-                  ? "Escribe para encolar la siguiente tarea… (Enter para encolar, Shift+Enter nueva línea)"
-                  : "Escribe un mensaje o tarea… (/ comandos, @ archivos, 📎 adjuntos, Shift+Enter nueva línea)"
+                    ? "Transcribiendo tu voz con faster-whisper base…"
+                    : isOperating()
+                      ? "Escribe para encolar la siguiente tarea… (Enter para encolar)"
+                      : "Escribe una instrucción… (/ comandos, @ archivos, arrastra o pega imágenes)"
               }
-              class="flex-1 bg-transparent px-3 py-2 text-[13.5px] text-white placeholder-zinc-500 outline-none select-text resize-none min-h-[38px] max-h-[200px] leading-relaxed custom-scrollbar"
+              class="w-full bg-transparent px-2.5 pt-1 pb-2 text-[13.5px] text-[var(--kt-text-primary)] placeholder-[var(--kt-text-faint)] outline-none select-text resize-none min-h-[38px] max-h-[200px] leading-relaxed"
             />
 
-            <div class="shrink-0 pb-0.5">
-            <Show
-              when={isOperating()}
-              fallback={
-                <button
-                  type="submit"
-                  disabled={(!draft().trim() && attachments().length === 0) || !agentState.selected()}
-                  title={
-                    agentState.selected()
-                      ? `Enviar con ${agentState.selected()?.name}`
-                      : "Selecciona un agente disponible antes de enviar"
-                  }
-                  class="w-9 h-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-white/[0.08] flex items-center justify-center font-medium shadow-sm transition-all duration-200 active:scale-90 disabled:opacity-30 disabled:pointer-events-none"
-                >
-                  <svg class="w-4 h-4 fill-current rotate-45 transform -tranzinc-x-0.5 tranzinc-y-0.5" viewBox="0 0 20 20">
-                    <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                  </svg>
-                </button>
-              }
-            >
-              <div class="flex items-center gap-1.5">
-                <Show when={draft().trim() || attachments().length > 0}>
-                  <button
-                    type="button"
-                    onClick={enqueueDraft}
-                    title="Añadir a la cola (Enter)"
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-white/[0.08] text-[12px] font-medium shadow-sm transition-all duration-200 active:scale-95 animate-fade-in"
-                  >
-                    <span class="text-amber-300 text-[11px]">⏳</span>
-                    <span>Encolar</span>
-                    <span class="text-[10px] text-zinc-400 font-mono">↵</span>
-                  </button>
-                </Show>
+            {/* Barra inferior de herramientas dentro del compositor */}
+            <div class="flex items-center justify-between gap-2 pt-1.5 border-t border-[var(--kt-border-subtle)] select-none">
+              <div class="flex items-center gap-1 min-w-0">
+                <AgentSelector tabId={props.tabId} onSelect={() => inputRef?.focus()} />
 
                 <button
                   type="button"
-                  onClick={handleInterrupt}
-                  title="Detener ejecución del agente (Stop)"
-                  class="w-9 h-9 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/35 flex items-center justify-center font-medium shadow-[0_0_14px_rgba(239,68,68,0.25)] transition-all duration-200 active:scale-90"
+                  onClick={() => fileInputRef?.click()}
+                  title="Adjuntar texto o imagen (también puedes arrastrar o pegar con Ctrl+V)"
+                  class="w-8 h-8 shrink-0 rounded-xl bg-transparent hover:bg-[var(--kt-bg-hover)] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] flex items-center justify-center transition-all active:scale-90"
                 >
-                  <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                    <rect x="5" y="5" width="14" height="14" rx="2.5" />
-                  </svg>
+                  <IconPaperclip size={15} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={toggleRecording}
+                  disabled={isTranscribing()}
+                  title={
+                    isRecording()
+                      ? `Detener grabación y transcribir (${formatSeconds(recordingSeconds())})`
+                      : isTranscribing()
+                        ? "Transcribiendo con Faster-Whisper base…"
+                        : "Dictar por voz (Faster-Whisper base)"
+                  }
+                  class={`w-8 h-8 shrink-0 rounded-xl flex items-center justify-center transition-all active:scale-90 ${
+                    isRecording()
+                      ? "bg-red-500/20 text-red-400 border border-red-500/40 shadow-[0_0_12px_rgba(239,68,68,0.35)] animate-pulse"
+                      : isTranscribing()
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-wait"
+                        : "bg-transparent hover:bg-[var(--kt-bg-hover)] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)]"
+                  }`}
+                >
+                  <Show
+                    when={!isTranscribing()}
+                    fallback={
+                      <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                      </svg>
+                    }
+                  >
+                    <Show
+                      when={!isRecording()}
+                      fallback={<span class="w-2.5 h-2.5 rounded-full bg-red-400" />}
+                    >
+                      <IconMic size={15} />
+                    </Show>
+                  </Show>
                 </button>
               </div>
-            </Show>
-            </div>
-            </div>
-            {/* Barra inferior del input: carpeta actual a la izquierda, modelo a la derecha */}
-            <div class="flex items-center justify-between gap-3 px-3 py-1 text-[11px] leading-none select-none">
-              <Show when={workDir()} fallback={<span class="text-zinc-600">…</span>}>
-                <span class="min-w-0 truncate text-zinc-500" title={workPath()}>
-                  <span class="mr-1.5 text-zinc-600">📁</span>{workDir()}
-                </span>
-              </Show>
-              <Show when={modelName()}>
-                <span class="shrink-0 font-mono text-zinc-500" title={modelName()}>{modelName()}</span>
-              </Show>
+
+              <div class="flex items-center gap-2 shrink-0">
+                <Show when={workDir()}>
+                  <span
+                    class="hidden sm:inline-flex items-center gap-1 text-[11px] text-[var(--kt-text-faint)] max-w-[140px] truncate"
+                    title={workPath()}
+                  >
+                    <IconFolder size={11} class="shrink-0" />
+                    <span class="truncate">{workDir()}</span>
+                  </span>
+                </Show>
+                <Show when={modelName()}>
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenSettings?.("models")}
+                    class="hidden md:inline-block font-mono text-[11px] text-[var(--kt-text-faint)] hover:text-[var(--kt-text-secondary)] max-w-[150px] truncate transition-colors"
+                    title={`${modelName()} — clic para cambiar modelo`}
+                  >
+                    {modelName()}
+                  </button>
+                </Show>
+
+                <Show
+                  when={isOperating()}
+                  fallback={
+                    <button
+                      type="submit"
+                      disabled={(!draft().trim() && attachments().length === 0) || !agentState.selected()}
+                      title={
+                        agentState.selected()
+                          ? `Enviar con ${agentState.selected()?.name}`
+                          : "Selecciona un agente disponible antes de enviar"
+                      }
+                      class="w-8 h-8 rounded-xl bg-[var(--kt-btn-primary-bg)] hover:bg-[var(--kt-btn-primary-hover)] text-[var(--kt-btn-primary-text)] flex items-center justify-center shadow-sm transition-all duration-150 active:scale-90 disabled:opacity-25 disabled:pointer-events-none"
+                    >
+                      <IconArrowUp size={16} />
+                    </button>
+                  }
+                >
+                  <div class="flex items-center gap-1.5">
+                    <Show when={draft().trim() || attachments().length > 0}>
+                      <button
+                        type="button"
+                        onClick={enqueueDraft}
+                        title="Añadir a la cola (Enter)"
+                        class="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] text-[var(--kt-text-primary)] border border-[var(--kt-border-default)] text-[11.5px] font-medium transition-all active:scale-95 animate-fade-in"
+                      >
+                        <IconClock size={12} class="text-amber-300" />
+                        <span>Encolar</span>
+                      </button>
+                    </Show>
+
+                    <button
+                      type="button"
+                      onClick={handleInterrupt}
+                      title="Detener ejecución del agente"
+                      class="w-8 h-8 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/35 flex items-center justify-center shadow-[0_0_14px_rgba(239,68,68,0.2)] transition-all active:scale-90"
+                    >
+                      <IconStop size={13} />
+                    </button>
+                  </div>
+                </Show>
+              </div>
             </div>
           </form>
         </div>
