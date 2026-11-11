@@ -1,12 +1,10 @@
 import { For, Show, createSignal } from "solid-js";
 import { api, apiRoot, token, setToken, setApiUrl, PROVIDERS, KEY_PROVIDERS, type LLMConfig } from "../lib/api";
 import { MCPPanel } from "./MCPPanel";
-import { PricingPanel } from "./PricingPanel";
 import {
   IconCheck,
   IconClose,
   IconCpu,
-  IconCreditCard,
   IconGlobe,
   IconKey,
   IconPlug,
@@ -200,7 +198,7 @@ export function ModelModal(props: { current: LLMConfig | null; onClose: () => vo
   );
 }
 
-export type SettingsTab = "provider" | "models" | "keys" | "connection" | "mcp" | "pricing";
+export type SettingsTab = "provider" | "models" | "keys" | "connection" | "mcp";
 
 const NAV_ITEMS: Array<{ id: SettingsTab; label: string; desc: string }> = [
   { id: "provider", label: "Proveedor", desc: "Motor LLM principal" },
@@ -208,7 +206,6 @@ const NAV_ITEMS: Array<{ id: SettingsTab; label: string; desc: string }> = [
   { id: "keys", label: "API Keys", desc: "Credenciales por proveedor" },
   { id: "connection", label: "Conexión", desc: "Backend nativo y token" },
   { id: "mcp", label: "Servidores MCP", desc: "Herramientas y contexto externo" },
-  { id: "pricing", label: "Pagos y Planes", desc: "Suscripción y facturación" },
 ];
 
 /** Ajustes unificados en diseño de dos columnas */
@@ -339,8 +336,6 @@ export function UnifiedSettingsModal(props: {
         return <IconGlobe size={14} />;
       case "mcp":
         return <IconPlug size={14} />;
-      case "pricing":
-        return <IconCreditCard size={14} />;
     }
   }
 
@@ -611,11 +606,6 @@ export function UnifiedSettingsModal(props: {
           {/* ── MCP ── */}
           <Show when={tab() === "mcp"}>
             <MCPPanel />
-          </Show>
-
-          {/* ── Pagos y Suscripciones ── */}
-          <Show when={tab() === "pricing"}>
-            <PricingPanel />
           </Show>
         </div>
       </div>

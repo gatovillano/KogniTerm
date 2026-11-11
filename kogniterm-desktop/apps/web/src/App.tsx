@@ -15,7 +15,6 @@ import { ConversationsView } from "./components/ConversationsView";
 import {
   IconBolt,
   IconCpu,
-  IconCreditCard,
   IconMoon,
   IconMoreHorizontal,
   IconRefresh,
@@ -30,7 +29,7 @@ import { theme, toggleTheme } from "./lib/theme";
 import { api, type LLMConfig } from "./lib/api";
 import { tabs } from "./lib/tabs";
 
-type ModalKind = null | { view: "settings"; tab: SettingsTab } | "provider" | "models" | "keys" | "pricing";
+type ModalKind = null | { view: "settings"; tab: SettingsTab } | "provider" | "models" | "keys";
 
 export function App() {
   const [modal, setModal] = createSignal<ModalKind>(null);
@@ -257,17 +256,6 @@ export function App() {
                   <IconSettings size={14} class="text-[var(--kt-text-muted)]" />
                   <span class="flex-1">Ajustes</span>
                   <span class="kt-kbd">Ctrl+,</span>
-                </button>
-                <button
-                  role="menuitem"
-                  class="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] text-[var(--kt-text-secondary)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all text-left"
-                  onClick={() => {
-                    setModal({ view: "settings", tab: "pricing" });
-                    setMenuOpen(false);
-                  }}
-                >
-                  <IconCreditCard size={14} class="text-[var(--kt-text-muted)]" />
-                  <span class="flex-1">Pagos y Planes</span>
                 </button>
                 <div class="my-1 h-px bg-[var(--kt-border-subtle)]" />
                 <button
