@@ -261,6 +261,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ reply: selected }),
     }),
+  /** Envía una contraseña solicitada por el agente (no queda en historial). */
+  replyPassword: (sessionId: string, requestId: string, password: string) =>
+    req<any>(`/session/${encodeURIComponent(sessionId)}/password/${encodeURIComponent(requestId)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
   // ── MCP (paridad con /mcp de la TUI) ──
   listMCP: () => req<Record<string, MCPServerStatus>>("/api/mcp/servers"),
   saveMCP: (name: string, config: Record<string, any>, scope: MCPScope = "project") =>

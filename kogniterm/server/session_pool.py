@@ -322,6 +322,7 @@ class ServerUI(TerminalUI):
         self._pending_approvals = {}  # {request_id: (threading.Event, bool)}
         self._pending_approvals_async = {}  # {request_id: (asyncio.Event, bool)}
         self._pending_questions = {}  # {request_id: (threading.Event, dict)}
+        self._pending_passwords = {}  # {request_id: (threading.Event, dict)} — valor: {"password": str}
         self._pending_lock = threading.Lock()
         # Auto-aprobación efectiva de ESTA sesión/cliente.
         # None = no fijada por el cliente (se usa la config global auto_approve).
@@ -368,6 +369,9 @@ class ServerUI(TerminalUI):
                     ev,
                     {"selected": "none", "cancelled": True},
                 )
+                ev.set()
+            for req_id, (ev, _) in list(self._pending_passwords.items()):
+                self._pending_passwords[req_id] = (ev, {"password": "", "cancelled": True})
                 ev.set()
 
     # ── Internal helpers ───────────────────────────────────────────────────────
@@ -841,6 +845,64 @@ class ServerUI(TerminalUI):
                 return
 
         logger.warning(f"[{self.session_id}] Advertencia: request_id={request_id} no se encontró en las preguntas pendientes de esta sesión.")
+
+    def ask_password_sync(
+        self,
+        message: str,
+        title: str = "Contraseña Requerida",
+        placeholder: str = "",
+    ) -> str:
+        """Emite un evento password_required y bloquea el hilo del worker esperando la contraseña.
+
+        La contraseña no se persiste en el historial del chat: solo vive en memoria
+        durante la ejecución bloqueada y se descarta tras recibirla o cancelarla.
+        """
+        request_id = str(uuid.uuid4())
+        event = threading.Event()
+        result_container = {"password": "", "cancelled": True}
+
+        with self._pending_lock:
+            self._pending_passwords[request_id] = (event, result_container)
+
+        self._push(
+            "password_required",
+            {
+                "id": request_id,
+                "message": message,
+                "title": title,
+                "placeholder": placeholder,
+            },
+        )
+
+        logger.info(
+            f"[{self.session_id}] Esperando contraseña para {request_id}..."
+        )
+        event.wait()
+
+        with self._pending_lock:
+            self._pending_passwords.pop(request_id, None)
+
+        return result_container.get("password", "")
+
+    def handle_password_response(self, request_id: str, password: str) -> None:
+        """Recibe la contraseña del cliente y despierta al thread del worker.
+
+        La contraseña se entrega en memoria y NO se guarda en ningún historial.
+        """
+        logger.info(
+            f"[{self.session_id}] handle_password_response llamado para request_id={request_id}"
+        )
+        with self._pending_lock:
+            if request_id in self._pending_passwords:
+                event, result_container = self._pending_passwords[request_id]
+                result_container["password"] = password
+                result_container["cancelled"] = False
+                event.set()
+                return
+
+        logger.warning(
+            f"[{self.session_id}] Advertencia: request_id={request_id} no se encontró en contraseñas pendientes."
+        )
 
     # ── Consumer API ───────────────────────────────────────────────────────────
 

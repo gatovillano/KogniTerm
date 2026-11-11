@@ -126,6 +126,23 @@ export async function replyQuestion(tabId: string, requestId: string, selected: 
   await api.replyQuestion(tabId, requestId, selected);
 }
 
+/** Responde solicitud de contraseña del agente por WS; fallback REST.
+ *  La contraseña NO se guarda en historial: solo se entrega al worker bloqueado.
+ */
+export async function replyPassword(tabId: string, requestId: string, password: string): Promise<void> {
+  approvals.resolvePassword(requestId);
+  try {
+    const ws = sockets.get(tabId);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "password_response", id: requestId, password }));
+      return;
+    }
+  } catch {
+    /* cae al REST */
+  }
+  await api.replyPassword(tabId, requestId, password);
+}
+
 /** Fija la preferencia de auto-aprobación: estado local + backend (fuente de verdad). */
 export function setAutoApprove(tabId: string, value: boolean): void {
   approvals.setAuto(tabId, value);
@@ -487,6 +504,16 @@ export function useSession(tabId: string) {
       };
       if (!q.id) return;
       approvals.pushQuestion(q);
+    } else if (type === "password_required" && data && typeof data === "object") {
+      const p = {
+        id: String(data.id ?? ""),
+        tabId,
+        title: String(data.title ?? "Contraseña Requerida"),
+        message: String(data.message ?? "Introduce la contraseña:"),
+        placeholder: String(data.placeholder ?? ""),
+      };
+      if (!p.id) return;
+      approvals.pushPassword(p);
     }
   }
 

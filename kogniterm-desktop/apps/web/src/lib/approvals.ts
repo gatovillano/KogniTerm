@@ -18,12 +18,21 @@ export interface QuestionReq {
   allow_freeform: boolean;
 }
 
+export interface PasswordReq {
+  id: string;
+  tabId: string;
+  title: string;
+  message: string;
+  placeholder: string;
+}
+
 const [state, setState] = createStore<{
   approvals: ApprovalReq[];
   questions: QuestionReq[];
+  passwords: PasswordReq[];
   /** auto-aprobación en memoria por pestaña (equivale a "accept_all" de la TUI) */
   autoApprove: Record<string, boolean>;
-}>({ approvals: [], questions: [], autoApprove: {} });
+}>({ approvals: [], questions: [], passwords: [], autoApprove: {} });
 
 const STORAGE_KEY = "kogniterm_auto_approve";
 
@@ -69,6 +78,17 @@ export const approvals = {
   },
   resolveQuestion(id: string) {
     setState("questions", (list) => list.filter((x) => x.id !== id));
+  },
+  pushPassword(p: PasswordReq) {
+    if (!state.passwords.some((x) => x.id === p.id)) {
+      setState("passwords", (list) => [...list, p]);
+    }
+  },
+  resolvePassword(id: string) {
+    setState("passwords", (list) => list.filter((x) => x.id !== id));
+  },
+  forTabPasswords(tabId: string): PasswordReq[] {
+    return state.passwords.filter((p) => p.tabId === tabId);
   },
   isAuto(tabId: string): boolean {
     if (typeof state.autoApprove[tabId] === "boolean") {

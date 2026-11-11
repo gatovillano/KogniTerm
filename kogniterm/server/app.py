@@ -2129,6 +2129,34 @@ def create_app() -> FastAPI:
             return {"data": resolved}
         return resolved
 
+    @application.post("/api/password/{request_id}/reply", tags=["Contraseña (Segura)"])
+    @application.post("/password/{request_id}/reply", tags=["Contraseña (Segura)"])
+    @application.post("/api/session/{session_id}/password/{request_id}/reply", tags=["Contraseña (Segura)"])
+    @application.post("/session/{session_id}/password/{request_id}/reply", tags=["Contraseña (Segura)"])
+    async def opencode_password_reply(request_id: str, request: Request, payload: Any = Body(default={}), session_id: Optional[str] = None):
+        """Recibe una contraseña interactiva solicitada por el agente.
+
+        La contraseña NO se persiste en historial: solo se entrega en memoria al worker bloqueado.
+        """
+        await pool.wait_until_ready()
+        password = ""
+        if isinstance(payload, dict):
+            password = payload.get("password") or payload.get("reply") or ""
+        elif isinstance(payload, str):
+            password = payload
+
+        target_sessions = [pool.get(session_id)] if session_id and pool.get(session_id) else pool._sessions.values()
+        resolved = False
+        for s in target_sessions:
+            if s and hasattr(s, "ui") and s.ui:
+                s.ui.handle_password_response(request_id, password)
+                resolved = True
+                break
+
+        if request.url.path.startswith("/api/"):
+            return {"data": resolved}
+        return resolved
+
     @application.get("/api/project", tags=["Proyectos (OpenCode Compat)"])
     @application.get("/project", tags=["Proyectos (OpenCode Compat)"])
     async def opencode_list_projects(request: Request):
@@ -3855,6 +3883,22 @@ def create_app() -> FastAPI:
                     else:
                         await websocket.send_json(
                             {"type": "error", "data": "Falta ID de pregunta."}
+                        )
+
+                elif msg_type == "password_response":
+                    request_id = data.get("id")
+                    password = data.get("password") or ""
+                    if request_id:
+                        session.ui.handle_password_response(request_id, password)
+                        await websocket.send_json(
+                            {
+                                "type": "info",
+                                "data": f"Contraseña recibida para {request_id}.",
+                            }
+                        )
+                    else:
+                        await websocket.send_json(
+                            {"type": "error", "data": "Falta ID de contraseña."}
                         )
 
                 elif msg_type == "terminal_input":
