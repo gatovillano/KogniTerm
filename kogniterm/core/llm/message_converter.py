@@ -140,14 +140,70 @@ def from_litellm_message(message: Dict[str, Any], id_generator=None) -> BaseMess
         return SystemMessage(content=content)
     return HumanMessage(content=content)
 
+def _model_is_gemini_family(model_name: str) -> bool:
+    m = (model_name or "").lower()
+    return "gemini" in m or "antigravity" in m
+
+
+def _model_is_reasoning(model_name: str) -> bool:
+    m = (model_name or "").lower()
+    if _model_is_gemini_family(m):
+        return True
+    markers = ("deepseek-reasoner", "deepseek-r1", "o1", "o3", "thinking", "reasoner", "r1", "qwq", "magistral", "reasoning")
+    return any(marker in m for marker in markers)
+
+
+def _model_supports_vision(model_name: str) -> bool:
+    m = (model_name or "").lower()
+    if "vision" in m:
+        return True
+    markers = (
+        "gpt-4o", "gpt-4-turbo", "gpt-4-vision",
+        "gemini", "claude-3", "claude-sonnet-4", "claude-opus-4",
+        "llava", "qwen-vl", "qwen2-vl", "qwen2.5-vl", "qwen3-vl",
+        "pixtral", "llama-3.2-11b-vision", "llama-3.2-90b-vision",
+        "phi-3-vision", "phi-3.5-vision", "moondream", "minicpm-v",
+        "internvl", "cogvlm", "yi-vl", "deepseek-vl", "glm-4v",
+        "kimi-vl", "molmo", "paligemma",
+    )
+    return any(marker in m for marker in markers)
+
+
+def _content_without_images(content: Any, model_name: str) -> Any:
+    """Convierte bloques image_url a texto cuando el modelo no soporta visión."""
+    if not isinstance(content, list):
+        return content
+    if _model_supports_vision(model_name):
+        return content
+    texts = []
+    for part in content:
+        if isinstance(part, dict):
+            ptype = str(part.get("type", "")).lower()
+            if ptype == "text":
+                texts.append(str(part.get("text", "")))
+            elif ptype == "image_url":
+                texts.append("[imagen omitida: el modelo activo no soporta entradas de imagen]")
+            else:
+                try:
+                    texts.append(str(part))
+                except Exception:
+                    pass
+        else:
+            texts.append(str(part))
+    joined = "\n".join(t for t in texts if t).strip()
+    return joined if joined else "Operación completada (sin salida)."
+
+
 def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[Dict[str, str]] = None, id_generator=None) -> Dict[str, Any]:
     """Convierte un mensaje de LangChain a un formato compatible con LiteLLM."""
     if id_generator is None:
         id_generator = generate_short_id
         
     is_mistral = "mistral" in model_name.lower() or "mistral" in os.getenv("LITELLM_MODEL", "").lower()
-    if not is_mistral and hasattr(message, "_cached_litellm_msg") and message._cached_litellm_msg:
-        return message._cached_litellm_msg.copy()
+    cached_msg = getattr(message, "_cached_litellm_msg", None)
+    cached_model = getattr(message, "_cached_litellm_model", None)
+    if not is_mistral and cached_msg is not None and cached_model == model_name:
+        return cached_msg.copy()
     
     def get_compliant_id(original_id):
         if not is_mistral:
@@ -166,6 +222,7 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
     if isinstance(message, HumanMessage):
         content = message.content
         if isinstance(content, list):
+            content = _content_without_images(content, model_name)
             result_msg = {"role": "user", "content": content}
         elif not isinstance(content, str):
             content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
@@ -175,14 +232,18 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
     elif isinstance(message, AIMessage):
         tool_calls = getattr(message, 'tool_calls', [])
         content = message.content
+        # Sanitizar contenido multimodal del asistente para modelos sin visión
+        if isinstance(content, list):
+            content = _content_without_images(content, model_name)
         if not isinstance(content, str):
             content = json.dumps(content) if isinstance(content, (dict, list)) else str(content)
 
         msg = {"role": "assistant", "content": content or "..."}
-        
+
         reasoning = message.additional_kwargs.get("reasoning_content") or getattr(message, 'reasoning_content', None)
-        if reasoning:
+        if reasoning and _model_is_reasoning(model_name):
             msg["reasoning_content"] = str(reasoning)
+
 
         if tool_calls:
             serialized_tool_calls = []
@@ -202,7 +263,7 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
                     thought_sigs = message.additional_kwargs.get("thought_signatures", {})
                     if isinstance(thought_sigs, dict):
                         thought_sig = thought_sigs.get(tc.get("id"))
-                if thought_sig:
+                if thought_sig and _model_is_gemini_family(model_name):
                     serialized_tc["thought_signature"] = thought_sig
                 serialized_tool_calls.append(serialized_tc)
             
@@ -225,6 +286,8 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
             if isinstance(content, str):
                 if not content.strip():
                     content = "Operación completada (sin salida)."
+            else:
+                content = _content_without_images(content, model_name)
             tc_id = get_compliant_id(getattr(message, 'tool_call_id', ''))
             tool_msg = {"role": "tool", "content": content, "tool_call_id": tc_id}
             name = getattr(message, 'name', None)
@@ -255,6 +318,7 @@ def to_litellm_message(message: BaseMessage, model_name: str, id_map: Optional[D
 
     try:
         message._cached_litellm_msg = result_msg
+        message._cached_litellm_model = model_name
     except Exception:
         pass
     return result_msg

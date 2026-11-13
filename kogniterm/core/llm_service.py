@@ -623,6 +623,119 @@ class LLMService:
         """Método de compatibilidad que delega al history_manager."""
         return self.history_manager._load_history()
 
+    def _save_history_sync(self, history: List[BaseMessage]):
+        """Guarda historial de forma síncrona para rutas críticas (errores/recuperación)."""
+        try:
+            self.history_manager._save_history(list(history))
+        except Exception as e:
+            logger.error(f"Error guardando historial de forma síncrona: {e}")
+
+    def _backup_conversation_history(self, reason: str = "manual") -> Optional[str]:
+        """Crea un respaldo del historial actual antes de mutaciones destructivas."""
+        try:
+            history = list(getattr(self, "conversation_history", []) or [])
+            if not history:
+                return None
+            base_path = getattr(self, "history_file_path", None)
+            if not base_path:
+                return None
+            backup_dir = os.path.join(os.path.dirname(base_path), "history_backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            safe_reason = re.sub(r"[^a-zA-Z0-9_.-]+", "_", reason)[:40] or "backup"
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            backup_path = os.path.join(backup_dir, f"history_{ts}_{safe_reason}.json")
+            # Reusar serialización del HistoryManager escribiendo snapshot temporalmente
+            original_path = self.history_manager.history_file_path
+            try:
+                self.history_manager.history_file_path = backup_path
+                self.history_manager._save_history(history)
+            finally:
+                self.history_manager.history_file_path = original_path
+            return backup_path
+        except Exception as e:
+            logger.warning(f"No se pudo crear backup de historial ({reason}): {e}")
+            return None
+
+    def _sanitize_history_for_bad_request_retry(self) -> bool:
+        """Sanitiza historial para reintentos tras 400/invalid_request sin perder todo el hilo."""
+        try:
+            history = list(getattr(self, "conversation_history", []) or [])
+            if not history:
+                return False
+
+            sanitized = []
+            in_sequence = False
+            for msg in history:
+                if isinstance(msg, SystemMessage):
+                    content = msg.content
+                    if isinstance(content, str) and len(content) > 12000:
+                        content = content[:12000] + "\n\n[System truncado por recuperación de 400]"
+                    sanitized.append(SystemMessage(content=content))
+                    in_sequence = False
+                elif isinstance(msg, AIMessage):
+                    # Normalizar contenido vacío
+                    content = msg.content if isinstance(msg.content, str) else (str(msg.content) if msg.content is not None else "")
+                    tool_calls = getattr(msg, "tool_calls", None) or []
+                    # Mantener AI con tool_calls; la validación de secuencia posterior filtrará huérfanos
+                    sanitized.append(AIMessage(content=content, tool_calls=tool_calls))
+                    in_sequence = bool(tool_calls)
+                elif isinstance(msg, ToolMessage):
+                    if in_sequence:
+                        tool_content = msg.content
+                        if isinstance(tool_content, list):
+                            parts = []
+                            for part in tool_content:
+                                if isinstance(part, dict) and str(part.get("type", "")).lower() == "image_url":
+                                    parts.append("[imagen omitida en recuperación de 400]")
+                                elif isinstance(part, dict) and part.get("type") == "text":
+                                    parts.append(str(part.get("text", "")))
+                                else:
+                                    parts.append(str(part))
+                            tool_content = "\n".join(p for p in parts if p).strip() or "Operación completada (sin salida)."
+                        if isinstance(tool_content, str) and len(tool_content) > 4000:
+                            tool_content = tool_content[:4000] + "\n\n[Tool output truncado por recuperación de 400]"
+                        sanitized.append(ToolMessage(content=tool_content, tool_call_id=getattr(msg, "tool_call_id", "")))
+                    # si no está en secuencia, descartar huérfano
+                elif isinstance(msg, HumanMessage):
+                    content = msg.content
+                    if isinstance(content, list):
+                        parts = []
+                        for part in content:
+                            if isinstance(part, dict) and str(part.get("type", "")).lower() == "image_url":
+                                parts.append("[imagen omitida en recuperación de 400]")
+                            elif isinstance(part, dict) and part.get("type") == "text":
+                                parts.append(str(part.get("text", "")))
+                            else:
+                                parts.append(str(part))
+                        content = "\n".join(p for p in parts if p).strip() or "Operación completada (sin salida)."
+                    if isinstance(content, str) and len(content) > 12000:
+                        content = content[:12000] + "\n\n[Mensaje truncado por recuperación de 400]"
+                    sanitized.append(HumanMessage(content=content))
+                    in_sequence = False
+                else:
+                    sanitized.append(msg)
+                    in_sequence = False
+
+            # Asegurar que no quede AIMessage final con tool_calls sin respuestas (problemático en reintento)
+            while sanitized and isinstance(sanitized[-1], AIMessage) and getattr(sanitized[-1], "tool_calls", None):
+                # Convertir a AIMessage sin tool_calls si tiene contenido, o eliminar si está vacío
+                last = sanitized[-1]
+                if last.content and str(last.content).strip():
+                    sanitized[-1] = AIMessage(content=last.content, additional_kwargs=getattr(last, "additional_kwargs", {}) or {})
+                else:
+                    sanitized.pop()
+
+            # Evitar historial vacío total
+            if not sanitized:
+                return False
+
+            self.conversation_history[:] = sanitized
+            self._save_history_sync(self.conversation_history)
+            return True
+        except Exception as e:
+            logger.warning(f"Error sanitizando historial tras 400: {e}")
+            return False
+
     def get_tools(self) -> List[BaseTool]:
         mcp_tools = []
         try:
@@ -783,6 +896,19 @@ class LLMService:
         self.summary_model = model_name  # Sincronizar modelo de resumen
         os.environ["LITELLM_MODEL"] = model_name
         os.environ["SUMMARY_MODEL"] = model_name # Persistir también en env
+
+        # Invalidar caché de mensajes convertidos: el payload depende del modelo
+        # (thought_signature, reasoning_content, imágenes soportadas, etc.)
+        try:
+            for msg in (getattr(self, "conversation_history", None) or []):
+                for attr in ("_cached_litellm_msg", "_cached_litellm_model"):
+                    if hasattr(msg, attr):
+                        try:
+                            delattr(msg, attr)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
         
         # Ajustar dinámicamente límites de tokens basados en el modelo activo
         self.max_conversation_tokens = self.get_model_context_window(model_name)
@@ -955,6 +1081,13 @@ class LLMService:
             litellm.api_base = os.environ.get("LITELLM_API_BASE")
             litellm.headers = {}
             logger.info(f"🔄 Cambiado a modelo: {model_name}")
+
+        # Sincronizar self.api_base/self.headers con la configuración global para
+        # proveedores no-Ollama (evita arrastrar un api_base obsoleto al cambiar
+        # de modelo/proveedor y provocar 400/404).
+        if provider not in ("ollama", "ollama_cloud"):
+            self.api_base = getattr(litellm, "api_base", None)
+            self.headers = getattr(litellm, "headers", None) or {}
 
         logger.info(f"✅ Estado de LiteLLM actualizado satisfactoriamente.")
 
@@ -1363,8 +1496,6 @@ class LLMService:
                 tools = self._get_litellm_tools()
                 if tools:
                     completion_kwargs["tools"] = tools
-                    # Forzar tool_choice a auto para incentivar el uso de herramientas
-                    completion_kwargs["tool_choice"] = "auto"
                     logger.info(f"🔧 Incluyendo {len(tools)} herramientas en la llamada al LLM")
             except Exception as e:
                 logger.warning(f"No se pudieron cargar las herramientas para el LLM: {e}")
@@ -1393,8 +1524,18 @@ class LLMService:
                 os.environ["GEMINI_API_KEY"] = self.api_key
         elif "kilocode" in self.model_name.lower() or (hasattr(self, 'api_base') and self.api_base and "kilo.ai" in self.api_base):
             completion_kwargs["custom_llm_provider"] = "openai"
+            # Enviar el id puro (sin el prefijo 'kilocode/') al gateway
+            if "/" in self.model_name:
+                completion_kwargs["model"] = self.model_name.split("/", 1)[1]
+            if hasattr(self, 'api_base') and self.api_base:
+                completion_kwargs["api_base"] = self.api_base
         elif "inception" in self.model_name.lower() or "mercury" in self.model_name.lower() or (hasattr(self, 'api_base') and self.api_base and "inceptionlabs.ai" in self.api_base):
             completion_kwargs["custom_llm_provider"] = "openai"
+            # Enviar el id puro (sin el prefijo 'inception/') al gateway
+            if "/" in self.model_name:
+                completion_kwargs["model"] = self.model_name.split("/", 1)[1]
+            if hasattr(self, 'api_base') and self.api_base:
+                completion_kwargs["api_base"] = self.api_base
 
         # Configuración específica para OpenRouter/SiliconFlow con campos adicionales
         if "openrouter" in self.model_name.lower():
@@ -2238,6 +2379,7 @@ class LLMService:
                     return
 
                 logger.warning(f"⚠️ ContextWindowExceededError capturado (intento {context_retry_count + 1}): {error_msg}. Purgando historial en caliente y reintentando automáticamente...")
+                self._backup_conversation_history("context_window")
                 if self.conversation_history:
                     truncated_history = []
                     for msg in self.conversation_history:
@@ -2261,7 +2403,7 @@ class LLMService:
                             truncated_history.append(AIMessage(content=content, tool_calls=getattr(msg, 'tool_calls', [])))
                     
                     self.conversation_history[:] = truncated_history
-                    self._save_history(self.conversation_history)
+                    self._save_history_sync(self.conversation_history)
                     
                 # Reintentar automáticamente la generación de forma transparente e ininterrumpida
                 yield from self._invoke_inner(
@@ -2276,6 +2418,7 @@ class LLMService:
             elif "Missing corresponding tool call for tool response message" in error_msg:
                 friendly_message = "¡Ups! 🔧 Se detectó un problema con la secuencia de herramientas en el historial. Estoy limpiando el historial para continuar. Por favor, repite tu última solicitud si es necesario."
                 # Limpiar el historial removiendo tool messages huérfanos
+                self._backup_conversation_history("orphan_tool_cleanup")
                 cleaned_history = []
                 in_sequence = False
                 for msg in self.conversation_history:
@@ -2290,7 +2433,7 @@ class LLMService:
                         cleaned_history.append(msg)
                         in_sequence = False
                 self.conversation_history = cleaned_history
-                self._save_history(self.conversation_history)
+                self._save_history_sync(self.conversation_history)
             elif "OpenrouterException" in error_msg or "Upstream error" in error_msg:
                 if "No endpoints found" in error_msg:
                     friendly_message = "⚠️ El modelo solicitado no está disponible con los parámetros actuales. Verifica que el nombre del modelo sea correcto y que esté disponible en OpenRouter."
@@ -2321,6 +2464,7 @@ class LLMService:
                         f"Compactando historial y reintentando en {wait_s}s..."
                     )
                     try:
+                        self._backup_conversation_history("rate_limit_input")
                         hm = getattr(self, "history_manager", None)
                         if hm is not None and hasattr(hm, "compact_aging_tool_outputs"):
                             hm.KEEP_FULL_TOOL_OUTPUTS = 1
@@ -2338,7 +2482,7 @@ class LLMService:
                                         tool_call_id=m.tool_call_id,
                                     )
                             self.conversation_history[:] = sys_msgs + keep
-                            self._save_history(self.conversation_history)
+                            self._save_history_sync(self.conversation_history)
                     except Exception as comp_err:
                         logger.warning(f"No se pudo compactar tras RateLimit: {comp_err}")
                     time.sleep(wait_s)
@@ -2355,7 +2499,45 @@ class LLMService:
             elif "APIConnectionError" in error_type:
                 friendly_message = "¡Vaya! 🔌 Parece que hay un problema de conexión con el servidor del modelo. Revisa tu conexión a internet."
             else:
-                friendly_message = f"¡Ups! 😵 Ocurrió un error inesperado al comunicarme con el modelo ({error_type}): {e}. Por favor, intenta de nuevo."
+                is_bad_request = (
+                    "400" in error_msg
+                    or "badrequest" in error_type.lower()
+                    or "bad request" in error_msg.lower()
+                    or "invalid_request" in error_msg.lower()
+                    or "invalid request" in error_msg.lower()
+                )
+                if is_bad_request and context_retry_count < 1:
+                    logger.warning(
+                        f"⚠️ BadRequest/invalid_request detectado ({error_type}): {error_msg}. "
+                        "Creando backup, sanitizando historial y reintentando una vez..."
+                    )
+                    self._backup_conversation_history("bad_request")
+                    sanitized = self._sanitize_history_for_bad_request_retry()
+                    if sanitized:
+                        time.sleep(0.5)
+                        yield from self._invoke_inner(
+                            history=self.conversation_history,
+                            system_message=system_message,
+                            interrupt_queue=interrupt_queue,
+                            save_history=save_history,
+                            include_tools=include_tools,
+                            context_retry_count=context_retry_count + 1,
+                        )
+                        return
+                    friendly_message = (
+                        "⚠️ El proveedor rechazó la solicitud (400/Bad Request). "
+                        "Se creó un respaldo del historial, pero no fue posible sanearlo automáticamente. "
+                        "Prueba cambiar de modelo/proveedor o iniciar un nuevo hilo para aislar el historial incompatible."
+                    )
+                elif is_bad_request:
+                    self._backup_conversation_history("bad_request_final")
+                    friendly_message = (
+                        f"⚠️ El proveedor sigue rechazando la solicitud (400/Bad Request) tras un intento de recuperación: {error_msg}. "
+                        "Se conservó el historial y se creó un respaldo. Suele ocurrir por incompatibilidades de formato de mensajes/tools entre proveedores/modelos; "
+                        "prueba cambiar de modelo o continuar en un hilo nuevo."
+                    )
+                else:
+                    friendly_message = f"¡Ups! 😵 Ocurrió un error inesperado al comunicarme con el modelo ({error_type}): {e}. Por favor, intenta de nuevo."
 
             # Loguear el error completo para depuración interna, pero no ensuciar la terminal del usuario
             logger.error(f"Error detallado en LLMService.invoke: {error_msg}")
