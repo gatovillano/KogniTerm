@@ -206,7 +206,7 @@ class LLMBridge:
             return False
 
         target_model = model or self.model
-        self._bad_request_retried = False
+        self._bad_request_retries = 0
         tool_schemas = tools if tools is not None else self.adapter.get_schemas_for_litellm()
         resolved_model, provider_kwargs = self._resolve_model_provider(target_model)
 
@@ -380,15 +380,23 @@ class LLMBridge:
             except BadRequestError as exc:
                 # Reintento automático: sanear historial y reintentar una vez para
                 # evitar que el hilo quede atrapado en un bucle de errores.
-                if not getattr(self, "_bad_request_retried", False):
-                    self._bad_request_retried = True
-                    # Eliminar los últimos mensajes del asistente/herramientas que
-                    # suelen causar el 400 (tool calls sin respuesta, etc.)
-                    while messages and messages[-1].get("role") in ("assistant", "tool"):
-                        messages.pop()
-                    logger.warning("BadRequest en LLMBridge: historial saneado, reintentando una vez.")
+                retries = getattr(self, "_bad_request_retries", 0)
+                if retries < 2:
+                    self._bad_request_retries = retries + 1
+                    if retries == 0:
+                        while messages and messages[-1].get("role") in ("assistant", "tool"):
+                            messages.pop()
+                    else:
+                        # Último recurso: conservar solo el último mensaje del usuario
+                        last_user = None
+                        for m in reversed(messages):
+                            if m.get("role") == "user":
+                                last_user = m
+                                break
+                        messages[:] = [last_user] if last_user else messages[-1:]
+                    logger.warning("BadRequest en LLMBridge: historial saneado (intento %s), reintentando.", retries + 1)
                     continue
-                self._bad_request_retried = False
+                self._bad_request_retries = 0
                 yield {"type": "error", "message": f"Petición inválida al modelo (Bad Request): {exc}"}
                 return
             except (RateLimitError, ServiceUnavailableError, APIConnectionError) as exc:
