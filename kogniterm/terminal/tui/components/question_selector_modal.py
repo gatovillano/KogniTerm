@@ -36,8 +36,8 @@ class QuestionSelectorModal(ModalScreen[str]):
         max-width: 86;
         height: auto;
         max-height: 85%;
-        background: #141416;
-        border: solid #27272a;
+        background: #14171f;
+        border: round #30363d;
         padding: 0;
     }
 

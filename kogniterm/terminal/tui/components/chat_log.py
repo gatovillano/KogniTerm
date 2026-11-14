@@ -169,9 +169,11 @@ class ThinkingWidget(Static):
         width: 100%;
         height: auto;
         padding: 0 0 0 2;
+        margin: 0 0 0 1;
         color: #9ca3af;
         background: transparent;
         border: none;
+        border-left: solid #374151;
     }
     """
 

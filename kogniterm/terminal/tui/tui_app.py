@@ -110,8 +110,8 @@ class IndexingConfirmModal(ModalScreen[bool]):
         width: 70;
         max-width: 90;
         height: auto;
-        background: #1f2937;
-        border: solid #4b5563;
+        background: #161b22;
+        border: round #30363d;
         padding: 1 2;
     }
     #modal-title {
@@ -750,8 +750,8 @@ class KogniTermTUI(App):
 
     CSS = """
     Screen {
-        background: #1e1e1e;
-        color: white;
+        background: #0d1117;
+        color: #f0f6fc;
         layers: base approval splash popup overlay;
     }
 
@@ -763,9 +763,9 @@ class KogniTermTUI(App):
         width: 100%;
         layout: vertical;
         align-horizontal: center;
-        background: #1e1e1e;
-        border-top: none; /* Linea divisora erradicada */
-        margin-bottom: 8; /* Ajustado por dimensiones de input_container y padding inferior */
+        background: transparent;
+        border-top: none;
+        margin-bottom: 8;
     }
 
 
@@ -777,16 +777,15 @@ class KogniTermTUI(App):
     }
 
     #chat_log {
-
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
         height: auto;
         max-height: 1fr;
-        padding: 0;
+        padding: 1 0 0 0;
         background: transparent;
-        color: white;
-        scrollbar-size: 1 1; /* Scrollbar angosto de 1 celda */
+        color: #f0f6fc;
+        scrollbar-size: 1 1;
         border: none;
     }
 
@@ -806,14 +805,14 @@ class KogniTermTUI(App):
     /* Contenedor para paneles paralelos con pestañas (call_agents_parallel) */
     #parallel_agents_container {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
-        height: 24; /* Altura fija para contener las pestañas + contenido */
+        height: 24;
         align: center bottom;
         padding: 0;
         margin: 0;
         background: transparent;
-        display: none; /* activarse dinámicamente desde el skill */
+        display: none;
     }
 
     /* Paneles internos del contenedor paralelo */
@@ -838,7 +837,7 @@ class KogniTermTUI(App):
 
     #queue_display {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
         height: auto;
         background: transparent;
@@ -851,33 +850,46 @@ class KogniTermTUI(App):
 
     #task_tracker_dock {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
         height: auto;
         max-height: 18;
-        background: #22262e;
+        background: #161b22;
         color: #e5e7eb;
         border: none;
-        padding: 0 1;
+        border-left: thick #00838f;
+        padding: 0 2;
         margin-bottom: 1;
         display: none;
         overflow-y: auto;
     }
     #task_tracker_dock:focus {
         border: none;
+        border-left: thick #00bcd4;
         outline: none;
     }
 
     #input_container {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
         height: auto;
         min-height: 4;
-        background: #2a2a2a;
+        background: #161b22;
+        border-left: thick #00bcd4;
         margin: 0 0 1 0;
         padding: 1 2 1 2;
         layout: horizontal;
+    }
+
+    #input_prompt {
+        width: 2;
+        height: auto;
+        color: #00bcd4;
+        text-style: bold;
+        background: transparent;
+        padding: 0;
+        margin: 0;
     }
 
     ChatInput {
@@ -903,10 +915,10 @@ class KogniTermTUI(App):
     }
     StatusFooter {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
         height: 1;
-        padding: 0;
+        padding: 0 1;
         margin: 0;
         layout: horizontal;
     }
@@ -928,28 +940,29 @@ class KogniTermTUI(App):
     }
     TerminalPanel {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
-        border: solid #4b5563;
-        background: #000000;
+        border: round #30363d;
+        background: #0d1117;
         height: auto;
         min-height: 0;
         max-height: 100%;
         margin: 0 0 1 0;
-        padding: 0;
+        padding: 0 1;
         content-align: left top;
         text-align: left;
         overflow-y: scroll;
+        scrollbar-size: 1 1;
         scrollbar-gutter: stable;
         display: none;
     }
 
     TerminalPanel:focus {
-        border: none;
+        border: round #10b981;
     }
 
     TerminalPanel.interactive {
-        border-left: tall #10b981;
+        border-left: thick #10b981;
         padding-left: 2;
     }
 
@@ -958,9 +971,9 @@ class KogniTermTUI(App):
         layer: popup;
         height: auto;
         max-height: 45;
-        background: #1e1e2e;
-        border: tall #3b82f6;
-        padding: 0;
+        background: #161b22;
+        border: round #3b82f6;
+        padding: 0 1;
         display: none;
     }
 
@@ -978,7 +991,7 @@ class KogniTermTUI(App):
 
     #command_popup ListItem:hover,
     #command_popup ListItem.-highlight {
-        background: #3b82f6 30%;
+        background: #3b82f6 25%;
         color: white;
     }
 
@@ -987,8 +1000,8 @@ class KogniTermTUI(App):
         dock: bottom;
         height: 2;
         width: 100%;
-        background: #11111b;
-        border-top: solid #374151;
+        background: #161b22;
+        border-top: solid #21262d;
         display: none;
     }
     #indexing_label {
@@ -1005,9 +1018,9 @@ class KogniTermTUI(App):
         height: 2;
         width: 100%;
         background: transparent;
-        border-bottom: solid #374151;
+        border-bottom: solid #21262d;
         layout: horizontal;
-        padding: 0 1;
+        padding: 0 2;
     }
     #sessions_list {
         width: 1fr;
@@ -1021,60 +1034,63 @@ class KogniTermTUI(App):
         height: 1;
         layout: horizontal;
         background: transparent;
+        margin-right: 1;
     }
     .session-tab {
         width: auto;
-        min-width: 22;
-        max-width: 38;
+        min-width: 18;
+        max-width: 34;
         height: 1;
         margin: 0;
         padding: 0 1 0 2;
         background: transparent;
-        color: #9ca3af;
+        color: #8b949e;
         border: none;
     }
     .session-tab:hover {
-        background: #ffffff 10%;
+        background: #21262d;
+        color: #f0f6fc;
     }
     .session-close {
         width: 3;
         min-width: 3;
         height: 1;
-        margin: 0 1 0 0;
+        margin: 0;
         padding: 0;
         background: transparent;
         color: #6b7280;
         border: none;
     }
     .session-close:hover {
-        background: #ef4444 45%;
+        background: #ef4444 35%;
         color: #ffffff;
         text-style: bold;
     }
     .session-tab.--active {
-        background: #3b82f6;
-        color: white;
+        background: #161b22;
+        color: #f0f6fc;
         text-style: bold;
     }
     .session-tab.--busy {
         color: #fbbf24;
     }
     .session-tab.--active.--busy {
-        background: #3b82f6;
+        background: #161b22;
         color: #fef3c7;
     }
     #new_session_btn {
         width: auto;
-        min-width: 3;
+        min-width: 4;
         height: 1;
         margin: 0;
+        padding: 0 1;
         background: transparent;
         color: #10b981;
         border: none;
         text-style: bold;
     }
     #new_session_btn:hover {
-        background: #10b981 30%;
+        background: #10b981 20%;
     }
     #sessions_content {
         height: 1fr;
@@ -1084,19 +1100,19 @@ class KogniTermTUI(App):
     }
     .session-chat {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
         height: 1fr;
-        padding: 0;
+        padding: 1 0 0 0;
         background: transparent;
-        color: white;
-        scrollbar-size: 1 1; /* Scrollbar angosto de 1 celda */
+        color: #f0f6fc;
+        scrollbar-size: 1 1;
         border: none;
     }
 
     #live_display {
         width: 94%;
-        max-width: 220;
+        max-width: 140;
         min-width: 60;
         /* Alinear texto al centro */
         text-align: center;
@@ -1114,11 +1130,11 @@ class KogniTermTUI(App):
         width: 100%;
         height: 100%;
         align: center middle;
-        background: #1e1e1e;
+        background: #0d1117;
     }
     #splash_inner {
-        width: 75%;
-        max-width: 90;
+        width: 78%;
+        max-width: 88;
         height: auto;
         align: center middle;
     }
@@ -1126,18 +1142,48 @@ class KogniTermTUI(App):
         width: 100%;
         content-align: center middle;
         text-align: center;
+        margin-bottom: 0;
+        background: transparent;
+    }
+    #splash_subtitle {
+        width: 100%;
+        content-align: center middle;
+        text-align: center;
         margin-bottom: 1;
         background: transparent;
+    }
+    #splash_workspace_bar {
+        width: 100%;
+        height: 1;
+        content-align: center middle;
+        text-align: center;
+        margin-bottom: 1;
+        background: transparent;
+    }
+    #splash_card {
+        width: 100%;
+        height: auto;
+        background: #161b22;
+        border-left: thick #00bcd4;
+        margin-bottom: 1;
+        padding: 0;
     }
     #splash_input_row {
         width: 100%;
         height: auto;
-        min-height: 4;
+        min-height: 3;
         max-height: 6;
-        background: #2a2a2a;
+        background: transparent;
         margin-bottom: 0;
         padding: 1 2 0 2;
         align-horizontal: left;
+    }
+    #splash_prompt_glyph {
+        width: 2;
+        height: auto;
+        color: #00bcd4;
+        text-style: bold;
+        background: transparent;
     }
     ToolOutputWidget {
         width: 100%;
@@ -1145,10 +1191,11 @@ class KogniTermTUI(App):
         height: auto;
         min-height: 5;
         max-height: 100%;
-        border: solid #4b5563; /* gray */
+        border: round #2e3440;
+        border-title-align: left;
         margin: 0 0 1 0;
-        padding: 0;
-        background: #000000;
+        padding: 0 1;
+        background: #0d1117;
         color: #f9fafb;
     }
 
@@ -1179,14 +1226,15 @@ class KogniTermTUI(App):
     #splash_model_info {
         width: 100%;
         height: 2;
-        padding: 0 2;
-        background: #2a2a2a;
-        margin-bottom: 1;
-        content-align: left top;
+        padding: 0 2 1 2;
+        background: transparent;
+        margin-bottom: 0;
+        content-align: left bottom;
     }
     #splash_shortcuts {
         width: 100%;
         content-align: center middle;
+        text-align: center;
         margin-top: 1;
     }
     """
@@ -1432,13 +1480,87 @@ class KogniTermTUI(App):
         """Retorna el título ASCII para el splash centrado como markup Rich."""
         from kogniterm.terminal.themes import ColorPalette
 
-        c = ColorPalette.PRIMARY
+        c1 = ColorPalette.PRIMARY_LIGHT or ColorPalette.PRIMARY
+        c2 = ColorPalette.PRIMARY
+        c3 = ColorPalette.SECONDARY
         lines = [
-            "░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█",
-            "░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█",
-            "░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀",
+            (c1, "░█░█░█▀█░█▀▀░█▀█░▀█▀░▀█▀░█▀▀░█▀▄░█▄█"),
+            (c2, "░█▀▄░█░█░█░█░█░█░░█░░░█░░█▀▀░█▀▄░█░█"),
+            (c3, "░▀░▀░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀"),
         ]
-        return "\n".join(f"[{c}]{line}[/{c}]" for line in lines)
+        return "\n".join(f"[bold {col}]{line}[/bold {col}]" for col, line in lines)
+
+    def _build_splash_workspace_text(self) -> str:
+        """Construye la línea de contexto de workspace y rama git para el splash."""
+        import subprocess
+        from kogniterm.terminal.themes import ColorPalette
+
+        cwd = self.workspace_directory or os.getcwd()
+        dir_name = os.path.basename(cwd) or cwd
+        branch = None
+        try:
+            res = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                check=True,
+            )
+            branch = res.stdout.strip()
+        except Exception:
+            branch = None
+
+        if branch:
+            return (
+                f"[{ColorPalette.PRIMARY}]⎇ {branch}[/{ColorPalette.PRIMARY}]"
+                f"  [{ColorPalette.TEXT_DIM}]·[/{ColorPalette.TEXT_DIM}]  "
+                f"[{ColorPalette.TEXT_MUTED}]◫ {dir_name}[/{ColorPalette.TEXT_MUTED}]"
+            )
+        return f"[{ColorPalette.TEXT_MUTED}]◫ {dir_name}[/{ColorPalette.TEXT_MUTED}]"
+
+    def _build_splash_model_text(self, model_name: Optional[str] = None) -> str:
+        """Construye la barra de metadatos del card del splash."""
+        from kogniterm.terminal.themes import ColorPalette
+
+        raw_name = model_name or getattr(self.llm_service, "model_name", "") or "sin modelo"
+        display_model = raw_name.split("/")[-1]
+        server_active = getattr(self, "_server_mode", False)
+        mode_badge = (
+            f"[{ColorPalette.SUCCESS}]● Server[/]"
+            if server_active
+            else f"[{ColorPalette.WARNING}]● Local[/]"
+        )
+        auto_on = getattr(self, "_auto_approve_all", False)
+        auto_badge = (
+            f"[{ColorPalette.SUCCESS} bold]⚡ Auto ON[/]"
+            if auto_on
+            else f"[{ColorPalette.TEXT_DIM}]⇥ Shift+Tab auto[/]"
+        )
+        return (
+            f"[{ColorPalette.PRIMARY}]◆[/{ColorPalette.PRIMARY}] "
+            f"[{ColorPalette.TEXT_PRIMARY} bold]{display_model}[/{ColorPalette.TEXT_PRIMARY} bold]"
+            f"   {mode_badge}   {auto_badge}"
+        )
+
+    def _build_splash_shortcuts_text(self) -> str:
+        """Construye las pistas de comandos/atajos estilo OpenCode."""
+        from kogniterm.terminal.themes import ColorPalette
+
+        p = ColorPalette
+        items = [
+            ("/models", "modelo"),
+            ("/provider", "proveedor"),
+            ("/mcp", "mcp"),
+            ("/theme", "tema"),
+            ("/resume", "historial"),
+            ("Esc", "interrumpir"),
+        ]
+        parts = [
+            f"[{p.TEXT_PRIMARY} bold]{key}[/{p.TEXT_PRIMARY} bold] [{p.TEXT_MUTED}]{desc}[/{p.TEXT_MUTED}]"
+            for key, desc in items
+        ]
+        return f"[{p.TEXT_DIM}]  ·  [/{p.TEXT_DIM}]".join(parts)
 
     def compose(self) -> ComposeResult:
         from textual.widgets import Static
@@ -1490,6 +1612,7 @@ class KogniTermTUI(App):
                 self.task_tracker_dock = None
 
             with Horizontal(id="input_container"):
+                yield Static("›", id="input_prompt")
                 self.chat_input = ChatInput(id="chat_input")
                 yield self.chat_input
             self.status_footer = StatusFooter(model_name=self.llm_service.model_name)
@@ -1507,16 +1630,31 @@ class KogniTermTUI(App):
                     id="splash_title",
                     markup=True,
                 )
-                # Input box con borde izquierdo
-                with Horizontal(id="splash_input_row"):
-                    yield ChatInput(
-                        id="splash_chat_input",
+                yield Static(
+                    "[dim]AI-Powered Terminal Agent[/dim]",
+                    id="splash_subtitle",
+                    markup=True,
+                )
+                yield Static(
+                    self._build_splash_workspace_text(),
+                    id="splash_workspace_bar",
+                    markup=True,
+                )
+                # Card elevado estilo OpenCode: prompt + metadata strip
+                with Vertical(id="splash_card"):
+                    with Horizontal(id="splash_input_row"):
+                        yield Static("›", id="splash_prompt_glyph")
+                        yield ChatInput(
+                            id="splash_chat_input",
+                        )
+                    yield Static(
+                        self._build_splash_model_text(),
+                        id="splash_model_info",
+                        markup=True,
                     )
-                # Info modelo (segunda línea del input box)
-                yield Static("", id="splash_model_info", markup=True)
                 # Hints de teclado
                 yield Static(
-                    "[dim]/models[/dim] modelo  [dim]/provider[/dim] proveedor  [dim]/mcp[/dim] mcp  [dim]/theme[/dim] tema  [dim]esc[/dim] interrumpir",
+                    self._build_splash_shortcuts_text(),
                     id="splash_shortcuts",
                     markup=True,
                 )
@@ -1529,12 +1667,7 @@ class KogniTermTUI(App):
         # También actualizar el splash si está visible
         try:
             model_info = self.query_one("#splash_model_info", Static)
-            display_model = model_name.split("/")[-1]
-            from kogniterm.terminal.themes import ColorPalette
-
-            model_info.update(
-                f"[{ColorPalette.TEXT_PRIMARY}]{display_model}[/{ColorPalette.TEXT_PRIMARY}]"
-            )
+            model_info.update(self._build_splash_model_text(model_name))
         except Exception:
             pass
 
@@ -2147,11 +2280,9 @@ class KogniTermTUI(App):
 
     def _setup_splash(self):
         """Configura el splash tras el primer layout (dimensiones y colores reales)."""
-        from kogniterm.terminal.themes import ColorPalette
+        tokens = self._get_surface_tokens()
+        p = tokens["palette"]
 
-        p = ColorPalette
-
-        # Actualizar título con el color actual del tema
         try:
             title_widget = self.query_one("#splash_title")
             title_widget.styles.background = "transparent"
@@ -2159,38 +2290,59 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-        # Quitar coloreado del borde izquierdo del input y model_info (eliminado)
+        try:
+            sub = self.query_one("#splash_subtitle")
+            sub.styles.color = p.TEXT_MUTED
+        except Exception:
+            pass
+
+        try:
+            ws_bar = self.query_one("#splash_workspace_bar")
+            ws_bar.update(self._build_splash_workspace_text())
+        except Exception:
+            pass
+
+        try:
+            card = self.query_one("#splash_card")
+            card.styles.background = tokens["surface"]
+            card.styles.border_left = ("thick", p.PRIMARY)
+        except Exception:
+            pass
+
+        try:
+            glyph = self.query_one("#splash_prompt_glyph")
+            glyph.styles.color = p.PRIMARY
+        except Exception:
+            pass
+
         try:
             input_row = self.query_one("#splash_input_row")
-            input_row.styles.background = p.GRAY_800
+            input_row.styles.background = "transparent"
         except Exception:
             pass
 
         try:
             model_info = self.query_one("#splash_model_info")
-            model_info.styles.background = p.GRAY_800
-            # Mostrar modo y modelo
-            display_model = self.llm_service.model_name.split("/")[-1]
-            model_info.update(f"[{p.TEXT_PRIMARY}]{display_model}[/{p.TEXT_PRIMARY}]")
+            model_info.styles.background = "transparent"
+            model_info.update(self._build_splash_model_text())
         except Exception:
             pass
 
         try:
             shortcuts = self.query_one("#splash_shortcuts")
             shortcuts.styles.color = p.TEXT_MUTED
+            shortcuts.update(self._build_splash_shortcuts_text())
         except Exception:
             pass
 
         try:
             splash_overlay = self.query_one("#splash_overlay")
-            splash_overlay.styles.background = p.GRAY_900
+            splash_overlay.styles.background = tokens["bg"]
         except Exception:
             pass
 
         # Enfocar el input del splash
         try:
-            # Buscar el widget por id en lugar de por tipo Input, ya que el
-            # `ChatInput` es un `TextArea` y puede no coincidir con `Input`.
             splash_input = self.query_one("#splash_chat_input")
             splash_input.focus()
         except Exception:
@@ -3457,6 +3609,51 @@ class KogniTermTUI(App):
                 style="yellow",
             )
 
+    def _get_surface_tokens(self) -> dict:
+        """Deriva tokens de superficie estilo OpenCode desde ColorPalette."""
+        from kogniterm.terminal.themes import ColorPalette
+
+        p = ColorPalette
+        is_dark = p.CURRENT_THEME != "light"
+        bg = p.GRAY_900 if is_dark else p.PRIMARY_LIGHTEST
+        surface = p.GRAY_800 if is_dark else p.GRAY_200
+        surface_alt = p.GRAY_700 if is_dark else p.GRAY_100
+        border = p.GRAY_700 if is_dark else p.GRAY_300
+        return {
+            "palette": p,
+            "is_dark": is_dark,
+            "bg": bg,
+            "surface": surface,
+            "surface_alt": surface_alt,
+            "border": border,
+        }
+
+    def _update_input_border_state(self) -> None:
+        """Actualiza el color del acento izquierdo del input según estado (auto-approve/busy/idle)."""
+        try:
+            from kogniterm.terminal.themes import ColorPalette
+
+            p = ColorPalette
+            if getattr(self, "_auto_approve_all", False):
+                accent = p.SUCCESS
+            elif getattr(self, "is_processing", False):
+                accent = p.WARNING
+            else:
+                accent = p.PRIMARY
+
+            try:
+                ic = self.query_one("#input_container")
+                ic.styles.border_left = ("thick", accent)
+            except Exception:
+                pass
+            try:
+                glyph = self.query_one("#input_prompt")
+                glyph.styles.color = accent
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def apply_theme(self, theme_name: str, persist: bool = True):
         """Aplica un tema visual a la aplicación Textual.
 
@@ -3473,40 +3670,29 @@ class KogniTermTUI(App):
             set_kogniterm_theme,
         )
 
-        # 0. Resolver "auto"/"default" según el sistema (claro->light,
-        #    oscuro->default). Se persiste la preferencia original para
-        #    seguir en automático en el próximo arranque.
         requested = (theme_name or "auto").strip().lower()
         effective = resolve_theme_name(requested)
-
-        # Recordar la preferencia (no el tema efectivo) para el vigilante
-        # de cambio de tema del sistema: solo reacciona en automático.
         self._theme_preference = requested
 
-        # 1. Aplicar tema a nivel de lógica (paleta global)
         set_kogniterm_theme(effective)
-        p = ColorPalette
-
-        # 2. Textual native dark mode (afecta a los widgets nativos).
-        #    Importante: usar el tema efectivo, no el pedido, porque
-        #    "default"/"auto" puede haber resuelto a "light".
-        self.dark = p.CURRENT_THEME != "light"
-
-        # 3. Aplicar colores a contenedores principales
-        bg_color = p.GRAY_900 if self.dark else p.PRIMARY_LIGHTEST
+        tokens = self._get_surface_tokens()
+        p = tokens["palette"]
+        self.dark = tokens["is_dark"]
+        bg_color = tokens["bg"]
+        surface_bg = tokens["surface"]
+        border_col = tokens["border"]
 
         self.screen.styles.background = bg_color
         self.styles.background = bg_color
-
-        # Color base del texto: varios widgets heredan el `color: white` del
-        # CSS y quedaban blancos sobre fondo claro. Se fija al tema actual.
-        # (ToolOutputWidget fija su propio color claro: su fondo es negro
-        # siempre, en ambos temas.)
         self.screen.styles.color = p.TEXT_PRIMARY
         self.styles.color = p.TEXT_PRIMARY
+
         try:
+            idx_box = self.query_one("#indexing_progress_container")
+            idx_box.styles.background = surface_bg
+            idx_box.styles.border_top = ("solid", border_col)
             self.query_one("#indexing_label").styles.color = (
-                "#9ca3af" if self.dark else p.TEXT_SECONDARY
+                p.TEXT_MUTED if self.dark else p.TEXT_SECONDARY
             )
         except Exception:
             pass
@@ -3517,11 +3703,11 @@ class KogniTermTUI(App):
         except Exception:
             pass
 
-        # 3b. Barra de pestañas: fondo transparente, borde y colores con el tema
+        # Barra de pestañas
         try:
             sessions_bar = self.query_one("#sessions_bar")
             sessions_bar.styles.background = "transparent"
-            sessions_bar.styles.border_bottom = ("solid", p.GRAY_700)
+            sessions_bar.styles.border_bottom = ("solid", border_col)
         except Exception:
             pass
         try:
@@ -3530,13 +3716,12 @@ class KogniTermTUI(App):
             new_btn.styles.color = p.SUCCESS
         except Exception:
             pass
-        # Reaplicar los colores de cada pestaña con la paleta nueva
         try:
             self._refresh_session_tabs()
         except Exception:
             pass
 
-        # 4. Estilizar los LOGS (uno por pestaña) y sus SCROLLBARS
+        # Logs por pestaña
         _logs = []
         try:
             for _s in self.list_sessions():
@@ -3554,53 +3739,68 @@ class KogniTermTUI(App):
             log.styles.scrollbar_color_hover = p.PRIMARY
             log.styles.scrollbar_color_active = p.PRIMARY_LIGHT
 
-        # 5. Estilizar contenedores secundarios
-        self.approval_container.styles.background = bg_color
+        # Contenedores secundarios y popups
+        self.approval_container.styles.background = "transparent"
         self.live_display.styles.background = bg_color
         self.live_display.styles.color = p.TEXT_PRIMARY
 
         bottom_container = self.query_one("#bottom_container")
         bottom_container.styles.background = bg_color
 
-        input_bg = p.GRAY_800 if self.dark else p.GRAY_200
-
-        # 6. Estilizar el INPUT CONTAINER
         try:
-            input_container = self.query_one("#input_container")
-            input_container.styles.background = input_bg
-            input_container.styles.border = None
-            input_container.styles.border_left = ("tall", p.PRIMARY)
+            tracker = self.query_one("#task_tracker_dock")
+            tracker.styles.background = surface_bg
+            tracker.styles.color = p.TEXT_PRIMARY
+            tracker.styles.border_left = ("thick", p.SECONDARY)
         except Exception:
             pass
 
-        # 7. Estilizar todos los inputs
+        try:
+            popup = self.query_one("#command_popup")
+            popup.styles.background = surface_bg
+            popup.styles.border = ("round", p.PRIMARY)
+        except Exception:
+            pass
+
+        # Input container
+        try:
+            input_container = self.query_one("#input_container")
+            input_container.styles.background = surface_bg
+            input_container.styles.border = None
+            self._update_input_border_state()
+        except Exception:
+            pass
+
+        # Inputs
         for inp in self.query(ChatInput):
             inp.styles.color = p.TEXT_PRIMARY
             inp.styles.background = "transparent"
             inp.show_cursor_line = False
             inp.cursor_line_style = ""
 
-        # 8. Estilizar STATUS FOOTER
+        # StatusFooter
         for sf in self.query(StatusFooter):
             sf.styles.background = "transparent"
             sf.styles.border = None
             sf.styles.border_left = None
             sf.styles.color = p.TEXT_SECONDARY
+            try:
+                sf.refresh_theme()
+            except Exception:
+                pass
 
-        # 9. Splash overlay (si aún está visible)
+        # Splash overlay (si aún está visible)
         if self._splash_visible:
             try:
                 self.query_one("#splash_overlay").styles.background = bg_color
-                self.query_one("#splash_input_row").styles.border_left = (
-                    "tall",
-                    p.PRIMARY,
-                )
-                self.query_one("#splash_input_row").styles.background = p.GRAY_800
-                self.query_one("#splash_model_info").styles.border_left = (
-                    "tall",
-                    p.PRIMARY,
-                )
-                self.query_one("#splash_model_info").styles.background = p.GRAY_800
+                self.query_one("#splash_card").styles.background = surface_bg
+                self.query_one("#splash_card").styles.border_left = ("thick", p.PRIMARY)
+                self.query_one("#splash_prompt_glyph").styles.color = p.PRIMARY
+                self.query_one("#splash_input_row").styles.background = "transparent"
+                self.query_one("#splash_model_info").styles.background = "transparent"
+                self.query_one("#splash_model_info").update(self._build_splash_model_text())
+                self.query_one("#splash_workspace_bar").update(self._build_splash_workspace_text())
+                self.query_one("#splash_shortcuts").update(self._build_splash_shortcuts_text())
                 self.query_one("#splash_title").update(self._build_splash_title())
             except Exception:
                 pass
@@ -3662,6 +3862,7 @@ class KogniTermTUI(App):
 
         self._spinner_frame = 0
         self.live_display.display = True  # Asegurar que sea visible
+        self._update_input_border_state()
         self.live_display.update(
             Text(
                 f"{self.SPINNER_FRAMES[0]} Procesando...",
@@ -3709,6 +3910,7 @@ class KogniTermTUI(App):
 
         # Cuando se detiene el spinner, finalizamos cualquier stream en el log
         self.chat_log.stop_stream()
+        self._update_input_border_state()
 
         # Enfocar el input principal para permitir seguir escribiendo tras el fin de la respuesta
         # Solo lo hacemos si no estamos en un modo que requiera foco en otro lado (como terminal interactiva)
@@ -4189,6 +4391,12 @@ class KogniTermTUI(App):
             footer.set_auto_approve(active)
         except Exception:
             pass
+        self._update_input_border_state()
+        if getattr(self, "_splash_visible", False):
+            try:
+                self.query_one("#splash_model_info").update(self._build_splash_model_text())
+            except Exception:
+                pass
 
     def action_toggle_auto_approve(self) -> None:
         """Conmuta el estado de auto-aprobación mediante atajo de teclado (Shift+Tab)."""
@@ -5364,22 +5572,20 @@ class KogniTermTUI(App):
         (o rojo si la pestaña está ocupada).
         """
         try:
-            from kogniterm.terminal.themes import ColorPalette as P
+            tokens = self._get_surface_tokens()
+            P = tokens["palette"]
 
             is_active = session.session_id == self._active_session_id
             is_busy = bool(session.is_processing) or int(
                 getattr(session, "pending_approvals", 0) or 0
             ) > 0
-            contrast = "#ffffff" if self.dark else getattr(P, "GRAY_900", "#111827")
 
             if is_active:
-                btn.styles.background = P.PRIMARY
-                btn.styles.color = contrast
+                btn.styles.background = tokens["surface"]
+                btn.styles.color = P.WARNING if is_busy else P.TEXT_PRIMARY
             else:
                 btn.styles.background = "transparent"
-                # Solo color: un borde en un botón de 1 fila se comería el
-                # alto y dejaría el nombre invisible.
-                btn.styles.color = P.WARNING if is_busy else P.TEXT_SECONDARY
+                btn.styles.color = P.WARNING if is_busy else P.TEXT_MUTED
 
             try:
                 close_btn = wrap.query_one(

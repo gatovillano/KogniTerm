@@ -32,42 +32,60 @@ class StatusFooter(Static):
         except Exception:
             return None
             
-    def compose(self) -> ComposeResult:
+    def _build_left_text(self) -> str:
+        from kogniterm.terminal.themes import ColorPalette
+
         current_dir = self._get_current_dir()
         branch = self._get_git_branch()
-        
-        # Mostrar branch si hay repo git, si no solo el directorio
         if branch:
-            left_text = f" {branch}  🗂️ {current_dir}"
-        else:
-            left_text = f"🗂️ {current_dir}"
-            
-        display_model = self.model_name.split("/")[-1]
+            return (
+                f"[{ColorPalette.PRIMARY}]⎇ {branch}[/{ColorPalette.PRIMARY}]"
+                f"  [{ColorPalette.TEXT_MUTED}]◫ {current_dir}[/{ColorPalette.TEXT_MUTED}]"
+            )
+        return f"[{ColorPalette.TEXT_MUTED}]◫ {current_dir}[/{ColorPalette.TEXT_MUTED}]"
+
+    def _build_middle_text(self) -> str:
+        from kogniterm.terminal.themes import ColorPalette
+
+        dim = ColorPalette.TEXT_DIM
+        return f"[{dim}]^K tareas · ^N nueva · Esc parar[/{dim}]"
+
+    def _build_right_text(self) -> str:
+        from kogniterm.terminal.themes import ColorPalette
+
+        display_model = (self.model_name or "").split("/")[-1]
         server_active = getattr(self.app, "_server_mode", False)
-        mode_label = "[green]● Servidor[/]" if server_active else "[yellow]● Local[/]"
-        indicator = " [dim]⇥ Shift+Tab para auto-aceptar[/dim]"
-        right_text = f"{mode_label}  {display_model} 🤖{indicator}"
-        
-        yield Static(left_text, id="footer_left", markup=True)
-        yield Static("", id="footer_middle", markup=True)
-        yield Static(right_text, id="footer_right", markup=True)
+        mode_label = (
+            f"[{ColorPalette.SUCCESS}]● Server[/]"
+            if server_active
+            else f"[{ColorPalette.WARNING}]● Local[/]"
+        )
+        model_pill = f"[{ColorPalette.TEXT_PRIMARY}]◆ {display_model}[/]"
+        if self._auto_approve_active:
+            indicator = f" [{ColorPalette.SUCCESS} bold]⚡ Auto ON[/]"
+        else:
+            indicator = f" [{ColorPalette.TEXT_DIM}]⇥ Shift+Tab[/]"
+        return f"{mode_label}  {model_pill}  {indicator}"
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._build_left_text(), id="footer_left", markup=True)
+        yield Static(self._build_middle_text(), id="footer_middle", markup=True)
+        yield Static(self._build_right_text(), id="footer_right", markup=True)
+
+    def refresh_theme(self):
+        """Re-renderiza las tres secciones del footer con la paleta del tema activo."""
+        try:
+            self.query_one("#footer_left", Static).update(self._build_left_text())
+            self.query_one("#footer_middle", Static).update(self._build_middle_text())
+            self.query_one("#footer_right", Static).update(self._build_right_text())
+        except Exception:
+            pass
 
     def update_model(self, new_model: str):
         """Actualiza el nombre del modelo mostrado en el footer."""
         self.model_name = new_model
-        server_active = getattr(self.app, "_server_mode", False)
-        mode_label = "[green]● Servidor[/]" if server_active else "[yellow]● Local[/]"
-        display_model = new_model.split("/")[-1]
-        
-        if self._auto_approve_active:
-            from kogniterm.terminal.themes import ColorPalette
-            indicator = f" [bold {ColorPalette.SUCCESS}]⇥ Auto-aceptación ON[/]"
-        else:
-            indicator = f" [dim]⇥ Shift+Tab para auto-aceptar[/dim]"
-            
-        right_text = f"{mode_label}  {display_model} 🤖{indicator}"
         try:
-            self.query_one("#footer_right", Static).update(right_text)
+            self.query_one("#footer_right", Static).update(self._build_right_text())
         except Exception:
             pass
 
@@ -75,23 +93,11 @@ class StatusFooter(Static):
         """Actualiza el estado de auto-aceptación y refresca el footer."""
         self._auto_approve_active = active
         self._update_auto_approve_indicator()
-    
+
     def _update_auto_approve_indicator(self):
         """Actualiza el indicador visual de auto-aceptación en el footer."""
         try:
-            from kogniterm.terminal.themes import ColorPalette
-            server_active = getattr(self.app, "_server_mode", False)
-            mode_label = "[green]● Servidor[/]" if server_active else "[yellow]● Local[/]"
-            
-            if self._auto_approve_active:
-                indicator = f" [bold {ColorPalette.SUCCESS}]⇥ Auto-aceptación ON[/]"
-            else:
-                indicator = f" [dim]⇥ Shift+Tab para auto-aceptar[/dim]"
-                
-            # Actualizar el footer derecho con el indicador
-            footer_right = self.query_one("#footer_right", Static)
-            display_model = self.model_name.split("/")[-1]
-            footer_right.update(f"{mode_label}  {display_model} 🤖{indicator}")
+            self.query_one("#footer_right", Static).update(self._build_right_text())
         except Exception:
             pass
 

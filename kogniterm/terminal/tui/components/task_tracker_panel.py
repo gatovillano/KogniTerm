@@ -119,23 +119,38 @@ class TaskTrackerPanelWidget(Static):
 
     def _summary_line(self) -> Text:
         s = self.get_summary()
-        if s["total"] and s["done"] >= s["total"]:
-            icon, label = "✅", "Tareas completadas"
+        total = max(1, s["total"])
+        done = s["done"]
+        if s["total"] and done >= s["total"]:
+            icon, icon_style, label = "✓", ColorPalette.SUCCESS, "Tareas completadas"
         elif any(
             t.get("status") == "in-progress"
             for tasks in (self.tasks_data or {}).values()
             for t in (tasks or [])
         ):
-            icon, label = "🔄", "Tareas"
+            icon, icon_style, label = "◐", ColorPalette.PRIMARY, "Tareas"
         else:
-            icon, label = "⏳", "Tareas"
+            icon, icon_style, label = "○", ColorPalette.TEXT_MUTED, "Tareas"
+
         arrow = "▾" if self.expanded else "▸"
+        bar_width = 8
+        filled = round((done / total) * bar_width)
+        bar_filled = "█" * filled
+        bar_empty = "░" * (bar_width - filled)
+
         text = Text()
-        text.append(f"{arrow} ☰ {label} {s['done']}/{s['total']}", style=f"bold {ColorPalette.SECONDARY}")
+        text.append(f"{arrow} ", style=f"bold {ColorPalette.PRIMARY}")
+        text.append(f"{label} ", style=f"bold {ColorPalette.TEXT_PRIMARY}")
+        text.append(f"{done}/{s['total']} ", style=f"bold {ColorPalette.SECONDARY}")
+        text.append(bar_filled, style=ColorPalette.PRIMARY)
+        text.append(bar_empty, style=ColorPalette.TEXT_DIM)
         if s["current"] and not self.expanded:
-            short = s["current"] if len(s["current"]) <= 60 else s["current"][:57] + "…"
-            text.append(f"  ·  {icon} {short}", style=ColorPalette.TEXT_MUTED)
-        text.append("  (click o Enter para desplegar)" if not self.expanded else "  (click para replegar)", style="dim")
+            short = s["current"] if len(s["current"]) <= 56 else s["current"][:53] + "…"
+            text.append("  ·  ", style=ColorPalette.TEXT_DIM)
+            text.append(f"{icon} ", style=icon_style)
+            text.append(short, style=ColorPalette.TEXT_MUTED)
+        hint = "  ^K" if not self.expanded else "  ^K replegar"
+        text.append(hint, style="dim")
         return text
 
     # ── Render ───────────────────────────────────────────────────
@@ -178,14 +193,14 @@ class TaskTrackerPanelWidget(Static):
                 task_text = task.get("task", "")
 
                 if status == "done":
-                    style = "strike #525252"
-                    status_icon = "✅"
+                    style = f"strike {ColorPalette.TEXT_DIM}"
+                    status_icon = f"[{ColorPalette.SUCCESS}]✓[/]"
                 elif status == "in-progress":
-                    style = "bold cyan"
-                    status_icon = "🔄"
+                    style = f"bold {ColorPalette.PRIMARY}"
+                    status_icon = f"[{ColorPalette.PRIMARY}]◐[/]"
                 else:
                     style = ColorPalette.TEXT_PRIMARY
-                    status_icon = "⏳"
+                    status_icon = f"[{ColorPalette.TEXT_MUTED}]○[/]"
 
                 table.add_row(status_icon, f"[{style}]{task_text}[/]")
 

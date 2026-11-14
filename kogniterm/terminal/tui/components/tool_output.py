@@ -31,14 +31,17 @@ class ToolOutputWidget(Static):
         height: auto;
         min-height: 5;
         max-height: 100%;
-        border: solid #4b5563;
+        border: round #2e3440;
+        border-title-align: left;
+        border-title-color: #9ca3af;
         margin: 0 0 1 0;
-        padding: 0;
-        background: #000000;
+        padding: 0 1;
+        background: #0d1117;
         /* La terminal se mantiene oscura en ambos temas: el texto por
            defecto debe ser claro siempre, si no hereda el color del Screen
            (oscuro en tema claro) y queda invisible sobre negro. */
         color: #f9fafb;
+        scrollbar-size: 1 1;
         scrollbar-gutter: stable;
         overflow-y: scroll;
         overflow-x: hidden;
@@ -53,7 +56,8 @@ class ToolOutputWidget(Static):
     }
     
     ToolOutputWidget:focus {
-        border: solid #10b981; /* emerald green */
+        border: round #10b981; /* emerald green */
+        border-title-color: #10b981;
     }
     """
     
@@ -81,10 +85,10 @@ class ToolOutputWidget(Static):
             
         if self.command:
             # Truncar el comando si es muy largo para que quepa en el título
-            cmd_display = self.command if len(self.command) <= 60 else self.command[:57] + "..."
-            self.border_title = f"{Icons.TERMINAL} Terminal — $ {cmd_display}"
+            cmd_display = self.command if len(self.command) <= 64 else self.command[:61] + "…"
+            self.border_title = f"⚡ $ {cmd_display}"
         else:
-            self.border_title = f"{Icons.TERMINAL} Terminal: {self.tool_name}"
+            self.border_title = f"⚙ {self.tool_name}"
 
     def on_mount(self):
         self._update_title()

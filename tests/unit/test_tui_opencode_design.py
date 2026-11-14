@@ -1,0 +1,66 @@
+import pytest
+from unittest.mock import MagicMock
+from kogniterm.terminal.tui.tui_app import KogniTermTUI
+from kogniterm.terminal.tui.components.status_footer import StatusFooter
+from kogniterm.terminal.tui.components.task_tracker_panel import TaskTrackerPanelWidget
+
+
+@pytest.mark.anyio
+async def test_opencode_splash_and_theme_surfaces():
+    """Verifica el card del splash, tokens de superficie y cambio de tema."""
+    llm_service = MagicMock()
+    llm_service.model_name = "anthropic/claude-sonnet-4"
+    app = KogniTermTUI(llm_service=llm_service)
+
+    async with app.run_test(size=(120, 35)) as pilot:
+        await pilot.pause()
+
+        assert app.query_one("#splash_card") is not None
+        assert app.query_one("#splash_workspace_bar") is not None
+        assert app.query_one("#splash_subtitle") is not None
+        assert app.query_one("#splash_prompt_glyph") is not None
+        assert app.query_one("#input_prompt") is not None
+
+        # Aplicar tema oscuro y tema claro sin persistir
+        app.apply_theme("dracula", persist=False)
+        await pilot.pause()
+        assert app.dark is True
+
+        app.apply_theme("light", persist=False)
+        await pilot.pause()
+        assert app.dark is False
+
+
+@pytest.mark.anyio
+async def test_opencode_auto_approve_footer_and_border():
+    """Verifica el indicador de auto-aprobación en StatusFooter y borde del input."""
+    llm_service = MagicMock()
+    llm_service.model_name = "openai/gpt-4o"
+    app = KogniTermTUI(llm_service=llm_service)
+
+    async with app.run_test(size=(120, 35)) as pilot:
+        await pilot.pause()
+        footer = app.query_one(StatusFooter)
+
+        app.set_auto_approve_all(True)
+        await pilot.pause()
+        assert "Auto ON" in footer._build_right_text()
+
+        app.set_auto_approve_all(False)
+        await pilot.pause()
+        assert "Shift+Tab" in footer._build_right_text()
+
+
+def test_task_tracker_progress_bar():
+    """Verifica que el resumen de tareas incluye la barra de progreso."""
+    widget = TaskTrackerPanelWidget()
+    widget.update_tasks({
+        "agent": [
+            {"task": "Analizar código", "status": "done"},
+            {"task": "Aplicar mejoras", "status": "in-progress"},
+        ]
+    })
+    summary_text = widget._summary_line().plain
+    assert "1/2" in summary_text
+    assert "█" in summary_text
+    assert "░" in summary_text
