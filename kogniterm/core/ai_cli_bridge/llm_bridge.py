@@ -224,6 +224,7 @@ class LLMBridge:
             call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
             call_kwargs["messages"] = messages
             call_kwargs.update(provider_kwargs)
+            logger.debug("LLMBridge payload: model=%s messages=%s tools=%s", resolved_model, len(messages), len(tool_schemas or []))
 
             accumulated_content = ""
             tool_calls_dict: Dict[int, Dict[str, Any]] = {}
