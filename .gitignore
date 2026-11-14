@@ -43,11 +43,22 @@ kogniterm4.cast
 kogniterm.egg-info/
 .temp_build/
 *.egg-info/
+test_wheel.zip
+
+# Reportes/artefactos locales generados
+bandit*.json
+cleanup_report_dry.txt
+cleanup_report.txt
+*.cast
 
 # Archivos temporales
 *.swp
 *.swo
 *~
+*.bak
+*.backup
+*.backup_full
+*.orig
 image-1.png
 
 # Auth local

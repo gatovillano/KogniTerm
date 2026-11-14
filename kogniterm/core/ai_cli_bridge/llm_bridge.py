@@ -82,6 +82,45 @@ def _parse_text_tool_calls(text: str) -> Tuple[List[Dict[str, Any]], str]:
     return tool_calls, clean_text.strip()
 
 
+def _build_retry_window(messages: List[Dict[str, Any]], max_keep: int = 20) -> List[Dict[str, Any]]:
+    """Ventana deslizante segura para el reintento tras un BadRequest.
+
+    Conserva:
+    - El system message (si existe) siempre como primero.
+    - Los últimos `max_keep` mensajes del cuerpo, alineados para NO empezar a
+      mitad de un turno: si el corte cae sobre un assistant/tool, avanza hasta
+      el siguiente `user` (un turno de usuario abre siempre la ventana).
+    """
+    n = len(messages)
+    if n <= max_keep:
+        return list(messages)
+
+    has_system = bool(messages) and messages[0].get("role") == "system"
+    body = messages[1:] if has_system else messages
+
+    start = max(0, len(body) - max_keep)
+    # Nunca empezar a mitad de un par assistant(tool_calls)+tool: si el corte
+    # cae sobre un assistant/tool, preferir el último `user` ANTERIOR al corte
+    # (el turno completo cabe y conserva contexto); si no hay ninguno, avanzar
+    # al siguiente `user`; como último recurso, el último mensaje.
+    if body[start].get("role") != "user":
+        prev_user = None
+        for i in range(start, -1, -1):
+            if body[i].get("role") == "user":
+                prev_user = i
+                break
+        if prev_user is not None and prev_user > 0:
+            start = prev_user
+        else:
+            while start < len(body) and body[start].get("role") != "user":
+                start += 1
+            if start >= len(body):
+                start = max(0, len(body) - 1)
+
+    window = ([messages[0]] if has_system else []) + list(body[start:])
+    return window
+
+
 _CONTINUATION_PATTERNS = [
     re.compile(r"\b(ahora|a continuación|seguidamente|paso siguiente|próximo paso|paso \d+|step \d+)\b", re.IGNORECASE),
     re.compile(r"\b(voy a|vamos a|procedo a|procederé a|empezaré a|comenzaré a)\s+(ejecutar|crear|modificar|revisar|leer|instalar|verificar|analizar|probar|hacer|buscar|editar|implementar|corregir|aplicar)", re.IGNORECASE),
@@ -245,7 +284,10 @@ class LLMBridge:
                 if mm.get("tool_calls") == [] or mm.get("tool_calls") is None:
                     mm.pop("tool_calls", None)
                 sanitized.append(mm)
-            messages = sanitized
+            # Reemplazo IN-PLACE: el llamador (execute_stream) comparte esta
+            # lista entre continuaciones y sus tests esperan que los
+            # assistant/tool añadidos durante el bucle queden en ella.
+            messages[:] = sanitized
             call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
             call_kwargs["messages"] = messages
             call_kwargs.update(provider_kwargs)
@@ -411,14 +453,31 @@ class LLMBridge:
                 yield {"type": "error", "message": f"Error de autenticación: {exc}"}
                 return
             except BadRequestError as exc:
-                # Reintento automático: sanear historial y reintentar una vez para
+                # Reintento automático con degradación progresiva del contexto para
                 # evitar que el hilo quede atrapado en un bucle de errores.
+                #
+                # IMPORTANTE: nunca destruir el historial completo de golpe. Los
+                # gateways "stealth" (p.ej. kilocode/stealth/*) fallan con 400
+                # genérico ("The stealth model could not complete the request")
+                # de forma intermitente incluso con payloads que antes
+                # funcionaban. Reducir a 1 mensaje en el intento 2 hacía que el
+                # agente respondiera sin NINGÚN contexto en cada turno
+                # ("pierde el historial tras cada mensaje"). Ahora la escalera es:
+                #   1) pop de assistant/tool finales (turno a medio terminar)
+                #   2) ventana deslizante: system + últimos N mensajes alineados
+                #      a un turno de usuario (conserva contexto reciente)
+                #   3) último recurso: solo el último mensaje del usuario
                 retries = getattr(self, "_bad_request_retries", 0)
-                if retries < 2:
+                if retries < 3:
                     self._bad_request_retries = retries + 1
                     if retries == 0:
                         while messages and messages[-1].get("role") in ("assistant", "tool"):
                             messages.pop()
+                    elif retries == 1:
+                        trimmed = _build_retry_window(messages, max_keep=int(
+                            os.getenv("KOGNITERM_BADREQUEST_WINDOW", "20")
+                        ))
+                        messages[:] = trimmed
                     else:
                         # Último recurso: conservar solo el último mensaje del usuario
                         last_user = None
@@ -427,7 +486,10 @@ class LLMBridge:
                                 last_user = m
                                 break
                         messages[:] = [last_user] if last_user else messages[-1:]
-                    logger.warning("BadRequest en LLMBridge: historial saneado (intento %s), reintentando.", retries + 1)
+                    logger.warning(
+                        "BadRequest en LLMBridge (intento %s): historial reducido a %s mensajes. Detalle proveedor: %s",
+                        retries + 1, len(messages), exc,
+                    )
                     continue
                 self._bad_request_retries = 0
                 yield {"type": "error", "message": f"Petición inválida al modelo (Bad Request): {exc}"}

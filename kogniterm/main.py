@@ -1,3 +1,15 @@
-# Este archivo ya no es el punto de entrada principal de KogniTerm.
-# La lógica de inicio se ha movido a kogniterm/terminal/terminal.py
-# para unificar el punto de entrada.
+"""Compatibilidad de punto de entrada.
+
+Este módulo no contiene la lógica principal de arranque. Los entrypoints
+oficiales del proyecto son:
+- CLI/TUI: `kogniterm.terminal.terminal:main` (script `kogniterm`)
+- Servidor: `kogniterm.server.__main__:main` (script `kogniterm-server`)
+
+Ver `pyproject.toml` ([project.scripts]) como fuente canónica.
+"""
+
+from kogniterm.terminal.terminal import main
+
+
+if __name__ == "__main__":
+    main()
