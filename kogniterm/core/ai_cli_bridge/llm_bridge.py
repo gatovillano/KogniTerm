@@ -221,6 +221,31 @@ class LLMBridge:
                 return
 
             step_count += 1
+            # Sanitizar mensajes antes de enviar: eliminar campos que provocan 400
+            # en proveedores no compatibles (reasoning_content, thought_signature,
+            # tool_calls vacíos, contenido no textual, etc.).
+            sanitized = []
+            is_reasoning = any(k in (resolved_model or "").lower() for k in ("gemini", "thinking", "reason", "o1", "o3", "r1"))
+            for m in (messages or []):
+                if not isinstance(m, dict):
+                    sanitized.append(m)
+                    continue
+                mm = dict(m)
+                # Eliminar reasoning_content si el modelo no es de razonamiento
+                if "reasoning_content" in mm and not is_reasoning:
+                    mm.pop("reasoning_content", None)
+                # thought_signature solo para Gemini/Antigravity
+                if "thought_signature" in mm and "gemini" not in (resolved_model or "").lower() and "antigravity" not in (resolved_model or "").lower():
+                    mm.pop("thought_signature", None)
+                # Normalizar content a texto si no es str/list
+                c = mm.get("content")
+                if c is not None and not isinstance(c, (str, list)):
+                    mm["content"] = str(c)
+                # Eliminar tool_calls vacíos
+                if mm.get("tool_calls") == [] or mm.get("tool_calls") is None:
+                    mm.pop("tool_calls", None)
+                sanitized.append(mm)
+            messages = sanitized
             call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
             call_kwargs["messages"] = messages
             call_kwargs.update(provider_kwargs)
