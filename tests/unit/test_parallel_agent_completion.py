@@ -3,14 +3,13 @@ from unittest.mock import MagicMock, patch
 from kogniterm.core.delegation import DelegationManager, AgentRole
 from kogniterm.core.agent_state import AgentState
 from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
+from pathlib import Path
 import importlib.util
 import sys
 
 def _load_parallel_tool():
-    spec = importlib.util.spec_from_file_location(
-        "call_agents_parallel_tool",
-        "/home/gato/Proyectos/Gemini-Interpreter/kogniterm/skills/bundled/call-agents-parallel/scripts/tool.py"
-    )
+    tool_path = Path(__file__).resolve().parent.parent.parent / "kogniterm" / "skills" / "bundled" / "call-agents-parallel" / "scripts" / "tool.py"
+    spec = importlib.util.spec_from_file_location("call_agents_parallel_tool", str(tool_path))
     module = importlib.util.module_from_spec(spec)
     sys.modules["call_agents_parallel_tool"] = module
     spec.loader.exec_module(module)
