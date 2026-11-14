@@ -224,7 +224,14 @@ class LLMBridge:
             call_kwargs = self._build_litellm_kwargs(tools=tool_schemas, model=resolved_model)
             call_kwargs["messages"] = messages
             call_kwargs.update(provider_kwargs)
-            logger.debug("LLMBridge payload: model=%s messages=%s tools=%s", resolved_model, len(messages), len(tool_schemas or []))
+            import json as _json
+            try:
+                _dump = {"model": resolved_model, "messages": messages, "tools_count": len(tool_schemas or [])}
+                with open("/tmp/opencode/llm_payload_dump.json", "w", encoding="utf-8") as _f:
+                    _json.dump(_dump, _f, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pass
+            logger.warning("LLMBridge payload: model=%s messages=%s tools=%s (dump: /tmp/opencode/llm_payload_dump.json)", resolved_model, len(messages), len(tool_schemas or []))
 
             accumulated_content = ""
             tool_calls_dict: Dict[int, Dict[str, Any]] = {}
