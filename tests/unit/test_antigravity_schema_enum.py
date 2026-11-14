@@ -42,3 +42,48 @@ def test_normalize_tool_parameters_schema_converts_numeric_enums():
     assert normalized["properties"]["ttl"]["enum"] == ["86400", "604800", "2592000"]
     assert normalized["properties"]["category"]["enum"] == ["1", "2", "3"]
     assert normalized["properties"]["category"]["type"] == "string"
+
+
+def test_antigravity_client_map_tools_strips_property_names():
+    # Regression: la API de Antigravity (Gemini protobuf) rechaza "propertyNames" con 400
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "write_tags",
+            "description": "Writes tags",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "metadata": {
+                        "type": "object",
+                        "propertyNames": {"type": "string", "pattern": "^[a-z]+$"},
+                        "patternProperties": {"^x-": {"type": "string"}},
+                        "additionalProperties": {"type": "string"},
+                    }
+                }
+            }
+        }
+    }]
+    mapped = AntigravityClient.map_tools(tools)
+    assert mapped is not None
+    decl = mapped[0]["functionDeclarations"][0]
+    metadata = decl["parameters"]["properties"]["metadata"]
+    assert "propertyNames" not in metadata
+    assert "patternProperties" not in metadata
+    assert "additionalProperties" not in metadata
+    assert metadata["type"] == "OBJECT"
+
+
+def test_normalize_tool_parameters_schema_strips_property_names():
+    schema = {
+        "type": "object",
+        "properties": {
+            "options": {
+                "type": "object",
+                "propertyNames": {"type": "string"},
+                "additionalProperties": {"type": "string"},
+            }
+        }
+    }
+    normalized = normalize_tool_parameters_schema(schema)
+    assert "propertyNames" not in normalized["properties"]["options"]

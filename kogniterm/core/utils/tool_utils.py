@@ -73,6 +73,16 @@ def normalize_tool_parameters_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
         node.pop("$defs", None)
         node.pop("default", None)
 
+        # Keywords de JSON Schema no soportados por APIs estrictas (Google/Gemini):
+        for keyword in (
+            "propertyNames", "patternProperties", "minProperties", "maxProperties",
+            "uniqueItems", "contains", "minContains", "maxContains",
+            "dependentRequired", "dependentSchemas", "unevaluatedProperties",
+            "unevaluatedItems", "prefixItems", "not", "multipleOf",
+            "exclusiveMinimum", "exclusiveMaximum",
+        ):
+            node.pop(keyword, None)
+
         properties = node.get("properties")
         if isinstance(properties, dict):
             clean_props = {}

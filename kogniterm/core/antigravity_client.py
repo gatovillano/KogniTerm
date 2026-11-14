@@ -559,7 +559,15 @@ class AntigravityClient:
                 disallowed_keys = {
                     "$schema", "$ref", "title", "default", "additionalProperties",
                     "examples", "definitions", "$defs", "markdownDescription",
-                    "allOf", "anyOf", "oneOf", "const", "format", "id"
+                    "allOf", "anyOf", "oneOf", "const", "format", "id",
+                    # Keywords de JSON Schema no soportados por la API de Gemini (protobuf):
+                    "propertyNames", "patternProperties", "minProperties", "maxProperties",
+                    "uniqueItems", "contains", "minContains", "maxContains",
+                    "dependentRequired", "dependentSchemas", "unevaluatedProperties",
+                    "unevaluatedItems", "prefixItems", "not",
+                    "if", "then", "else", "multipleOf",
+                    "exclusiveMinimum", "exclusiveMaximum",
+                    "readOnly", "writeOnly", "deprecated", "$anchor", "$id",
                 }
                 
                 new_schema = {}
