@@ -176,10 +176,9 @@ class LLMBridge:
         }
         if tools:
             kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
-            # Habilitar llamadas a herramientas en paralelo (OpenAI-style).
-            # litellm.drop_params=True lo descarta en proveedores que no lo soporten.
-            kwargs["parallel_tool_calls"] = True
+            # No forzar tool_choice incondicionalmente: algunos proveedores (Gemini,
+            # Antigravity, modelos "stealth") rechazan 400 Bad Request con tool_choice.
+            # litellm.drop_params=True gestiona los parámetros no soportados.
         return kwargs
 
     async def execute_tool_call(self, tool_name: str, args: Dict[str, Any]) -> Any:
@@ -207,6 +206,7 @@ class LLMBridge:
             return False
 
         target_model = model or self.model
+        self._bad_request_retried = False
         tool_schemas = tools if tools is not None else self.adapter.get_schemas_for_litellm()
         resolved_model, provider_kwargs = self._resolve_model_provider(target_model)
 
@@ -378,6 +378,17 @@ class LLMBridge:
                 yield {"type": "error", "message": f"Error de autenticación: {exc}"}
                 return
             except BadRequestError as exc:
+                # Reintento automático: sanear historial y reintentar una vez para
+                # evitar que el hilo quede atrapado en un bucle de errores.
+                if not getattr(self, "_bad_request_retried", False):
+                    self._bad_request_retried = True
+                    # Eliminar los últimos mensajes del asistente/herramientas que
+                    # suelen causar el 400 (tool calls sin respuesta, etc.)
+                    while messages and messages[-1].get("role") in ("assistant", "tool"):
+                        messages.pop()
+                    logger.warning("BadRequest en LLMBridge: historial saneado, reintentando una vez.")
+                    continue
+                self._bad_request_retried = False
                 yield {"type": "error", "message": f"Petición inválida al modelo (Bad Request): {exc}"}
                 return
             except (RateLimitError, ServiceUnavailableError, APIConnectionError) as exc:
