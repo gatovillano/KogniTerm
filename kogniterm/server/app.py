@@ -3761,17 +3761,24 @@ def create_app() -> FastAPI:
             "auto_approve": session.resolve_auto_approve(),
         }
 
+        # Registro explícito del consumidor (antes de iniciar el relay) para
+        # poder re-emitir los eventos perdidos durante la desconexión y
+        # garantizar la desregistración aunque el relay nunca arranque.
+        event_queue, missed_events = session.ui.register_consumer()
+        relay_task: Optional[asyncio.Task] = None
+
         # Tarea A: relay de eventos del agente → cliente WS
         async def relay_events():
             try:
-                async for event in session.ui.events():
+                while True:
+                    event = await event_queue.get()
                     await websocket.send_json(event)
             except WebSocketDisconnect:
                 logger.info(f"[WS:{session_id}] relay_events: cliente desconectado")
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 logger.warning(f"[WS:{session_id}] relay_events terminado: {exc}")
-
-        relay_task = asyncio.create_task(relay_events())
 
         # Tarea B: enviar estado inicial y recibir mensajes del cliente
         try:
@@ -3793,6 +3800,38 @@ def create_app() -> FastAPI:
                     },
                 }
             )
+
+            # Replay de eventos perdidos mientras no había clientes conectados
+            # (el agente pudo seguir trabajando durante la desconexión).
+            try:
+                pending_requests = session.ui.pending_request_events()
+                pending_ids = {
+                    req["data"].get("id")
+                    for req in pending_requests
+                    if isinstance(req.get("data"), dict)
+                }
+                for event in missed_events:
+                    # No duplicar solicitudes que se re-emiten más abajo como pendientes.
+                    if (
+                        event.get("type")
+                        in ("approval_required", "question_required", "password_required")
+                        and isinstance(event.get("data"), dict)
+                        and event["data"].get("id") in pending_ids
+                    ):
+                        continue
+                    await websocket.send_json(event)
+                # Re-emitir solicitudes bloqueantes aún pendientes: sin esto, un
+                # worker esperando una aprobación cuya pregunta se perdió en la
+                # desconexión queda colgado para siempre.
+                for req_event in pending_requests:
+                    await websocket.send_json(req_event)
+            except WebSocketDisconnect:
+                raise
+            except Exception as exc:
+                logger.warning(f"[WS:{session_id}] No se pudo re-emitir el backlog: {exc}")
+
+            relay_task = asyncio.create_task(relay_events())
+
             while True:
                 raw = await websocket.receive_text()
                 try:
@@ -3916,11 +3955,31 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.error(f"[WS:{session_id}] Error inesperado: {exc}")
         finally:
-            relay_task.cancel()
+            if relay_task is not None:
+                relay_task.cancel()
+                try:
+                    await relay_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+            # Desregistrar el consumidor de forma explícita (idempotente):
+            # el relay pudo morir antes de limpiar su propia cola.
             try:
-                await relay_task
-            except asyncio.CancelledError:
+                session.ui.unregister_consumer(event_queue)
+            except Exception:
                 pass
+            # Si era el último cliente de la sesión y el agente sigue en
+            # ejecución, desbloquear el turno (cancela aprobaciones/preguntas
+            # pendientes). Sin esto, una desconexión a mitad de turno deja la
+            # sesión clavada en is_running=True para siempre.
+            try:
+                if session.ui.consumer_count() == 0:
+                    session.on_client_disconnect()
+            except Exception as exc:
+                logger.warning(
+                    f"[WS:{session_id}] Error en limpieza de desconexión: {exc}"
+                )
 
     return application
 

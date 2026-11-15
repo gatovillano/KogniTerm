@@ -14,6 +14,7 @@ import queue
 import threading
 import time
 import uuid
+from collections import deque
 
 import os
 import re
@@ -334,6 +335,25 @@ class ServerUI(TerminalUI):
         self.active_terminal_entries: list = []
         self.current_todos: list = []
         self.current_message_id: str = str(uuid.uuid4())
+        # Búfer acotado de eventos para clientes reconectados: mientras la
+        # sesión no tiene ningún consumidor WS/SSE, los eventos quedan aquí
+        # y se re-emiten al volver a suscribirse (ver `register_consumer`).
+        self._event_seq: int = 0
+        self._event_buffer: deque = deque(maxlen=500)
+        # Watermark del último evento "visto" cuando aún había consumidores.
+        self._detach_seq: int = 0
+        # Payloads originales de solicitudes bloqueantes aún pendientes
+        # (aprobaciones/preguntas/contraseñas) para re-emitirlos al reconectar.
+        self._pending_payloads: Dict[str, dict] = {}
+        # Timeout de seguridad para esperas de aprobación/pregunta/contraseña:
+        # evita que un hilo worker quede bloqueado para siempre si ningún
+        # cliente responde (p.ej. desconexión no detectada). Configurable.
+        try:
+            self._pending_timeout: float = float(
+                os.environ.get("KOGNITERM_PENDING_TIMEOUT", "900")
+            )
+        except (TypeError, ValueError):
+            self._pending_timeout = 900.0
 
     def reset_live_buffer(self) -> None:
         """Limpia el búfer del estado en vivo cuando concluye la generación."""
@@ -357,9 +377,11 @@ class ServerUI(TerminalUI):
         with self._pending_lock:
             for req_id, (ev, _) in list(self._pending_approvals.items()):
                 self._pending_approvals[req_id] = (ev, False)
+                self._pending_payloads.pop(req_id, None)
                 ev.set()
             for req_id, (ev, _) in list(self._pending_approvals_async.items()):
                 self._pending_approvals_async[req_id] = (ev, False)
+                self._pending_payloads.pop(req_id, None)
                 if self._loop and self._loop.is_running():
                     self._loop.call_soon_threadsafe(ev.set)
                 else:
@@ -369,9 +391,11 @@ class ServerUI(TerminalUI):
                     ev,
                     {"selected": "none", "cancelled": True},
                 )
+                self._pending_payloads.pop(req_id, None)
                 ev.set()
             for req_id, (ev, _) in list(self._pending_passwords.items()):
                 self._pending_passwords[req_id] = (ev, {"password": "", "cancelled": True})
+                self._pending_payloads.pop(req_id, None)
                 ev.set()
 
     # ── Internal helpers ───────────────────────────────────────────────────────
@@ -417,8 +441,10 @@ class ServerUI(TerminalUI):
             })
 
         try:
-            # Broadcast a todas las colas activas
+            # Broadcast a todas las colas activas + búfer para reconexiones
             with self._queues_lock:
+                self._event_seq += 1
+                self._event_buffer.append((self._event_seq, event))
                 for q in self._queues:
                     self._loop.call_soon_threadsafe(q.put_nowait, event)
 
@@ -679,6 +705,14 @@ class ServerUI(TerminalUI):
 
         with self._pending_lock:
             self._pending_approvals_async[request_id] = (event, False)
+            self._pending_payloads[request_id] = {
+                "kind": "approval",
+                "id": request_id,
+                "message": message,
+                "title": title,
+                "diff_content": kwargs.get("diff_content", ""),
+                "file_path": kwargs.get("file_path", ""),
+            }
 
         self._push(
             "approval_required",
@@ -694,10 +728,18 @@ class ServerUI(TerminalUI):
         logger.info(
             f"[{self.session_id}] Esperando aprobación asíncrona para {request_id}..."
         )
-        await event.wait()
+        approved = False
+        try:
+            await asyncio.wait_for(event.wait(), timeout=self._pending_timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[{self.session_id}] Espera de aprobación asíncrona {request_id} expiró "
+                f"({self._pending_timeout}s); se resuelve como cancelada."
+            )
 
         with self._pending_lock:
             _, approved = self._pending_approvals_async.pop(request_id, (None, False))
+            self._pending_payloads.pop(request_id, None)
 
         logger.info(
             f"[{self.session_id}] Aprobación asíncrona {request_id} decidida: {approved}"
@@ -741,28 +783,39 @@ class ServerUI(TerminalUI):
         request_id = str(uuid.uuid4())
         event = threading.Event()
 
+        approval_payload = {
+            "kind": "approval",
+            "id": request_id,
+            "message": message,
+            "title": title,
+            "diff_content": kwargs.get("diff_content", ""),
+            "file_path": kwargs.get("file_path", ""),
+        }
+
         with self._pending_lock:
             self._pending_approvals[request_id] = (event, False)
+            self._pending_payloads[request_id] = approval_payload
 
         self._push(
             "approval_required",
-            {
-                "id": request_id,
-                "message": message,
-                "title": title,
-                "diff_content": kwargs.get("diff_content", ""),
-                "file_path": kwargs.get("file_path", ""),
-            },
+            {k: v for k, v in approval_payload.items() if k != "kind"},
         )
 
         logger.info(
             f"[{self.session_id}] Esperando aprobación síncrona para {request_id}..."
         )
-        # Bloquear el hilo worker
-        event.wait()
+        # Bloquear el hilo worker, con techo de seguridad: sin cliente que
+        # responda (p.ej. desconexión no detectada) el thread moriría aquí.
+        timed_out = not event.wait(self._pending_timeout)
+        if timed_out:
+            logger.warning(
+                f"[{self.session_id}] Espera de aprobación síncrona {request_id} expiró "
+                f"({self._pending_timeout}s); se resuelve como cancelada."
+            )
 
         with self._pending_lock:
             _, approved = self._pending_approvals.pop(request_id, (None, False))
+            self._pending_payloads.pop(request_id, None)
 
         logger.info(
             f"[{self.session_id}] Aprobación síncrona {request_id} decidida: {approved}"
@@ -778,6 +831,7 @@ class ServerUI(TerminalUI):
                 logger.info(f"[{self.session_id}] Encontrado request_id={request_id} en _pending_approvals (síncrono). Despertando thread.")
                 event, _ = self._pending_approvals[request_id]
                 self._pending_approvals[request_id] = (event, approved)
+                self._pending_payloads.pop(request_id, None)
                 event.set()
                 return
 
@@ -786,6 +840,7 @@ class ServerUI(TerminalUI):
                 logger.info(f"[{self.session_id}] Encontrado request_id={request_id} en _pending_approvals_async (asíncrono). Despertando coroutina.")
                 event, _ = self._pending_approvals_async[request_id]
                 self._pending_approvals_async[request_id] = (event, approved)
+                self._pending_payloads.pop(request_id, None)
                 # Como handle_approval_response puede ser llamado desde el loop o un thread,
                 # usamos call_soon_threadsafe para setear el asyncio.Event de forma segura.
                 self._loop.call_soon_threadsafe(event.set)
@@ -805,27 +860,37 @@ class ServerUI(TerminalUI):
         event = threading.Event()
         result_container = {"selected": "Cancelado por el usuario."}
 
+        question_payload = {
+            "kind": "question",
+            "id": request_id,
+            "question": question,
+            "options": options,
+            "title": title,
+            "allow_freeform": allow_freeform,
+        }
+
         with self._pending_lock:
             self._pending_questions[request_id] = (event, result_container)
+            self._pending_payloads[request_id] = question_payload
 
         self._push(
             "question_required",
-            {
-                "id": request_id,
-                "question": question,
-                "options": options,
-                "title": title,
-                "allow_freeform": allow_freeform,
-            },
+            {k: v for k, v in question_payload.items() if k != "kind"},
         )
 
         logger.info(
             f"[{self.session_id}] Esperando respuesta de pregunta síncrona para {request_id}..."
         )
-        event.wait()
+        timed_out = not event.wait(self._pending_timeout)
+        if timed_out:
+            logger.warning(
+                f"[{self.session_id}] Espera de pregunta {request_id} expiró "
+                f"({self._pending_timeout}s); se resuelve como cancelada."
+            )
 
         with self._pending_lock:
             self._pending_questions.pop(request_id, None)
+            self._pending_payloads.pop(request_id, None)
 
         selected = result_container.get("selected", "")
         logger.info(
@@ -841,6 +906,7 @@ class ServerUI(TerminalUI):
                 logger.info(f"[{self.session_id}] Encontrado request_id={request_id} en _pending_questions. Despertando thread.")
                 event, result_container = self._pending_questions[request_id]
                 result_container["selected"] = selected
+                self._pending_payloads.pop(request_id, None)
                 event.set()
                 return
 
@@ -861,26 +927,36 @@ class ServerUI(TerminalUI):
         event = threading.Event()
         result_container = {"password": "", "cancelled": True}
 
+        password_payload = {
+            "kind": "password",
+            "id": request_id,
+            "message": message,
+            "title": title,
+            "placeholder": placeholder,
+        }
+
         with self._pending_lock:
             self._pending_passwords[request_id] = (event, result_container)
+            self._pending_payloads[request_id] = password_payload
 
         self._push(
             "password_required",
-            {
-                "id": request_id,
-                "message": message,
-                "title": title,
-                "placeholder": placeholder,
-            },
+            {k: v for k, v in password_payload.items() if k != "kind"},
         )
 
         logger.info(
             f"[{self.session_id}] Esperando contraseña para {request_id}..."
         )
-        event.wait()
+        timed_out = not event.wait(self._pending_timeout)
+        if timed_out:
+            logger.warning(
+                f"[{self.session_id}] Espera de contraseña {request_id} expiró "
+                f"({self._pending_timeout}s); se resuelve como cancelada."
+            )
 
         with self._pending_lock:
             self._pending_passwords.pop(request_id, None)
+            self._pending_payloads.pop(request_id, None)
 
         return result_container.get("password", "")
 
@@ -897,6 +973,7 @@ class ServerUI(TerminalUI):
                 event, result_container = self._pending_passwords[request_id]
                 result_container["password"] = password
                 result_container["cancelled"] = False
+                self._pending_payloads.pop(request_id, None)
                 event.set()
                 return
 
@@ -906,20 +983,78 @@ class ServerUI(TerminalUI):
 
     # ── Consumer API ───────────────────────────────────────────────────────────
 
-    async def events(self) -> AsyncIterator[dict]:
-        """Generador asíncrono: yield de eventos registrando una cola de broadcast por consumidor."""
+    def register_consumer(self) -> tuple[asyncio.Queue, list]:
+        """Registra un consumidor y devuelve (cola, eventos_perdidos).
+
+        `eventos_perdidos` son los eventos emitidos mientras la sesión no
+        tenía ningún consumidor (p.ej. el agente siguió trabajando durante
+        una desconexión WebSocket): se re-emiten en orden antes del flujo
+        en vivo para que el cliente reconectado no los pierda.
+        """
         q = asyncio.Queue()
         with self._queues_lock:
             self._queues.append(q)
+            replay = [ev for seq, ev in self._event_buffer if seq > self._detach_seq]
+            self._detach_seq = self._event_seq
+        return q, replay
+
+    def unregister_consumer(self, q: asyncio.Queue) -> None:
+        """Desregistra un consumidor (idempotente)."""
+        with self._queues_lock:
+            if q in self._queues:
+                self._queues.remove(q)
+            if not self._queues:
+                # Último consumidor fuera: a partir de aquí los eventos solo
+                # quedan en el búfer y se re-emiten al próximo suscriptor.
+                self._detach_seq = self._event_seq
+
+    def consumer_count(self) -> int:
+        with self._queues_lock:
+            return len(self._queues)
+
+    def pending_request_events(self) -> List[dict]:
+        """Eventos de solicitudes bloqueantes aún pendientes (aprobaciones,
+        preguntas, contraseñas) para re-emitirlos a un cliente que reconecta:
+        sin esto, un worker bloqueado esperando una aprobación perdida en la
+        desconexión queda colgado para siempre.
+        """
+        with self._pending_lock:
+            items = list(self._pending_payloads.items())
+        event_types = {
+            "approval": "approval_required",
+            "question": "question_required",
+            "password": "password_required",
+        }
+        events = []
+        for _, payload in items:
+            etype = event_types.get(payload.get("kind", ""))
+            if not etype:
+                continue
+            events.append(
+                {
+                    "type": etype,
+                    "data": {k: v for k, v in payload.items() if k != "kind"},
+                    "ts": datetime.utcnow().isoformat(),
+                }
+            )
+        return events
+
+    async def events(self) -> AsyncIterator[dict]:
+        """Generador asíncrono: yield de eventos registrando una cola de broadcast por consumidor.
+
+        Al suscribirse re-emite primero los eventos perdidos durante la última
+        ventana sin consumidores (ver `register_consumer`).
+        """
+        q, replay = self.register_consumer()
         try:
+            for ev in replay:
+                yield ev
             while True:
                 event = await q.get()
                 yield event
                 q.task_done()
         finally:
-            with self._queues_lock:
-                if q in self._queues:
-                    self._queues.remove(q)
+            self.unregister_consumer(q)
 
 
 # ── Sesión individual ──────────────────────────────────────────────────────────
@@ -1395,6 +1530,31 @@ class AgentSession:
                 self.ui.cancel_pending()
             except Exception as e:
                 logger.warning(f"[Session:{self.session_id}] Error al cancelar pendientes en UI: {e}")
+
+    def on_client_disconnect(self) -> None:
+        """Limpieza cuando el último cliente del canal WS desconecta.
+
+        Si el turno del agente sigue en curso, cancela las aprobaciones /
+        preguntas / contraseñas pendientes para desbloquear el hilo worker.
+        Sin esto, un worker bloqueado en `event.wait()` jamás retorna, la
+        sesión queda clavada en `is_running=True` ("procesando..." eterno) y
+        todo mensaje posterior se encola sin procesarse jamás. El turno en
+        curso concluye con las acciones canceladas y emite su `done`/`error`
+        normalmente (los eventos quedan buferados para el cliente que
+        reconecte).
+        """
+        try:
+            if self.is_running:
+                logger.info(
+                    f"[Session:{self.session_id}] Último cliente desconectado con el agente "
+                    "en ejecución: se cancelan las solicitudes pendientes para desbloquear el turno."
+                )
+            self.ui.cancel_pending()
+            self.last_activity = datetime.utcnow()
+        except Exception as exc:
+            logger.warning(
+                f"[Session:{self.session_id}] Error en limpieza por desconexión: {exc}"
+            )
 
     def _drain_pending_messages(self) -> list:
         """Extrae y retorna todos los mensajes pendientes en cola."""

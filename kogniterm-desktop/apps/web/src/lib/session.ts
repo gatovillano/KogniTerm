@@ -12,6 +12,82 @@ const states = new Map<string, (s: ConnState) => void>();
 const runningSetters = new Map<string, (r: boolean) => void>();
 const runningMap = new Map<string, boolean>();
 
+// ── Reconexión automática y entrega garantizada ─────────────────────────────
+/** Backoff de reconexión: 1s, 2s, 4s… hasta 15s. */
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 15000;
+const reconnectAttempts = new Map<string, number>();
+const reconnectTimers = new Map<string, number>();
+const ensureFns = new Map<string, () => void>();
+/** Payloads que no pudieron enviarse porque el socket no estaba OPEN;
+ *  se entregan al reconectar (evita perder mensajes si el socket cierra
+ *  antes de disparar `open`). */
+const pendingSends = new Map<string, string[]>();
+/** Última vez (ms) en que llegó un evento real del servidor por pestaña. */
+const lastEventAt = new Map<string, number>();
+const stallTimers = new Map<string, number>();
+/** Sin eventos reales del agente durante este tiempo con el turno "activo",
+ *  se asume que el worker quedó bloqueado (p.ej. esperando una aprobación
+ *  perdida en una desconexión) y se libera el estado local para que la cola
+ *  de mensajes pueda drenar; el envío posterior fuerza el interrupt en el
+ *  servidor, que desbloquea al worker. */
+const STALL_MS = 90_000;
+
+function tabExists(tabId: string): boolean {
+  return tabs.store.tabs.some((t) => t.id === tabId);
+}
+
+/** Marca actividad real del servidor (ignora keep-alive ping/pong). */
+function noteEvent(tabId: string) {
+  lastEventAt.set(tabId, Date.now());
+}
+
+function armStallWatch(tabId: string) {
+  if (stallTimers.has(tabId)) return;
+  const timer = window.setInterval(() => {
+    if (!runningMap.get(tabId)) {
+      disarmStallWatch(tabId);
+      return;
+    }
+    const last = lastEventAt.get(tabId) ?? 0;
+    if (Date.now() - last > STALL_MS) {
+      console.warn(
+        `[session:${tabId}] Sin eventos del servidor en ${Math.round(STALL_MS / 1000)}s con el agente en ejecución: liberando estado.`,
+      );
+      tabs.push(tabId, {
+        id: uid("s"),
+        role: "system",
+        text: "⚠️ La sesión dejó de responder del servidor; se liberó el estado local para poder continuar.",
+      });
+      closeStreaming(tabId);
+      disarmStallWatch(tabId);
+    }
+  }, 10_000);
+  stallTimers.set(tabId, timer);
+}
+
+function disarmStallWatch(tabId: string) {
+  const timer = stallTimers.get(tabId);
+  if (timer !== undefined) {
+    clearInterval(timer);
+    stallTimers.delete(tabId);
+  }
+}
+
+function scheduleReconnect(tabId: string) {
+  if (reconnectTimers.has(tabId)) return;
+  const ensure = ensureFns.get(tabId);
+  if (!ensure) return;
+  const attempts = reconnectAttempts.get(tabId) ?? 0;
+  const delay = Math.min(RECONNECT_BASE_MS * 2 ** attempts, RECONNECT_MAX_MS);
+  reconnectAttempts.set(tabId, attempts + 1);
+  const timer = window.setTimeout(() => {
+    reconnectTimers.delete(tabId);
+    if (tabExists(tabId)) ensure();
+  }, delay);
+  reconnectTimers.set(tabId, timer);
+}
+
 /** Buffer de deltas `stream`/`chunk` por pestaña: coalesce a ~1 flush por frame
  *  para no saturar el store de Solid (un setStore por token = re-render por token).
  *  Sin esto el chat se congela y parece que "llega todo al final". */
@@ -73,6 +149,12 @@ const interactiveAgentTerminals = new Set<string>();
 export function setTabRunning(tabId: string, isRunning: boolean) {
   runningMap.set(tabId, isRunning);
   runningSetters.get(tabId)?.(isRunning);
+  if (isRunning) {
+    noteEvent(tabId);
+    armStallWatch(tabId);
+  } else {
+    disarmStallWatch(tabId);
+  }
 }
 
 function agentTerminalKey(tabId: string, agentId?: string): string {
@@ -174,12 +256,28 @@ export function useSession(tabId: string) {
       setConn("connecting");
       ws.onopen = () => {
         setConn("open");
+        reconnectAttempts.set(tabId, 0);
         const currentAuto = approvals.isAuto(tabId);
         try {
           ws.send(JSON.stringify({ type: "set_auto_approve", value: currentAuto }));
         } catch {
           /* ignore */
         }
+        // Entregar payloads que quedaron en cola por la desconexión.
+        const pend = pendingSends.get(tabId);
+        if (pend && pend.length > 0) {
+          pendingSends.set(tabId, []);
+          for (const payload of pend) {
+            try {
+              ws.send(payload);
+            } catch {
+              const back = pendingSends.get(tabId) ?? [];
+              back.push(payload);
+              pendingSends.set(tabId, back);
+            }
+          }
+        }
+        noteEvent(tabId);
       };
       ws.onerror = () => {
         setConn("error");
@@ -188,6 +286,8 @@ export function useSession(tabId: string) {
       ws.onclose = () => {
         setConn("closed");
         closeStreaming(tabId);
+        // Reconexión automática con backoff (antes solo había botón manual).
+        scheduleReconnect(tabId);
       };
       ws.onmessage = (ev) => {
         try {
@@ -205,6 +305,7 @@ export function useSession(tabId: string) {
       return ws;
     } catch {
       setConn("error");
+      scheduleReconnect(tabId);
       return null;
     }
   }
@@ -224,7 +325,11 @@ export function useSession(tabId: string) {
    */
   function handleServerEvent(tabId: string, msg: any) {
     const type = msg?.type;
-    const data = msg?.data;    if (type === "connected") {
+    const data = msg?.data;
+    // Registrar actividad real (los pings no cuentan: no implican progreso
+    // del agente y el watchdog de estancamiento depende de esto).
+    if (type && type !== "pong") noteEvent(tabId);
+    if (type === "connected") {
       const serverAgent = data?.config?.agent;
       if (typeof serverAgent === "string" && serverAgent) agents.applyServerAgent(tabId, serverAgent);
       // El backend es la fuente de verdad del auto-approve (config global/proyecto).
@@ -517,15 +622,31 @@ export function useSession(tabId: string) {
     }
   }
 
-  /** Envía raw por el WS de la pestaña (cola si aún conecta). */
-  function sendRaw(payload: string): boolean {
+  /**
+   * Entrega un payload por el WS de la pestaña; si el socket no está OPEN,
+   * lo encola localmente y se envía al reconectar (garantía de entrega:
+   * antes, un socket que cerraba antes de disparar `open` perdía el mensaje
+   * en silencio).
+   */
+  function deliver(payload: string): boolean {
     const ws = sockets.get(tabId) ?? ensureSocket();
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
-      return true;
+      try {
+        ws.send(payload);
+        return true;
+      } catch {
+        /* cae a la cola local */
+      }
     }
-    if (ws) ws.addEventListener("open", () => ws.send(payload), { once: true });
+    const list = pendingSends.get(tabId) ?? [];
+    list.push(payload);
+    pendingSends.set(tabId, list);
     return false;
+  }
+
+  /** Envía raw por el WS de la pestaña (cola local si aún conecta). */
+  function sendRaw(payload: string): boolean {
+    return deliver(payload);
   }
 
   function send(text: string, agent?: string, images?: string[], attachments?: ChatAttachment[]) {
@@ -541,18 +662,13 @@ export function useSession(tabId: string) {
       ...(attachments?.length ? { attachments } : {}),
       ...(imgs.length ? { images: imgs } : {}),
     });
-    const ws = ensureSocket();
     const payload = JSON.stringify({
       type: "message",
       text: clean,
       ...(imgs.length ? { images: imgs } : {}),
       ...(agent ? { agent } : {}),
     });
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
-    } else if (ws) {
-      ws.addEventListener("open", () => ws.send(payload), { once: true });
-    }
+    deliver(payload);
     // No se crea la burbuja del asistente aquí a propósito: se abre en el
     // primer `stream`/`live_update` para no dejar un mensaje vacío si el
     // agente tarda o falla.
@@ -567,18 +683,13 @@ export function useSession(tabId: string) {
     if (!clean && imgs.length === 0) return;
     tabs.unqueue(tabId, msgId);
     setTabRunning(tabId, true);
-    const ws = ensureSocket();
     const payload = JSON.stringify({
       type: "message",
       text: clean,
       ...(imgs.length ? { images: imgs } : {}),
       ...(agent ? { agent } : {}),
     });
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
-    } else if (ws) {
-      ws.addEventListener("open", () => ws.send(payload), { once: true });
-    }
+    deliver(payload);
   }
 
   function interrupt() {
@@ -598,9 +709,24 @@ export function useSession(tabId: string) {
   }
 
   ensureSocket();
+  ensureFns.set(tabId, ensureSocket);
   onCleanup(() => {
     states.delete(tabId);
     runningSetters.delete(tabId);
+    ensureFns.delete(tabId);
+    // Solo liberar timers de fondo si la pestaña ya no existe (cierre real):
+    // si solo se desmontó la vista, la reconexión y el watchdog siguen vivos.
+    if (!tabExists(tabId)) {
+      disarmStallWatch(tabId);
+      const rt = reconnectTimers.get(tabId);
+      if (rt !== undefined) {
+        clearTimeout(rt);
+        reconnectTimers.delete(tabId);
+      }
+      reconnectAttempts.delete(tabId);
+      lastEventAt.delete(tabId);
+      pendingSends.delete(tabId);
+    }
   });
 
   return { conn, running, send, sendQueued, sendTerminalInput, interrupt, reconnect: ensureSocket };
