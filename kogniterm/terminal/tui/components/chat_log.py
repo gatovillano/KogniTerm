@@ -14,7 +14,7 @@ from rich.markdown import Markdown
 from rich.console import Group
 from rich import box
 
-from .tool_output import ToolOutputWidget
+from .tool_output import ToolOutputWidget, CollapsibleToolOutputWidget
 
 
 def _is_empty_renderable(r) -> bool:
@@ -318,6 +318,7 @@ class ChatLogWidget(VerticalScroll):
         super().__init__(**kwargs)
         self._active_message_widget = None
         self._active_thinking_widget = None
+        self._active_terminal_widget = None
         self._last_tracker_widget = None
         self.can_focus = True
 
@@ -345,6 +346,16 @@ class ChatLogWidget(VerticalScroll):
                 w.finalize()
             except Exception:
                 pass
+
+    def _finalize_terminal(self):
+        """Marca la ejecución de terminal activa como finalizada ('Run' -> 'Ran')."""
+        w = self._active_terminal_widget
+        if isinstance(w, CollapsibleToolOutputWidget):
+            try:
+                w.finalize()
+            except Exception:
+                pass
+        self._active_terminal_widget = None
 
     def write(self, renderable):
         """Redirige a write_message para compatibilidad con RichLog."""
@@ -384,6 +395,7 @@ class ChatLogWidget(VerticalScroll):
     def write_user_message(self, text: str):
         """Escribe un mensaje de usuario con línea vertical izquierda."""
         self._finalize_thinking()
+        self._finalize_terminal()
         self._last_tracker_widget = None
         self._active_thinking_widget = None
         if self._active_message_widget:
@@ -468,6 +480,7 @@ class ChatLogWidget(VerticalScroll):
     def write_agent_message(self, text: str):
         """Escribe un mensaje de agente."""
         self._finalize_thinking()
+        self._finalize_terminal()
         if text is None: text = ""
         
         if not isinstance(text, str):
@@ -617,6 +630,9 @@ class ChatLogWidget(VerticalScroll):
                         self._active_thinking_widget = None
                         self._active_message_widget = None
 
+                if not terminal_flag and self._active_terminal_widget is not None:
+                    self._finalize_terminal()
+
                 if is_thinking:
                     # Patrón OpenCode ReasoningPart: colapsado por defecto,
                     # una sola línea durante todo el streaming; click -> expandir.
@@ -654,14 +670,15 @@ class ChatLogWidget(VerticalScroll):
                     else:
                         if self._active_message_widget.text != r:
                             self._active_message_widget.text = r
-                # Si es terminal, forzar el uso de ToolOutputWidget para interactividad y persistencia
+                # Si es terminal, usar CollapsibleToolOutputWidget (retraído por defecto con Run/Ran)
                 elif terminal_flag:
                     is_same_terminal = (
-                        isinstance(self._active_message_widget, ToolOutputWidget)
+                        isinstance(self._active_message_widget, CollapsibleToolOutputWidget)
                         and getattr(self._active_message_widget, "command", "") == t_command
                         and getattr(self._active_message_widget, "tool_name", "") == t_name
                     )
                     if not is_same_terminal:
+                        self._finalize_terminal()
                         if self._active_message_widget:
                             if isinstance(self._active_message_widget, AnimatedSpinnerWidget):
                                 self._active_message_widget.remove()
@@ -670,11 +687,19 @@ class ChatLogWidget(VerticalScroll):
                             else:
                                 self._active_message_widget = None
                         
-                        self._active_message_widget = ToolOutputWidget("", t_name, command=t_command)
-                        self.mount(self._active_message_widget)
+                        new_terminal = CollapsibleToolOutputWidget(
+                            "",
+                            t_name,
+                            command=t_command,
+                            is_running=True,
+                            collapsed=True,
+                        )
+                        self._active_message_widget = new_terminal
+                        self._active_terminal_widget = new_terminal
+                        self.mount(new_terminal)
                         is_new_widget = True
                     
-                    # ToolOutputWidget.update_content maneja la lógica de pyte
+                    # CollapsibleToolOutputWidget delega a ToolOutputWidget.update_content (pyte)
                     self._active_message_widget.update_content(r, command=t_command)
                 else:
                     if self._active_message_widget is None or not isinstance(self._active_message_widget, MessageWidget):
@@ -714,6 +739,7 @@ class ChatLogWidget(VerticalScroll):
                 self._active_thinking_widget.finalize()
             except Exception:
                 pass
+        self._finalize_terminal()
         if self._active_message_widget:
             if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
                 isinstance(self._active_message_widget, MessageWidget)
@@ -729,6 +755,7 @@ class ChatLogWidget(VerticalScroll):
     def write_tool_notification(self, tool_name: str, action_desc: str = "", skill_name: str = ""):
         """Notificación de herramienta: una sola línea `→ tool · acción`, monocromática."""
         self._finalize_thinking()
+        self._finalize_terminal()
         if self._active_message_widget:
             if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
                 isinstance(self._active_message_widget, MessageWidget)
@@ -771,6 +798,7 @@ class ChatLogWidget(VerticalScroll):
     def write_tool_output(self, content: str, tool_name: str, language: str = None):
         """Escribe la salida de una herramienta usando el ToolOutputWidget."""
         self._finalize_thinking()
+        self._finalize_terminal()
         if self._active_message_widget:
             if isinstance(self._active_message_widget, AnimatedSpinnerWidget) or (
                 isinstance(self._active_message_widget, MessageWidget)
@@ -784,7 +812,13 @@ class ChatLogWidget(VerticalScroll):
         self._active_message_widget = None
         def _mount_tool_output(c, tname, lang):
             try:
-                widget = ToolOutputWidget(c, tname, language=lang)
+                widget = CollapsibleToolOutputWidget(
+                    c,
+                    tname,
+                    language=lang,
+                    is_running=False,
+                    collapsed=True,
+                )
                 self.mount(widget)
                 self.scroll_end(animate=False)
                 return widget
@@ -836,4 +870,5 @@ class ChatLogWidget(VerticalScroll):
             child.remove()
         self._active_message_widget = None
         self._active_thinking_widget = None
+        self._active_terminal_widget = None
         self._last_tracker_widget = None

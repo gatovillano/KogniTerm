@@ -478,3 +478,159 @@ class ToolOutputWidget(Static):
             except Exception:
                 pass
         return None
+
+
+class CollapsibleToolOutputWidget(Static):
+    """Contenedor colapsable para ejecuciones de comandos de terminal en la TUI.
+
+    Se muestra retraído por defecto en una sola línea con una flecha:
+    - `▸ Run <comando>` mientras está ejecutándose
+    - `▸ Ran <comando>` una vez finalizado
+
+    Al hacer clic o presionar Enter/Espacio en la línea, se despliega
+    el `ToolOutputWidget` interno tal como aparece actualmente.
+    """
+
+    DEFAULT_CSS = """
+    CollapsibleToolOutputWidget {
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        margin: 0 0 1 0;
+        padding: 0 0 0 2;
+        background: transparent;
+        border: none;
+    }
+
+    CollapsibleToolOutputWidget Collapsible {
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+        padding: 0;
+        margin: 0;
+        background: transparent;
+        border: none;
+    }
+
+    CollapsibleToolOutputWidget CollapsibleTitle {
+        color: $text-muted;
+        background: transparent;
+        padding: 0;
+    }
+
+    CollapsibleToolOutputWidget Contents {
+        padding: 1 0 0 0;
+    }
+    """
+
+    def __init__(
+        self,
+        content: str,
+        tool_name: str,
+        language: str = None,
+        command: str = "",
+        is_running: bool = True,
+        collapsed: bool = True,
+        **kwargs,
+    ):
+        from textual.widgets import Collapsible
+
+        super().__init__(**kwargs)
+        self.tool_name = tool_name
+        self.command = command
+        self._is_running = bool(is_running)
+        self._terminal = ToolOutputWidget(
+            content,
+            tool_name,
+            language=language,
+            command=command,
+        )
+        self._collapsible = Collapsible(
+            self._terminal,
+            title=self._build_title(),
+            collapsed=collapsed,
+            collapsed_symbol="▸",
+            expanded_symbol="▾",
+        )
+        try:
+            self.styles.background = "transparent"
+        except Exception:
+            pass
+
+    def compose(self):
+        yield self._collapsible
+
+    def on_mount(self) -> None:
+        self.apply_theme()
+
+    def _display_command(self) -> str:
+        raw = (
+            self.command
+            if self.command and self.command != "execute_command"
+            else (self.tool_name or "bash")
+        )
+        cleaned = " ".join(str(raw).split())
+        if len(cleaned) > 96:
+            return cleaned[:93] + "…"
+        return cleaned
+
+    def _build_title(self) -> str:
+        verb = "Run" if self._is_running else "Ran"
+        return f"{verb} {self._display_command()}"
+
+    def _refresh_title(self) -> None:
+        try:
+            self._collapsible.title = self._build_title()
+        except Exception:
+            pass
+
+    @property
+    def collapsed(self) -> bool:
+        return bool(self._collapsible.collapsed)
+
+    @collapsed.setter
+    def collapsed(self, value: bool) -> None:
+        self._collapsible.collapsed = bool(value)
+
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    @property
+    def terminal_widget(self) -> ToolOutputWidget:
+        return self._terminal
+
+    def expand(self) -> None:
+        self._collapsible.collapsed = False
+
+    def collapse(self) -> None:
+        self._collapsible.collapsed = True
+
+    def toggle(self) -> None:
+        self._collapsible.collapsed = not self._collapsible.collapsed
+
+    def update_content(self, data, command: str = None) -> None:
+        if command:
+            self.command = command
+            self._refresh_title()
+        self._terminal.update_content(data, command=command)
+
+    def finalize(self) -> None:
+        """Marca el comando como finalizado (`Run` -> `Ran`) sin alterar si el usuario lo expandió."""
+        if not self._is_running:
+            return
+        self._is_running = False
+        self._refresh_title()
+
+    def apply_theme(self) -> None:
+        """Sincroniza los colores del encabezado colapsable y del terminal interno."""
+        try:
+            muted = ColorPalette.TEXT_MUTED
+            self.styles.color = muted
+            self._collapsible.styles.color = muted
+        except Exception:
+            pass
+        try:
+            self._terminal.apply_theme()
+        except Exception:
+            pass

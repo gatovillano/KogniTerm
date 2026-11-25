@@ -792,7 +792,7 @@ class KogniTermTUI(App):
         max-height: 1fr;
         padding: 1 0 0 0;
         background: transparent;
-        color: #f0f6fc;
+        color: $text;
         scrollbar-size: 1 1;
         border: none;
     }
@@ -1114,7 +1114,7 @@ class KogniTermTUI(App):
         height: 1fr;
         padding: 1 0 0 0;
         background: transparent;
-        color: #f0f6fc;
+        color: $text;
         scrollbar-size: 1 1;
         border: none;
     }
@@ -3786,7 +3786,12 @@ class KogniTermTUI(App):
 
         # Widgets de terminal y pensamiento ya montados en el historial
         try:
-            from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+            from kogniterm.terminal.tui.components.tool_output import (
+                ToolOutputWidget,
+                CollapsibleToolOutputWidget,
+            )
+            for ctw in self.query(CollapsibleToolOutputWidget):
+                ctw.apply_theme()
             for tow in self.query(ToolOutputWidget):
                 tow.apply_theme()
         except Exception:
@@ -4060,10 +4065,23 @@ class KogniTermTUI(App):
 
         if active and not self._cursor_timer:
             self._cursor_timer = self.set_interval(0.5, self._update_cursor)
-        elif not active and self._cursor_timer:
-            self._cursor_timer.stop()
-            self._cursor_timer = None
-            # Limpiar rastro de cursor (RichLog es append-only, así que simplemente dejamos de imprimirlo)
+            # Auto-expandir la terminal activa si entra en modo interactivo
+            try:
+                active_term = getattr(self.chat_log, "_active_terminal_widget", None)
+                if active_term is not None and hasattr(active_term, "expand"):
+                    active_term.expand()
+            except Exception:
+                pass
+        elif not active:
+            if self._cursor_timer:
+                self._cursor_timer.stop()
+                self._cursor_timer = None
+            # Marcar la terminal activa como finalizada ('Run' -> 'Ran')
+            try:
+                if hasattr(self.chat_log, "_finalize_terminal"):
+                    self.chat_log._finalize_terminal()
+            except Exception:
+                pass
 
     def _update_cursor(self):
         """Actualiza el parpadeo del cursor redibujando la terminal."""
@@ -5108,6 +5126,18 @@ class KogniTermTUI(App):
         except Exception as exc:
             logger.debug(f"No se pudo montar widget de {session.session_id}: {exc}")
             return None
+        # Aplicar colores del tema activo al chat log recién montado
+        try:
+            from kogniterm.terminal.themes import ColorPalette
+
+            p = ColorPalette
+            widget.styles.background = "transparent"
+            widget.styles.color = p.TEXT_PRIMARY
+            widget.styles.scrollbar_color = p.GRAY_600
+            widget.styles.scrollbar_color_hover = p.PRIMARY
+            widget.styles.scrollbar_color_active = p.PRIMARY_LIGHT
+        except Exception:
+            pass
         # Solo la pestaña activa es visible
         try:
             widget.display = session.session_id == self._active_session_id

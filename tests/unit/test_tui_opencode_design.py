@@ -73,6 +73,43 @@ async def test_tool_output_terminal_light_and_dark_theme():
 
 
 @pytest.mark.anyio
+async def test_session_chat_light_mode_uses_dark_text():
+    """Verifica que .session-chat y sus mensajes usen texto oscuro en modo claro."""
+    from kogniterm.terminal.themes import ColorPalette
+
+    llm_service = MagicMock()
+    llm_service.model_name = "anthropic/claude-sonnet-4"
+    app = KogniTermTUI(llm_service=llm_service)
+
+    async with app.run_test(size=(120, 35)) as pilot:
+        await pilot.pause()
+        app.apply_theme("light", persist=False)
+        await pilot.pause()
+
+        def _assert_dark_text(widget):
+            triplet = widget.rich_style.color.triplet
+            assert triplet is not None
+            assert max(triplet.red, triplet.green, triplet.blue) < 80, f"Texto demasiado claro en modo claro: {triplet}"
+
+        # Sesión inicial
+        initial_log = app.chat_log
+        initial_log.write_agent_message("Texto visible en modo claro")
+        await pilot.pause()
+        assert str(initial_log.styles.color.hex).lower() == ColorPalette.TEXT_PRIMARY.lower()
+        _assert_dark_text(initial_log.children[-1])
+
+        # Nueva pestaña creada después de aplicar modo claro
+        new_session = app.create_session("Pestaña clara")
+        await pilot.pause()
+        new_log = app._session_widget(new_session)
+        assert new_log is not None
+        new_log.write_agent_message("Mensaje en nueva pestaña")
+        await pilot.pause()
+        assert str(new_log.styles.color.hex).lower() == ColorPalette.TEXT_PRIMARY.lower()
+        _assert_dark_text(new_log.children[-1])
+
+
+@pytest.mark.anyio
 async def test_opencode_auto_approve_footer_and_border():
     """Verifica el indicador de auto-aprobación en StatusFooter y borde del input."""
     llm_service = MagicMock()

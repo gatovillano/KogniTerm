@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { copyTerminalToClipboard, setupTerminalCopyHandlers } from "../lib/terminal-clipboard";
 import { getXtermTheme, theme } from "../lib/theme";
-import { IconCheck, IconCopy } from "./Icons";
+import { IconCheck, IconChevronRight, IconCopy } from "./Icons";
 
 interface AgentTerminalProps {
   tabId: string;
@@ -17,9 +17,9 @@ interface AgentTerminalProps {
 }
 
 /**
- * Terminal inline vinculada a la ejecución worker del agente.
+ * Vista expandida original de la terminal inline (xterm.js).
  */
-export function AgentTerminal(props: AgentTerminalProps) {
+function AgentTerminalBody(props: AgentTerminalProps & { displayCommand: () => string }) {
   let hostRef: HTMLDivElement | undefined;
   let term: Terminal | undefined;
   let fit: FitAddon | undefined;
@@ -35,9 +35,6 @@ export function AgentTerminal(props: AgentTerminalProps) {
       setTimeout(() => setCopied(false), 2000);
     }
   }
-
-  const displayCommand = () =>
-    props.command && props.command !== "execute_command" ? props.command : (props.tool ?? "bash");
 
   function scrollChatIfFollowing() {
     const scroller = hostRef?.closest("[data-chat-scroll]") as HTMLElement | null;
@@ -96,6 +93,13 @@ export function AgentTerminal(props: AgentTerminalProps) {
     term.onData((data) => {
       if (props.active) props.onInput(data);
     });
+    writeSnapshot(props.output ?? "", false);
+    if (props.active && props.interactive) {
+      wasInteractive = true;
+      try {
+        term.focus();
+      } catch {}
+    }
 
     const cleanupCopy = setupTerminalCopyHandlers(term, hostRef);
 
@@ -139,7 +143,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
   });
 
   return (
-    <div class="w-full overflow-hidden rounded-2xl bg-[var(--kt-bg-terminal)] border border-[var(--kt-border-default)] shadow-[var(--kt-shadow-md)] transition-all">
+    <div class="mt-1.5 w-full overflow-hidden rounded-2xl bg-[var(--kt-bg-terminal)] border border-[var(--kt-border-default)] shadow-[var(--kt-shadow-md)] transition-all">
       {/* Cabecera */}
       <div class="flex items-center gap-2.5 bg-[var(--kt-bg-terminal-header)] border-b border-[var(--kt-border-subtle)] px-3.5 py-2 text-[12px] select-none">
         <div class="flex items-center gap-1.5 mr-1">
@@ -148,9 +152,9 @@ export function AgentTerminal(props: AgentTerminalProps) {
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/75" />
         </div>
 
-        <span class="truncate font-mono text-[var(--kt-text-primary)] text-[11.5px] max-w-md" title={displayCommand()}>
+        <span class="truncate font-mono text-[var(--kt-text-primary)] text-[11.5px] max-w-md" title={props.displayCommand()}>
           <span class="text-[var(--kt-text-faint)] mr-1.5">$</span>
-          {displayCommand()}
+          {props.displayCommand()}
         </span>
 
         <div class="flex-1" />
@@ -190,6 +194,66 @@ export function AgentTerminal(props: AgentTerminalProps) {
       </div>
 
       <div ref={hostRef} class="px-2.5 py-2 select-text" />
+    </div>
+  );
+}
+
+/**
+ * Terminal inline vinculada a la ejecución worker del agente.
+ * Se muestra colapsada por defecto en una línea (`Run` / `Ran` + comando)
+ * con una flecha para expandir y ver la salida completa como antes.
+ */
+export function AgentTerminal(props: AgentTerminalProps) {
+  const [expanded, setExpanded] = createSignal(false);
+  let wasInteractive = false;
+
+  const displayCommand = () =>
+    props.command && props.command !== "execute_command" ? props.command : (props.tool ?? "bash");
+
+  const statusVerb = () => (props.active ? "Run" : "Ran");
+
+  createEffect(() => {
+    const interactive = Boolean(props.interactive && props.active);
+    if (interactive && !wasInteractive) {
+      wasInteractive = true;
+      setExpanded(true);
+    } else if (!interactive) {
+      wasInteractive = false;
+    }
+  });
+
+  return (
+    <div class="w-full">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        aria-expanded={expanded()}
+        title={`${statusVerb()} ${displayCommand()}`}
+        class="group inline-flex max-w-full items-center gap-2 px-2.5 py-1 rounded-xl text-[12px] text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-colors select-none cursor-pointer"
+      >
+        <IconChevronRight
+          size={13}
+          class={`shrink-0 transition-transform duration-150 ${
+            expanded()
+              ? "rotate-90 text-[var(--kt-text-primary)]"
+              : "text-[var(--kt-text-faint)] group-hover:text-[var(--kt-text-primary)]"
+          }`}
+        />
+        <span
+          class={`shrink-0 font-medium ${
+            props.active ? "text-emerald-400" : "text-[var(--kt-text-secondary)]"
+          }`}
+        >
+          {statusVerb()}
+        </span>
+        <span class="min-w-0 truncate font-mono text-[11.5px] text-[var(--kt-text-muted)] group-hover:text-[var(--kt-text-primary)]">
+          {displayCommand()}
+        </span>
+      </button>
+
+      <Show when={expanded()}>
+        <AgentTerminalBody {...props} displayCommand={displayCommand} />
+      </Show>
     </div>
   );
 }
