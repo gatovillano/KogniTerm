@@ -189,16 +189,21 @@ class AntigravityClient:
         Mapea el formato de mensajes de OpenAI/LiteLLM a la estructura esperada por Gemini.
         """
         contents = []
-        system_instruction = None
+        system_parts = []
 
         for msg in openai_messages:
             role = msg.get("role")
             content = msg.get("content") or ""
             
             if role == "system":
-                system_instruction = {
-                    "parts": [{"text": content}]
-                }
+                if isinstance(content, list):
+                    for item in content:
+                        if isinstance(item, dict) and item.get("text"):
+                            system_parts.append({"text": str(item["text"])})
+                        elif isinstance(item, str) and item:
+                            system_parts.append({"text": item})
+                elif content:
+                    system_parts.append({"text": str(content)})
             elif role == "user":
                 user_parts = []
                 if isinstance(content, list):
@@ -339,6 +344,7 @@ class AntigravityClient:
                     })
                 
         contents = AntigravityClient._normalize_contents(contents)
+        system_instruction = {"parts": system_parts} if system_parts else None
         return contents, system_instruction
 
     @staticmethod

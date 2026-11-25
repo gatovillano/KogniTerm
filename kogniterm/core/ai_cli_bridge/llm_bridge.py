@@ -143,6 +143,40 @@ def _is_placeholder_done(text: str) -> bool:
     return False
 
 
+_INTERACTIVE_SUDO_REFUSAL_PATTERNS = [
+    re.compile(
+        r"\b(no puedo|no tengo (acceso|permisos?|capacidad|forma)|no me es posible|no es posible|"
+        r"cannot|can't|unable to|don't have access to)\b.{0,80}\b("
+        r"sudo|contraseñ[ao]s?|passwords?|terminal interactiva|interactive terminal|"
+        r"prompts? interactivos?|tty|entrada interactiva)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"\b(terminal no (es )?interactiva|entorno no interactivo|shell no interactiv[ao]|"
+        r"sin tty|no tty|non-interactive (terminal|shell|environment)|"
+        r"no soporta (entrada interactiva|sudo|contraseñ[ao]s?|interacción)|"
+        r"no admite (entrada interactiva|sudo|contraseñ[ao]s?))\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(por favor|debes|tienes que|tendrás que|necesitas|te pido que|"
+        r"please|you (must|need to|should|will need to))\b.{0,80}\b("
+        r"ejecut(a|ar|arlo|es)|corr(e|er|erlo|as)|run|execute)\b.{0,100}\b("
+        r"sudo|manualmente|en tu terminal|en otra terminal|en una terminal externa|"
+        r"por tu cuenta|manually|in your (own )?terminal|in another terminal)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+]
+
+
+def _detect_interactive_sudo_refusal(text: str) -> bool:
+    """Detecta si el asistente se negó a ejecutar `sudo` o un comando interactivo
+    asumiendo erróneamente que la terminal de KogniTerm no es interactiva."""
+    if not text:
+        return False
+    return any(p.search(text) for p in _INTERACTIVE_SUDO_REFUSAL_PATTERNS)
+
+
 def _detect_continuation_intent(text: str) -> bool:
     """Detecta si el texto del asistente promete una acción o siguiente paso sin haber adjuntado herramientas."""
     if not text:
@@ -251,6 +285,7 @@ class LLMBridge:
 
         step_count = 0
         nudge_count = 0
+        sudo_refusal_nudges = 0
         max_nudges = 6
         final_accumulated_content = ""
 
@@ -530,6 +565,28 @@ class LLMBridge:
                             "arguments": json.dumps(tc["arguments"], ensure_ascii=False) if isinstance(tc["arguments"], dict) else str(tc["arguments"]),
                         }
                     accumulated_content = clean_text
+                elif sudo_refusal_nudges < 2 and nudge_count < max_nudges and _detect_interactive_sudo_refusal(accumulated_content):
+                    sudo_refusal_nudges += 1
+                    nudge_count += 1
+                    logger.info(
+                        "LLMBridge: Detectada negativa a usar sudo/terminal interactiva en paso %s. "
+                        "Enviando auto-nudge correctivo (%s/2).",
+                        step_count, sudo_refusal_nudges,
+                    )
+                    messages.append({"role": "assistant", "content": accumulated_content})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[SISTEMA - TERMINAL INTERACTIVA ACTIVA]: Has asumido erróneamente que no puedes "
+                            "ejecutar `sudo` o comandos interactivos, o le has pedido al usuario que los ejecute "
+                            "manualmente. KogniTerm SÍ opera sobre una terminal PTY 100% interactiva con `stdin` real: "
+                            "cuando invoques `execute_command` con `sudo` o cualquier comando que pida contraseña o "
+                            "confirmación, el usuario aprobará y escribirá directamente en la terminal de KogniTerm. "
+                            "NO te niegues ni pidas al usuario que abra otra terminal. Invoca `execute_command` AHORA "
+                            "con el comando necesario."
+                        ),
+                    })
+                    continue
                 elif nudge_count < max_nudges and _detect_continuation_intent(accumulated_content):
                     nudge_count += 1
                     logger.info(

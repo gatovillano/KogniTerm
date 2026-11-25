@@ -18,7 +18,12 @@ from kogniterm.core.command_executor import _transform_python3_dash_c
 
 
 class ExecuteCommandParams(BaseModel):
-    command: str = Field(description="Comando de terminal bash a ejecutar")
+    command: str = Field(
+        description=(
+            "Comando de terminal bash a ejecutar. Admite `sudo` y comandos interactivos "
+            "que pidan contraseña o confirmación (el usuario responde directamente en la terminal PTY de KogniTerm)."
+        )
+    )
     timeout: int = Field(default=30, description="Tiempo máximo de espera en segundos (máximo 300)")
     is_background: bool = Field(default=False, description="Si es True, ejecuta el comando en segundo plano")
     working_dir: Optional[str] = Field(default=None, description="Directorio de trabajo para el comando")
@@ -223,7 +228,13 @@ def _execute_pty_raw(
 
 @tool(
     name="execute_command",
-    description="Ejecuta un comando bash en terminal de alta velocidad y devuelve su salida.",
+    description=(
+        "Ejecuta un comando bash en una terminal interactiva (PTY persistente con stdin/stdout reales) y devuelve su salida. "
+        "SÍ admite `sudo` y cualquier comando interactivo que pida contraseña, confirmación [y/N] o selección: tras aprobar "
+        "la ejecución, el usuario responde directamente en la terminal de KogniTerm. NUNCA te niegues a ejecutar `sudo` "
+        "ni le pidas al usuario que corra el comando manualmente en otra terminal. "
+        "Usa `is_background: true` para servidores o comandos largos (>30s)."
+    ),
     params_schema=ExecuteCommandParams,
     category="system",
 )
@@ -245,7 +256,10 @@ async def execute_command(
 
 @tool(
     name="run_shell",
-    description="Alias de alta compatibilidad para execute_command. Ejecuta comandos en terminal interactiva.",
+    description=(
+        "Alias de execute_command. Ejecuta comandos bash en la terminal interactiva de KogniTerm (PTY real con stdin): "
+        "SÍ admite `sudo`, contraseñas y prompts interactivos directamente; el usuario responde en la terminal de KogniTerm."
+    ),
     params_schema=ExecuteCommandParams,
     category="system",
 )

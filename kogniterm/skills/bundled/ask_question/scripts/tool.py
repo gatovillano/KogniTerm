@@ -102,9 +102,11 @@ def ask_question(
         if console is None:
             console = Console()
 
+        from kogniterm.terminal.themes import ColorPalette
+
         # ── Construir contenido del panel ────────────────────────────────────
         content_lines = Text()
-        content_lines.append(f"{question}\n\n", style="bold white")
+        content_lines.append(f"{question}\n\n", style=f"bold {ColorPalette.TEXT_PRIMARY}")
 
         option_colors = [
             "#7C3AED", "#2563EB", "#0891B2", "#059669",
@@ -115,7 +117,7 @@ def ask_question(
         for i, opt in enumerate(options, start=1):
             color = option_colors[(i - 1) % len(option_colors)]
             content_lines.append(f"  {i}. ", style=f"bold {color}")
-            content_lines.append(f"{opt}\n", style="white")
+            content_lines.append(f"{opt}\n", style=ColorPalette.TEXT_PRIMARY)
 
         if allow_freeform:
             content_lines.append("\n  O escribe tu respuesta personalizada.", style="dim italic")
@@ -226,9 +228,11 @@ def _print_selection(terminal_ui, text: str):
         if console is None:
             console = Console()
 
+        from kogniterm.terminal.themes import ColorPalette
+
         msg = Text()
         msg.append("  ✓ Seleccionado: ", style="bold #10B981")
-        msg.append(text, style="white bold")
+        msg.append(text, style=f"bold {ColorPalette.TEXT_PRIMARY}")
         console.print(Padding(msg, (0, 2)))
         console.print()
     except Exception:

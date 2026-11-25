@@ -763,6 +763,14 @@ class KogniTermTUI(App):
         layers: base approval splash popup overlay;
     }
 
+    Toast {
+        color: $text;
+    }
+
+    Toast .toast--title {
+        color: $text;
+    }
+
     /* ── CHAT MODE (base layer) ─────────────────── */
     #approval_container {
         layer: approval;
@@ -3762,9 +3770,17 @@ class KogniTermTUI(App):
 
         # Contenedores secundarios y popups
         self.approval_container.styles.background = "transparent"
-        self.live_display.styles.background = bg_color
+        self.live_display.styles.background = "transparent"
         self.live_display.styles.color = p.TEXT_PRIMARY
-        self.live_display.styles.border = ("round", border_col)
+        self.live_display.styles.border = None
+
+        try:
+            from textual.widgets._toast import Toast
+            for toast in self.screen.query(Toast):
+                toast.styles.background = surface_bg
+                toast.styles.color = p.TEXT_PRIMARY
+        except Exception:
+            pass
 
         try:
             self.queue_display.styles.color = p.TEXT_SECONDARY
@@ -4465,7 +4481,10 @@ class KogniTermTUI(App):
         current = getattr(self, "_auto_approve_all", False)
         self.set_auto_approve_all(not current)
         status = "activada ⚡" if not current else "desactivada"
-        self.notify(f"Auto-aprobación {status}", severity="info" if not current else "warning")
+        self.notify(
+            f"Auto-aprobación {status}",
+            severity="information" if not current else "warning",
+        )
 
     def _approval_host(self, session_id: Optional[str] = None):
         """Resuelve (host_widget, session) para montar una aprobación.

@@ -292,7 +292,7 @@ class TerminalUI:
     ) -> str:
         """Versión síncrona de fallback para preguntar al usuario en modo CLI básico."""
         self.console.print(f"\n[bold #A78BFA]❓ {title}[/bold #A78BFA]")
-        self.console.print(f"[bold white]{question}[/bold white]\n")
+        self.console.print(f"[bold {ColorPalette.TEXT_PRIMARY}]{question}[/bold {ColorPalette.TEXT_PRIMARY}]\n")
         for i, opt in enumerate(options, start=1):
             self.console.print(f"  [bold cyan]{i}.[/bold cyan] {opt}")
         if allow_freeform:

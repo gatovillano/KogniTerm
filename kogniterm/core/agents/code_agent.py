@@ -194,6 +194,8 @@ Estoy planeando la modificación del archivo...
 </thought>
 [Aquí tu respuesta final o llamada a herramienta]
 """
+    from kogniterm.core.agents.bash_agent import ensure_interactive_terminal_instruction
+    content = ensure_interactive_terminal_instruction(content)
     return SystemMessage(content=content)
 
 
@@ -557,7 +559,8 @@ def execute_single_tool(tc, llm_service, terminal_ui, interrupt_queue):
     elif is_tui and terminal_ui:
         terminal_ui.print_tool_notification(tool_name, action_target, skill_name=skill_name)
     else:
-        suffix = f": [bold white]{action_target}[/bold white]" if action_target else ""
+        from kogniterm.terminal.themes import ColorPalette
+        suffix = f": [bold {ColorPalette.TEXT_PRIMARY}]{action_target}[/bold {ColorPalette.TEXT_PRIMARY}]" if action_target else ""
         console.print(f"[cyan]🛠️  {tool_name}{suffix}[/cyan]")
 
     if not tool:

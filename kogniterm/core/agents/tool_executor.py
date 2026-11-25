@@ -138,10 +138,12 @@ class ToolExecutor:
                     command=command_hint,
                 )
             if not is_tui:
-                suffix = f": [bold white]{action_target}[/bold white]" if action_target else ""
+                from kogniterm.terminal.themes import ColorPalette
+                suffix = f": [bold {ColorPalette.TEXT_PRIMARY}]{action_target}[/bold {ColorPalette.TEXT_PRIMARY}]" if action_target else ""
                 console.print(f"[cyan]🛠️  {tool_name}{suffix}[/cyan]")
         else:
-            suffix = f": [bold white]{action_target}[/bold white]" if action_target else ""
+            from kogniterm.terminal.themes import ColorPalette
+            suffix = f": [bold {ColorPalette.TEXT_PRIMARY}]{action_target}[/bold {ColorPalette.TEXT_PRIMARY}]" if action_target else ""
             console.print(f"[cyan]🛠️  {tool_name}{suffix}[/cyan]")
         # Adquirir semáforo de concurrencia antes de ejecutar la herramienta
         # para evitar que se ejecuten demasiadas herramientas simultáneamente

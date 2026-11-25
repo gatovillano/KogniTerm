@@ -101,9 +101,10 @@ Tu respuesta final es el producto que entregas al Coordinador. Asegúrate de que
     if not llm_service.is_thinking_model():
         prompt += "- **Explicación Técnica**: Justifica tus decisiones de diseño en tu pensamiento.\n"
     
+    from kogniterm.core.agents.bash_agent import ensure_interactive_terminal_instruction
     prompt += "\nResponde de forma profesional, técnica y directa al Bash Agent.\n"
     prompt += "\nTIP: Si necesitas ejecutar varias acciones, envíalas todas en un solo turno. El sistema las procesará secuencialmente en orden.\n"
-    return prompt
+    return ensure_interactive_terminal_instruction(prompt)
 
 
 # --- Nodo de Contexto Proactivo ---

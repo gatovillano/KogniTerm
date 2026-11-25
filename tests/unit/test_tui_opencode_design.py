@@ -110,6 +110,37 @@ async def test_session_chat_light_mode_uses_dark_text():
 
 
 @pytest.mark.anyio
+async def test_live_display_has_no_border_and_toasts_use_dark_text():
+    """Verifica que el indicador Procesando... no tenga borde y que los toasts usen texto oscuro en modo claro."""
+    from textual.widgets._toast import Toast
+
+    llm_service = MagicMock()
+    llm_service.model_name = "anthropic/claude-sonnet-4"
+    app = KogniTermTUI(llm_service=llm_service)
+
+    async with app.run_test(size=(120, 35), notifications=True) as pilot:
+        await pilot.pause()
+        app.apply_theme("light", persist=False)
+        await pilot.pause()
+
+        # live_display ("Procesando...") sin borde ni marco
+        b = app.live_display.styles.border
+        assert b.top[0] in ("", "none")
+        assert b.bottom[0] in ("", "none")
+        assert b.left[0] in ("", "none")
+        assert b.right[0] in ("", "none")
+
+        # Toast notification en modo claro con texto oscuro
+        app.notify("Auto-aprobación activada ⚡", severity="information")
+        await pilot.pause(0.2)
+        toasts = list(app.screen.query(Toast))
+        assert toasts, "Se esperaba al menos un Toast montado"
+        triplet = toasts[-1].rich_style.color.triplet
+        assert triplet is not None
+        assert max(triplet.red, triplet.green, triplet.blue) < 80
+
+
+@pytest.mark.anyio
 async def test_opencode_auto_approve_footer_and_border():
     """Verifica el indicador de auto-aprobación en StatusFooter y borde del input."""
     llm_service = MagicMock()
