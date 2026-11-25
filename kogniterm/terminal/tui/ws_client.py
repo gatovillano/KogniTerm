@@ -189,6 +189,8 @@ class TUIWebSocketClient:
         self._stream_accumulators: dict = {}
         # Tiempo del último live_update (solo para agente principal)
         self._last_live_update_time = 0.0
+        # IDs de preguntas actualmente abiertas en QuestionSelectorModal (evita duplicados en reconexión)
+        self._active_question_ids: set[str] = set()
 
     # ── Propiedades públicas ────────────────────────────────────────────────────
 
@@ -590,6 +592,23 @@ class TUIWebSocketClient:
                     self._tab_id,
                 )
 
+        elif event_type == "question_required":
+            # El servidor requiere respuesta del usuario a una consulta (ask_question)
+            if isinstance(data, dict):
+                request_id = data.get("id", "")
+                question = data.get("question", "")
+                options = data.get("options", [])
+                title = data.get("title", "Consulta del Agente")
+                allow_freeform = bool(data.get("allow_freeform", True))
+                self._app.call_from_thread(
+                    self._handle_question_request,
+                    request_id,
+                    question,
+                    options,
+                    title,
+                    allow_freeform,
+                )
+
         elif event_type == "thread_title_updated":
             # El servidor renombró el hilo (título fallback o del LLM)
             if isinstance(data, dict):
@@ -926,6 +945,74 @@ class TUIWebSocketClient:
         except Exception as exc:
             logger.error(f"[WS] Error montando widget de aprobación: {exc}")
 
+    def _handle_question_request(
+        self,
+        request_id: str,
+        question: str,
+        options: list,
+        title: str = "Consulta del Agente",
+        allow_freeform: bool = True,
+    ) -> None:
+        """
+        Abre el QuestionSelectorModal en la TUI y envía la respuesta elegida
+        al servidor mediante el evento `question_response`.
+        Se ejecuta en el hilo principal de Textual.
+        """
+        if request_id and request_id in self._active_question_ids:
+            logger.debug(
+                f"[WS] Pregunta {request_id} ya está abierta en un modal, ignorando duplicado."
+            )
+            return
+
+        if request_id:
+            self._active_question_ids.add(request_id)
+
+        try:
+            from kogniterm.terminal.tui.components.question_selector_modal import QuestionSelectorModal
+
+            def on_dismiss(result: Optional[str]) -> None:
+                if request_id:
+                    self._active_question_ids.discard(request_id)
+                selected = result if result is not None else "Cancelado por el usuario."
+                logger.info(
+                    f"[WS] Respuesta de pregunta recibida para request_id={request_id}: {selected}"
+                )
+                try:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self.send_question_response(request_id, selected))
+                    except RuntimeError:
+                        app_loop = getattr(self._app, "loop", None)
+                        if app_loop is not None:
+                            asyncio.run_coroutine_threadsafe(
+                                self.send_question_response(request_id, selected),
+                                app_loop,
+                            )
+                        else:
+                            self._send_queue.put_nowait({
+                                "type": "question_response",
+                                "id": request_id,
+                                "selected": selected,
+                            })
+                except Exception as exc:
+                    logger.error(
+                        f"[WS] Error al enviar respuesta de pregunta al servidor: {exc}"
+                    )
+
+            self._app.push_screen(
+                QuestionSelectorModal(
+                    question=question,
+                    options=list(options) if isinstance(options, (list, tuple)) else [],
+                    title=title or "Consulta del Agente",
+                    allow_freeform=allow_freeform,
+                ),
+                callback=on_dismiss,
+            )
+        except Exception as exc:
+            if request_id:
+                self._active_question_ids.discard(request_id)
+            logger.error(f"[WS] Error abriendo QuestionSelectorModal: {exc}")
+
     def _on_agent_done(self) -> None:
         """Limpia el estado de procesamiento cuando el agente termina."""
         try:
@@ -964,6 +1051,14 @@ class TUIWebSocketClient:
             "type": "approval_response",
             "id": request_id,
             "approved": approved,
+        })
+
+    async def send_question_response(self, request_id: str, selected: str) -> None:
+        """Responde a una solicitud de pregunta pendiente (ask_question) en el servidor."""
+        await self._send_queue.put({
+            "type": "question_response",
+            "id": request_id,
+            "selected": selected,
         })
 
     async def send_terminal_input(self, text: str) -> None:

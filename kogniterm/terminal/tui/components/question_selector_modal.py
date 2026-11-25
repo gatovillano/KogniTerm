@@ -9,6 +9,7 @@ from textual.screen import ModalScreen
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Label, ListView, ListItem, Static, Input
 from textual import events
+from rich.markup import escape
 from rich.text import Text
 
 from kogniterm.terminal.themes import ColorPalette
@@ -160,13 +161,13 @@ class QuestionSelectorModal(ModalScreen[str]):
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-shell"):
             with Vertical(id="modal-header"):
-                yield Label(f"❓ {self.title_text}", id="modal-title")
-                yield Label(self.question, id="modal-question")
+                yield Label(f"❓ {self.title_text}", id="modal-title", markup=False)
+                yield Label(self.question, id="modal-question", markup=False)
 
             items = []
             for i, opt in enumerate(self.options, start=1):
                 item_id = f"opt_{i}"
-                label = Label(f"[bold #8b5cf6]{i}.[/bold #8b5cf6] {opt}", markup=True)
+                label = Label(f"[bold #8b5cf6]{i}.[/bold #8b5cf6] {escape(str(opt))}", markup=True)
                 li = ListItem(label, id=item_id)
                 self._item_map[item_id] = opt
                 items.append(li)
