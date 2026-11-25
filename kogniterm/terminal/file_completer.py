@@ -66,6 +66,8 @@ class FileCompleter(Completer):
         ("/summarymodel", "Cambiar modelo de resumen"),
         ("/embeddings", "Configurar embeddings"),
         ("/insights", "Analítica de uso"),
+        ("/voice", "Dictado por voz (transcripción de audio)"),
+        ("/dictate", "Dictado por voz (alias de /voice)"),
     ]
 
     SESSION_SUBCOMMANDS = [

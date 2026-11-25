@@ -37,6 +37,9 @@ class TUICommandProcessor:
         elif cmd == "mcp":
             await self._handle_mcp(cmd_parts[1:] if len(cmd_parts) > 1 else [])
             return True
+        elif cmd in ("voice", "dictate"):
+            await self._handle_voice(cmd_parts[1:] if len(cmd_parts) > 1 else [])
+            return True
         elif cmd == "help":
             await self._handle_help()
             return True
@@ -620,6 +623,51 @@ class TUICommandProcessor:
                     self.app.llm_service.sync_tools()
                 self.terminal_ui.print_message(f"🗑️ Servidor '{sel}' eliminado.", style="green")
 
+    async def _handle_voice(self, args: list):
+        """Activa el modal de dictado por voz e inserta el texto transcrito en el input."""
+        language = args[0].strip() if args else None
+        try:
+            transcribed = await self.terminal_ui.ask_voice_dictation_async(
+                language=language
+            )
+        except Exception as exc:
+            self.terminal_ui.print_message(
+                f"❌ Error en dictado por voz: {exc}", style="red"
+            )
+            return
+
+        # None => el usuario canceló o hubo un error ya mostrado en el modal
+        if transcribed is None:
+            return
+
+        text = transcribed.strip()
+        if not text:
+            self.terminal_ui.print_message(
+                "⚠️ No se detectó voz en la grabación.", style="yellow"
+            )
+            return
+
+        # Insertar el texto transcrito en ChatInput (igual que en Desktop)
+        inserted = False
+        try:
+            from kogniterm.terminal.tui.components.status_footer import ChatInput
+
+            chat_input = self.app.query_one("#chat_input", ChatInput)
+            existing = (chat_input.text or "").strip()
+            new_text = f"{existing} {text}" if existing else text
+            chat_input.text = new_text
+            if hasattr(chat_input, "document") and chat_input.document.lines:
+                last_line = len(chat_input.document.lines) - 1
+                last_col = len(chat_input.document.lines[last_line])
+                chat_input.cursor_location = (last_line, last_col)
+            chat_input.focus()
+            inserted = True
+        except Exception as exc:
+            logger.debug(f"No se pudo insertar texto transcrito en #chat_input: {exc}")
+
+        if not inserted:
+            self.terminal_ui.print_message(f"🎤 {text}", style="green")
+
     async def _handle_help(self):
         """Muestra menú de ayuda con comandos disponibles."""
         help_text = (
@@ -629,6 +677,8 @@ class TUICommandProcessor:
             "  /keys     : Configurar API Keys en el servidor\n"
             "  /mcp      : Administrar servidores y herramientas MCP\n"
             "  /theme    : Cambiar tema visual de la TUI\n"
+            "  /voice    : Dictado por voz con Faster-Whisper (/voice [idioma])\n"
+            "  /dictate  : Alias de /voice para transcripción de audio\n"
             "  /reset    : Reiniciar la conversación\n"
             "  /undo     : Deshacer última interacción\n"
             "  /new      : Nueva pestaña de sesión (mismo proyecto)\n"

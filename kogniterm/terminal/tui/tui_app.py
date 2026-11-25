@@ -575,6 +575,14 @@ class TextualTerminalUI:
 
         return await self.app.push_screen_wait(TextualMessageModal(title, text))
 
+    async def ask_voice_dictation_async(self, language: Optional[str] = None):
+        from .components.voice_modal import VoiceDictationModal
+
+        use_server = bool(getattr(self.app, "_server_mode", False))
+        return await self.app.push_screen_wait(
+            VoiceDictationModal(language=language, use_server=use_server)
+        )
+
     def ask_approval_sync(
         self,
         message: str,
@@ -751,7 +759,7 @@ class KogniTermTUI(App):
     CSS = """
     Screen {
         background: #0d1117;
-        color: #f0f6fc;
+        color: $text;
         layers: base approval splash popup overlay;
     }
 
@@ -841,7 +849,7 @@ class KogniTermTUI(App):
         min-width: 60;
         height: auto;
         background: transparent;
-        color: #d1d5db;
+        color: $text-muted;
         border: none;
         padding: 0 2;
         margin-bottom: 0;
@@ -855,7 +863,7 @@ class KogniTermTUI(App):
         height: auto;
         max-height: 18;
         background: #161b22;
-        color: #e5e7eb;
+        color: $text;
         border: none;
         border-left: thick #00838f;
         padding: 0 2;
@@ -986,13 +994,14 @@ class KogniTermTUI(App):
     #command_popup ListItem {
         background: transparent;
         padding: 0 1;
-        color: #e2e8f0;
+        color: $text;
     }
 
     #command_popup ListItem:hover,
     #command_popup ListItem.-highlight {
         background: #3b82f6 25%;
-        color: white;
+        color: $text;
+        text-style: bold;
     }
 
     /* ── BARRA DE PROGRESO DE INDEXACIÓN ────────── */
@@ -1044,12 +1053,12 @@ class KogniTermTUI(App):
         margin: 0;
         padding: 0 1 0 2;
         background: transparent;
-        color: #8b949e;
+        color: $text-muted;
         border: none;
     }
     .session-tab:hover {
-        background: #21262d;
-        color: #f0f6fc;
+        background: $boost;
+        color: $text;
     }
     .session-close {
         width: 3;
@@ -1058,25 +1067,25 @@ class KogniTermTUI(App):
         margin: 0;
         padding: 0;
         background: transparent;
-        color: #6b7280;
+        color: $text-muted;
         border: none;
     }
     .session-close:hover {
         background: #ef4444 35%;
-        color: #ffffff;
+        color: $text;
         text-style: bold;
     }
     .session-tab.--active {
-        background: #161b22;
-        color: #f0f6fc;
+        background: $surface;
+        color: $text;
         text-style: bold;
     }
     .session-tab.--busy {
-        color: #fbbf24;
+        color: $warning;
     }
     .session-tab.--active.--busy {
-        background: #161b22;
-        color: #fef3c7;
+        background: $surface;
+        color: $warning;
     }
     #new_session_btn {
         width: auto;
@@ -1191,12 +1200,12 @@ class KogniTermTUI(App):
         height: auto;
         min-height: 5;
         max-height: 100%;
-        border: round #2e3440;
+        border: round $panel;
         border-title-align: left;
         margin: 0 0 1 0;
         padding: 0 1;
-        background: #0d1117;
-        color: #f9fafb;
+        background: $surface;
+        color: $text;
     }
 
     #tool_display {
@@ -2428,6 +2437,8 @@ class KogniTermTUI(App):
                         "%reasoning",
                         "%summarize",
                         "%summarymodel",
+                        "%voice",
+                        "%dictate",
                     ]
                 else:
                     commands = [
@@ -2461,6 +2472,8 @@ class KogniTermTUI(App):
                         "/reasoning",
                         "/summarize",
                         "/summarymodel",
+                        "/voice",
+                        "/dictate",
                     ]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:
@@ -2599,6 +2612,8 @@ class KogniTermTUI(App):
                         "%reasoning",
                         "%summarize",
                         "%summarymodel",
+                        "%voice",
+                        "%dictate",
                     ]
                 else:
                     commands = [
@@ -2632,6 +2647,8 @@ class KogniTermTUI(App):
                         "/reasoning",
                         "/summarize",
                         "/summarymodel",
+                        "/voice",
+                        "/dictate",
                     ]
                 matches = [cmd for cmd in commands if cmd.startswith(search_term)]
             elif trigger == "@" and suggester:

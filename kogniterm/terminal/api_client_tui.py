@@ -79,3 +79,31 @@ async def set_config_value(key: str, value: str, scope: str = "global"):
         resp = await client.post(f"{API_BASE_URL}/api/config/set", json=payload)
         resp.raise_for_status()
         return resp.json()
+
+
+async def transcribe_audio(
+    audio_bytes: bytes,
+    filename: str = "recording.wav",
+    language: str = None,
+):
+    """Envía audio grabado al endpoint /api/audio/transcribe del servidor."""
+    files = {"file": (filename, audio_bytes, "audio/wav")}
+    data = {}
+    if language:
+        data["language"] = language
+    async with httpx.AsyncClient(headers=_get_headers(), timeout=120) as client:
+        resp = await client.post(
+            f"{API_BASE_URL}/api/audio/transcribe",
+            files=files,
+            data=data,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def get_audio_status():
+    """Consulta el estado del servicio de transcripción de audio en el servidor."""
+    async with httpx.AsyncClient(headers=_get_headers(), timeout=10) as client:
+        resp = await client.get(f"{API_BASE_URL}/api/audio/status")
+        resp.raise_for_status()
+        return resp.json()
