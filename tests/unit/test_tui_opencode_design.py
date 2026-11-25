@@ -25,10 +25,51 @@ async def test_opencode_splash_and_theme_surfaces():
         app.apply_theme("dracula", persist=False)
         await pilot.pause()
         assert app.dark is True
+        assert app.theme == "textual-dark"
 
         app.apply_theme("light", persist=False)
         await pilot.pause()
         assert app.dark is False
+        assert app.theme == "textual-light"
+
+
+@pytest.mark.anyio
+async def test_tool_output_terminal_light_and_dark_theme():
+    """Verifica que ToolOutputWidget adopte modo claro y remappee ANSI blanco."""
+    from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+    from kogniterm.terminal.themes import ColorPalette
+
+    llm_service = MagicMock()
+    llm_service.model_name = "anthropic/claude-sonnet-4"
+    app = KogniTermTUI(llm_service=llm_service)
+
+    async with app.run_test(size=(120, 35)) as pilot:
+        await pilot.pause()
+        app.apply_theme("light", persist=False)
+        await pilot.pause()
+
+        widget = ToolOutputWidget("", "execute_command", command="echo hola")
+        await app.chat_log.mount(widget)
+        widget.update_content("\x1b[37mhola mundo\x1b[0m", command="echo hola")
+        await pilot.pause()
+
+        assert str(widget.styles.background.hex).lower() == ColorPalette.GRAY_100.lower()
+        assert str(widget.styles.color.hex).lower() == ColorPalette.TEXT_PRIMARY.lower()
+
+        # Verificar que un carácter ANSI blanco se remapea a texto oscuro en modo claro
+        rendered = widget._render_tool_output()
+        assert "hola mundo" in rendered.plain
+        assert any(
+            span.style and getattr(span.style, "color", None)
+            and span.style.color.name.lower() == ColorPalette.TEXT_PRIMARY.lower()
+            for span in rendered.spans
+        )
+
+        # Cambiar a modo oscuro y verificar que la terminal vuelve a fondo oscuro
+        app.apply_theme("dracula", persist=False)
+        await pilot.pause()
+        assert str(widget.styles.background.hex).lower() == "#0d1117"
+        assert str(widget.styles.color.hex).lower() == "#f9fafb"
 
 
 @pytest.mark.anyio

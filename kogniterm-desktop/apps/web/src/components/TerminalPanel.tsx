@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -6,6 +6,7 @@ import { ptyApi, ptyIdForTab, ptyWsUrl } from "../lib/pty";
 import { api } from "../lib/api";
 import { tabs } from "../lib/tabs";
 import { copyTerminalToClipboard, setupTerminalCopyHandlers } from "../lib/terminal-clipboard";
+import { getXtermTheme, theme } from "../lib/theme";
 import { IconCheck, IconClose, IconCopy, IconRefresh, IconTerminal } from "./Icons";
 
 interface TermHandle {
@@ -68,12 +69,7 @@ export function TerminalPanel(props: { tabId: string }) {
         fontFamily: '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
         cursorBlink: true,
         scrollback: 5000,
-        theme: {
-          background: "#08080a",
-          foreground: "#f4f4f5",
-          cursor: "#e4e4e7",
-          selectionBackground: "rgba(255, 255, 255, 0.28)",
-        },
+        theme: getXtermTheme(theme()),
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
@@ -149,11 +145,18 @@ export function TerminalPanel(props: { tabId: string }) {
     connect(h);
   }
 
+  createEffect(() => {
+    const xt = getXtermTheme(theme());
+    for (const h of handles.values()) {
+      h.term.options.theme = xt;
+    }
+  });
+
   return (
-    <div class="flex flex-col h-full bg-[#08080a]">
-      {/* Cabecera oscura consistente con la consola */}
-      <div class="flex items-center gap-2 px-3.5 py-2 bg-[#101014] border-b border-white/[0.06] text-[12px] select-none shrink-0">
-        <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.05] border border-white/[0.06]">
+    <div class="flex flex-col h-full bg-[var(--kt-bg-terminal)]">
+      {/* Cabecera consistente con el tema activo */}
+      <div class="flex items-center gap-2 px-3.5 py-2 bg-[var(--kt-bg-terminal-header)] border-b border-[var(--kt-border-subtle)] text-[12px] select-none shrink-0">
+        <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[var(--kt-bg-hover)] border border-[var(--kt-border-subtle)]">
           <span
             class={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
               status() === "conectado"
@@ -163,11 +166,11 @@ export function TerminalPanel(props: { tabId: string }) {
                   : "bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.7)]"
             }`}
           />
-          <IconTerminal size={11} class="text-zinc-400" />
-          <span class="text-zinc-300 font-mono text-[11px]">pty</span>
+          <IconTerminal size={11} class="text-[var(--kt-text-muted)]" />
+          <span class="text-[var(--kt-text-secondary)] font-mono text-[11px]">pty</span>
         </div>
 
-        <span class="text-zinc-400 font-mono text-[11px] truncate max-w-[200px]" title={cwd() ?? ptyId()}>
+        <span class="text-[var(--kt-text-muted)] font-mono text-[11px] truncate max-w-[200px]" title={cwd() ?? ptyId()}>
           {cwd() ?? ptyId()}
         </span>
 
@@ -177,7 +180,7 @@ export function TerminalPanel(props: { tabId: string }) {
           class={`h-6 px-2.5 rounded-full flex items-center gap-1.5 transition-all text-[11px] font-medium ${
             copied()
               ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-              : "text-zinc-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1]"
+              : "text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)]"
           }`}
           onClick={handleCopy}
           onMouseDown={(e) => e.preventDefault()}
@@ -190,14 +193,14 @@ export function TerminalPanel(props: { tabId: string }) {
         </button>
 
         <button
-          class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/[0.08] transition-all"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] hover:bg-[var(--kt-bg-hover)] transition-all"
           onClick={reconnect}
           title="Reconectar al mismo shell"
         >
           <IconRefresh size={12} />
         </button>
         <button
-          class="w-6 h-6 rounded-full flex items-center justify-center text-zinc-400 hover:text-red-300 hover:bg-red-500/15 transition-all"
+          class="w-6 h-6 rounded-full flex items-center justify-center text-[var(--kt-text-muted)] hover:text-red-300 hover:bg-red-500/15 transition-all"
           onClick={restart}
           title="Matar shell y empezar uno nuevo"
         >
@@ -208,10 +211,10 @@ export function TerminalPanel(props: { tabId: string }) {
       <div ref={hostRef} class="flex-1 min-h-0 px-2.5 py-2 select-text" />
 
       <Show when={status() !== "conectado"}>
-        <div class="p-3 flex justify-center border-t border-white/[0.06] bg-[#0e0e12]">
+        <div class="p-3 flex justify-center border-t border-[var(--kt-border-subtle)] bg-[var(--kt-bg-terminal-header)]">
           <button
             onClick={reconnect}
-            class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.1] text-[12px] text-white font-medium transition-all active:scale-95 shadow-sm"
+            class="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)] border border-[var(--kt-border-default)] text-[12px] text-[var(--kt-text-primary)] font-medium transition-all active:scale-95 shadow-sm"
           >
             <IconRefresh size={12} />
             <span>Reconectar terminal ({status()})</span>

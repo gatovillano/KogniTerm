@@ -149,31 +149,35 @@ class ThinkingWidget(Static):
         height: auto;
         margin: 1 0 1 0;
         padding: 0 0 0 2;
-        color: #9ca3af;
+        color: $text-muted;
         background: transparent;
         border: none;
     }
     ThinkingWidget Collapsible {
         width: 100%;
         height: auto;
-        color: #9ca3af;
+        color: $text-muted;
         background: transparent;
         border: none;
+    }
+    ThinkingWidget CollapsibleTitle {
+        color: $text-muted;
+        background: transparent;
     }
     ThinkingWidget Markdown {
         background: transparent;
         border: none;
-        color: #9ca3af;
+        color: $text-muted;
     }
     ThinkingWidget #thinking-body {
         width: 100%;
         height: auto;
         padding: 0 0 0 2;
         margin: 0 0 0 1;
-        color: #9ca3af;
+        color: $text-muted;
         background: transparent;
         border: none;
-        border-left: solid #374151;
+        border-left: solid $panel;
     }
     """
 
@@ -210,7 +214,18 @@ class ThinkingWidget(Static):
     def compose(self):
         yield self._collapsible
 
+    def apply_theme(self) -> None:
+        """Sincroniza los colores del bloque de razonamiento con la paleta activa."""
+        try:
+            muted = ColorPalette.TEXT_MUTED
+            self.styles.color = muted
+            self._collapsible.styles.color = muted
+            self._inner.styles.color = muted
+        except Exception:
+            pass
+
     def on_mount(self) -> None:
+        self.apply_theme()
         try:
             self._dot_timer = self.set_interval(0.4, self._tick_dots)
         except Exception:

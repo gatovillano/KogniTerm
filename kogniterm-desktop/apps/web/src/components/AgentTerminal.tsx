@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { copyTerminalToClipboard, setupTerminalCopyHandlers } from "../lib/terminal-clipboard";
+import { getXtermTheme, theme } from "../lib/theme";
 import { IconCheck, IconCopy } from "./Icons";
 
 interface AgentTerminalProps {
@@ -86,12 +87,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
       convertEol: true,
       fontSize: 12,
       fontFamily: '"JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-      theme: {
-        background: "#08080a",
-        foreground: "#f4f4f5",
-        cursor: "#e4e4e7",
-        selectionBackground: "rgba(255, 255, 255, 0.28)",
-      },
+      theme: getXtermTheme(theme()),
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -137,18 +133,23 @@ export function AgentTerminal(props: AgentTerminalProps) {
     }
   });
 
+  createEffect(() => {
+    const t = theme();
+    if (term) term.options.theme = getXtermTheme(t);
+  });
+
   return (
-    <div class="w-full overflow-hidden rounded-2xl bg-[#08080a] border border-white/[0.08] shadow-[var(--kt-shadow-md)] transition-all">
+    <div class="w-full overflow-hidden rounded-2xl bg-[var(--kt-bg-terminal)] border border-[var(--kt-border-default)] shadow-[var(--kt-shadow-md)] transition-all">
       {/* Cabecera */}
-      <div class="flex items-center gap-2.5 bg-[#121216] border-b border-white/[0.06] px-3.5 py-2 text-[12px] select-none">
+      <div class="flex items-center gap-2.5 bg-[var(--kt-bg-terminal-header)] border-b border-[var(--kt-border-subtle)] px-3.5 py-2 text-[12px] select-none">
         <div class="flex items-center gap-1.5 mr-1">
           <span class="w-2.5 h-2.5 rounded-full bg-red-500/75" />
           <span class="w-2.5 h-2.5 rounded-full bg-amber-500/75" />
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/75" />
         </div>
 
-        <span class="truncate font-mono text-zinc-200 text-[11.5px] max-w-md" title={displayCommand()}>
-          <span class="text-zinc-500 mr-1.5">$</span>
+        <span class="truncate font-mono text-[var(--kt-text-primary)] text-[11.5px] max-w-md" title={displayCommand()}>
+          <span class="text-[var(--kt-text-faint)] mr-1.5">$</span>
           {displayCommand()}
         </span>
 
@@ -166,7 +167,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
           </span>
         </Show>
         <Show when={!props.active}>
-          <span class="rounded-full bg-white/[0.05] px-2.5 py-0.5 text-[10.5px] text-zinc-400">
+          <span class="rounded-full bg-[var(--kt-bg-hover)] px-2.5 py-0.5 text-[10.5px] text-[var(--kt-text-muted)]">
             finalizada
           </span>
         </Show>
@@ -175,7 +176,7 @@ export function AgentTerminal(props: AgentTerminalProps) {
           class={`h-6 px-2.5 rounded-full flex items-center gap-1.5 transition-all text-[11px] font-medium ml-1 ${
             copied()
               ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-              : "text-zinc-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.1]"
+              : "text-[var(--kt-text-muted)] hover:text-[var(--kt-text-primary)] bg-[var(--kt-bg-hover)] hover:bg-[var(--kt-bg-active)]"
           }`}
           onClick={handleCopy}
           onMouseDown={(e) => e.preventDefault()}

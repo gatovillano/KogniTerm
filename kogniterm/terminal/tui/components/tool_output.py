@@ -31,16 +31,13 @@ class ToolOutputWidget(Static):
         height: auto;
         min-height: 5;
         max-height: 100%;
-        border: round #2e3440;
+        border: round $panel;
         border-title-align: left;
-        border-title-color: #9ca3af;
+        border-title-color: $text-muted;
         margin: 0 0 1 0;
         padding: 0 1;
-        background: #0d1117;
-        /* La terminal se mantiene oscura en ambos temas: el texto por
-           defecto debe ser claro siempre, si no hereda el color del Screen
-           (oscuro en tema claro) y queda invisible sobre negro. */
-        color: #f9fafb;
+        background: $surface;
+        color: $text;
         scrollbar-size: 1 1;
         scrollbar-gutter: stable;
         overflow-y: scroll;
@@ -90,8 +87,30 @@ class ToolOutputWidget(Static):
         else:
             self.border_title = f"⚙ {self.tool_name}"
 
+    def apply_theme(self) -> None:
+        """Adapta el fondo, borde y texto de la terminal al tema activo (claro u oscuro)."""
+        is_light = ColorPalette.CURRENT_THEME == "light"
+        if is_light:
+            self.styles.background = ColorPalette.GRAY_100
+            self.styles.color = ColorPalette.TEXT_PRIMARY
+            self.styles.border = ("round", ColorPalette.GRAY_300)
+            self.styles.border_title_color = ColorPalette.TEXT_MUTED
+        else:
+            self.styles.background = "#0d1117"
+            self.styles.color = "#f9fafb"
+            self.styles.border = ("round", ColorPalette.GRAY_700)
+            self.styles.border_title_color = ColorPalette.TEXT_MUTED
+
+        # Re-renderizar contenido existente para ajustar colores ANSI al nuevo tema
+        if self.tool_content and isinstance(self.tool_content, str):
+            try:
+                self.update_content(self.tool_content)
+            except Exception:
+                pass
+
     def on_mount(self):
         self._update_title()
+        self.apply_theme()
         # Usar dimensiones estables para evitar bucles de layout iniciales
         self._screen.resize(self.nrow, self.ncol)
         if self.tool_content:
@@ -206,9 +225,10 @@ class ToolOutputWidget(Static):
         else:
             lang = self.language or self._detect_language(data)
             if lang and lang.lower() not in ("bash", "sh", "zsh", "terminal", "execute_command", "run_command"):
+                syntax_theme = "friendly" if ColorPalette.CURRENT_THEME == "light" else "monokai"
                 renderable = Syntax(
                     data, lang,
-                    theme="monokai",
+                    theme=syntax_theme,
                     line_numbers=False,
                     word_wrap=True,
                 )
@@ -369,6 +389,7 @@ class ToolOutputWidget(Static):
         """Convierte los atributos de un carácter pyte a un Rich Style."""
         fg = self._detect_color(char.fg)
         bg = self._detect_color(char.bg)
+        is_light = ColorPalette.CURRENT_THEME == "light"
         
         bold = char.bold
         italic = char.italics
@@ -379,8 +400,28 @@ class ToolOutputWidget(Static):
         # Intercambiar foreground y background si reverse está activo
         if reverse:
             fg, bg = bg, fg
-            if fg is None: fg = 'black'
-            if bg is None: bg = 'white'
+            if is_light:
+                if fg is None: fg = ColorPalette.GRAY_50
+                if bg is None: bg = ColorPalette.TEXT_PRIMARY
+            else:
+                if fg is None: fg = 'black'
+                if bg is None: bg = 'white'
+        elif is_light and bg is None and fg is not None:
+            # En modo claro, remapear colores ANSI muy claros para que sigan siendo legibles
+            fg_lower = fg.lower()
+            light_fg_map = {
+                "white": ColorPalette.TEXT_PRIMARY,
+                "brightwhite": ColorPalette.TEXT_PRIMARY,
+                "#ffffff": ColorPalette.TEXT_PRIMARY,
+                "#fff": ColorPalette.TEXT_PRIMARY,
+                "yellow": "#b45309",
+                "brightyellow": "#b45309",
+                "cyan": "#0369a1",
+                "brightcyan": "#0369a1",
+                "green": "#15803d",
+                "brightgreen": "#15803d",
+            }
+            fg = light_fg_map.get(fg_lower, fg)
             
         try:
             return Style(

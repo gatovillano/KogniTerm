@@ -3695,6 +3695,10 @@ class KogniTermTUI(App):
         tokens = self._get_surface_tokens()
         p = tokens["palette"]
         self.dark = tokens["is_dark"]
+        try:
+            self.theme = "textual-dark" if tokens["is_dark"] else "textual-light"
+        except Exception:
+            pass
         bg_color = tokens["bg"]
         surface_bg = tokens["surface"]
         border_col = tokens["border"]
@@ -3760,6 +3764,12 @@ class KogniTermTUI(App):
         self.approval_container.styles.background = "transparent"
         self.live_display.styles.background = bg_color
         self.live_display.styles.color = p.TEXT_PRIMARY
+        self.live_display.styles.border = ("round", border_col)
+
+        try:
+            self.queue_display.styles.color = p.TEXT_SECONDARY
+        except Exception:
+            pass
 
         bottom_container = self.query_one("#bottom_container")
         bottom_container.styles.background = bg_color
@@ -3769,6 +3779,22 @@ class KogniTermTUI(App):
             tracker.styles.background = surface_bg
             tracker.styles.color = p.TEXT_PRIMARY
             tracker.styles.border_left = ("thick", p.SECONDARY)
+            if hasattr(tracker, "update_display"):
+                tracker.update_display()
+        except Exception:
+            pass
+
+        # Widgets de terminal y pensamiento ya montados en el historial
+        try:
+            from kogniterm.terminal.tui.components.tool_output import ToolOutputWidget
+            for tow in self.query(ToolOutputWidget):
+                tow.apply_theme()
+        except Exception:
+            pass
+        try:
+            from kogniterm.terminal.tui.components.chat_log import ThinkingWidget
+            for tw in self.query(ThinkingWidget):
+                tw.apply_theme()
         except Exception:
             pass
 
@@ -3819,6 +3845,7 @@ class KogniTermTUI(App):
                 self.query_one("#splash_workspace_bar").update(self._build_splash_workspace_text())
                 self.query_one("#splash_shortcuts").update(self._build_splash_shortcuts_text())
                 self.query_one("#splash_title").update(self._build_splash_title())
+                self.query_one("#splash_subtitle").styles.color = p.TEXT_MUTED
             except Exception:
                 pass
 
